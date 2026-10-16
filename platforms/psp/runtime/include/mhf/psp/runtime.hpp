@@ -70,6 +70,10 @@ struct RuntimeOptions {
     // When set, "disc0:"/"umd0:" are served read-only from this ISO image instead of disc_root.
     std::filesystem::path disc_image;
     std::filesystem::path host_root = ".";
+    // Folder with the free fonts served by sceLibFont (third_party/fonts, copied next to the executable).
+    std::filesystem::path font_directory = "fonts";
+    // Text the on-screen keyboard returns for an empty field until it has a real UI (e.g. the hunter's name).
+    std::string osk_default_text = "Hunter";
 };
 
 class Runtime {
@@ -128,6 +132,8 @@ public:
     void kernel_host_poll(std::function<void()> poll);
     [[nodiscard]] std::uint64_t now_us() const;
     void exit_program_from_host(int code);
+    // Prints the PSP threads and what they wait for to stderr (debugging hangs).
+    void dump_threads();
 
 private:
     RuntimeOptions options_;

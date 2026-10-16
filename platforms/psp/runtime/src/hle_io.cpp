@@ -637,6 +637,15 @@ void IoDevctl(Runtime &rt, Context &ctx) {
         const std::uint32_t info = rt.memory().load32(arg(ctx, 2));
         const std::uint32_t values[] = {0x10000u, 0x8000u, 0x8000u, 512u, 64u};
         for (std::uint32_t i = 0; i < 5; ++i) rt.memory().store32(info + i * 4, values[i]);
+    } else if (cmd == 0x02415821u && arg(ctx, 2) != 0) {
+        // Register a memory stick insert/eject callback: the stick is always in, which the system reports at once
+        // by notifying the new callback with "inserted" (1).
+        const auto uid = static_cast<int>(rt.memory().load32(arg(ctx, 2)));
+        if (auto it = rt.kernel().callbacks.find(uid); it != rt.kernel().callbacks.end()) {
+            rt.kernel().notify_callback(it->second, 1);
+        }
+        std::fprintf(stderr, "[hle] memory stick callback %d registered (%s)\n", uid,
+                     rt.kernel().callbacks.count(uid) ? "notified: inserted" : "unknown uid");
     } else if ((cmd == 0x02025806u || cmd == 0x02025801u) && out != 0 && out_len >= 4) {
         rt.memory().store32(out, cmd == 0x02025806u ? 1u : 4u); // stick inserted / FAT ready
     }

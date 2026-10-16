@@ -1,6 +1,9 @@
 #include "kernel.hpp"
 
+#include "psprecomp/common.hpp"
+
 #include <algorithm>
+#include <exception>
 #include <iterator>
 #include <cstdio>
 #include <cstdlib>
@@ -118,7 +121,15 @@ std::int32_t Kernel::start_thread(int uid, std::uint32_t arg_size, std::uint32_t
 void Kernel::thread_main(void *argument) {
     auto *t = static_cast<Thread *>(argument);
     Runtime &rt = *Runtime::active();
-    rt.call(t->ctx, t->entry);
+    std::string error;
+    try {
+        rt.call(t->ctx, t->entry);
+    } catch (const std::exception &e) {
+        // Typically a guest memory access outside RAM. $ra is the last call site, a hint of where it happened.
+        error = std::string(e.what()) + " ($ra=" + psprecomp::hex32(t->ctx.gpr[31]) + ", $sp=" +
+                psprecomp::hex32(t->ctx.gpr[29]) + ")";
+    }
+    if (!error.empty()) rt.fatal(error);
     rt.kernel().exit_current_thread(t->ctx.gpr[2], false);
 }
 
@@ -215,6 +226,28 @@ void Kernel::wake(Thread &t, std::uint32_t result) {
     t.wait_deadline = kNoDeadline;
     t.state = ThreadState::Ready;
     t.ready_order = back_counter_++;
+}
+
+void Kernel::dump_threads(std::FILE *out) const {
+    static const char *const states[] = {"ready", "running", "waiting", "suspended", "dormant", "dead"};
+    static const char *const waits[] = {"-", "delay", "sleep", "sema", "eventflag", "lwmutex", "threadend", "vblank",
+                                        "generic"};
+    for (const auto &[uid, t] : threads_) {
+        std::fprintf(out, "[threads] %5d %-24s prio %3d %-9s wait %-9s obj %6d ra %08X sp %08X entry %08X\n", uid,
+                     t->name.c_str(), t->priority, states[static_cast<int>(t->state)],
+                     waits[static_cast<int>(t->wait_type)], t->wait_object, t->ctx.gpr[31], t->ctx.gpr[29],
+                     t->entry);
+    }
+}
+
+void Kernel::notify_callback(Callback &callback, std::uint32_t argument) {
+    ++callback.notify_count;
+    callback.notify_arg = argument;
+    Thread *t = thread(callback.thread);
+    if (t != nullptr && t->state == ThreadState::Waiting && t->callback_wait) {
+        remove_from_wait_queue(*t);
+        wake(*t, kCallbackInterrupt);
+    }
 }
 
 void Kernel::preempt_if_needed() {

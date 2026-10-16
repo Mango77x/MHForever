@@ -1,8 +1,8 @@
-// sceAudio, sceSasCore, sceAtrac3plus, sceMpeg, sceLibFont and sceUtility dialogs.
+// sceAudio, sceSasCore, sceAtrac3plus, sceMpeg and sceUtility dialogs.
 //
 // First pass: these keep the game's timing and state machines moving (audio output paces itself in real time,
-// decoders produce silence, movies report the end of their stream, dialogs finish at once). Real sound, video,
-// fonts and savedata come next (docs/10-roadmap.md phases 2-3); every simplification is logged once.
+// decoders produce silence, movies report the end of their stream, dialogs finish at once). Real sound and video come next (docs/10-roadmap.md phases 2-3); every simplification is logged once. Savedata requests are carried
+// out for real by hle_savedata.cpp.
 
 #include "hle.hpp"
 #include "kernel.hpp"
@@ -231,28 +231,54 @@ constexpr std::uint32_t kMpegNoData = 0x80618001u;
 
 void MpegQueryMemSize(Runtime &rt, Context &ctx) {
     note_once("sceMpeg plays no video");
-    if (arg(ctx, 1) != 0) rt.memory().store32(arg(ctx, 1), 0x10000u);
-    ret(ctx, 0);
+    (void)rt;
+    ret(ctx, 0x10000u); // sceMpegQueryMemSize(mode) returns the work area size itself
 }
 
 void MpegRingbufferQueryMemSize(Runtime &, Context &ctx) { ret(ctx, arg(ctx, 0) * 2048u); }
 
 void MpegRingbufferConstruct(Runtime &rt, Context &ctx) {
-    // SceMpegRingbuffer: packets, packetsRead, packetsWritten, packetsFree, packetSize, data, callback, cbArg, ...
+    // SceMpegRingbuffer: packets, packetsRead, packetsWritten, packetsAvail, packetSize, data, callback, cbArg,
+    // dataUpperBound, semaId, mpeg.
     auto &mem = rt.memory();
-    const std::uint32_t rb = arg(ctx, 0);
-    mem.store32(rb + 0, arg(ctx, 1));
+    const std::uint32_t rb = arg(ctx, 0), packets = arg(ctx, 1), data = arg(ctx, 2);
+    mem.store32(rb + 0, packets);
     mem.store32(rb + 4, 0);
     mem.store32(rb + 8, 0);
-    mem.store32(rb + 12, arg(ctx, 1));
+    mem.store32(rb + 12, 0);
     mem.store32(rb + 16, 2048);
-    mem.store32(rb + 20, arg(ctx, 2));
+    mem.store32(rb + 20, data);
     mem.store32(rb + 24, arg(ctx, 4));
     mem.store32(rb + 28, arg(ctx, 5));
+    mem.store32(rb + 32, data + packets * 2048u);
+    mem.store32(rb + 36, 0);
+    mem.store32(rb + 40, 0);
     ret(ctx, 0);
 }
 
-void MpegRingbufferAvailableSize(Runtime &rt, Context &ctx) { ret(ctx, rt.memory().load32(arg(ctx, 0))); }
+// sceMpegCreate(mpeg, data, size, ringbuffer, frameWidth, mode, ddrTop): the handle points into the work area, which
+// starts with the library's "LIBMPEG" header; the ring buffer records its owner.
+void MpegCreate(Runtime &rt, Context &ctx) {
+    auto &mem = rt.memory();
+    const std::uint32_t mpeg = arg(ctx, 0), data = arg(ctx, 1), ring = arg(ctx, 3);
+    if (mpeg == 0 || data == 0 || arg(ctx, 2) < 0x10000u) {
+        ret(ctx, 0x80618006u); // SCE_MPEG_ERROR_NO_MEMORY
+        return;
+    }
+    const std::uint32_t handle = data + 0x30u;
+    mem.store32(mpeg, handle);
+    const char magic[12] = {'L', 'I', 'B', 'M', 'P', 'E', 'G', 0, '0', '0', '1', 0};
+    for (std::uint32_t i = 0; i < 12; ++i) mem.store8(handle + i, static_cast<std::uint8_t>(magic[i]));
+    mem.store32(handle + 12, 0xFFFFFFFFu);
+    mem.store32(handle + 16, ring);
+    mem.store32(handle + 20, ring != 0 ? mem.load32(ring + 32) : 0u);
+    if (ring != 0) mem.store32(ring + 40, mpeg);
+    ret(ctx, 0);
+}
+
+void MpegRingbufferAvailableSize(Runtime &rt, Context &ctx) {
+    ret(ctx, rt.memory().load32(arg(ctx, 0)) - rt.memory().load32(arg(ctx, 0) + 12)); // free packets
+}
 void MpegQueryStreamOffset(Runtime &rt, Context &ctx) {
     if (arg(ctx, 2) != 0) rt.memory().store32(arg(ctx, 2), 2048);
     ret(ctx, 0);
@@ -269,27 +295,6 @@ void MpegAvcDecode(Runtime &rt, Context &ctx) {
     ret(ctx, 0);
 }
 void MpegZero(Runtime &, Context &ctx) { ret(ctx, 0); }
-
-// ---------------------------------------------------------------- sceLibFont (placeholder until free fonts land)
-
-void FontNewLib(Runtime &rt, Context &ctx) {
-    note_once("sceLibFont has no fonts yet");
-    if (arg(ctx, 1) != 0) rt.memory().store32(arg(ctx, 1), 0);
-    ret(ctx, 0x0A000000u); // opaque library handle
-}
-void FontOpen(Runtime &rt, Context &ctx) {
-    if (arg(ctx, 2) != 0) rt.memory().store32(arg(ctx, 2), 0);
-    ret(ctx, 0x0A000100u);
-}
-void FontGetNumFontList(Runtime &rt, Context &ctx) {
-    if (arg(ctx, 1) != 0) rt.memory().store32(arg(ctx, 1), 0);
-    ret(ctx, 1);
-}
-void FontFindOptimumFont(Runtime &rt, Context &ctx) {
-    if (arg(ctx, 2) != 0) rt.memory().store32(arg(ctx, 2), 0);
-    ret(ctx, 0);
-}
-void FontZero(Runtime &, Context &ctx) { ret(ctx, 0); }
 
 // ---------------------------------------------------------------- sceUtility dialogs
 
@@ -308,20 +313,13 @@ std::uint32_t get_status(Dialog &d) {
     return s;
 }
 
-constexpr std::uint32_t kSavedataLoadNoData = 0x80110307u;
-
 void SavedataInitStart(Runtime &rt, Context &ctx) {
-    note_once("sceUtility savedata reports no data and does not write saves yet");
     if (g_savedata.status != kNone) {
         ret(ctx, 0x80110005u); // SCE_ERROR_UTILITY_WRONG_TYPE / busy
         return;
     }
     g_savedata.params = arg(ctx, 0);
-    const std::uint32_t mode = rt.memory().load32(g_savedata.params + 0x30);
-    // Loads (autoload 0, load 1, listload 2...) find nothing; everything else succeeds.
-    const bool is_load = mode == 0 || mode == 1 || mode == 4 || mode == 5 || mode == 8 || mode == 9 || mode == 12;
-    rt.memory().store32(g_savedata.params + 0x1C, is_load ? kSavedataLoadNoData : 0u);
-    std::fprintf(stderr, "[hle] savedata mode %u -> %s\n", mode, is_load ? "no data" : "ok (not written)");
+    execute_savedata(rt, g_savedata.params); // the result goes into the parameter block
     g_savedata.status = kInit;
     ret(ctx, 0);
 }
@@ -338,9 +336,15 @@ void SavedataShutdownStart(Runtime &, Context &ctx) {
 
 void MsgDialogInitStart(Runtime &rt, Context &ctx) {
     g_message.params = arg(ctx, 0);
-    std::fprintf(stderr, "[hle] message dialog: \"%s\"\n", read_string(rt, g_message.params + 0x3C, 512).c_str());
+    std::fprintf(stderr, "[hle] message dialog (mode %u, options %X, error %08X): \"%s\"\n",
+                 rt.memory().load32(g_message.params + 0x34), rt.memory().load32(g_message.params + 0x23C),
+                 rt.memory().load32(g_message.params + 0x38), read_string(rt, g_message.params + 0x3C, 512).c_str());
     rt.memory().store32(g_message.params + 0x1C, 0);     // result
-    rt.memory().store32(g_message.params + 0x240, 1);    // button pressed: yes
+    // No dialog UI yet: answer as a player who accepts. Yes/no questions get "yes" (1); messages with only an OK
+    // button get 1 too; plain messages, whose only button is "back", get "back" (3).
+    const std::uint32_t options = rt.memory().load32(g_message.params + 0x23C);
+    const bool has_buttons = (options & 0x10u) != 0 || (options & 0x20u) != 0; // YESNO, OK
+    rt.memory().store32(g_message.params + 0x240, has_buttons ? 1u : 3u);
     g_message.status = kInit;
     ret(ctx, 0);
 }
@@ -354,10 +358,49 @@ void MsgDialogShutdownStart(Runtime &, Context &ctx) {
     ret(ctx, 0);
 }
 
+// UTF-16 string from guest memory (up to `max` units), as UTF-8 for logs (non-ASCII shown as '?').
+std::string read_utf16(Runtime &rt, std::uint32_t address, std::uint32_t max) {
+    std::string out;
+    if (address == 0) return out;
+    for (std::uint32_t i = 0; i < max; ++i) {
+        const std::uint16_t c = rt.memory().load16(address + i * 2u);
+        if (c == 0) break;
+        out.push_back(c < 0x80 ? static_cast<char>(c) : '?');
+    }
+    return out;
+}
+
+// No keyboard UI yet: every field the game asks for gets its initial text, or RuntimeOptions::osk_default_text when
+// that is empty, as if the player had typed it and pressed Enter.
 void OskInitStart(Runtime &rt, Context &ctx) {
-    note_once("on-screen keyboard returns the default text");
     g_osk.params = arg(ctx, 0);
-    rt.memory().store32(g_osk.params + 0x1C, 0);
+    auto &mem = rt.memory();
+    const std::uint32_t count = mem.load32(g_osk.params + 0x30), fields = mem.load32(g_osk.params + 0x34);
+    for (std::uint32_t i = 0; fields != 0 && i < count && i < 16; ++i) {
+        const std::uint32_t field = fields + i * 0x34u;
+        const std::uint32_t intext = mem.load32(field + 32), capacity = mem.load32(field + 36);
+        const std::uint32_t outtext = mem.load32(field + 40), limit = mem.load32(field + 48);
+        std::u16string text;
+        for (std::uint32_t j = 0; intext != 0 && j < 512; ++j) {
+            const std::uint16_t c = mem.load16(intext + j * 2u);
+            if (c == 0) break;
+            text.push_back(static_cast<char16_t>(c));
+        }
+        if (text.empty()) {
+            for (const char c : rt.options().osk_default_text) text.push_back(static_cast<char16_t>(static_cast<unsigned char>(c)));
+        }
+        std::size_t max = text.size();
+        if (limit != 0) max = std::min<std::size_t>(max, limit);
+        if (capacity != 0) max = std::min<std::size_t>(max, capacity - 1u);
+        if (outtext != 0) {
+            for (std::size_t j = 0; j < max; ++j) mem.store16(outtext + static_cast<std::uint32_t>(j) * 2u, text[j]);
+            mem.store16(outtext + static_cast<std::uint32_t>(max) * 2u, 0);
+        }
+        mem.store32(field + 44, 2); // PSP_UTILITY_OSK_RESULT_CHANGED
+        std::fprintf(stderr, "[hle] on-screen keyboard \"%s\" -> \"%s\"\n",
+                     read_utf16(rt, mem.load32(field + 28), 64).c_str(), read_utf16(rt, outtext, 64).c_str());
+    }
+    mem.store32(g_osk.params + 0x1C, 0);
     g_osk.status = kInit;
     ret(ctx, 0);
 }
@@ -434,7 +477,7 @@ const HleFunction kFunctions[] = {
     {"sceMpeg", 0x0E3C2E9Du, "sceMpegAvcDecode", &MpegAvcDecode},
     {"sceMpeg", 0x682A619Bu, "sceMpegInit", &MpegZero},
     {"sceMpeg", 0x874624D6u, "sceMpegFinish", &MpegZero},
-    {"sceMpeg", 0xD8C5F121u, "sceMpegCreate", &MpegZero},
+    {"sceMpeg", 0xD8C5F121u, "sceMpegCreate", &MpegCreate},
     {"sceMpeg", 0x606A4649u, "sceMpegDelete", &MpegZero},
     {"sceMpeg", 0x13407F13u, "sceMpegRingbufferDestruct", &MpegZero},
     {"sceMpeg", 0xB240A59Eu, "sceMpegRingbufferPut", &MpegZero},
@@ -445,15 +488,6 @@ const HleFunction kFunctions[] = {
     {"sceMpeg", 0x800C44DFu, "sceMpegAtracDecode", &MpegZero},
     {"sceMpeg", 0xCEB870B1u, "sceMpegFreeAvcEsBuf", &MpegZero},
     {"sceMpeg", 0xF8DCB679u, "sceMpegQueryAtracEsSize", &MpegZero},
-    {"sceLibFont", 0x67F17ED7u, "sceFontNewLib", &FontNewLib},
-    {"sceLibFont", 0x574B6FBCu, "sceFontDoneLib", &FontZero},
-    {"sceLibFont", 0xA834319Du, "sceFontOpen", &FontOpen},
-    {"sceLibFont", 0x3AEA8CB6u, "sceFontClose", &FontZero},
-    {"sceLibFont", 0x27F6E642u, "sceFontGetNumFontList", &FontGetNumFontList},
-    {"sceLibFont", 0x099EF33Cu, "sceFontFindOptimumFont", &FontFindOptimumFont},
-    {"sceLibFont", 0x0DA7535Eu, "sceFontGetFontInfo", &FontZero},
-    {"sceLibFont", 0xDCC80C2Fu, "sceFontGetCharInfo", &FontZero},
-    {"sceLibFont", 0x980F4895u, "sceFontGetCharGlyphImage", &FontZero},
     {"sceUtility", 0x50C4CD57u, "sceUtilitySavedataInitStart", &SavedataInitStart},
     {"sceUtility", 0xD4B95FFBu, "sceUtilitySavedataUpdate", &SavedataUpdate},
     {"sceUtility", 0x8874DBE0u, "sceUtilitySavedataGetStatus", &SavedataGetStatus},

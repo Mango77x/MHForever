@@ -10,6 +10,13 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 namespace mhf::psp {
 
@@ -26,9 +33,31 @@ constexpr std::uint32_t kBootThreadStack = 0x40000u;
 
 Runtime *Runtime::active() noexcept { return g_active; }
 
+namespace {
+
+// Folder of the running executable (empty if unknown).
+std::filesystem::path executable_directory() {
+#if defined(_WIN32)
+    wchar_t buffer[32768];
+    const DWORD n = GetModuleFileNameW(nullptr, buffer, static_cast<DWORD>(std::size(buffer)));
+    if (n == 0 || n >= std::size(buffer)) return {};
+    return std::filesystem::path(std::wstring(buffer, n)).parent_path();
+#else
+    std::error_code ec;
+    const auto exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+    return ec ? std::filesystem::path() : exe.parent_path();
+#endif
+}
+
+} // namespace
+
 Runtime::Runtime(RuntimeOptions options)
     : options_(std::move(options)), memory_(options_.ram_size), kernel_(std::make_unique<Kernel>(*this)) {
     g_active = this;
+    // A relative font folder that does not exist from the working directory is looked up next to the executable.
+    if (std::error_code ec; options_.font_directory.is_relative() && !std::filesystem::is_directory(options_.font_directory, ec)) {
+        if (const auto dir = executable_directory(); !dir.empty()) options_.font_directory = dir / options_.font_directory;
+    }
     if (const char *v = std::getenv("MHF_INTERPRET_ONLY"); v != nullptr && v[0] == '1') interpret_only_ = true;
     add_hle(hle::thread_functions());
     add_hle(hle::sysmem_functions());
@@ -38,6 +67,7 @@ Runtime::Runtime(RuntimeOptions options)
     add_hle(hle::misc_functions());
     add_hle(hle::ge_functions());
     add_hle(hle::media_functions());
+    add_hle(hle::font_functions());
 }
 
 Runtime::~Runtime() {
@@ -200,6 +230,8 @@ void Runtime::fatal(const std::string &message) {
     std::fflush(stderr);
     exit_program(70);
 }
+
+void Runtime::dump_threads() { kernel_->dump_threads(stderr); }
 
 void Runtime::exit_program(int code) {
     std::fflush(stdout);

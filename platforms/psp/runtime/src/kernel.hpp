@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <deque>
 #include <functional>
 #include <map>
@@ -54,6 +55,7 @@ public:
         std::uint32_t wait_value[3]{};
         std::uint32_t wait_result{};
         int wakeup_count{};
+        bool callback_wait{}; // blocked in a *CB wait: notified callbacks interrupt it to run
         std::uint32_t exit_status{error::kDormant};
     };
 
@@ -129,6 +131,10 @@ public:
     std::map<int, EventFlag> event_flags;
     std::map<int, LwMutex> lw_mutexes;
     std::map<int, Callback> callbacks;
+    // Wait result used internally to interrupt a *CB wait so that its thread runs its notified callbacks.
+    static constexpr std::uint32_t kCallbackInterrupt = 0x7FFFCB01u;
+    // Records a notification; when the owner thread sits in a *CB wait, interrupts that wait.
+    void notify_callback(Callback &callback, std::uint32_t argument);
     int exit_callback{};
 
     // Interrupt handlers. Only the vblank interrupt (30) is delivered; its sub-handlers run at every vblank.
@@ -164,6 +170,8 @@ public:
     void signal_lw_mutex_waiters(LwMutex &mutex);
     void cancel_waiters(std::deque<int> &waiters, std::uint32_t result);
 
+    // Prints every thread with its state, wait and registers of interest (debugging hangs).
+    void dump_threads(std::FILE *out) const;
     // Runs the scheduler until exit. Returns the program exit code.
     int run_scheduler();
     [[noreturn]] void exit_program(int code);

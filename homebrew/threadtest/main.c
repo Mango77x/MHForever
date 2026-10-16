@@ -67,6 +67,22 @@ static int lw_worker(SceSize args, void *argp) {
     return 0;
 }
 
+static int callback_count, callback_arg;
+static SceUID main_thread, callback_id;
+
+static int on_callback(int count, int argument, void *common) {
+    callback_count += count;
+    callback_arg = argument;
+    if (argument == 2) sceKernelWakeupThread(main_thread);
+    return 0;
+}
+
+static int notifier(SceSize args, void *argp) {
+    sceKernelDelayThread(5000);
+    sceKernelNotifyCallback(callback_id, 2);
+    return 0;
+}
+
 int main(void) {
     // Preemption: a higher-priority thread waiting on a semaphore runs as soon as it is signaled.
     sema = sceKernelCreateSema("sema", 0, 0, 1, NULL);
@@ -141,6 +157,23 @@ int main(void) {
     sceKernelDelayThread(5000);
     sceKernelGetSystemTime(&c2);
     check("system time advances", c2.low - c1.low >= 5000, 1);
+
+    // Callbacks: run in *CB waits, also when notified while the thread is already waiting.
+    main_thread = sceKernelGetThreadId();
+    callback_id = sceKernelCreateCallback("cb", on_callback, NULL);
+    sceKernelNotifyCallback(callback_id, 1);
+    check("callback not run outside CB waits", callback_count, 0);
+    sceKernelDelayThreadCB(1000);
+    check("callback runs in a CB wait", callback_count, 1);
+    check("callback argument", callback_arg, 1);
+    SceUID n = sceKernelCreateThread("notifier", notifier, 0x30, 0x1000, 0, NULL);
+    sceKernelStartThread(n, 0, NULL);
+    sceKernelSleepThreadCB(); // woken by the callback, which runs during the sleep
+    check("callback interrupts a CB wait", callback_count, 2);
+    check("callback argument 2", callback_arg, 2);
+    sceKernelNotifyCallback(callback_id, 3);
+    check("check callback", sceKernelCheckCallback(), 1);
+    check("callback count 3", callback_count, 3);
 
     printf("threadtest: %d passed, %d failed\n", passed, failed);
     sceKernelExitGame();

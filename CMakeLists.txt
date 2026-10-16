@@ -38,6 +38,7 @@ if(MHF_BUILD_TESTS)
 endif()
 
 add_subdirectory(third_party/psprecomp)
+add_subdirectory(third_party/stb)
 add_subdirectory(core)
 add_subdirectory(platforms/psp)
 foreach(game IN LISTS MHF_GAMES)

@@ -26,6 +26,9 @@ inline void ret64(Context &ctx, std::uint64_t value) {
 // Sets the current directory used for relative PSP paths (IoFileMgr).
 void set_working_directory(Runtime &rt, const std::string &psp_path);
 
+// Runs one sceUtility savedata request (hle_savedata.cpp) and stores its result in the parameter block.
+std::uint32_t execute_savedata(Runtime &rt, std::uint32_t params);
+
 // Registration of each module group (called from Runtime's constructor).
 std::span<const HleFunction> thread_functions();   // ThreadManForUser, Kernel_Library
 std::span<const HleFunction> sysmem_functions();   // SysMemUserForUser
@@ -34,6 +37,7 @@ std::span<const HleFunction> system_functions();   // LoadExecForUser, ModuleMgr
 std::span<const HleFunction> display_functions();  // sceDisplay, sceCtrl
 std::span<const HleFunction> misc_functions();     // interrupts, vtimers, modules, UMD, small services
 std::span<const HleFunction> ge_functions();       // sceGe_user
-std::span<const HleFunction> media_functions();    // sceAudio, sceSasCore, sceAtrac3plus, sceMpeg, sceLibFont, dialogs
+std::span<const HleFunction> media_functions();    // sceAudio, sceSasCore, sceAtrac3plus, sceMpeg, dialogs
+std::span<const HleFunction> font_functions();     // sceLibFont (free fonts)
 
 } // namespace mhf::psp::hle

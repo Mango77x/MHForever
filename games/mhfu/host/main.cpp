@@ -2,7 +2,7 @@
 //
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
 //             [--window] [--dump-frames <dir> [--dump-every N]] [--seconds S] [--quiet-overlays]
-//             [--input "<seconds>:<button>,..."]
+//             [--input "<seconds>:<button>,..."] [--name <text>]
 // The executable supplies the initial data sections during development (open question Q-16 for releases).
 
 #include "mhf/psp/frame_dump.hpp"
@@ -100,6 +100,7 @@ int main(int argc, char **argv) {
         else if (a == "--seconds" && i + 1 < argc) seconds = std::stod(argv[++i]);
         else if (a == "--window") window = true;
         else if (a == "--input" && i + 1 < argc) script = parse_input_script(argv[++i]);
+        else if (a == "--name" && i + 1 < argc) options.osk_default_text = argv[++i]; // text typed into keyboards
         else {
             std::fprintf(stderr, "usage: %s --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]\n",
                          argv[0]);
@@ -128,6 +129,7 @@ int main(int argc, char **argv) {
                 const std::uint64_t now = rt->now_us();
                 if (seconds > 0 && static_cast<double>(now) > seconds * 1e6) {
                     std::fprintf(stderr, "[mhfu] time limit reached\n");
+                    rt->dump_threads();
                     rt->exit_program_from_host(0);
                 }
                 if (!script.empty()) {
@@ -138,10 +140,10 @@ int main(int argc, char **argv) {
                     }
                     mhf::psp::set_controller_state(*rt, pad);
                 }
-                const std::uint64_t vblank = now / mhf::psp::kVblankPeriodUs;
-                if (dump_folder.empty() || vblank == last_vblank) return;
-                last_vblank = vblank;
-                if (vblank % dump_every != 0) return;
+                // One dump per `dump_every` vblanks, even when the host is not polled on that exact vblank.
+                const std::uint64_t slot = now / mhf::psp::kVblankPeriodUs / dump_every;
+                if (dump_folder.empty() || slot == last_vblank) return;
+                last_vblank = slot;
                 char name[32];
                 std::snprintf(name, sizeof name, "frame_%06u.png", ++frame);
                 mhf::psp::dump_display(*rt, dump_folder / name);

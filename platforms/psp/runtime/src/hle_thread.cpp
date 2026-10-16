@@ -648,7 +648,12 @@ void UnlockLwMutex(Runtime &rt, Context &ctx) {
     k(rt).preempt_if_needed();
 }
 
-// ---------------------------------------------------------------- callbacks (minimal)
+// ---------------------------------------------------------------- callbacks
+//
+// A notified callback runs on its owner thread when that thread is in a *CB wait or calls sceKernelCheckCallback:
+// the CB variants of the waits run pending callbacks first, and a notification that arrives while the thread waits
+// interrupts the wait (Kernel::notify_callback), runs the callbacks and waits again. A callback that returns non-zero
+// is deleted.
 
 void CreateCallback(Runtime &rt, Context &ctx) {
     Kernel::Callback c;
@@ -672,12 +677,58 @@ void NotifyCallback(Runtime &rt, Context &ctx) {
         ret(ctx, error::kUnknownUid);
         return;
     }
-    ++it->second.notify_count;
-    it->second.notify_arg = arg(ctx, 1);
+    k(rt).notify_callback(it->second, arg(ctx, 1));
     ret(ctx, 0);
+    k(rt).preempt_if_needed();
 }
 
-void CheckCallback(Runtime &, Context &ctx) { ret(ctx, 0); }
+// Runs the current thread's notified callbacks on its own stack, preserving its registers. Returns how many ran.
+int run_callbacks(Runtime &rt, Context &ctx) {
+    auto *t = k(rt).current();
+    if (t == nullptr) return 0;
+    int ran = 0;
+    for (bool again = true; again;) {
+        again = false;
+        for (auto it = k(rt).callbacks.begin(); it != k(rt).callbacks.end(); ++it) {
+            auto &cb = it->second;
+            if (cb.thread != t->uid || cb.notify_count == 0) continue;
+            const int uid = cb.uid;
+            const std::uint32_t count = static_cast<std::uint32_t>(cb.notify_count), notify_arg = cb.notify_arg;
+            const std::uint32_t entry = cb.entry, common = cb.argument;
+            cb.notify_count = 0;
+            cb.notify_arg = 0;
+            const Context saved = ctx;
+            ctx.gpr[4] = count;
+            ctx.gpr[5] = notify_arg;
+            ctx.gpr[6] = common;
+            ctx.gpr[29] = (ctx.gpr[29] - 64u) & ~15u;
+            ctx.gpr[31] = 0;
+            rt.call(ctx, entry);
+            const std::uint32_t result = ctx.gpr[2];
+            ctx = saved;
+            ++ran;
+            if (result != 0) k(rt).callbacks.erase(uid);
+            again = true; // the map may have changed: start over
+            break;
+        }
+    }
+    return ran;
+}
+
+void CheckCallback(Runtime &rt, Context &ctx) { ret(ctx, run_callbacks(rt, ctx) > 0 ? 1u : 0u); }
+
+// The *CB form of a wait: runs notified callbacks before waiting and whenever a notification interrupts the wait.
+template <void (*Wait)(Runtime &, Context &)>
+void with_callbacks(Runtime &rt, Context &ctx) {
+    auto *t = k(rt).current();
+    for (;;) {
+        run_callbacks(rt, ctx);
+        t->callback_wait = true;
+        Wait(rt, ctx);
+        t->callback_wait = false;
+        if (ctx.gpr[2] != Kernel::kCallbackInterrupt) return;
+    }
+}
 
 // ---------------------------------------------------------------- interrupts (cooperative runtime: no-ops)
 
@@ -697,13 +748,13 @@ const HleFunction kFunctions[] = {
     {"ThreadManForUser", 0x293B45B8u, "sceKernelGetThreadId", &GetThreadId},
     {"ThreadManForUser", 0x17C1684Eu, "sceKernelReferThreadStatus", &ReferThreadStatus},
     {"ThreadManForUser", 0xCEADEB47u, "sceKernelDelayThread", &delay},
-    {"ThreadManForUser", 0x68DA9E36u, "sceKernelDelayThreadCB", &delay},
+    {"ThreadManForUser", 0x68DA9E36u, "sceKernelDelayThreadCB", &with_callbacks<&delay>},
     {"ThreadManForUser", 0x9ACE131Eu, "sceKernelSleepThread", &SleepThread},
-    {"ThreadManForUser", 0x82826F70u, "sceKernelSleepThreadCB", &SleepThread},
+    {"ThreadManForUser", 0x82826F70u, "sceKernelSleepThreadCB", &with_callbacks<&SleepThread>},
     {"ThreadManForUser", 0xD59EAD2Fu, "sceKernelWakeupThread", &WakeupThread},
     {"ThreadManForUser", 0xFCCFAD26u, "sceKernelCancelWakeupThread", &CancelWakeupThread},
     {"ThreadManForUser", 0x278C0DF5u, "sceKernelWaitThreadEnd", &WaitThreadEnd},
-    {"ThreadManForUser", 0x840E8133u, "sceKernelWaitThreadEndCB", &WaitThreadEnd},
+    {"ThreadManForUser", 0x840E8133u, "sceKernelWaitThreadEndCB", &with_callbacks<&WaitThreadEnd>},
     {"ThreadManForUser", 0x71BC9871u, "sceKernelChangeThreadPriority", &ChangeThreadPriority},
     {"ThreadManForUser", 0x94AA61EEu, "sceKernelGetThreadCurrentPriority", &GetThreadCurrentPriority},
     {"ThreadManForUser", 0x912354A7u, "sceKernelRotateThreadReadyQueue", &RotateThreadReadyQueue},
@@ -722,7 +773,7 @@ const HleFunction kFunctions[] = {
     {"ThreadManForUser", 0x28B6489Cu, "sceKernelDeleteSema", &DeleteSema},
     {"ThreadManForUser", 0x3F53E640u, "sceKernelSignalSema", &SignalSema},
     {"ThreadManForUser", 0x4E3A1105u, "sceKernelWaitSema", &wait_sema},
-    {"ThreadManForUser", 0x6D212BACu, "sceKernelWaitSemaCB", &wait_sema},
+    {"ThreadManForUser", 0x6D212BACu, "sceKernelWaitSemaCB", &with_callbacks<&wait_sema>},
     {"ThreadManForUser", 0x58B1F937u, "sceKernelPollSema", &PollSema},
     {"ThreadManForUser", 0xBC6FEBC5u, "sceKernelReferSemaStatus", &ReferSemaStatus},
     {"ThreadManForUser", 0x55C20A00u, "sceKernelCreateEventFlag", &CreateEventFlag},
@@ -730,13 +781,13 @@ const HleFunction kFunctions[] = {
     {"ThreadManForUser", 0x1FB15A32u, "sceKernelSetEventFlag", &SetEventFlag},
     {"ThreadManForUser", 0x812346E4u, "sceKernelClearEventFlag", &ClearEventFlag},
     {"ThreadManForUser", 0x402FCF22u, "sceKernelWaitEventFlag", &wait_event_flag},
-    {"ThreadManForUser", 0x328C546Au, "sceKernelWaitEventFlagCB", &wait_event_flag},
+    {"ThreadManForUser", 0x328C546Au, "sceKernelWaitEventFlagCB", &with_callbacks<&wait_event_flag>},
     {"ThreadManForUser", 0x30FD48F0u, "sceKernelPollEventFlag", &PollEventFlag},
     {"ThreadManForUser", 0xA66B0120u, "sceKernelReferEventFlagStatus", &ReferEventFlagStatus},
     {"ThreadManForUser", 0x19CFF145u, "sceKernelCreateLwMutex", &CreateLwMutex},
     {"ThreadManForUser", 0x60107536u, "sceKernelDeleteLwMutex", &DeleteLwMutex},
     {"Kernel_Library", 0xBEA46419u, "sceKernelLockLwMutex", &lock_lw_mutex},
-    {"Kernel_Library", 0x1FC64E09u, "sceKernelLockLwMutexCB", &lock_lw_mutex},
+    {"Kernel_Library", 0x1FC64E09u, "sceKernelLockLwMutexCB", &with_callbacks<&lock_lw_mutex>},
     {"Kernel_Library", 0xDC692EE3u, "sceKernelTryLockLwMutex", &TryLockLwMutex},
     {"Kernel_Library", 0x15B6446Bu, "sceKernelUnlockLwMutex", &UnlockLwMutex},
     {"ThreadManForUser", 0xE81CAF8Fu, "sceKernelCreateCallback", &CreateCallback},

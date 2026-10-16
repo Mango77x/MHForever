@@ -7,6 +7,8 @@ Read `docs/02-architecture.md` §9 before adding anything.
 |---|---|---|---|---|
 | PSPRecomp framework | `third_party/psprecomp/` | MIT | `f6e7d41` (2026-08-13) | https://github.com/jessicanataliagta/PSPRecomp |
 | PSPRecomp instruction emitter (derived) | `platforms/psp/recomp/instruction_emitter.cpp`, branch conditions in `emitter.cpp` | MIT | `f6e7d41` | moved out of PSPRecomp's `tools/codegen_main.cpp`, notice kept in the file |
+| stb_truetype | `third_party/stb/` | MIT or public domain | v1.26 | https://github.com/nothings/stb |
+| Liberation Sans Regular (font) | `third_party/fonts/liberation-sans/` | SIL OFL 1.1 | 2.1.5 | https://github.com/liberationfonts/liberation-fonts (TTF as packaged by Debian `fonts-liberation` 1:2.1.5) |
 
 Fetched at build time (not stored in the repository):
 
