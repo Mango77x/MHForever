@@ -23,6 +23,14 @@ mhf_target_warnings(mhf_recomp)
 
 add_subdirectory(runtime)
 
+if(MHF_WITH_SDL)
+    add_library(mhf_psp_frontend STATIC frontend/psp_frontend.cpp)
+    target_include_directories(mhf_psp_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/frontend)
+    target_link_libraries(mhf_psp_frontend PUBLIC mhf_psp_runtime PRIVATE mhf_core_host)
+    target_compile_definitions(mhf_psp_frontend PUBLIC MHF_HAS_FRONTEND=1)
+    mhf_target_warnings(mhf_psp_frontend)
+endif()
+
 add_library(mhf_psp INTERFACE)
 target_link_libraries(mhf_psp INTERFACE psprecomp_core mhf_core mhf_psp_tools mhf_psp_runtime)
 

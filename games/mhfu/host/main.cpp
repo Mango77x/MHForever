@@ -1,7 +1,7 @@
 // Freedom Unite host: runs the recompiled game against the player's own ISO (docs/06-mhfu-module.md).
 //
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
-//             [--dump-frames <dir> [--dump-every N]] [--seconds S] [--quiet-overlays]
+//             [--window] [--dump-frames <dir> [--dump-every N]] [--seconds S] [--quiet-overlays]
 // The executable supplies the initial data sections during development (open question Q-16 for releases).
 
 #include "mhf/psp/frame_dump.hpp"
@@ -11,6 +11,11 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <functional>
+
+#if defined(MHF_HAS_FRONTEND)
+#include "psp_frontend.hpp"
+#endif
 #include <cstring>
 #include <exception>
 #include <string>
@@ -45,6 +50,7 @@ int main(int argc, char **argv) {
     std::filesystem::path dump_folder;
     unsigned dump_every = 30;
     double seconds = 0;
+    bool window = false;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--iso" && i + 1 < argc) options.disc_image = argv[++i];
@@ -55,6 +61,7 @@ int main(int argc, char **argv) {
         else if (a == "--dump-frames" && i + 1 < argc) dump_folder = argv[++i];
         else if (a == "--dump-every" && i + 1 < argc) dump_every = static_cast<unsigned>(std::stoul(argv[++i]));
         else if (a == "--seconds" && i + 1 < argc) seconds = std::stod(argv[++i]);
+        else if (a == "--window") window = true;
         else {
             std::fprintf(stderr, "usage: %s --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]\n",
                          argv[0]);
@@ -73,12 +80,13 @@ int main(int argc, char **argv) {
             runtime.add_overlay(*programs[i]);
         }
         runtime.register_hook("mh_overlay_prepare", &on_overlay_prepare);
+        std::function<void()> extra;
         if (!dump_folder.empty() || seconds > 0) {
             if (!dump_folder.empty()) std::filesystem::create_directories(dump_folder);
             auto *rt = &runtime;
             std::uint64_t last_vblank = 0;
             unsigned frame = 0;
-            runtime.kernel_host_poll([=]() mutable {
+            extra = [=]() mutable {
                 const std::uint64_t now = rt->now_us();
                 if (seconds > 0 && static_cast<double>(now) > seconds * 1e6) {
                     std::fprintf(stderr, "[mhfu] time limit reached\n");
@@ -91,8 +99,19 @@ int main(int argc, char **argv) {
                 char name[32];
                 std::snprintf(name, sizeof name, "frame_%06u.png", ++frame);
                 mhf::psp::dump_display(*rt, dump_folder / name);
-            });
+            };
         }
+#if defined(MHF_HAS_FRONTEND)
+        mhf::psp::Frontend frontend;
+        if (window && frontend.open("MH-Forever")) {
+            frontend.attach(runtime, extra);
+        } else if (extra) {
+            runtime.kernel_host_poll(extra);
+        }
+#else
+        if (window) std::fprintf(stderr, "[mhfu] built without the SDL frontend; running headless\n");
+        if (extra) runtime.kernel_host_poll(extra);
+#endif
         return runtime.run(*programs[0], "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN");
     } catch (const std::exception &e) {
         std::fprintf(stderr, "error: %s\n", e.what());

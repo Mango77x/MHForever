@@ -82,9 +82,24 @@ std::vector<OverlayModule> load_overlays(const fs::path &manifest, const std::st
             throw std::runtime_error("malformed overlay " + o.file_name);
         }
         std::memcpy(&o.overlay_id, o.bytes.data() + 4, 4);
-        const std::uint32_t code_start = o.load_address + 64u;
-        o.input.code.push_back({code_start, code_start + text});
-        o.input.data.push_back({code_start + text, code_start + text + data});
+        // Code is not confined to the declared text size (static constructors follow the data), so the whole
+        // image after the header is both a code range and a data range; seeds decide what gets decoded.
+        const std::uint32_t image_start = o.load_address + 64u;
+        const std::uint32_t image_end = o.load_address + static_cast<std::uint32_t>(o.bytes.size());
+        o.input.code.push_back({image_start, image_end});
+        o.input.data.push_back({image_start, image_end});
+        // Static initializers are entries for sure.
+        std::uint32_t init_start = 0, init_end = 0;
+        std::memcpy(&init_start, o.bytes.data() + 24, 4);
+        std::memcpy(&init_end, o.bytes.data() + 28, 4);
+        for (std::uint32_t a = init_start; a + 4 <= init_end && a >= o.load_address &&
+                                          a + 4 <= image_end; a += 4) {
+            std::uint32_t constructor = 0;
+            std::memcpy(&constructor, o.bytes.data() + (a - o.load_address), 4);
+            if (constructor != 0) o.input.extra_entries.push_back(constructor);
+        }
+        (void)text;
+        (void)data;
         result.push_back(std::move(o));
     }
     return result;
@@ -249,6 +264,8 @@ int main(int argc, char **argv) {
         options.code_start = input.code.empty() ? 0u : input.code.front().start;
         options.code_end = input.code.empty() ? 0u : input.code.back().end;
         const auto result = emit_program(input, analysis, options, out_dir);
+        std::set<fs::path> produced(result.files.begin(), result.files.end());
+        produced.insert(out_dir / (name + "_programs.cpp"));
         report(name, input, analysis, result);
 
         std::vector<std::string> names{name};
@@ -266,7 +283,9 @@ int main(int argc, char **argv) {
             overlay_options.code_end = o.input.code.front().end;
             overlay_options.overlay_id = o.overlay_id;
             const auto r = emit_program(o.input, overlay_analysis, overlay_options, out_dir);
+            produced.insert(r.files.begin(), r.files.end());
             totals.add(o.input, overlay_analysis, r);
+            if (std::getenv("MHF_RECOMP_VERBOSE") != nullptr) report(o.identifier, o.input, overlay_analysis, r);
             names.push_back(o.identifier);
         }
         if (!overlays.empty()) {
@@ -279,6 +298,15 @@ int main(int argc, char **argv) {
                         totals.unresolved);
         } else {
             emit_registry(name, names, out_dir);
+        }
+        // Remove sources left over from earlier runs (a module that now has fewer parts, a renamed overlay), which
+        // would otherwise be picked up by the build.
+        for (const auto &entry : fs::directory_iterator(out_dir)) {
+            const auto ext = entry.path().extension();
+            const auto stem = entry.path().filename().string();
+            if ((ext == ".cpp" || ext == ".hpp") && stem.rfind(name, 0) == 0 && !produced.contains(entry.path())) {
+                fs::remove(entry.path());
+            }
         }
         return 0;
     } catch (const std::exception &e) {

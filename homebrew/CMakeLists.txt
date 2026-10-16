@@ -37,3 +37,4 @@ mhf_add_homebrew(hello EXPECT "hello from the PSP runtime\ncount 1\ncount 2\ncou
 mhf_add_homebrew(cputest EXPECT "cputest: [0-9]+ passed, 0 failed")
 mhf_add_homebrew(threadtest EXPECT "threadtest: [0-9]+ passed, 0 failed")
 mhf_add_homebrew(getest EXPECT "getest: [0-9]+ passed, 0 failed")
+mhf_add_homebrew(vfputest EXPECT "vfputest: [0-9]+ passed, 0 failed")

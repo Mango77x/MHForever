@@ -37,6 +37,11 @@ bool is_multiply_accumulate(std::uint32_t word) {
     return (word >> 26u) == 0u && (funct == 0x1Cu || funct == 0x1Du || funct == 0x2Eu || funct == 0x2Fu);
 }
 
+bool is_unaligned_quad_access(std::uint32_t word) {
+    const std::uint32_t op = word >> 26u;
+    return op == 0x35u || op == 0x3Du;
+}
+
 namespace {
 
 // Allegrex instructions that the vendored decoder does not classify. Returns an empty string when `d` is not one.
@@ -56,6 +61,32 @@ std::string emit_extension(const psprecomp::DecodedInstruction &d, std::uint32_t
             << "const std::uint64_t product = static_cast<std::uint64_t>(" << a << " * " << b << "); "
             << "const std::uint64_t r = acc " << (subtract ? "-" : "+") << " product; "
             << "ctx.lo = static_cast<std::uint32_t>(r); ctx.hi = static_cast<std::uint32_t>(r >> 32u); }\n";
+        return out.str();
+    }
+    if (is_unaligned_quad_access(d.word)) {
+        // lvl.q / lvr.q / svl.q / svr.q: the part of a quad vector on one side of an unaligned address.
+        const std::uint32_t vt = ((d.word >> 16u) & 0x1Fu) | ((d.word & 1u) << 5u);
+        const auto offset = static_cast<std::int32_t>(static_cast<std::int16_t>(d.word & 0xFFFCu));
+        const bool right = (d.word & 2u) != 0;
+        const bool store = (d.word >> 26u) == 0x3Du;
+        out << "    { const std::uint32_t vfpu_address = " << reg(rs) << " + static_cast<std::uint32_t>(" << offset
+            << ");\n      const std::uint32_t vfpu_k = (vfpu_address >> 2u) & 3u;\n"
+            << "      float vfpu_value[4]{}; ctx.read_vfpu_vector(vfpu_value, " << vt << "u, 4u);\n";
+        if (!store && !right) {
+            out << "      for (std::uint32_t i = 0; i <= vfpu_k; ++i) vfpu_value[3 - i] = "
+                   "std::bit_cast<float>(mem.aot_load32(vfpu_address - 4u * i));\n"
+                << "      ctx.write_vfpu_vector(vfpu_value, " << vt << "u, 4u); }\n";
+        } else if (!store) {
+            out << "      for (std::uint32_t i = 0; i <= 3u - vfpu_k; ++i) vfpu_value[i] = "
+                   "std::bit_cast<float>(mem.aot_load32(vfpu_address + 4u * i));\n"
+                << "      ctx.write_vfpu_vector(vfpu_value, " << vt << "u, 4u); }\n";
+        } else if (!right) {
+            out << "      for (std::uint32_t i = 0; i <= vfpu_k; ++i) "
+                   "mem.aot_store32(vfpu_address - 4u * i, std::bit_cast<std::uint32_t>(vfpu_value[3 - i])); }\n";
+        } else {
+            out << "      for (std::uint32_t i = 0; i <= 3u - vfpu_k; ++i) "
+                   "mem.aot_store32(vfpu_address + 4u * i, std::bit_cast<std::uint32_t>(vfpu_value[i])); }\n";
+        }
         return out.str();
     }
     if ((d.word >> 26u) == 0u && (d.word & 0x3Fu) == 0x0Du) {
@@ -98,7 +129,8 @@ std::string emit_extension(const psprecomp::DecodedInstruction &d, std::uint32_t
 } // namespace
 
 bool ends_block(const psprecomp::DecodedInstruction &d) {
-    return d.kind == psprecomp::OpcodeKind::Unsupported && !is_multiply_accumulate(d.word);
+    return d.kind == psprecomp::OpcodeKind::Unsupported && !is_multiply_accumulate(d.word) &&
+           !is_unaligned_quad_access(d.word);
 }
 
 std::string emit_instruction(const psprecomp::DecodedInstruction &d, std::uint32_t pc) {

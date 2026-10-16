@@ -113,6 +113,19 @@ public:
 
     void set_imports(const std::map<std::uint32_t, std::size_t> &imports) { imports_ = imports; }
 
+    // A plausible function start: the first word is not zero and the first instructions decode.
+    [[nodiscard]] bool looks_like_code(std::uint32_t address) const {
+        if (!is_code(address) || input_.memory->load32(address) == 0) {
+            return false;
+        }
+        for (std::uint32_t i = 0; i < 4 && is_code(address + i * 4u); ++i) {
+            if (decode(address + i * 4u).kind == OpcodeKind::Unsupported) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     [[nodiscard]] DecodedInstruction decode(std::uint32_t address) const {
         return psprecomp::decode_allegrex(input_.memory->load32(address));
     }
@@ -412,6 +425,7 @@ Analysis analyze(const ProgramInput &input) {
     }
     std::size_t data_seeds = 0, constant_seeds = 0;
     std::set<std::uint32_t> guessed;
+    std::set<std::uint32_t> rejected;
     for (;;) {
         explore_pending();
         // Functions with undecoded computed jumps: absorb their likely tables.
@@ -454,9 +468,14 @@ Analysis analyze(const ProgramInput &input) {
         if (!next) {
             for (const auto &[word, value] : data_pointers) {
                 if (!table_words.contains(word) && !seeds.contains(value) && !covered.contains(value) &&
-                    (!next || value < *next)) {
+                    !rejected.contains(value) && (!next || value < *next)) {
                     next = value;
                 }
+            }
+            // Data words also point at data that sits next to code: only take targets that look like code.
+            if (next && !explorer.looks_like_code(*next)) {
+                rejected.insert(*next);
+                continue;
             }
         }
         if (!next) {

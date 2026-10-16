@@ -1,0 +1,59 @@
+#pragma once
+
+// Desktop host built on SDL3: one window that shows the emulated screen, keyboard and gamepad input (any controller
+// SDL knows, which includes everything Steam Input exposes), and a stereo audio stream (docs/07-launcher-ux.md).
+// Console-independent: platforms map GamepadState to their own buttons.
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+
+namespace mhf::host {
+
+struct GamepadState {
+    bool south{}, east{}, west{}, north{};      // face buttons (A/B/X/Y on Xbox layout: south = A)
+    bool left_shoulder{}, right_shoulder{};
+    bool start{}, select{}, guide{};
+    bool up{}, down{}, left{}, right{};
+    float left_x{}, left_y{};                   // -1..1
+    float right_x{}, right_y{};
+};
+
+struct HostOptions {
+    const char *title = "MH-Forever";
+    int width = 480;   // emulated screen size
+    int height = 272;
+    int scale = 2;     // initial window scale
+    bool hidden = false; // no visible window (tests, servers)
+    int audio_rate = 44100;
+};
+
+class SdlHost {
+public:
+    SdlHost();
+    ~SdlHost();
+    SdlHost(const SdlHost &) = delete;
+    SdlHost &operator=(const SdlHost &) = delete;
+
+    // Opens the window and audio. Returns false (and logs why) when SDL cannot start.
+    bool open(const HostOptions &options);
+
+    // Processes pending events. Returns false once the user asked to close the window.
+    bool poll();
+
+    // Shows one frame. `pixels` holds width*height ABGR8888 values (R in the low byte), `stride` pixels per row.
+    void present(const std::uint32_t *pixels, int width, int height, int stride);
+
+    [[nodiscard]] GamepadState input() const;
+
+    // Queues interleaved stereo 16-bit samples for playback. Drops audio rather than growing the queue unbounded.
+    void queue_audio(const std::int16_t *stereo, std::size_t frames);
+    [[nodiscard]] std::size_t queued_audio_frames() const;
+
+    struct Impl;
+
+private:
+    std::unique_ptr<Impl> impl_;
+};
+
+} // namespace mhf::host

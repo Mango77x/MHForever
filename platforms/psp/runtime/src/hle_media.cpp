@@ -7,8 +7,11 @@
 #include "hle.hpp"
 #include "kernel.hpp"
 
+#include "mhf/psp/host.hpp"
+
 #include <algorithm>
 #include <array>
+#include <deque>
 #include <cstdio>
 #include <set>
 #include <string>
@@ -35,10 +38,34 @@ constexpr std::uint32_t kSampleRate = 44100;
 struct AudioChannel {
     bool reserved{};
     std::uint32_t samples{};
-    std::uint32_t format{};
+    std::uint32_t format{}; // 0 stereo, 0x10 mono
     std::uint64_t busy_until{};
+    std::deque<std::int16_t> queue; // interleaved stereo waiting for the host mixer
 };
 std::array<AudioChannel, kChannels> g_channels{};
+constexpr std::size_t kMaxQueuedFrames = 44100 / 4; // 250 ms per channel
+
+void enqueue_pcm(Runtime &rt, AudioChannel &c, std::uint32_t buffer, std::uint32_t left_volume,
+                 std::uint32_t right_volume) {
+    if (buffer == 0) return;
+    const bool mono = (c.format & 0x10u) != 0;
+    auto &mem = rt.memory();
+    for (std::uint32_t i = 0; i < c.samples; ++i) {
+        std::int32_t l, r;
+        if (mono) {
+            l = r = static_cast<std::int16_t>(mem.load16(buffer + i * 2u));
+        } else {
+            l = static_cast<std::int16_t>(mem.load16(buffer + i * 4u));
+            r = static_cast<std::int16_t>(mem.load16(buffer + i * 4u + 2u));
+        }
+        c.queue.push_back(static_cast<std::int16_t>((l * static_cast<std::int32_t>(left_volume)) >> 15));
+        c.queue.push_back(static_cast<std::int16_t>((r * static_cast<std::int32_t>(right_volume)) >> 15));
+    }
+    while (c.queue.size() > kMaxQueuedFrames * 2) {
+        c.queue.pop_front();
+        c.queue.pop_front();
+    }
+}
 
 void AudioChReserve(Runtime &, Context &ctx) {
     int ch = sarg(ctx, 0);
@@ -83,6 +110,24 @@ void output_blocking(Runtime &rt, Context &ctx) {
     const std::uint64_t start = std::max(c.busy_until, k(rt).now_us());
     c.busy_until = start + static_cast<std::uint64_t>(c.samples) * 1'000'000u / kSampleRate;
     ret(ctx, c.samples);
+}
+
+// (channel, left volume, right volume, buffer)
+void output_panned_blocking(Runtime &rt, Context &ctx) {
+    const int ch = sarg(ctx, 0);
+    if (ch >= 0 && ch < kChannels && g_channels[static_cast<std::size_t>(ch)].reserved) {
+        enqueue_pcm(rt, g_channels[static_cast<std::size_t>(ch)], arg(ctx, 3), arg(ctx, 1), arg(ctx, 2));
+    }
+    output_blocking(rt, ctx);
+}
+
+// (channel, volume, buffer)
+void output_mono_volume_blocking(Runtime &rt, Context &ctx) {
+    const int ch = sarg(ctx, 0);
+    if (ch >= 0 && ch < kChannels && g_channels[static_cast<std::size_t>(ch)].reserved) {
+        enqueue_pcm(rt, g_channels[static_cast<std::size_t>(ch)], arg(ctx, 2), arg(ctx, 1), arg(ctx, 1));
+    }
+    output_blocking(rt, ctx);
 }
 
 void AudioSetChannelDataLen(Runtime &, Context &ctx) {
@@ -345,8 +390,8 @@ void NetconfShutdownStart(Runtime &, Context &ctx) {
 const HleFunction kFunctions[] = {
     {"sceAudio", 0x5EC81C55u, "sceAudioChReserve", &AudioChReserve},
     {"sceAudio", 0x6FC46853u, "sceAudioChRelease", &AudioChRelease},
-    {"sceAudio", 0x13F592BCu, "sceAudioOutputPannedBlocking", &output_blocking},
-    {"sceAudio", 0x136CAF51u, "sceAudioOutputBlocking", &output_blocking},
+    {"sceAudio", 0x13F592BCu, "sceAudioOutputPannedBlocking", &output_panned_blocking},
+    {"sceAudio", 0x136CAF51u, "sceAudioOutputBlocking", &output_mono_volume_blocking},
     {"sceAudio", 0xCB2E439Eu, "sceAudioSetChannelDataLen", &AudioSetChannelDataLen},
     {"sceAudio", 0xB011922Fu, "sceAudioGetChannelRestLength", &AudioGetChannelRestLength},
     {"sceAudio", 0xE9D97901u, "sceAudioGetChannelRestLen", &AudioGetChannelRestLength},
@@ -432,3 +477,23 @@ const HleFunction kFunctions[] = {
 std::span<const HleFunction> media_functions() { return kFunctions; }
 
 } // namespace mhf::psp::hle
+
+namespace mhf::psp {
+
+std::size_t mix_audio(Runtime &, std::int16_t *out, std::size_t frames) {
+    std::size_t available = 0;
+    for (std::size_t i = 0; i < frames * 2; ++i) {
+        std::int32_t sum = 0;
+        for (auto &c : hle::g_channels) {
+            if (!c.queue.empty()) {
+                sum += c.queue.front();
+                c.queue.pop_front();
+                available = std::max(available, i / 2 + 1);
+            }
+        }
+        out[i] = static_cast<std::int16_t>(std::clamp(sum, -32768, 32767));
+    }
+    return available;
+}
+
+} // namespace mhf::psp

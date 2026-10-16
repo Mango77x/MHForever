@@ -229,7 +229,16 @@ std::string read_string(Runtime &rt, std::uint32_t address, std::size_t max_leng
     if (address == 0) {
         return {};
     }
-    return rt.memory().read_c_string(address, max_length);
+    // Byte by byte, so an unterminated or out-of-range string is truncated instead of failing.
+    std::string out;
+    auto &mem = rt.memory();
+    for (std::size_t i = 0; i < max_length; ++i) {
+        if (!mem.contains(address + static_cast<std::uint32_t>(i), 1)) break;
+        const auto c = static_cast<char>(mem.load8(address + static_cast<std::uint32_t>(i)));
+        if (c == '\0') break;
+        out.push_back(c);
+    }
+    return out;
 }
 } // namespace hle
 

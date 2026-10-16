@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(MHF_BUILD_TESTS "Build tests" ON)
+option(MHF_WITH_SDL "Build the SDL3 desktop host (window, input, audio)" ON)
 option(MHF_WARNINGS_AS_ERRORS "Treat warnings in our own code as errors" OFF)
 set(MHF_GAMES "mhfu" CACHE STRING "Semicolon-separated list of game modules to build")
 
