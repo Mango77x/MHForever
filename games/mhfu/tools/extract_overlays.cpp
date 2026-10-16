@@ -1,0 +1,175 @@
+// mhfu_extract_overlays — developer-only tool (docs/04-recompiler.md §4).
+//
+// Extracts the game's code overlays from the developer's own ISO so they can be recompiled. Writes the overlays to a
+// git-ignored folder (default: user_data/overlays/<DISC_ID>/) together with an identification manifest
+// (names, load addresses, sizes, SHA-256) that may be copied to games/mhfu/regions/<DISC_ID>/overlays.toml.
+
+#include "data_bin.hpp"
+#include "iso9660.hpp"
+
+#include "psprecomp/sha256.hpp"
+
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace fs = std::filesystem;
+using mhf::mhfu::DataBin;
+using mhf::psp::IsoImage;
+
+namespace {
+
+void usage() {
+    std::fprintf(stderr,
+                 "usage: mhfu_extract_overlays --iso <image.iso> --exe <decrypted executable> [--out <dir>]\n"
+                 "  Extracts code overlays from DATA.BIN. Developer-only; output must never be committed.\n");
+}
+
+std::vector<std::uint8_t> read_whole_file(const fs::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error("cannot open " + path.string());
+    }
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+// Returns the DISC_ID string from PARAM.SFO, or an empty string.
+std::string read_disc_id(IsoImage& iso) {
+    const auto sfo_entry = iso.find("/PSP_GAME/PARAM.SFO");
+    if (!sfo_entry || sfo_entry->size < 20) {
+        return {};
+    }
+    const auto sfo = iso.read_file(*sfo_entry, 0, sfo_entry->size);
+    auto le16 = [&](std::size_t o) { return static_cast<std::uint32_t>(sfo[o] | (sfo[o + 1] << 8)); };
+    auto le32 = [&](std::size_t o) { return le16(o) | (le16(o + 2) << 16); };
+    if (std::memcmp(sfo.data(), "\0PSF", 4) != 0) {
+        return {};
+    }
+    const auto key_table = le32(8);
+    const auto data_table = le32(12);
+    const auto count = le32(16);
+    for (std::uint32_t i = 0; i < count; ++i) {
+        const std::size_t entry = 20 + i * 16;
+        if (entry + 16 > sfo.size()) {
+            break;
+        }
+        const std::size_t key_offset = key_table + le16(entry);
+        const std::size_t data_offset = data_table + le32(entry + 12);
+        const std::size_t data_length = le32(entry + 4);
+        if (key_offset >= sfo.size() || data_offset + data_length > sfo.size()) {
+            break;
+        }
+        if (std::strcmp(reinterpret_cast<const char*>(sfo.data() + key_offset), "DISC_ID") == 0) {
+            std::string value(reinterpret_cast<const char*>(sfo.data() + data_offset), data_length);
+            return value.substr(0, value.find('\0'));
+        }
+    }
+    return {};
+}
+
+std::string hex32(std::uint32_t v) {
+    char buffer[16];
+    std::snprintf(buffer, sizeof buffer, "0x%08X", v);
+    return buffer;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    fs::path iso_path, exe_path, out_dir;
+    for (int i = 1; i + 1 < argc; i += 2) {
+        const std::string flag = argv[i];
+        if (flag == "--iso") {
+            iso_path = argv[i + 1];
+        } else if (flag == "--exe") {
+            exe_path = argv[i + 1];
+        } else if (flag == "--out") {
+            out_dir = argv[i + 1];
+        } else {
+            usage();
+            return 2;
+        }
+    }
+    if (iso_path.empty() || exe_path.empty() || argc % 2 == 0) {
+        usage();
+        return 2;
+    }
+
+    try {
+        IsoImage iso{iso_path};
+        const auto data_entry = iso.find("/PSP_GAME/USRDIR/DATA.BIN");
+        if (!data_entry) {
+            std::fprintf(stderr, "error: /PSP_GAME/USRDIR/DATA.BIN not found in the image\n");
+            return 1;
+        }
+        const std::string disc_id = read_disc_id(iso);
+        if (out_dir.empty()) {
+            out_dir = fs::path("user_data") / "overlays" / (disc_id.empty() ? "unknown" : disc_id);
+        }
+
+        const auto executable = read_whole_file(exe_path);
+        if (executable.size() >= 4 && std::memcmp(executable.data(), "~PSP", 4) == 0) {
+            std::fprintf(stderr, "error: the executable is still encrypted; a decrypted ELF is required\n");
+            return 1;
+        }
+        const auto candidates = mhf::mhfu::find_substitution_table_candidates(executable);
+        auto reader = [&iso, entry = *data_entry](std::uint64_t offset, std::size_t size) {
+            return iso.read_file(entry, offset, size);
+        };
+        const auto data_bin = DataBin::open(reader, data_entry->size, candidates);
+        if (!data_bin) {
+            std::fprintf(stderr, "error: could not decode the DATA.BIN header with this executable (%zu candidate tables)\n",
+                         candidates.size());
+            return 1;
+        }
+
+        fs::create_directories(out_dir);
+        std::ostringstream manifest;
+        manifest << "# Generated by mhfu_extract_overlays. Identification data only (no game content).\n"
+                 << "disc_id = \"" << disc_id << "\"\n"
+                 << "data_bin_files = " << data_bin->files().size() << "\n";
+
+        std::size_t extracted = 0;
+        for (const auto& file : data_bin->files()) {
+            if (file.size < mhf::mhfu::OverlayHeader::kSize) {
+                continue;
+            }
+            const auto head = data_bin->read(file.id, mhf::mhfu::OverlayHeader::kSize);
+            const auto header = mhf::mhfu::parse_overlay_header(head);
+            if (!header) {
+                continue;
+            }
+            if (header->file_size() > file.size) {
+                std::fprintf(stderr, "warning: overlay %s in file %u is larger than its container entry; skipped\n",
+                             header->name, file.id);
+                continue;
+            }
+            const auto bytes = data_bin->read(file.id, header->file_size());
+            const fs::path out_file = out_dir / header->name;
+            std::ofstream(out_file, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()),
+                                                             static_cast<std::streamsize>(bytes.size()));
+            manifest << "\n[[overlay]]\n"
+                     << "name = \"" << header->name << "\"\n"
+                     << "file_id = " << file.id << "\n"
+                     << "load_address = " << hex32(header->load_address) << "\n"
+                     << "text_size = " << hex32(header->text_size) << "\n"
+                     << "data_size = " << hex32(header->data_size) << "\n"
+                     << "bss_size = " << hex32(header->bss_size) << "\n"
+                     << "size = " << bytes.size() << "\n"
+                     << "sha256 = \"" << psprecomp::sha256_file(out_file) << "\"\n";
+            ++extracted;
+        }
+        std::ofstream(out_dir / "overlays.toml") << manifest.str();
+        std::printf("%s: %zu files in DATA.BIN, %zu overlays extracted to %s\n", disc_id.c_str(),
+                    data_bin->files().size(), extracted, out_dir.string().c_str());
+        return extracted > 0 ? 0 : 1;
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "error: %s\n", e.what());
+        return 1;
+    }
+}

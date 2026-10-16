@@ -7,4 +7,7 @@ Read `docs/02-architecture.md` §9 before adding anything.
 |---|---|---|---|---|
 | PSPRecomp framework | `third_party/psprecomp/` | MIT | `f6e7d41` (2026-08-13) | https://github.com/jessicanataliagta/PSPRecomp |
 
+Knowledge sources (no code copied): `tclamb/mhp2g-decomp` (CC0) documented the DATA.BIN header layout, the scrambling scheme and
+the `MWo3` overlay header used by `games/mhfu/tools/`. The game's substitution table itself is never included.
+
 Never include: Sony PGF fonts, firmware, keys, decryption code, game assets.
