@@ -133,7 +133,26 @@ bool ends_block(const psprecomp::DecodedInstruction &d) {
            !is_unaligned_quad_access(d.word);
 }
 
+namespace {
+std::string emit_instruction_raw(const psprecomp::DecodedInstruction &d, std::uint32_t pc);
+} // namespace
+
 std::string emit_instruction(const psprecomp::DecodedInstruction &d, std::uint32_t pc) {
+    // Route runtime calls through the stable ABI (mhf/psp/abi.hpp).
+    std::string text = emit_instruction_raw(d, pc);
+    auto replace_all = [&](const std::string &from, const std::string &to) {
+        for (std::size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size())) {
+            text.replace(at, from.size(), to);
+        }
+    };
+    replace_all("rt.unsupported(", "abi::unsupported(rt, ");
+    replace_all("rt.arithmetic_overflow(", "abi::arithmetic_overflow(rt, ");
+    replace_all("rt.memory().", "mem.");
+    return text;
+}
+
+namespace {
+std::string emit_instruction_raw(const psprecomp::DecodedInstruction &d, std::uint32_t pc) {
     if (d.kind == psprecomp::OpcodeKind::Unsupported || d.kind == psprecomp::OpcodeKind::Vfpu) {
         if (auto text = emit_extension(d, pc); !text.empty()) {
             return text;
@@ -827,6 +846,7 @@ std::string emit_instruction(const psprecomp::DecodedInstruction &d, std::uint32
     }
     return out.str();
 }
+} // namespace
 
 
 } // namespace mhf::psp::recomp

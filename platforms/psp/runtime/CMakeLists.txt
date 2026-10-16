@@ -11,6 +11,8 @@ add_library(mhf_psp_runtime STATIC
     src/hle_sysmem.cpp
     src/hle_system.cpp
     src/hle_thread.cpp
+    src/interpreter.cpp
+    src/interpreter_vfpu.cpp
     src/kernel.cpp
     src/runtime.cpp
     src/sysmem.cpp

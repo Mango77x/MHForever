@@ -63,11 +63,11 @@ public:
 
     std::string write() {
         out_ << "void " << fn_name(function_.entry) << "(Runtime &rt, Context &ctx) {\n"
-             << "    psprecomp::GuestMemory &mem = rt.memory();\n"
+             << "    psprecomp::GuestMemory &mem = abi::memory(rt);\n"
              << "    std::uint32_t jump_target = 0u;\n"
              << "    (void)mem; (void)jump_target;\n";
         if (const auto hook = input_.hooks.find(function_.entry); hook != input_.hooks.end()) {
-            out_ << "    { static const HookFunction hook = rt.find_hook(\"" << cpp_escape(hook->second) << "\");\n"
+            out_ << "    { static const HookFunction hook = abi::find_hook(rt, \"" << cpp_escape(hook->second) << "\");\n"
                  << "      if (hook != nullptr) hook(rt, ctx); }\n";
         }
         // The entry block first, then the others in address order.
@@ -97,12 +97,12 @@ private:
     // Transfer that leaves the current function at `target` (tail position: the caller returns right after).
     [[nodiscard]] std::string call_expression(std::uint32_t target) const {
         if (const auto it = analysis_.import_by_stub.find(target); it != analysis_.import_by_stub.end()) {
-            return "call_import(rt, ctx, kImports[" + std::to_string(it->second) + "])";
+            return "abi::call_import(rt, ctx, kImports[" + std::to_string(it->second) + "])";
         }
         if (analysis_.functions.contains(target)) {
             return fn_name(target) + "(rt, ctx)";
         }
-        return "rt.call(ctx, " + hex32(target) + "u)";
+        return "abi::call(rt, ctx, " + hex32(target) + "u)";
     }
 
     // A callee normally returns with the link register still holding the address after the call. Anything else is
@@ -133,7 +133,7 @@ private:
             }
             if (!function_.instructions.contains(pc)) {
                 // Fell off the analyzed body (end of code, or undecodable instruction before).
-                out_ << "    rt.jump(ctx, " << hex32(pc) << "u); return;\n";
+                out_ << "    abi::jump(rt, ctx, " << hex32(pc) << "u); return;\n";
                 return;
             }
             const auto d = decode(pc);
@@ -155,7 +155,7 @@ private:
         const auto slot = decode(pc + 4u);
         instruction_count_ += 2;
         if (slot.is_control_flow() || slot.kind == OpcodeKind::Jr || slot.kind == OpcodeKind::Jalr) {
-            out_ << "    rt.unsupported(" << hex32(pc + 4u) << "u, " << hex32(slot.word)
+            out_ << "    abi::unsupported(rt, " << hex32(pc + 4u) << "u, " << hex32(slot.word)
                  << "u, \"control transfer in a delay slot\"); return;\n";
             return;
         }
@@ -196,7 +196,7 @@ private:
             const std::uint32_t link = d.rd == 0u ? 31u : d.rd;
             out_ << "    jump_target = " << reg(d.rs) << ";\n"
                  << "    ctx.set_gpr(" << link << ", " << hex32(after) << "u);\n" << slot_code
-                 << "    rt.call(ctx, jump_target);\n";
+                 << "    abi::call(rt, ctx, jump_target);\n";
             return_check(link, after);
             goto_or_tail(after, "    ");
             return;
@@ -218,7 +218,7 @@ private:
                 out_ << "    case " << hex32(c) << "u: goto " << label(c) << ";\n";
             }
             out_ << "    default: break;\n    }\n"
-                 << "    rt.jump(ctx, jump_target); return;\n";
+                 << "    abi::jump(rt, ctx, jump_target); return;\n";
             return;
         }
         default:
@@ -341,7 +341,7 @@ EmitResult emit_program(const ProgramInput &input, const Analysis &analysis, con
     }
     table << "};\n\nnamespace {\n";
     for (std::size_t i = 0; i < input.imports.size(); ++i) {
-        table << "void imp_" << i << "(Runtime &rt, Context &ctx) { call_import(rt, ctx, kImports[" << i
+        table << "void imp_" << i << "(Runtime &rt, Context &ctx) { abi::call_import(rt, ctx, kImports[" << i
               << "]); }\n";
     }
     table << "\nconst FunctionEntry kFunctions[] = {\n";

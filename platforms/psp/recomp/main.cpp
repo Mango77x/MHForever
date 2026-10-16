@@ -105,6 +105,21 @@ std::vector<OverlayModule> load_overlays(const fs::path &manifest, const std::st
     return result;
 }
 
+// In a region shared by several overlays, an address taken from elsewhere only makes sense in the overlay where it
+// starts a function: a stack-frame prologue, or the instruction right after a return and its delay slot.
+bool plausible_function_start(const OverlayModule &o, std::uint32_t address) {
+    auto word = [&](std::uint32_t a) -> std::uint32_t {
+        if (a < o.load_address + 64u || a + 4u > o.load_address + o.bytes.size()) return 0xFFFFFFFFu;
+        std::uint32_t w = 0;
+        std::memcpy(&w, o.bytes.data() + (a - o.load_address), 4);
+        return w;
+    };
+    const std::uint32_t first = word(address);
+    if ((first & 0xFFFF8000u) == 0x27BD8000u) return true;   // addiu $sp, $sp, -N
+    if (word(address - 8u) == 0x03E00008u) return true;        // jr $ra; <delay slot>; here
+    return false;
+}
+
 struct Stats {
     std::size_t functions{}, instructions{}, covered{}, code_words{}, unresolved{};
     void add(const ProgramInput &input, const Analysis &analysis, const EmitResult &r) {
@@ -246,11 +261,36 @@ int main(int argc, char **argv) {
                 return;
             }
             for (auto &o : overlays) {
-                if (in_ranges(o.input.code, target)) o.input.weak_entries.push_back(target);
+                if (in_ranges(o.input.code, target) && plausible_function_start(o, target)) {
+                    o.input.weak_entries.push_back(target);
+                }
             }
         };
+        // Function pointers stored in one module's data that point into another module (task tables in the
+        // executable that name overlay functions, overlay callbacks into the executable).
+        auto route_data_pointers = [&](const std::vector<CodeRange> &data, const std::vector<CodeRange> &own_code) {
+            for (const auto &range : data) {
+                for (std::uint32_t a = (range.start + 3u) & ~3u; a + 4u <= range.end; a += 4u) {
+                    const std::uint32_t value = memory.load32(a);
+                    if ((value & 3u) != 0 || in_ranges(own_code, value)) continue;
+                    if (in_ranges(input.code, value)) {
+                        input.weak_entries.push_back(value);
+                        continue;
+                    }
+                    for (auto &o : overlays) {
+                        if (in_ranges(o.input.code, value) && plausible_function_start(o, value)) {
+                            o.input.weak_entries.push_back(value);
+                        }
+                    }
+                }
+            }
+        };
+        if (!overlays.empty()) {
+            route_data_pointers(input.data, input.code);
+        }
         for (auto &o : overlays) { // round 1
             memory.copy_in(o.load_address, o.bytes);
+            route_data_pointers(o.input.data, o.input.code);
             for (const auto t : analyze(o.input).external_calls) route(t, false);
         }
         const auto analysis = analyze(input);

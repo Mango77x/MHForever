@@ -5,6 +5,8 @@
 // Recompiled guest functions are plain C++ functions `void f(Runtime&, Context&)`. Each PSP thread runs on its own
 // host fiber with its own Context; blocking kernel calls switch fibers. Nothing in here is specific to a game.
 
+#include "mhf/psp/abi.hpp"
+
 #include "psprecomp/allegrex_context.hpp"
 #include "psprecomp/guest_memory.hpp"
 
@@ -19,48 +21,6 @@
 #include <vector>
 
 namespace mhf::psp {
-
-using Context = psprecomp::AllegrexContext;
-class Runtime;
-class Kernel;
-
-using GuestFunction = void (*)(Runtime &, Context &);
-using HleHandler = void (*)(Runtime &, Context &);
-// Host code run on entry to a hooked guest function (the guest function then runs normally).
-using HookFunction = void (*)(Runtime &, Context &);
-
-struct HleFunction {
-    const char *library;
-    std::uint32_t nid;
-    const char *name;
-    HleHandler handler;
-};
-
-struct FunctionEntry {
-    std::uint32_t address;
-    GuestFunction function;
-};
-
-// One imported function of a recompiled program. `hle` is resolved on first use.
-struct ImportEntry {
-    const char *library;
-    std::uint32_t nid;
-    std::uint32_t stub;
-    const HleFunction *hle;
-};
-
-// Everything the generated code of one module provides. Overlays (overlay_id >= 0) share address ranges with other
-// overlays; the runtime dispatches into the one that is active in its region (docs/04-recompiler.md §4.4).
-struct Program {
-    const char *name;
-    std::uint32_t entry;
-    std::uint32_t gp;
-    std::span<const FunctionEntry> functions;
-    std::span<ImportEntry> imports;
-    std::uint32_t code_start{};
-    std::uint32_t code_end{};
-    std::int32_t overlay_id{-1};
-};
 
 // Error codes returned to the guest (subset of SceKernelErrorCode).
 namespace error {
@@ -174,6 +134,8 @@ private:
     psprecomp::GuestMemory memory_;
     std::unique_ptr<Kernel> kernel_;
     std::vector<FunctionEntry> functions_; // sorted by address (main modules)
+    std::vector<std::uint32_t> import_stubs_; // sorted; always native even when interpreting everything
+    bool interpret_only_{};                   // MHF_INTERPRET_ONLY=1: run guest code with the interpreter (tests)
     struct OverlayRegion {
         std::uint32_t start{};
         std::uint32_t end{};
@@ -187,7 +149,7 @@ private:
     std::uint64_t overlay_activations_{};
 };
 
-// Called by generated import wrappers.
+// Resolves and runs an imported function (also used by generated import wrappers through abi::call_import).
 void call_import(Runtime &rt, Context &ctx, ImportEntry &import);
 
 } // namespace mhf::psp

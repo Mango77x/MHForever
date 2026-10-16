@@ -2,6 +2,7 @@
 //
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
 //             [--window] [--dump-frames <dir> [--dump-every N]] [--seconds S] [--quiet-overlays]
+//             [--input "<seconds>:<button>,..."]
 // The executable supplies the initial data sections during development (open question Q-16 for releases).
 
 #include "mhf/psp/frame_dump.hpp"
@@ -19,6 +20,8 @@
 #include <cstring>
 #include <exception>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace mhf::psp::generated {
 std::span<const Program *const> mhfu_programs();
@@ -30,6 +33,39 @@ using mhf::psp::Context;
 using mhf::psp::Runtime;
 
 bool g_log_overlays = true;
+
+// Scripted input for unattended runs: "12.5:cross,15:start" presses each button for 150 ms at that time.
+struct ScriptedPress {
+    double at_seconds;
+    std::uint32_t buttons;
+};
+
+std::vector<ScriptedPress> parse_input_script(const std::string &text) {
+    static const std::pair<const char *, std::uint32_t> names[] = {
+        {"cross", mhf::psp::buttons::kCross}, {"circle", mhf::psp::buttons::kCircle},
+        {"square", mhf::psp::buttons::kSquare}, {"triangle", mhf::psp::buttons::kTriangle},
+        {"start", mhf::psp::buttons::kStart}, {"select", mhf::psp::buttons::kSelect},
+        {"up", mhf::psp::buttons::kUp}, {"down", mhf::psp::buttons::kDown},
+        {"left", mhf::psp::buttons::kLeft}, {"right", mhf::psp::buttons::kRight},
+        {"l", mhf::psp::buttons::kLTrigger}, {"r", mhf::psp::buttons::kRTrigger},
+    };
+    std::vector<ScriptedPress> out;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        const auto comma = text.find(',', start);
+        const std::string item = text.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        const auto colon = item.find(':');
+        if (colon != std::string::npos) {
+            const std::string name = item.substr(colon + 1);
+            for (const auto &[n, bit] : names) {
+                if (name == n) out.push_back({std::stod(item.substr(0, colon)), bit});
+            }
+        }
+        if (comma == std::string::npos) break;
+        start = comma + 1;
+    }
+    return out;
+}
 
 // Hook on mh_overlay_prepare(image, size): the overlay image (header included) is already in guest memory and its
 // static initializers are about to run, so its recompiled code must become the active one for its region now.
@@ -51,6 +87,7 @@ int main(int argc, char **argv) {
     unsigned dump_every = 30;
     double seconds = 0;
     bool window = false;
+    std::vector<ScriptedPress> script;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--iso" && i + 1 < argc) options.disc_image = argv[++i];
@@ -62,6 +99,7 @@ int main(int argc, char **argv) {
         else if (a == "--dump-every" && i + 1 < argc) dump_every = static_cast<unsigned>(std::stoul(argv[++i]));
         else if (a == "--seconds" && i + 1 < argc) seconds = std::stod(argv[++i]);
         else if (a == "--window") window = true;
+        else if (a == "--input" && i + 1 < argc) script = parse_input_script(argv[++i]);
         else {
             std::fprintf(stderr, "usage: %s --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]\n",
                          argv[0]);
@@ -81,7 +119,7 @@ int main(int argc, char **argv) {
         }
         runtime.register_hook("mh_overlay_prepare", &on_overlay_prepare);
         std::function<void()> extra;
-        if (!dump_folder.empty() || seconds > 0) {
+        if (!dump_folder.empty() || seconds > 0 || !script.empty()) {
             if (!dump_folder.empty()) std::filesystem::create_directories(dump_folder);
             auto *rt = &runtime;
             std::uint64_t last_vblank = 0;
@@ -91,6 +129,14 @@ int main(int argc, char **argv) {
                 if (seconds > 0 && static_cast<double>(now) > seconds * 1e6) {
                     std::fprintf(stderr, "[mhfu] time limit reached\n");
                     rt->exit_program_from_host(0);
+                }
+                if (!script.empty()) {
+                    mhf::psp::ControllerState pad;
+                    for (const auto &p : script) {
+                        const double t = static_cast<double>(now) / 1e6;
+                        if (t >= p.at_seconds && t < p.at_seconds + 0.15) pad.buttons |= p.buttons;
+                    }
+                    mhf::psp::set_controller_state(*rt, pad);
                 }
                 const std::uint64_t vblank = now / mhf::psp::kVblankPeriodUs;
                 if (dump_folder.empty() || vblank == last_vblank) return;

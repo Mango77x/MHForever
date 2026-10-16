@@ -1,6 +1,7 @@
 #include "mhf/psp/runtime.hpp"
 
 #include "hle.hpp"
+#include "interpreter.hpp"
 #include "kernel.hpp"
 
 #include "psprecomp/common.hpp"
@@ -28,6 +29,7 @@ Runtime *Runtime::active() noexcept { return g_active; }
 Runtime::Runtime(RuntimeOptions options)
     : options_(std::move(options)), memory_(options_.ram_size), kernel_(std::make_unique<Kernel>(*this)) {
     g_active = this;
+    if (const char *v = std::getenv("MHF_INTERPRET_ONLY"); v != nullptr && v[0] == '1') interpret_only_ = true;
     add_hle(hle::thread_functions());
     add_hle(hle::sysmem_functions());
     add_hle(hle::io_functions());
@@ -46,6 +48,8 @@ Runtime::~Runtime() {
 
 void Runtime::add_program(const Program &program) {
     functions_.insert(functions_.end(), program.functions.begin(), program.functions.end());
+    for (const auto &import : program.imports) import_stubs_.push_back(import.stub);
+    std::sort(import_stubs_.begin(), import_stubs_.end());
     std::sort(functions_.begin(), functions_.end(),
               [](const FunctionEntry &a, const FunctionEntry &b) { return a.address < b.address; });
 }
@@ -163,12 +167,19 @@ GuestFunction Runtime::lookup(std::uint32_t address) const noexcept {
 }
 
 void Runtime::call(Context &ctx, std::uint32_t address) {
-    const GuestFunction f = lookup(address & 0x3FFFFFFFu);
+    GuestFunction f = lookup(address & 0x3FFFFFFFu);
+    if (interpret_only_ && f != nullptr &&
+        !std::binary_search(import_stubs_.begin(), import_stubs_.end(), address & 0x3FFFFFFFu)) {
+        f = nullptr;
+    }
     if (f == nullptr) {
-        const Program *overlay = active_overlay_at(address & 0x3FFFFFFFu);
-        fatal("no recompiled function at " + psprecomp::hex32(address) + " (called from $ra=" +
-              psprecomp::hex32(ctx.gpr[31]) + (overlay != nullptr ? std::string(", active overlay ") + overlay->name
-                                                                    : std::string()) + ")");
+        const std::uint32_t a = address & 0x3FFFFFFFu;
+        if (a < 0x08800000u || a >= 0x0A000000u || (a & 3u) != 0) {
+            fatal("call to invalid address " + psprecomp::hex32(address) + " (called from $ra=" +
+                  psprecomp::hex32(ctx.gpr[31]) + ")");
+        }
+        interpret_call(*this, ctx, address);
+        return;
     }
     f(*this, ctx);
 }
@@ -243,3 +254,17 @@ std::string read_string(Runtime &rt, std::uint32_t address, std::size_t max_leng
 } // namespace hle
 
 } // namespace mhf::psp
+
+namespace mhf::psp::abi {
+
+psprecomp::GuestMemory &memory(Runtime &rt) noexcept { return rt.memory(); }
+void call(Runtime &rt, Context &ctx, std::uint32_t address) { rt.call(ctx, address); }
+void jump(Runtime &rt, Context &ctx, std::uint32_t address) { rt.jump(ctx, address); }
+void unsupported(Runtime &rt, std::uint32_t pc, std::uint32_t word, const char *reason) {
+    rt.unsupported(pc, word, reason);
+}
+void arithmetic_overflow(Runtime &rt, std::uint32_t pc, std::uint32_t word) { rt.arithmetic_overflow(pc, word); }
+HookFunction find_hook(Runtime &rt, const char *name) { return rt.find_hook(name); }
+void call_import(Runtime &rt, Context &ctx, ImportEntry &import) { mhf::psp::call_import(rt, ctx, import); }
+
+} // namespace mhf::psp::abi

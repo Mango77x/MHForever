@@ -2,7 +2,7 @@
 
 // Everything recompiled code (mhf_recomp output) needs. Generated code is never committed (see CONTRIBUTING.md).
 
-#include "mhf/psp/runtime.hpp"
+#include "mhf/psp/abi.hpp"
 
 #include <bit>
 #include <cmath>
@@ -18,6 +18,6 @@ using mhf::psp::HookFunction;
 using mhf::psp::ImportEntry;
 using mhf::psp::Program;
 using mhf::psp::Runtime;
-using mhf::psp::call_import;
+namespace abi = mhf::psp::abi;
 
 } // namespace mhf::psp::generated

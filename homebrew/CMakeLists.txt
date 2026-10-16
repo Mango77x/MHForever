@@ -31,6 +31,10 @@ function(mhf_add_homebrew name)
     add_dependencies(hb_${name} ${name}_elf)
     add_test(NAME homebrew_${name} COMMAND hb_${name} ${work}/${name}.elf --memstick ${work}/memstick)
     set_tests_properties(homebrew_${name} PROPERTIES PASS_REGULAR_EXPRESSION "${ARG_EXPECT}" TIMEOUT 60)
+    # Same program run entirely by the fallback interpreter, so interpreter and recompiler stay in agreement.
+    add_test(NAME homebrew_${name}_interpreted COMMAND hb_${name} ${work}/${name}.elf --memstick ${work}/memstick)
+    set_tests_properties(homebrew_${name}_interpreted PROPERTIES PASS_REGULAR_EXPRESSION "${ARG_EXPECT}" TIMEOUT 60
+                         ENVIRONMENT "MHF_INTERPRET_ONLY=1")
 endfunction()
 
 mhf_add_homebrew(hello EXPECT "hello from the PSP runtime\ncount 1\ncount 2\ncount 3")
