@@ -32,5 +32,8 @@ std::span<const HleFunction> sysmem_functions();   // SysMemUserForUser
 std::span<const HleFunction> io_functions();       // IoFileMgrForUser, StdioForUser
 std::span<const HleFunction> system_functions();   // LoadExecForUser, ModuleMgrForUser, UtilsForUser, sceRtc, ...
 std::span<const HleFunction> display_functions();  // sceDisplay, sceCtrl
+std::span<const HleFunction> misc_functions();     // interrupts, vtimers, modules, UMD, small services
+std::span<const HleFunction> ge_functions();       // sceGe_user
+std::span<const HleFunction> media_functions();    // sceAudio, sceSasCore, sceAtrac3plus, sceMpeg, sceLibFont, dialogs
 
 } // namespace mhf::psp::hle

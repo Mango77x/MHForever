@@ -26,6 +26,8 @@ class Kernel;
 
 using GuestFunction = void (*)(Runtime &, Context &);
 using HleHandler = void (*)(Runtime &, Context &);
+// Host code run on entry to a hooked guest function (the guest function then runs normally).
+using HookFunction = void (*)(Runtime &, Context &);
 
 struct HleFunction {
     const char *library;
@@ -47,13 +49,17 @@ struct ImportEntry {
     const HleFunction *hle;
 };
 
-// Everything the generated code of one module provides.
+// Everything the generated code of one module provides. Overlays (overlay_id >= 0) share address ranges with other
+// overlays; the runtime dispatches into the one that is active in its region (docs/04-recompiler.md §4.4).
 struct Program {
     const char *name;
     std::uint32_t entry;
     std::uint32_t gp;
     std::span<const FunctionEntry> functions;
     std::span<ImportEntry> imports;
+    std::uint32_t code_start{};
+    std::uint32_t code_end{};
+    std::int32_t overlay_id{-1};
 };
 
 // Error codes returned to the guest (subset of SceKernelErrorCode).
@@ -101,6 +107,8 @@ struct RuntimeOptions {
     // Host folders behind the PSP devices ("ms0:", "disc0:/umd0:", "host0:").
     std::filesystem::path memstick_root = "memstick";
     std::filesystem::path disc_root = "disc";
+    // When set, "disc0:"/"umd0:" are served read-only from this ISO image instead of disc_root.
+    std::filesystem::path disc_image;
     std::filesystem::path host_root = ".";
 };
 
@@ -120,6 +128,14 @@ public:
 
     // Registration.
     void add_program(const Program &program);
+    // Overlays: registered up front, made active when the game loads them.
+    void add_overlay(const Program &overlay);
+    bool activate_overlay(std::int32_t overlay_id);
+    [[nodiscard]] const Program *active_overlay_at(std::uint32_t address) const noexcept;
+
+    // Hooks called by generated code on entry to selected guest functions.
+    void register_hook(std::string name, HookFunction function);
+    [[nodiscard]] HookFunction find_hook(std::string_view name) const;
     void add_hle(std::span<const HleFunction> functions);
     [[nodiscard]] const HleFunction *find_hle(std::string_view library, std::uint32_t nid) const;
 
@@ -128,6 +144,9 @@ public:
 
     // Runs the module entry in a new thread and schedules until the program exits. Returns the exit code.
     int run(const Program &program, std::string_view boot_path);
+
+    // Overlay activations so far (diagnostics).
+    [[nodiscard]] std::uint64_t overlay_activations() const noexcept { return overlay_activations_; }
 
     // Generated code interface.
     void call(Context &ctx, std::uint32_t address);  // indirect call; returns when the callee returns
@@ -144,13 +163,28 @@ public:
 
     void log_unimplemented(const ImportEntry &import);
 
+    // Host integration without exposing the kernel: a hook polled by the scheduler, the time base, and a way for
+    // the host to end the program from that hook.
+    void kernel_host_poll(std::function<void()> poll);
+    [[nodiscard]] std::uint64_t now_us() const;
+    void exit_program_from_host(int code);
+
 private:
     RuntimeOptions options_;
     psprecomp::GuestMemory memory_;
     std::unique_ptr<Kernel> kernel_;
-    std::vector<FunctionEntry> functions_; // sorted by address
+    std::vector<FunctionEntry> functions_; // sorted by address (main modules)
+    struct OverlayRegion {
+        std::uint32_t start{};
+        std::uint32_t end{};
+        const Program *active{};
+    };
+    std::vector<OverlayRegion> overlay_regions_;
+    std::unordered_map<std::int32_t, const Program *> overlays_;
+    std::unordered_map<std::string, HookFunction> hooks_;
     std::unordered_map<std::uint64_t, const HleFunction *> hle_;
     std::unordered_map<std::uint64_t, bool> reported_unimplemented_;
+    std::uint64_t overlay_activations_{};
 };
 
 // Called by generated import wrappers.

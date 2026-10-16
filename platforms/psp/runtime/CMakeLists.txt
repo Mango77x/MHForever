@@ -2,17 +2,22 @@
 
 add_library(mhf_psp_runtime STATIC
     src/fiber.cpp
+    src/frame_dump.cpp
     src/hle_display.cpp
+    src/hle_ge.cpp
     src/hle_io.cpp
+    src/hle_media.cpp
+    src/hle_misc.cpp
     src/hle_sysmem.cpp
     src/hle_system.cpp
     src/hle_thread.cpp
     src/kernel.cpp
     src/runtime.cpp
     src/sysmem.cpp
+    ../gpu/ge.cpp
 )
-target_include_directories(mhf_psp_runtime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(mhf_psp_runtime PUBLIC psprecomp_core)
+target_include_directories(mhf_psp_runtime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../gpu)
+target_link_libraries(mhf_psp_runtime PUBLIC psprecomp_core mhf_psp_tools)
 mhf_target_warnings(mhf_psp_runtime)
 
 # mhf_add_recompiled_program(<name> ELF <path> [PARTS <n>] [MAIN <source>])

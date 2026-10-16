@@ -33,6 +33,9 @@ Runtime::Runtime(RuntimeOptions options)
     add_hle(hle::io_functions());
     add_hle(hle::system_functions());
     add_hle(hle::display_functions());
+    add_hle(hle::misc_functions());
+    add_hle(hle::ge_functions());
+    add_hle(hle::media_functions());
 }
 
 Runtime::~Runtime() {
@@ -51,6 +54,49 @@ void Runtime::add_hle(std::span<const HleFunction> functions) {
     for (const auto &f : functions) {
         hle_[hle_key(f.library, f.nid)] = &f;
     }
+}
+
+void Runtime::add_overlay(const Program &overlay) {
+    overlays_[overlay.overlay_id] = &overlay;
+    for (auto &region : overlay_regions_) {
+        if (region.start == overlay.code_start || (overlay.code_start < region.end && overlay.code_end > region.start)) {
+            region.start = std::min(region.start, overlay.code_start);
+            region.end = std::max(region.end, overlay.code_end);
+            return;
+        }
+    }
+    overlay_regions_.push_back({overlay.code_start, overlay.code_end, nullptr});
+}
+
+bool Runtime::activate_overlay(std::int32_t overlay_id) {
+    const auto it = overlays_.find(overlay_id);
+    if (it == overlays_.end()) {
+        return false;
+    }
+    for (auto &region : overlay_regions_) {
+        if (it->second->code_start >= region.start && it->second->code_start < region.end) {
+            region.active = it->second;
+            ++overlay_activations_;
+            return true;
+        }
+    }
+    return false;
+}
+
+const Program *Runtime::active_overlay_at(std::uint32_t address) const noexcept {
+    for (const auto &region : overlay_regions_) {
+        if (address >= region.start && address < region.end) {
+            return region.active;
+        }
+    }
+    return nullptr;
+}
+
+void Runtime::register_hook(std::string name, HookFunction function) { hooks_[std::move(name)] = function; }
+
+HookFunction Runtime::find_hook(std::string_view name) const {
+    const auto it = hooks_.find(std::string(name));
+    return it != hooks_.end() ? it->second : nullptr;
 }
 
 const HleFunction *Runtime::find_hle(std::string_view library, std::uint32_t nid) const {
@@ -97,17 +143,32 @@ int Runtime::run(const Program &program, std::string_view boot_path) {
     return kernel_->run_scheduler();
 }
 
-GuestFunction Runtime::lookup(std::uint32_t address) const noexcept {
-    const auto it = std::lower_bound(functions_.begin(), functions_.end(), address,
+namespace {
+GuestFunction find_in(std::span<const FunctionEntry> table, std::uint32_t address) {
+    const auto it = std::lower_bound(table.begin(), table.end(), address,
                                      [](const FunctionEntry &e, std::uint32_t a) { return e.address < a; });
-    return it != functions_.end() && it->address == address ? it->function : nullptr;
+    return it != table.end() && it->address == address ? it->function : nullptr;
+}
+} // namespace
+
+GuestFunction Runtime::lookup(std::uint32_t address) const noexcept {
+    if (!overlay_regions_.empty()) {
+        for (const auto &region : overlay_regions_) {
+            if (address >= region.start && address < region.end) {
+                return region.active != nullptr ? find_in(region.active->functions, address) : nullptr;
+            }
+        }
+    }
+    return find_in(functions_, address);
 }
 
 void Runtime::call(Context &ctx, std::uint32_t address) {
     const GuestFunction f = lookup(address & 0x3FFFFFFFu);
     if (f == nullptr) {
+        const Program *overlay = active_overlay_at(address & 0x3FFFFFFFu);
         fatal("no recompiled function at " + psprecomp::hex32(address) + " (called from $ra=" +
-              psprecomp::hex32(ctx.gpr[31]) + ")");
+              psprecomp::hex32(ctx.gpr[31]) + (overlay != nullptr ? std::string(", active overlay ") + overlay->name
+                                                                    : std::string()) + ")");
     }
     f(*this, ctx);
 }
@@ -133,6 +194,10 @@ void Runtime::exit_program(int code) {
     std::fflush(stdout);
     kernel_->exit_program(code);
 }
+
+void Runtime::kernel_host_poll(std::function<void()> poll) { kernel_->host_poll = std::move(poll); }
+std::uint64_t Runtime::now_us() const { return kernel_->now_us(); }
+void Runtime::exit_program_from_host(int code) { kernel_->request_exit(code); }
 
 void Runtime::log_unimplemented(const ImportEntry &import) {
     const auto key = hle_key(import.library, import.nid);

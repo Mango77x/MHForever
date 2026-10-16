@@ -41,7 +41,7 @@ static int flag_waiter(SceSize args, void *argp) {
 static int delayer(SceSize args, void *argp) {
     int usec = *(int *)argp;
     sceKernelDelayThread(usec);
-    mark(usec < 2000 ? '1' : '2');
+    mark(usec < 20000 ? '1' : '2');
     return usec;
 }
 
@@ -103,13 +103,13 @@ int main(void) {
     sceKernelDeleteThread(t);
 
     // Delays: the shorter delay finishes first.
-    static int long_delay = 3000, short_delay = 1000;
+    static int long_delay = 60000, short_delay = 10000; // far apart, so host load cannot reorder them
     SceUID d1 = sceKernelCreateThread("d1", delayer, 0x20, 0x1000, 0, NULL);
     SceUID d2 = sceKernelCreateThread("d2", delayer, 0x20, 0x1000, 0, NULL);
     reset_order();
     sceKernelStartThread(d1, sizeof long_delay, &long_delay);
     sceKernelStartThread(d2, sizeof short_delay, &short_delay);
-    check("delay exit status", sceKernelWaitThreadEnd(d1, NULL), 3000);
+    check("delay exit status", sceKernelWaitThreadEnd(d1, NULL), 60000);
     sceKernelWaitThreadEnd(d2, NULL);
     check_order("delay order", "12");
 

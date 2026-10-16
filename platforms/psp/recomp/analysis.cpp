@@ -226,8 +226,8 @@ public:
             }
         };
         auto add_call = [&](std::uint32_t address) {
-            if (is_code(address) && !is_import(address)) {
-                calls.insert(address);
+            if (!is_import(address) && (address & 3u) == 0u) {
+                calls.insert(address); // may lie outside this module: the caller sorts that out
             }
         };
 
@@ -255,7 +255,9 @@ public:
                     add_label(pc + 8u);
                 } else if (d.kind == OpcodeKind::J) {
                     const std::uint32_t target = jump_target(d, pc);
-                    if (!seeds.contains(target) || target == entry) {
+                    if (!is_code(target)) {
+                        add_call(target); // tail call into another module
+                    } else if (!seeds.contains(target) || target == entry) {
                         add_label(target);
                     }
                 } else if (d.kind == OpcodeKind::Jal) {
@@ -354,7 +356,11 @@ Analysis analyze(const ProgramInput &input) {
             }
         }
         for (const auto c : calls) {
-            add_seed(c);
+            if (explorer.is_code(c)) {
+                add_seed(c);
+            } else {
+                result.external_calls.insert(c);
+            }
         }
         constant_pointers.insert(pointers.begin(), pointers.end());
         bodies[entry] = std::move(f);
@@ -428,7 +434,17 @@ Analysis analyze(const ProgramInput &input) {
         // exploring them first lets their bodies absorb the data pointers that are really jump-table targets.
         std::optional<std::uint32_t> next;
         bool from_constant = false;
+        for (const auto value : input.weak_entries) {
+            if (explorer.is_code(value) && !seeds.contains(value) && !covered.contains(value)) {
+                next = value;
+                from_constant = true;
+                break;
+            }
+        }
         for (const auto value : constant_pointers) {
+            if (next) {
+                break;
+            }
             if (!seeds.contains(value) && !covered.contains(value)) {
                 next = value;
                 from_constant = true;

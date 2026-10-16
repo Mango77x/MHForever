@@ -17,6 +17,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <initializer_list>
 #include <optional>
 #include <string>
 
@@ -130,6 +131,34 @@ public:
     std::map<int, Callback> callbacks;
     int exit_callback{};
 
+    // Interrupt handlers. Only the vblank interrupt (30) is delivered; its sub-handlers run at every vblank.
+    struct SubInterrupt {
+        std::uint32_t handler{};
+        std::uint32_t argument{};
+        bool enabled{};
+    };
+    static constexpr int kVblankInterrupt = 30;
+    std::map<int, SubInterrupt> vblank_handlers; // by sub-interrupt number
+
+    // Virtual timers: count microseconds while running and call their handler at a scheduled time.
+    struct VTimer {
+        int uid{};
+        std::string name;
+        bool running{};
+        std::uint64_t started_at{};   // host time when last started
+        std::uint64_t accumulated{};  // time counted before the last start
+        std::uint64_t schedule{};     // timer time at which the handler fires
+        std::uint32_t handler{};
+        std::uint32_t common{};
+    };
+    std::map<int, VTimer> vtimers;
+    [[nodiscard]] std::uint64_t vtimer_time(const VTimer &timer) const;
+
+    // Runs a guest function in interrupt context (no current thread, its own stack). Returns $v0.
+    std::uint32_t call_from_interrupt(std::uint32_t function, std::initializer_list<std::uint32_t> args);
+    // Scratch guest memory owned by the interrupt context (for structures passed to handlers).
+    [[nodiscard]] std::uint32_t interrupt_scratch();
+
     void signal_semaphore_waiters(Semaphore &sema);
     void signal_event_flag_waiters(EventFlag &flag);
     void signal_lw_mutex_waiters(LwMutex &mutex);
@@ -138,6 +167,8 @@ public:
     // Runs the scheduler until exit. Returns the program exit code.
     int run_scheduler();
     [[noreturn]] void exit_program(int code);
+    // Asks the scheduler to stop at its next iteration (safe from host hooks).
+    void request_exit(int code) { exit_code_ = code; }
     [[nodiscard]] bool exiting() const noexcept { return exit_code_.has_value(); }
 
     // Host hook called by the scheduler on every iteration (input, presentation). May be empty.
@@ -152,6 +183,9 @@ private:
     [[nodiscard]] Thread *pick_ready();
     void wake_timeouts();
     void destroy_finished_fibers();
+    void service_interrupts();
+    [[nodiscard]] std::uint64_t next_interrupt_time() const;
+    void ensure_interrupt_context();
 
     Runtime &runtime_;
     SysMem sysmem_;
@@ -164,6 +198,10 @@ private:
     std::int64_t back_counter_{0};
     std::int64_t front_counter_{0};
     std::optional<int> exit_code_;
+    Context interrupt_ctx_{};
+    std::uint32_t interrupt_stack_top_{};
+    std::uint64_t last_vblank_{};
+    bool in_interrupt_{};
 };
 
 } // namespace mhf::psp

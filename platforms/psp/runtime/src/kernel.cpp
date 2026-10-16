@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <iterator>
 #include <cstdio>
+#include <cstdlib>
+#include <stdexcept>
 #include <thread>
+#include <vector>
 
 namespace mhf::psp {
 
@@ -184,6 +187,9 @@ std::uint64_t Kernel::deadline_from_timeout(std::uint32_t timeout_address) const
 
 std::uint32_t Kernel::wait(WaitType type, int object, std::uint64_t deadline, std::uint32_t timeout_address) {
     Thread *t = current_;
+    if (t == nullptr) {
+        return 0x80020064u; // SCE_KERNEL_ERROR_ILLEGAL_CONTEXT: no waiting in interrupt handlers
+    }
     t->state = ThreadState::Waiting;
     t->wait_type = type;
     t->wait_object = object;
@@ -228,6 +234,9 @@ void Kernel::preempt_if_needed() {
 
 void Kernel::yield() {
     Thread *t = current_;
+    if (t == nullptr) {
+        return;
+    }
     t->state = ThreadState::Ready;
     t->ready_order = back_counter_++;
     switch_to_scheduler();
@@ -351,13 +360,21 @@ Kernel::Thread *Kernel::pick_ready() {
 }
 
 void Kernel::wake_timeouts() {
+    // Wake expired waits in deadline order, so that threads whose timers fired earlier run earlier even when the
+    // host overslept past several deadlines.
     const std::uint64_t now = now_us();
+    std::vector<Thread *> expired;
     for (auto &[uid, t] : threads_) {
         if (t->state == ThreadState::Waiting && t->wait_deadline != kNoDeadline && t->wait_deadline <= now) {
-            const bool timed_wait = t->wait_type != WaitType::Delay && t->wait_type != WaitType::Vblank;
-            remove_from_wait_queue(*t);
-            wake(*t, timed_wait ? error::kWaitTimeout : 0u);
+            expired.push_back(t.get());
         }
+    }
+    std::stable_sort(expired.begin(), expired.end(),
+                     [](const Thread *a, const Thread *b) { return a->wait_deadline < b->wait_deadline; });
+    for (Thread *t : expired) {
+        const bool timed_wait = t->wait_type != WaitType::Delay && t->wait_type != WaitType::Vblank;
+        remove_from_wait_queue(*t);
+        wake(*t, timed_wait ? error::kWaitTimeout : 0u);
     }
 }
 
@@ -376,16 +393,122 @@ void Kernel::destroy_finished_fibers() {
     }
 }
 
+std::uint64_t Kernel::vtimer_time(const VTimer &timer) const {
+    return timer.accumulated + (timer.running ? now_us() - timer.started_at : 0u);
+}
+
+void Kernel::ensure_interrupt_context() {
+    if (interrupt_stack_top_ != 0) {
+        return;
+    }
+    const auto block = sysmem_.allocate(1, "interrupt stack", SysMem::Placement::High, 0x10000u);
+    if (!block) {
+        throw std::runtime_error("cannot allocate the interrupt stack");
+    }
+    interrupt_stack_top_ = block->address + block->size;
+}
+
+std::uint32_t Kernel::interrupt_scratch() {
+    ensure_interrupt_context();
+    return interrupt_stack_top_ - 0x100u; // 256 bytes above the handler stack
+}
+
+std::uint32_t Kernel::call_from_interrupt(std::uint32_t function, std::initializer_list<std::uint32_t> args) {
+    ensure_interrupt_context();
+    Context &ctx = interrupt_ctx_;
+    ctx = Context{};
+    unsigned i = 0;
+    for (const auto a : args) {
+        ctx.gpr[4u + i++] = a;
+    }
+    ctx.gpr[28] = module_gp_;
+    ctx.gpr[29] = interrupt_stack_top_ - 0x200u;
+    ctx.gpr[31] = 0u;
+    ctx.fcr31 = 0x00000E00u;
+    ctx.vfpu_ctrl[0] = ctx.vfpu_ctrl[1] = 0xE4u;
+    Thread *interrupted = current_;
+    current_ = nullptr;
+    in_interrupt_ = true;
+    runtime_.call(ctx, function);
+    in_interrupt_ = false;
+    current_ = interrupted;
+    return ctx.gpr[2];
+}
+
+void Kernel::service_interrupts() {
+    const std::uint64_t now = now_us();
+    // Vblank: once per 59.94 Hz frame.
+    const std::uint64_t vblank = now / 16683u;
+    if (vblank != last_vblank_) {
+        last_vblank_ = vblank;
+        for (const auto &[sub, h] : vblank_handlers) {
+            if (h.enabled && h.handler != 0) {
+                call_from_interrupt(h.handler, {static_cast<std::uint32_t>(sub), h.argument});
+            }
+        }
+    }
+    // Virtual timers.
+    for (auto &[uid, t] : vtimers) {
+        if (!t.running || t.handler == 0) {
+            continue;
+        }
+        const std::uint64_t time = vtimer_time(t);
+        if (time < t.schedule) {
+            continue;
+        }
+        auto &mem = runtime_.memory();
+        const std::uint32_t schedule_ptr = interrupt_scratch();
+        const std::uint32_t current_ptr = schedule_ptr + 8u;
+        mem.store32(schedule_ptr, static_cast<std::uint32_t>(t.schedule));
+        mem.store32(schedule_ptr + 4, static_cast<std::uint32_t>(t.schedule >> 32u));
+        mem.store32(current_ptr, static_cast<std::uint32_t>(time));
+        mem.store32(current_ptr + 4, static_cast<std::uint32_t>(time >> 32u));
+        const std::uint32_t handler = t.handler;
+        const std::uint32_t next = call_from_interrupt(handler, {static_cast<std::uint32_t>(uid), schedule_ptr,
+                                                                 current_ptr, t.common});
+        const auto it = vtimers.find(uid);
+        if (it == vtimers.end()) {
+            break; // deleted by its own handler
+        }
+        if (next == 0) {
+            it->second.handler = 0;
+        } else {
+            it->second.schedule += next;
+        }
+    }
+}
+
+std::uint64_t Kernel::next_interrupt_time() const {
+    std::uint64_t next = kNoDeadline;
+    for (const auto &[sub, h] : vblank_handlers) {
+        if (h.enabled) {
+            next = (last_vblank_ + 1) * 16683u;
+            break;
+        }
+    }
+    for (const auto &[uid, t] : vtimers) {
+        if (t.running && t.handler != 0) {
+            const std::uint64_t remaining = t.schedule > vtimer_time(t) ? t.schedule - vtimer_time(t) : 0u;
+            next = std::min(next, now_us() + remaining);
+        }
+    }
+    return next;
+}
+
 int Kernel::run_scheduler() {
     scheduler_fiber_ = Fiber::from_current_thread();
     while (!exit_code_) {
         if (host_poll) {
             host_poll();
         }
+        service_interrupts();
+        if (exit_code_) {
+            break;
+        }
         wake_timeouts();
         Thread *next = pick_ready();
         if (next == nullptr) {
-            std::uint64_t earliest = kNoDeadline;
+            std::uint64_t earliest = next_interrupt_time();
             bool any_alive = false;
             for (const auto &[uid, t] : threads_) {
                 if (t->state == ThreadState::Waiting) {
@@ -430,8 +553,12 @@ void Kernel::exit_program(int code) {
     if (current_ != nullptr) {
         current_->fiber_finished = true;
         Fiber::switch_to(*current_->fiber, *scheduler_fiber_);
+        std::abort(); // never resumed
     }
-    std::abort(); // never resumed
+    // Outside any PSP thread (interrupt handler running on the scheduler's own stack): stop the process.
+    std::fflush(stdout);
+    std::fflush(stderr);
+    std::exit(code);
 }
 
 } // namespace mhf::psp

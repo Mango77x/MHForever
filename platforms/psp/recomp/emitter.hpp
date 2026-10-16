@@ -16,7 +16,15 @@ struct EmitOptions {
     std::uint32_t entry{};        // module entry point
     std::uint32_t gp{};           // module $gp
     std::size_t parts{8};         // number of function source files (fixed so build systems can list them)
+    std::uint32_t code_start{};   // address range served by this module's function table
+    std::uint32_t code_end{};
+    std::int32_t overlay_id{-1};  // >= 0 for overlays (the id in their header)
 };
+
+// Writes <out>/<registry_name>_programs.cpp defining `std::span<const Program *const> <registry_name>_programs()` over the
+// given program names (main module first, then overlays).
+void emit_registry(const std::string &registry_name, const std::vector<std::string> &program_names,
+                   const std::filesystem::path &out_dir);
 
 struct EmitResult {
     std::vector<std::filesystem::path> files;

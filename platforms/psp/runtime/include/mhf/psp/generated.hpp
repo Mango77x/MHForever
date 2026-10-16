@@ -14,6 +14,7 @@ namespace mhf::psp::generated {
 
 using mhf::psp::Context;
 using mhf::psp::FunctionEntry;
+using mhf::psp::HookFunction;
 using mhf::psp::ImportEntry;
 using mhf::psp::Program;
 using mhf::psp::Runtime;

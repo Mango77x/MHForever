@@ -48,12 +48,18 @@ struct ProgramInput {
     std::vector<CodeRange> code;               // executable ranges (import stubs excluded)
     std::vector<CodeRange> data;               // ranges scanned for code pointers
     std::vector<ImportStub> imports;
-    std::vector<std::uint32_t> extra_entries;  // entry point, exports, known callbacks
+    std::vector<std::uint32_t> extra_entries;  // entry point, exports, known callbacks, calls from other modules
+    // Possible entries reported by other modules (calls into a shared overlay region): promoted like code pointers,
+    // only when they do not land inside a known body.
+    std::vector<std::uint32_t> weak_entries;
+    // Addresses whose functions call a named host hook on entry (games/<id>/regions/<id>/symbols.toml).
+    std::map<std::uint32_t, std::string> hooks;
 };
 
 struct Analysis {
     std::map<std::uint32_t, Function> functions; // by entry
     std::map<std::uint32_t, std::size_t> import_by_stub;
+    std::set<std::uint32_t> external_calls; // call or tail-call targets outside this module's code
     std::size_t data_pointer_seeds{};
     std::size_t constant_pointer_seeds{};
     std::size_t jump_tables{};
