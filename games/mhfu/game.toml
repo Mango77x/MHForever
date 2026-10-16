@@ -1,0 +1,5 @@
+# Game module metadata. See docs/02-architecture.md §6.
+id = "mhfu"
+platform = "psp"
+display_name = "Freedom Unite (PSP)"   # descriptive only, never used as the product name
+regions = ["ULES01213", "ULUS10391", "ULJM05500"]

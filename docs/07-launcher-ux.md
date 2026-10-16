@@ -1,0 +1,94 @@
+# 07 — Launcher, user experience, controllers and Steam Deck
+
+## 1. Principles
+
+- **Gamepad-first**: the whole launcher works with a controller (the Deck has no comfortable keyboard). Mouse and keyboard too.
+- Fullscreen by default on Deck; resizable window on desktop.
+- No jargon: "Add my copy", "Play", "Play with friends".
+- No art from the series in the launcher UI, except optionally the icon read from the player's copy (pending legal OK).
+
+## 2. First-run flow
+
+1. Welcome + notice: "You need your own copy of the game. This program contains and downloads no game content."
+2. **Add game** → file picker (on Deck, SDL3's dialog / desktop portal; also "scan this folder").
+3. Hash identification → shows "Freedom Unite · Europe (ULES01213 v1.01) ✓" or an explained error.
+4. **Prepare**: index the ISO's data with a progress bar (model A: the player neither recompiles nor decrypts anything).
+   Only model B would add local recompilation and compilation.
+5. Play.
+
+## 3. Screens
+
+Library (cards per game/region), global settings (video, audio, controllers, network, language), per-game settings (toggleable
+enhancements), multiplayer (create room / join with code), diagnostics (logs, "copy report").
+
+## 3b. Implementation (2026-10-17)
+
+The launcher is `launcher/`: a native host plus a web UI shown in the **system web view** (WebView2 on Windows,
+WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt is out (LGPL-3/GPL-3, incompatible with
+GPL-2.0-only); Dear ImGui could not reach the target visual/motion quality.
+
+- **UI** (`launcher/ui`): React + TypeScript + Motion (spring animations, shared-layout transitions), Sora/Manrope fonts
+  (OFL) bundled. `vite build` produces one self-contained `index.html` (scripts, styles and fonts inlined) that CMake
+  embeds into the executable (`launcher/embed.cmake`), so the launcher never loads anything from the network. In a plain
+  browser (`npm run dev`) a simulated backend in `bridge.ts` stands in for the native side.
+- **Bridge**: native functions `mhf_getState`, `mhf_setSettings`, `mhf_setPseudonym`, `mhf_addGame`, `mhf_removeGame`,
+  `mhf_pickExecutable`, `mhf_play`, `mhf_copyText`, `mhf_exportIdentity` (Promises of JSON); events pushed with
+  `window.__mhfEvent` (`verify`, `verified`, `verifyFailed`, `launch`, `exited`, `launchFailed`, `state`).
+- **Native host** (`launcher/native`): `launcher.cpp` keeps `launcher.json` next to the executable (portable for now):
+  pseudonym, identity seed, settings, library, stats. Adding a copy reads PARAM.SFO (`platforms/psp/tools/param_sfo`)
+  and compares size + SHA-1 with `games/*/regions/*/region.toml` (catalog generated at configure time; identification
+  data only). Launching runs `mhfu(.exe)` next to the launcher with the settings as flags (`--scale`, `--fullscreen`,
+  `--smooth-textures`, `--music-volume`, `--sfx-volume`, `--name`), logs to `game.log`, and records play time and
+  sessions. The developer build also needs the prepared executable: found automatically at
+  `../exe/<DISC_ID>_EBOOT.BIN` (or next to the ISO) and checked against `dev_executable` in region.toml.
+- **Friend code**: generated locally (SHA-256 of a random identity seed, Crockford base32). Provisional: online play will
+  derive it from the Ed25519 public key (`08-multiplayer.md` §4.1); the backup file carries the seed.
+- **Input**: mouse, keyboard (arrows/Enter/Esc) and gamepad (Gamepad API: D-pad/stick move focus spatially, A selects,
+  B goes back; menus, drawers and dialogs trap focus via `data-nav-scope`). `prefers-reduced-motion` is honoured.
+- **Windows details**: dark title bar (DWM), WebView2 background colour set before creation (no white flash), message
+  if the WebView2 runtime is missing; the game starts without a console window.
+- Tests: `launcher_core` (hashes, JSON, PARAM.SFO, settings, identity persistence; with `MHF_TEST_ISO` it verifies a real
+  copy, never in CI). The UI was checked with screenshots in Chromium and WebKitGTK.
+- Still to do: launcher-managed updates (signed), language selection, icon, Steam Deck packaging (AppImage/Flatpak),
+  per-user data folder option.
+
+## 4. Bundled toolchain (only for model B; not needed with model A)
+
+| Option | Approx. size | Pros | Cons |
+|---|---|---|---|
+| **`zig cc`** | ~41–50 MiB (Linux) | Embedded Clang, libc shipped as sources, static binary, cross-platform | Depends on Zig versions; validate with C++20 |
+| Minimal LLVM/Clang + lld + headers | 100–400 MiB | Full control | Heavy; Windows needs SDK/CRT |
+| Ask the user to install a compiler | 0 | Simple | Unacceptable for "anyone" and for Deck |
+| Compile in the cloud | 0 client-side | Fast | We would effectively distribute the derivative: **rejected** |
+
+## 5. Input (`core/input`)
+
+- **SDL3 Gamepad API**. Load `gamecontrollerdb.txt` (community database) with `SDL_AddGamepadMappingsFromFile` for unusual pads.
+- **Steam Input**: when the player adds the launcher to Steam as a non-Steam game, Steam exposes a virtual pad (XInput-like). We
+  must work well with it: do not fight `SDL_GAMECONTROLLER_IGNORE_DEVICES`, show generic glyphs if the type is unknown. Gyro through
+  Steam Input has known limitations in SDL; do not depend on it.
+- **Default PSP → modern controller mapping** (Xbox / PlayStation):
+  - Left stick → PSP analog. D-pad → D-pad.
+  - Face buttons: △/Y, ○/B, ×/A, □/X by physical position (option to swap confirm/cancel per region).
+  - L/R → LB/RB (LT/RT configurable too).
+  - START, SELECT → Menu/View.
+  - **Right stick → D-pad** (FU's "claw" camera) with configurable deadzone and repeat. Level 2 (analog camera hook) is an enhancement.
+- Keyboard and mouse: sensible defaults; the mouse drives the camera once the analog hook exists.
+- Full remapping per game, per-controller profiles, deadzones, sensitivity; rumble optional (the PSP has none).
+- Several local pads: player 1 only (the PSP is single-player). Local multiplayer on one machine = several instances: out of scope v1.
+
+## 6. Steam Deck / Linux
+
+- Native Linux x86-64 build (do not rely on Proton).
+- Distribution: **AppImage** first; Flatpak later (check Flathub content policies).
+- Deck resolution 1280×800 (16:10); PSP 480×272 (~16:9). Integer scaling (×2 = 960×544) or fitted with a filter, crop option, and
+  widescreen as an enhancement.
+- Test: suspend/resume, Game Mode input, performance and battery.
+- Real testing: maintainers have no Deck; friends with Decks test builds already validated on a Linux machine. They need their own copy
+  to test the game; for the rest (input, launcher, scaling) use the test scene built from our own homebrew.
+
+## 7. User data
+
+- Windows: `%APPDATA%/<public-name>/`. Linux: `$XDG_DATA_HOME/<public-name>/` (`~/.local/share/...`).
+- Subfolders: `games/<id>/<region>/`, `saves/`, `logs/`, `config.toml`.
+- Option to move the folder.

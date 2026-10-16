@@ -1,0 +1,47 @@
+cmake_minimum_required(VERSION 3.20)
+project(MHForever VERSION 0.0.1 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+option(MHF_BUILD_TESTS "Build tests" ON)
+option(MHF_WARNINGS_AS_ERRORS "Treat warnings in our own code as errors" OFF)
+set(MHF_GAMES "mhfu" CACHE STRING "Semicolon-separated list of game modules to build")
+
+# Floating-point semantics must match across platforms (docs/04-recompiler.md §9).
+if(MSVC)
+    add_compile_options(/fp:precise /utf-8)
+else()
+    add_compile_options(-ffp-contract=off -fno-fast-math)
+endif()
+
+# Compiler warnings for our own targets (not applied to third_party).
+function(mhf_target_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+        if(MHF_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE /WX)
+        endif()
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wshadow)
+        if(MHF_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE -Werror)
+        endif()
+    endif()
+endfunction()
+
+if(MHF_BUILD_TESTS)
+    enable_testing()
+endif()
+
+add_subdirectory(third_party/psprecomp)
+add_subdirectory(core)
+add_subdirectory(platforms/psp)
+foreach(game IN LISTS MHF_GAMES)
+    add_subdirectory(games/${game})
+endforeach()
+if(MHF_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()

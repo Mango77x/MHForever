@@ -1,0 +1,5 @@
+# North America. Hashes pending: obtain from a dump and cross-check with Redump.
+disc_id = "ULUS10391"
+market = "US"
+languages = ["en"]   # [VERIFY]
+status = "planned"

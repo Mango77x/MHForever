@@ -1,0 +1,40 @@
+# --- Game data and derivatives: NEVER in the repo ---
+user_data/
+*.iso
+*.cso
+*.chd
+*.pbp
+*.prx.dec
+EBOOT.BIN
+EBOOT.elf
+BOOT.BIN
+DATA.BIN
+PARAM.SFO
+*.AT3
+*.PMF
+generated/
+overlays/
+image.bin
+
+# --- Local research (may contain game binaries/pseudocode) ---
+research/*
+!research/README.md
+
+# --- Ghidra projects ---
+*.gpr
+*.rep/
+*.lock
+*.lock~
+
+# --- Build ---
+build/
+out/
+cmake-build-*/
+.vs/
+.vscode/*
+!.vscode/settings.json
+*.user
+
+# --- OS ---
+.DS_Store
+Thumbs.db
