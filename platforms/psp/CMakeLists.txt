@@ -7,8 +7,24 @@ add_library(mhf_psp_tools STATIC
 target_include_directories(mhf_psp_tools PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 mhf_target_warnings(mhf_psp_tools)
 
+# Function-level recompiler (docs/04-recompiler.md).
+add_library(mhf_psp_recomp STATIC
+    recomp/analysis.cpp
+    recomp/emitter.cpp
+    recomp/instruction_emitter.cpp
+)
+target_include_directories(mhf_psp_recomp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/recomp)
+target_link_libraries(mhf_psp_recomp PUBLIC psprecomp_core)
+mhf_target_warnings(mhf_psp_recomp)
+
+add_executable(mhf_recomp recomp/main.cpp)
+target_link_libraries(mhf_recomp PRIVATE mhf_psp_recomp)
+mhf_target_warnings(mhf_recomp)
+
+add_subdirectory(runtime)
+
 add_library(mhf_psp INTERFACE)
-target_link_libraries(mhf_psp INTERFACE psprecomp_core mhf_core mhf_psp_tools)
+target_link_libraries(mhf_psp INTERFACE psprecomp_core mhf_core mhf_psp_tools mhf_psp_runtime)
 
 if(MHF_BUILD_TESTS)
     add_executable(test_iso9660 tests/test_iso9660.cpp)

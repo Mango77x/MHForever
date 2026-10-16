@@ -38,3 +38,8 @@ cmake-build-*/
 # --- OS ---
 .DS_Store
 Thumbs.db
+
+# --- Homebrew build products (our own test programs) ---
+homebrew/**/*.o
+homebrew/**/*.elf
+*.PBP

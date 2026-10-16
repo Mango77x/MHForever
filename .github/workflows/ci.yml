@@ -28,6 +28,12 @@ jobs:
       - name: Install Ninja and Clang (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ninja-build clang
+      - name: Install pspdev toolchain for our homebrew tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -sSL https://github.com/pspdev/pspdev/releases/latest/download/pspdev-ubuntu-latest-x86_64.tar.gz \
+            | sudo tar xz -C /opt
+          echo "PSPDEV=/opt/pspdev" >> "$GITHUB_ENV"
       - name: Set up MSVC environment (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
