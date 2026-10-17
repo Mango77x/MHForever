@@ -76,6 +76,10 @@ struct RuntimeOptions {
     std::filesystem::path font_directory = "fonts";
     // Text the on-screen keyboard returns for an empty field until it has a real UI (e.g. the hunter's name).
     std::string osk_default_text = "Hunter";
+    // Player volume preferences, 0..100 (100 = as the game mixes it): music is decoded ATRAC audio, effects the voice
+    // mixer (sceSasCore).
+    int music_volume = 100;
+    int sfx_volume = 100;
 };
 
 class Runtime {

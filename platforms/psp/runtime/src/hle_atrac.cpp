@@ -156,8 +156,9 @@ public:
         return plus_ ? ((rate >> 11) + 8) & 0xFFFFFFF0 : (rate + 511) >> 10;
     }
 
-    // Decodes up to one frame of the game's timeline into `out` (stereo 16-bit). Returns the samples written.
-    int decode(psprecomp::GuestMemory &mem, std::uint32_t out) {
+    // Decodes up to one frame of the game's timeline into `out` (stereo 16-bit), scaled by the player's music volume
+    // (0..100). Returns the samples written.
+    int decode(psprecomp::GuestMemory &mem, std::uint32_t out, int volume) {
         if (finished_) return 0;
         const bool looping = loop_num_ != 0 && loop_end_ >= 0;
         const int last = looping ? loop_end_ : end_sample_;
@@ -165,6 +166,10 @@ public:
         for (int i = 0; i < count; ++i) {
             std::int16_t left = 0, right = 0;
             sample(position_ + i + full_offset_, left, right);
+            if (volume < 100) {
+                left = static_cast<std::int16_t>(left * volume / 100);
+                right = static_cast<std::int16_t>(right * volume / 100);
+            }
             if (out != 0) {
                 mem.store16(out + static_cast<std::uint32_t>(i) * 4u, static_cast<std::uint16_t>(left));
                 mem.store16(out + static_cast<std::uint32_t>(i) * 4u + 2u, static_cast<std::uint16_t>(right));
@@ -303,7 +308,7 @@ void AtracDecodeData(Runtime &rt, Context &ctx) {
         ret(ctx, kErrorAllDataDecoded);
         return;
     }
-    const int count = t->decode(rt.memory(), arg(ctx, 1));
+    const int count = t->decode(rt.memory(), arg(ctx, 1), std::clamp(rt.options().music_volume, 0, 100));
     store(rt, arg(ctx, 2), static_cast<std::uint32_t>(count));
     store(rt, arg(ctx, 3), t->finished() ? 1u : 0u);
     store(rt, arg(ctx, 4), 0xFFFFFFFFu); // all the data is in memory

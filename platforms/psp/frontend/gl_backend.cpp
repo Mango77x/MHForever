@@ -297,8 +297,8 @@ std::uint8_t to_byte(float v) { return static_cast<std::uint8_t>(std::clamp(v, 0
 
 class GlBackend final : public gpu::Backend {
 public:
-    GlBackend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory)
-        : window_(window), scale_(std::max(1, scale)), memory_(memory) {}
+    GlBackend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory, bool smooth_textures)
+        : window_(window), scale_(std::max(1, scale)), memory_(memory), smooth_textures_(smooth_textures) {}
 
     ~GlBackend() override {
         if (context_ != nullptr) SDL_GL_DestroyContext(context_);
@@ -404,6 +404,7 @@ private:
     SDL_GLContext context_{};
     int scale_;
     psprecomp::GuestMemory &memory_;
+    bool smooth_textures_ = false;
     Gl gl_;
 
     GLuint draw_program_{}, present_program_{}, vao_{}, vbo_{}, empty_vao_{};
@@ -724,7 +725,8 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
         gl_.ActiveTexture(GL_TEXTURE0);
         const GLuint tex = texture_for(ge, uv_xform);
         gl_.BindTexture(GL_TEXTURE_2D, tex);
-        const bool linear = (ge.reg(kTexFilter) & 0x100u) != 0;
+        // Enhancement (off by default): bilinear filtering for 3D textures; 2D (through-mode) art stays as drawn.
+        const bool linear = (ge.reg(kTexFilter) & 0x100u) != 0 || (smooth_textures_ && !through_);
         set_texture_params(linear, (ge.reg(kTexWrap) & 1u) != 0, (ge.reg(kTexWrap) & 0x100u) != 0);
     }
 
@@ -1048,8 +1050,9 @@ void GlBackend::dump_window(int w, int h) {
 
 } // namespace
 
-std::unique_ptr<gpu::Backend> make_gl_backend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory) {
-    auto backend = std::make_unique<GlBackend>(window, scale, memory);
+std::unique_ptr<gpu::Backend> make_gl_backend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory,
+                                              bool smooth_textures) {
+    auto backend = std::make_unique<GlBackend>(window, scale, memory, smooth_textures);
     if (!backend->init()) return nullptr;
     return backend;
 }

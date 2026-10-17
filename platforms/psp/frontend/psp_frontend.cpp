@@ -23,6 +23,7 @@ struct Frontend::Impl {
     bool open{};
     bool gpu{};
     int render_scale{4};
+    bool smooth_textures{};
     std::atomic<int> gpu_state{0};
     Runtime *runtime{}; // 0 not started, 1 active, 2 unavailable (software presentation)
 };
@@ -33,7 +34,8 @@ Frontend::~Frontend() {
     if (impl_->runtime != nullptr && impl_->gpu) stop_gpu_backend(*impl_->runtime);
 }
 
-bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int render_scale) {
+bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int render_scale, bool fullscreen,
+                    bool smooth_textures) {
     host::HostOptions o;
     o.title = title;
     o.hidden = hidden;
@@ -41,7 +43,9 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
     o.opengl = gpu;
     impl_->gpu = gpu;
     impl_->render_scale = render_scale;
+    impl_->smooth_textures = smooth_textures;
     impl_->open = impl_->host.open(o);
+    if (impl_->open && fullscreen && !hidden) impl_->host.toggle_fullscreen();
     return impl_->open;
 }
 
@@ -115,7 +119,7 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
     if (impl->gpu && impl->open) {
         set_gpu_backend_factory(rt, [impl, runtime]() -> std::unique_ptr<gpu::Backend> {
             auto backend = make_gl_backend(static_cast<SDL_Window *>(impl->host.window_handle()), impl->render_scale,
-                                           runtime->memory());
+                                           runtime->memory(), impl->smooth_textures);
             if (!backend) std::fprintf(stderr, "[frontend] no OpenGL 3.3: using the software renderer\n");
             impl->gpu_state = backend ? 1 : 2;
             return backend;

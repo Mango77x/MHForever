@@ -387,8 +387,10 @@ void SasCoreMix(Runtime &rt, Context &ctx) {
         Voice &v = c.voice[i];
         if (v.playing) mix_voice(mem, v, c.mix, c.grain);
     }
+    const int volume = std::clamp(rt.options().sfx_volume, 0, 100); // player preference (100 = unchanged)
     for (std::uint32_t i = 0; i < c.grain * 2u; ++i) {
-        mem.store16(out + i * 2u, static_cast<std::uint16_t>(static_cast<std::int16_t>(std::clamp(c.mix[i], -32768, 32767))));
+        const int sample = volume == 100 ? c.mix[i] : c.mix[i] * volume / 100;
+        mem.store16(out + i * 2u, static_cast<std::uint16_t>(static_cast<std::int16_t>(std::clamp(sample, -32768, 32767))));
     }
     ret(ctx, 0);
 }
