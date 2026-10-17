@@ -396,7 +396,8 @@ private:
     GLuint compile(const char *vertex, const char *fragment);
     GLint uniform(GLuint program, const char *name) { return gl_.GetUniformLocation(program, name); }
     void set_texture_params(bool linear, bool clamp_s, bool clamp_t);
-    // Debugging: MHF_GL_DUMP=<folder> writes every MHF_GL_DUMP_EVERY-th (default 60) presented frame as a PPM image.
+    // Debugging: MHF_GL_DUMP=<folder> writes every MHF_GL_DUMP_EVERY-th (default 60) presented frame as a PPM image,
+    // starting at presented frame MHF_GL_DUMP_FROM (default 0).
     void dump_window(int w, int h);
 
     SDL_Window *window_;
@@ -1028,7 +1029,11 @@ void GlBackend::dump_window(int w, int h) {
         const char *v = std::getenv("MHF_GL_DUMP_EVERY");
         return v != nullptr ? std::max(1ul, std::strtoul(v, nullptr, 10)) : 60ul;
     }();
-    if (folder == nullptr || w <= 0 || h <= 0 || frame_ % every != 0) return;
+    static const unsigned long from = [] {
+        const char *v = std::getenv("MHF_GL_DUMP_FROM"); // first presented frame to dump
+        return v != nullptr ? std::strtoul(v, nullptr, 10) : 0ul;
+    }();
+    if (folder == nullptr || w <= 0 || h <= 0 || frame_ < from || frame_ % every != 0) return;
     std::vector<std::uint8_t> rgb(static_cast<std::size_t>(w) * h * 3u);
     gl_.PixelStorei(GL_PACK_ALIGNMENT, 1);
     gl_.ReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, rgb.data());

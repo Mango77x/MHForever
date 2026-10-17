@@ -35,10 +35,13 @@ using mhf::psp::Runtime;
 
 bool g_log_overlays = true;
 
-// Scripted input for unattended runs: "12.5:cross,15:start" presses each button for 150 ms at that time.
+// Scripted input for unattended runs: "12.5:cross,15:start" presses each button for 150 ms at that time;
+// "20:sup/3" holds the analog stick up (sup, sdown, sleft, sright) or a button for 3 seconds.
 struct ScriptedPress {
     double at_seconds;
     std::uint32_t buttons;
+    double duration = 0.15;
+    int stick_x = 0, stick_y = 0;
 };
 
 std::vector<ScriptedPress> parse_input_script(const std::string &text) {
@@ -57,10 +60,20 @@ std::vector<ScriptedPress> parse_input_script(const std::string &text) {
         const std::string item = text.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
         const auto colon = item.find(':');
         if (colon != std::string::npos) {
-            const std::string name = item.substr(colon + 1);
-            for (const auto &[n, bit] : names) {
-                if (name == n) out.push_back({std::stod(item.substr(0, colon)), bit});
+            std::string name = item.substr(colon + 1);
+            double duration = 0.15;
+            if (const auto slash = name.find('/'); slash != std::string::npos) {
+                duration = std::stod(name.substr(slash + 1));
+                name.resize(slash);
             }
+            const double at = std::stod(item.substr(0, colon));
+            for (const auto &[n, bit] : names) {
+                if (name == n) out.push_back({at, bit, duration});
+            }
+            if (name == "sup") out.push_back({at, 0, duration, 0, -127});
+            if (name == "sdown") out.push_back({at, 0, duration, 0, 127});
+            if (name == "sleft") out.push_back({at, 0, duration, -127, 0});
+            if (name == "sright") out.push_back({at, 0, duration, 127, 0});
         }
         if (comma == std::string::npos) break;
         start = comma + 1;
@@ -143,7 +156,10 @@ int main(int argc, char **argv) {
                     mhf::psp::ControllerState pad;
                     for (const auto &p : script) {
                         const double t = static_cast<double>(now) / 1e6;
-                        if (t >= p.at_seconds && t < p.at_seconds + 0.15) pad.buttons |= p.buttons;
+                        if (t < p.at_seconds || t >= p.at_seconds + p.duration) continue;
+                        pad.buttons |= p.buttons;
+                        if (p.stick_x != 0) pad.lx = static_cast<std::uint8_t>(128 + p.stick_x);
+                        if (p.stick_y != 0) pad.ly = static_cast<std::uint8_t>(128 + p.stick_y);
                     }
                     mhf::psp::set_controller_state(*rt, pad);
                 }
