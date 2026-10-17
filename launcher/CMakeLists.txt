@@ -1,0 +1,124 @@
+# The launcher: the player-facing hub (docs/07-launcher-ux.md). A native host (native/) shows the web UI (ui/) in the
+# system web view and does the real work: identifying the player's copy, settings, launching the game, play time.
+
+include(${PROJECT_SOURCE_DIR}/cmake/webview.cmake)
+
+# ------------------------------------------------------------------ UI bundle (one self-contained HTML file)
+set(MHF_LAUNCHER_UI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/ui)
+set(_ui_html ${MHF_LAUNCHER_UI_DIR}/dist/index.html)
+file(GLOB_RECURSE _ui_sources CONFIGURE_DEPENDS ${MHF_LAUNCHER_UI_DIR}/src/*)
+find_program(MHF_NPM NAMES npm npm.cmd)
+if(MHF_NPM)
+    add_custom_command(
+        OUTPUT ${_ui_html}
+        COMMAND ${MHF_NPM} ci --no-audit --no-fund
+        COMMAND ${MHF_NPM} run build
+        WORKING_DIRECTORY ${MHF_LAUNCHER_UI_DIR}
+        DEPENDS ${_ui_sources} ${MHF_LAUNCHER_UI_DIR}/package.json ${MHF_LAUNCHER_UI_DIR}/package-lock.json
+                ${MHF_LAUNCHER_UI_DIR}/index.html ${MHF_LAUNCHER_UI_DIR}/vite.config.ts
+        COMMENT "Building the launcher UI (npm)"
+        VERBATIM)
+elseif(NOT EXISTS ${_ui_html})
+    message(FATAL_ERROR "The launcher UI needs Node.js/npm to build (or a prebuilt ${_ui_html}).")
+endif()
+set(_ui_cpp ${CMAKE_CURRENT_BINARY_DIR}/ui_bundle.cpp)
+add_custom_command(
+    OUTPUT ${_ui_cpp}
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${_ui_html} -DOUTPUT=${_ui_cpp} -P ${CMAKE_CURRENT_SOURCE_DIR}/embed.cmake
+    DEPENDS ${_ui_html} ${CMAKE_CURRENT_SOURCE_DIR}/embed.cmake
+    COMMENT "Embedding the launcher UI"
+    VERBATIM)
+
+# ------------------------------------------------------------------ game catalog (from games/*/game.toml and regions)
+# Identification data only (disc ids, dump sizes and SHA-1 hashes), which the legal rules allow (see CONTRIBUTING.md).
+set(_catalog ${CMAKE_CURRENT_BINARY_DIR}/catalog.inc)
+set(_catalog_text "")
+foreach(game IN LISTS MHF_GAMES)
+    set(_game_dir ${PROJECT_SOURCE_DIR}/games/${game})
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_game_dir}/game.toml)
+    file(STRINGS ${_game_dir}/game.toml _lines REGEX "^short_title")
+    string(REGEX REPLACE "^short_title *= *\"([^\"]*)\".*" "\\1" _title "${_lines}")
+    file(GLOB _regions LIST_DIRECTORIES true ${_game_dir}/regions/*)
+    foreach(region_dir IN LISTS _regions)
+        if(NOT EXISTS ${region_dir}/region.toml)
+            continue()
+        endif()
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${region_dir}/region.toml)
+        file(STRINGS ${region_dir}/region.toml _lines)
+        set(_section "")
+        set(_disc "")
+        set(_version "")
+        set(_market "")
+        set(_status "")
+        set(_dumps "")
+        set(_dump_size "")
+        set(_exe_size "0")
+        set(_exe_sha1 "")
+        foreach(line IN LISTS _lines)
+            if(line MATCHES "^\\[\\[?([a-z_]+)\\]")
+                set(_section "${CMAKE_MATCH_1}")
+            elseif(line MATCHES "^([a-z0-9_]+) *= *\"?([^\"#]*)\"?")
+                set(_key "${CMAKE_MATCH_1}")
+                string(STRIP "${CMAKE_MATCH_2}" _value)
+                if(_section STREQUAL "")
+                    if(_key STREQUAL "disc_id")
+                        set(_disc "${_value}")
+                    elseif(_key STREQUAL "disc_version")
+                        set(_version "${_value}")
+                    elseif(_key STREQUAL "market")
+                        set(_market "${_value}")
+                    elseif(_key STREQUAL "status")
+                        set(_status "${_value}")
+                    endif()
+                elseif(_section STREQUAL "accepted_dumps")
+                    if(_key STREQUAL "size")
+                        set(_dump_size "${_value}")
+                    elseif(_key STREQUAL "sha1")
+                        string(APPEND _dumps "{${_dump_size}ULL, \"${_value}\"}, ")
+                    endif()
+                elseif(_section STREQUAL "dev_executable")
+                    if(_key STREQUAL "size")
+                        set(_exe_size "${_value}")
+                    elseif(_key STREQUAL "sha1")
+                        set(_exe_sha1 "${_value}")
+                    endif()
+                endif()
+            endif()
+        endforeach()
+        string(APPEND _catalog_text
+            "{\"${game}\", \"${_title}\", \"${_disc}\", \"${_version}\", \"${_market}\", \"${_status}\", {${_dumps}}, ${_exe_size}ULL, \"${_exe_sha1}\"},\n")
+    endforeach()
+endforeach()
+file(CONFIGURE OUTPUT ${_catalog} CONTENT "${_catalog_text}")
+
+# ------------------------------------------------------------------ executable
+add_executable(mhf_launcher
+    native/main.cpp
+    native/launcher.cpp
+    native/json.cpp
+    native/hash.cpp
+    native/platform.cpp
+    ${_ui_cpp}
+)
+target_include_directories(mhf_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(mhf_launcher PRIVATE mhf_core mhf_psp_tools mhf_webview)
+target_compile_definitions(mhf_launcher PRIVATE MHF_VERSION_STRING="${PROJECT_VERSION}")
+set_target_properties(mhf_launcher PROPERTIES OUTPUT_NAME launcher)
+if(WIN32)
+    set_target_properties(mhf_launcher PROPERTIES WIN32_EXECUTABLE ON)
+    target_link_libraries(mhf_launcher PRIVATE comdlg32 dwmapi bcrypt)
+    if(MINGW OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_link_options(mhf_launcher PRIVATE -mwindows)
+    endif()
+endif()
+mhf_target_warnings(mhf_launcher)
+
+# ------------------------------------------------------------------ tests
+if(MHF_BUILD_TESTS)
+    add_executable(test_launcher tests/test_launcher.cpp native/launcher.cpp native/json.cpp native/hash.cpp
+                                 native/platform.cpp)
+    target_include_directories(test_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
+    target_link_libraries(test_launcher PRIVATE mhf_psp_tools mhf_webview)
+    target_compile_definitions(test_launcher PRIVATE MHF_VERSION_STRING="${PROJECT_VERSION}")
+    add_test(NAME launcher_core COMMAND test_launcher)
+endif()

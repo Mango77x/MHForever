@@ -15,6 +15,12 @@ Fetched at build time (not stored in the repository):
 
 | Component | Used by | License | Version | Origin |
 |---|---|---|---|---|
+| webview | `launcher/` (system web view host) | MIT | 0.12.0 (`3ab4b5d`, `cmake/webview.cmake`) | https://github.com/webview/webview |
+| WebView2 SDK headers | `launcher/` on Windows (headers only; the runtime is part of Windows) | BSD-3-Clause | 1.0.1150.38 | NuGet `Microsoft.Web.WebView2` |
+| React, React DOM | launcher UI, bundled into the launcher executable | MIT | 19.3.1 (`launcher/ui/package-lock.json`) | https://react.dev |
+| Motion | launcher UI animations, bundled | MIT | 14.3.0 | https://motion.dev |
+| Sora, Manrope (fonts via Fontsource) | launcher UI, bundled | SIL OFL 1.1 | 5.3.0 | https://fontsource.org |
+| Vite, vite-plugin-singlefile, TypeScript | build tools for the launcher UI (not shipped) | MIT / Apache-2.0 | see `package.json` | npm |
 | SDL3 | `core/host` (window, input, audio) | zlib | 3.2.24 (SHA-256 pinned in `cmake/sdl3.cmake`) | https://github.com/libsdl-org/SDL |
 | pspdev toolchain + PSPSDK | builds our own `homebrew/` tests only | GPL/BSD (tools), BSD (SDK) | latest release | https://github.com/pspdev/pspdev |
 
