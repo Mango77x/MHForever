@@ -9,6 +9,7 @@
 #include "psprecomp/guest_memory.hpp"
 
 #include <array>
+#include <cstring>
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -89,6 +90,46 @@ private:
     void write_pixel(int x, int y, std::uint32_t abgr, std::uint32_t write_mask);
 
     psprecomp::GuestMemory &mem_;
+
+    // Direct access to guest RAM and EDRAM for the hot paths (vertices, texels, pixels): no bounds exceptions, an
+    // address outside both reads 0 and ignores writes, like the open bus of the real GE would at worst.
+    std::uint8_t *ram_{};
+    std::uint32_t ram_size_{};
+    std::uint8_t *vram_{};
+    [[nodiscard]] std::uint8_t *host(std::uint32_t address, std::uint32_t length) const noexcept {
+        const std::uint32_t c = address & 0x1FFFFFFFu;
+        const std::uint32_t r = c - 0x08000000u;
+        if (r < ram_size_ && length <= ram_size_ - r) return ram_ + r;
+        const std::uint32_t v = c - 0x04000000u;
+        if (v < 0x00800000u) {
+            const std::uint32_t o = v & 0x001FFFFFu; // four mirrors of the 2 MiB EDRAM
+            if (length <= 0x00200000u - o) return vram_ + o;
+        }
+        return nullptr;
+    }
+    [[nodiscard]] std::uint8_t rd8(std::uint32_t a) const noexcept {
+        const std::uint8_t *p = host(a, 1);
+        return p != nullptr ? *p : 0u;
+    }
+    [[nodiscard]] std::uint16_t rd16(std::uint32_t a) const noexcept {
+        std::uint16_t v = 0;
+        if (const std::uint8_t *p = host(a, 2)) std::memcpy(&v, p, 2);
+        return v;
+    }
+    [[nodiscard]] std::uint32_t rd32(std::uint32_t a) const noexcept {
+        std::uint32_t v = 0;
+        if (const std::uint8_t *p = host(a, 4)) std::memcpy(&v, p, 4);
+        return v;
+    }
+    void wr8(std::uint32_t a, std::uint8_t v) const noexcept {
+        if (std::uint8_t *p = host(a, 1)) *p = v;
+    }
+    void wr16(std::uint32_t a, std::uint16_t v) const noexcept {
+        if (std::uint8_t *p = host(a, 2)) std::memcpy(p, &v, 2);
+    }
+    void wr32(std::uint32_t a, std::uint32_t v) const noexcept {
+        if (std::uint8_t *p = host(a, 4)) std::memcpy(p, &v, 4);
+    }
     std::array<std::uint32_t, 256> regs_{};
     Matrix43 world_, view_, texgen_;
     std::array<Matrix43, 8> bones_{};

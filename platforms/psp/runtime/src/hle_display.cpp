@@ -1,6 +1,8 @@
 // sceDisplay and sceCtrl. The host reads DisplayState and feeds ControllerState (mhf/psp/host.hpp).
 
 #include "hle.hpp"
+
+#include <cstdio>
 #include "kernel.hpp"
 
 #include "mhf/psp/host.hpp"
@@ -50,6 +52,17 @@ void DisplayGetMode(Runtime &rt, Context &ctx) {
 
 void DisplaySetFrameBuf(Runtime &rt, Context &ctx) {
     auto &d = video(rt).display;
+    auto &p = perf();
+    ++p.frames;
+    const std::uint64_t now = rt.now_us();
+    if (p.last_report == 0) p.last_report = now;
+    if (now - p.last_report >= 5'000'000u) {
+        const double seconds = static_cast<double>(now - p.last_report) / 1e6;
+        std::fprintf(stderr, "[perf] %.1f fps, display lists %.0f%% of the time (%.1f ms per frame)\n",
+                     static_cast<double>(p.frames) / seconds, 100.0 * static_cast<double>(p.ge_us) / (seconds * 1e6),
+                     p.frames ? static_cast<double>(p.ge_us) / 1000.0 / static_cast<double>(p.frames) : 0.0);
+        p = PerfCounters{0, 0, now};
+    }
     d.framebuffer = arg(ctx, 0);
     if (arg(ctx, 1) != 0) d.stride = arg(ctx, 1);
     d.pixel_format = arg(ctx, 2);
@@ -210,6 +223,11 @@ const HleFunction kFunctions[] = {
 } // namespace
 
 std::span<const HleFunction> display_functions() { return kFunctions; }
+
+PerfCounters &perf() {
+    static PerfCounters counters;
+    return counters;
+}
 
 } // namespace hle
 } // namespace mhf::psp

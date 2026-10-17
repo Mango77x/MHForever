@@ -23,6 +23,9 @@ add_library(mhf_psp_runtime STATIC
 target_include_directories(mhf_psp_runtime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../gpu)
 target_link_libraries(mhf_psp_runtime PUBLIC psprecomp_core mhf_psp_tools PRIVATE mhf_stb_truetype)
 mhf_target_warnings(mhf_psp_runtime)
+if(WIN32)
+    target_link_libraries(mhf_psp_runtime PRIVATE winmm) # timeBeginPeriod
+endif()
 
 # mhf_psp_copy_fonts(<target>): puts the free fonts used by sceLibFont next to the executable, in fonts/.
 function(mhf_psp_copy_fonts target)

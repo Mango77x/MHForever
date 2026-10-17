@@ -4,6 +4,7 @@
 #include "mhf/psp/host.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <array>
 #include <cmath>
 #include <vector>
@@ -43,14 +44,22 @@ void copy_frame(Runtime &rt, std::vector<std::uint32_t> &out) {
         return;
     }
     auto &mem = rt.memory();
+    const std::uint32_t bpp = d.pixel_format == 3 ? 4u : 2u;
+    const std::uint8_t *base = mem.raw_pointer(d.framebuffer, static_cast<std::size_t>(d.stride) * 271u * bpp + 480u * bpp);
+    if (base == nullptr) {
+        std::fill(out.begin(), out.end(), 0xFF000000u);
+        return;
+    }
     for (std::uint32_t y = 0; y < 272; ++y) {
+        const std::uint8_t *row = base + static_cast<std::size_t>(y) * d.stride * bpp;
         for (std::uint32_t x = 0; x < 480; ++x) {
-            const std::uint32_t i = y * d.stride + x;
             std::uint32_t c;
             if (d.pixel_format == 3) {
-                c = mem.load32(d.framebuffer + i * 4u);
+                std::memcpy(&c, row + x * 4u, 4);
             } else {
-                const std::uint32_t p = mem.load16(d.framebuffer + i * 2u);
+                std::uint16_t p16;
+                std::memcpy(&p16, row + x * 2u, 2);
+                const std::uint32_t p = p16;
                 std::uint32_t r, g, b;
                 if (d.pixel_format == 0) { r = expand(p & 31u, 5); g = expand((p >> 5u) & 63u, 6); b = expand((p >> 11u) & 31u, 5); }
                 else if (d.pixel_format == 1) { r = expand(p & 31u, 5); g = expand((p >> 5u) & 31u, 5); b = expand((p >> 10u) & 31u, 5); }

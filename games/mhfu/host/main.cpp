@@ -1,7 +1,7 @@
 // Freedom Unite host: runs the recompiled game against the player's own ISO (docs/06-mhfu-module.md).
 //
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
-//             [--window] [--dump-frames <dir> [--dump-every N]] [--seconds S] [--quiet-overlays]
+//             [--window] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>]
 // The executable supplies the initial data sections during development (open question Q-16 for releases).
 
@@ -85,6 +85,7 @@ int main(int argc, char **argv) {
     std::string exe;
     std::filesystem::path dump_folder;
     unsigned dump_every = 30;
+    double dump_from = 0.0; // seconds of run time before frames are dumped
     double seconds = 0;
     bool window = false;
     std::vector<ScriptedPress> script;
@@ -97,6 +98,7 @@ int main(int argc, char **argv) {
         else if (a == "--quiet-overlays") g_log_overlays = false;
         else if (a == "--dump-frames" && i + 1 < argc) dump_folder = argv[++i];
         else if (a == "--dump-every" && i + 1 < argc) dump_every = static_cast<unsigned>(std::stoul(argv[++i]));
+        else if (a == "--dump-from" && i + 1 < argc) dump_from = std::stod(argv[++i]);
         else if (a == "--seconds" && i + 1 < argc) seconds = std::stod(argv[++i]);
         else if (a == "--window") window = true;
         else if (a == "--input" && i + 1 < argc) script = parse_input_script(argv[++i]);
@@ -142,7 +144,7 @@ int main(int argc, char **argv) {
                 }
                 // One dump per `dump_every` vblanks, even when the host is not polled on that exact vblank.
                 const std::uint64_t slot = now / mhf::psp::kVblankPeriodUs / dump_every;
-                if (dump_folder.empty() || slot == last_vblank) return;
+                if (dump_folder.empty() || slot == last_vblank || static_cast<double>(now) < dump_from * 1e6) return;
                 last_vblank = slot;
                 char name[32];
                 std::snprintf(name, sizeof name, "frame_%06u.png", ++frame);

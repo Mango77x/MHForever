@@ -8,6 +8,8 @@
 #include "psprecomp/elf32.hpp"
 
 #include <algorithm>
+#include <thread>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -71,6 +73,8 @@ Runtime::Runtime(RuntimeOptions options)
 }
 
 Runtime::~Runtime() {
+    ticker_stop_ = true;
+    if (ticker_.joinable()) ticker_.join();
     if (g_active == this) {
         g_active = nullptr;
     }
@@ -174,6 +178,12 @@ int Runtime::run(const Program &program, std::string_view boot_path) {
         throw std::runtime_error("cannot create the boot thread");
     }
     kernel_->start_thread(uid, static_cast<std::uint32_t>(path.size() + 1), args->address);
+    ticker_ = std::thread([this] {
+        while (!ticker_stop_.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            abi::interrupt_pending.store(true, std::memory_order_relaxed);
+        }
+    });
     return kernel_->run_scheduler();
 }
 
@@ -298,5 +308,12 @@ void unsupported(Runtime &rt, std::uint32_t pc, std::uint32_t word, const char *
 void arithmetic_overflow(Runtime &rt, std::uint32_t pc, std::uint32_t word) { rt.arithmetic_overflow(pc, word); }
 HookFunction find_hook(Runtime &rt, const char *name) { return rt.find_hook(name); }
 void call_import(Runtime &rt, Context &ctx, ImportEntry &import) { mhf::psp::call_import(rt, ctx, import); }
+
+std::atomic<bool> interrupt_pending{false};
+
+void service_interrupts(Runtime &rt) {
+    interrupt_pending.store(false, std::memory_order_relaxed);
+    rt.kernel().service_from_thread();
+}
 
 } // namespace mhf::psp::abi

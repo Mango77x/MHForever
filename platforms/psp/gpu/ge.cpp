@@ -121,7 +121,11 @@ Vertex lerp(const Vertex &a, const Vertex &b, float t) {
 
 float float24(std::uint32_t data) { return std::bit_cast<float>(data << 8u); }
 
-Ge::Ge(psprecomp::GuestMemory &memory) : mem_(memory) {}
+Ge::Ge(psprecomp::GuestMemory &memory) : mem_(memory) {
+    ram_size_ = memory.size();
+    ram_ = memory.raw_pointer(psprecomp::GuestMemory::kPhysicalBase, ram_size_);
+    vram_ = memory.raw_pointer(psprecomp::GuestMemory::kVramPhysicalBase, psprecomp::GuestMemory::kVramSize);
+}
 
 // ---------------------------------------------------------------- display lists
 
@@ -131,7 +135,7 @@ Ge::ListResult Ge::run(std::uint32_t pc, std::uint32_t stall, const ListEvent &o
         if (stall != 0 && (pc & 0x0FFFFFFFu) == (stall & 0x0FFFFFFFu)) {
             return {pc, false, true};
         }
-        const std::uint32_t word = mem_.load32(pc);
+        const std::uint32_t word = rd32(pc);
         const std::uint32_t cmd = word >> 24u;
         const std::uint32_t data = word & 0x00FFFFFFu;
         const std::uint32_t here = pc;
@@ -155,7 +159,7 @@ Ge::ListResult Ge::run(std::uint32_t pc, std::uint32_t stall, const ListEvent &o
             }
             continue;
         case kSignal: {
-            const std::uint32_t next = mem_.load32(pc);
+            const std::uint32_t next = rd32(pc);
             if ((next >> 24u) == kEnd) pc += 4u; // SIGNAL is paired with the END that follows it
             if (on_event) on_event(false, data & 0xFFFFu);
             continue;
@@ -256,11 +260,11 @@ Ge::DecodedVertex Ge::decode_vertex(std::uint32_t address) const {
     const unsigned weight = (vt >> 9u) & 3u, weights = ((vt >> 14u) & 7u) + 1u;
     const unsigned morphs = ((vt >> 18u) & 7u) + 1u;
     const Layout l = layout_for(vt);
-    auto s8 = [&](std::uint32_t a) { return static_cast<float>(static_cast<std::int8_t>(mem_.load8(a))); };
-    auto u8 = [&](std::uint32_t a) { return static_cast<float>(mem_.load8(a)); };
-    auto s16 = [&](std::uint32_t a) { return static_cast<float>(static_cast<std::int16_t>(mem_.load16(a))); };
-    auto u16 = [&](std::uint32_t a) { return static_cast<float>(mem_.load16(a)); };
-    auto f32 = [&](std::uint32_t a) { return std::bit_cast<float>(mem_.load32(a)); };
+    auto s8 = [&](std::uint32_t a) { return static_cast<float>(static_cast<std::int8_t>(rd8(a))); };
+    auto u8 = [&](std::uint32_t a) { return static_cast<float>(rd8(a)); };
+    auto s16 = [&](std::uint32_t a) { return static_cast<float>(static_cast<std::int16_t>(rd16(a))); };
+    auto u16 = [&](std::uint32_t a) { return static_cast<float>(rd16(a)); };
+    auto f32 = [&](std::uint32_t a) { return std::bit_cast<float>(rd32(a)); };
 
     DecodedVertex out{};
     for (unsigned m = 0; m < morphs; ++m) {
@@ -283,8 +287,8 @@ Ge::DecodedVertex Ge::decode_vertex(std::uint32_t address) const {
         if (color != 0) {
             float c[4];
             const std::uint32_t a = v + l.color_offset;
-            if (color == 7) unpack(mem_.load32(a), c);
-            else unpack(decode16(mem_.load16(a), color - 4u), c);
+            if (color == 7) unpack(rd32(a), c);
+            else unpack(decode16(rd16(a), color - 4u), c);
             for (int i = 0; i < 4; ++i) out.color[i] = (m == 0 ? 0.0f : out.color[i]) + mw * c[i];
             out.has_color = true;
         }
@@ -510,9 +514,9 @@ void Ge::draw_primitive(std::uint32_t data) {
     std::uint32_t max_index = 0;
     for (unsigned i = 0; i < count; ++i) {
         std::uint32_t index = i;
-        if (index_format == 1) index = mem_.load8(iaddr + i);
-        else if (index_format == 2) index = mem_.load16(iaddr + i * 2u);
-        else if (index_format == 3) index = mem_.load32(iaddr + i * 4u);
+        if (index_format == 1) index = rd8(iaddr + i);
+        else if (index_format == 2) index = rd16(iaddr + i * 2u);
+        else if (index_format == 3) index = rd32(iaddr + i * 4u);
         max_index = std::max(max_index, index);
         verts.push_back(transform(decode_vertex(vaddr + index * vsize)));
     }
@@ -699,7 +703,7 @@ void Ge::shade_pixel(int x, int y, float zf, float u, float v, const float color
         if ((regs_[kClearMode] & 0x100u) != 0) mask |= 0x00FFFFFFu;
         if ((regs_[kClearMode] & 0x200u) != 0) mask |= 0xFF000000u;
         if (mask != 0) write_pixel(x, y, c, mask);
-        if ((regs_[kClearMode] & 0x400u) != 0 && zstride != 0) mem_.store16(zaddr, static_cast<std::uint16_t>(z));
+        if ((regs_[kClearMode] & 0x400u) != 0 && zstride != 0) wr16(zaddr, static_cast<std::uint16_t>(z));
         return;
     }
 
@@ -762,9 +766,9 @@ void Ge::shade_pixel(int x, int y, float zf, float u, float v, const float color
     }
     // Depth test.
     if ((regs_[kZTestEnable] & 1u) != 0 && zstride != 0) {
-        const int stored = mem_.load16(zaddr);
+        const int stored = rd16(zaddr);
         if (!compare(regs_[kZTest], z, stored)) return;
-        if ((regs_[kZWriteDisable] & 1u) == 0) mem_.store16(zaddr, static_cast<std::uint16_t>(z));
+        if ((regs_[kZWriteDisable] & 1u) == 0) wr16(zaddr, static_cast<std::uint16_t>(z));
     }
 
     // Blending.
@@ -820,8 +824,8 @@ std::uint32_t Ge::read_pixel(int x, int y) const {
     const std::uint32_t stride = regs_[kFramebufWidth] & 0x7FCu;
     const std::uint32_t format = regs_[kFramebufPixFormat] & 3u;
     const std::uint32_t index = static_cast<std::uint32_t>(y) * stride + static_cast<std::uint32_t>(x);
-    if (format == 3) return mem_.load32(fb + index * 4u);
-    return decode16(mem_.load16(fb + index * 2u), format);
+    if (format == 3) return rd32(fb + index * 4u);
+    return decode16(rd16(fb + index * 2u), format);
 }
 
 void Ge::write_pixel(int x, int y, std::uint32_t abgr, std::uint32_t write_mask) {
@@ -832,16 +836,16 @@ void Ge::write_pixel(int x, int y, std::uint32_t abgr, std::uint32_t write_mask)
     const std::uint32_t index = static_cast<std::uint32_t>(y) * stride + static_cast<std::uint32_t>(x);
     if (format == 3) {
         const std::uint32_t a = fb + index * 4u;
-        const std::uint32_t old = write_mask == 0xFFFFFFFFu ? 0u : mem_.load32(a);
-        mem_.store32(a, (abgr & write_mask) | (old & ~write_mask));
+        const std::uint32_t old = write_mask == 0xFFFFFFFFu ? 0u : rd32(a);
+        wr32(a, (abgr & write_mask) | (old & ~write_mask));
     } else {
         const std::uint32_t a = fb + index * 2u;
         std::uint32_t value = abgr;
         if (write_mask != 0xFFFFFFFFu) {
-            const std::uint32_t old = decode16(mem_.load16(a), format);
+            const std::uint32_t old = decode16(rd16(a), format);
             value = (abgr & write_mask) | (old & ~write_mask);
         }
-        mem_.store16(a, static_cast<std::uint16_t>(encode16(value, format)));
+        wr16(a, static_cast<std::uint16_t>(encode16(value, format)));
     }
 }
 
@@ -868,7 +872,7 @@ void Ge::load_clut(std::uint32_t data) {
     const std::uint32_t address = (regs_[kClutAddr] & 0xFFFFF0u) | ((regs_[kClutAddrUpper] & 0x0F0000u) << 8u);
     const std::uint32_t bytes = std::min<std::uint32_t>((data & 0x3Fu) * 32u, 1024u);
     for (std::uint32_t i = 0; i < bytes / 4u; ++i) {
-        clut_[i] = mem_.load32(address + i * 4u);
+        clut_[i] = rd32(address + i * 4u);
     }
 }
 
@@ -898,8 +902,8 @@ std::uint32_t Ge::fetch_texel(int level, int x, int y) const {
         const std::uint32_t blocks_per_row = std::max(1u, stride / 4u);
         const std::uint32_t block = addr + ((uy / 4u) * blocks_per_row + ux / 4u) * block_bytes;
         const std::uint32_t color_block = block + (format == 8 ? 0u : 8u);
-        const std::uint32_t lines = mem_.load32(color_block);
-        const std::uint32_t c0 = mem_.load16(color_block + 4), c1 = mem_.load16(color_block + 6);
+        const std::uint32_t lines = rd32(color_block);
+        const std::uint32_t c0 = rd16(color_block + 4), c1 = rd16(color_block + 6);
         const std::uint32_t sel = (lines >> (((uy & 3u) * 4u + (ux & 3u)) * 2u)) & 3u;
         float a[4], b[4];
         unpack(decode16(c0, 0), a);
@@ -914,11 +918,11 @@ std::uint32_t Ge::fetch_texel(int level, int x, int y) const {
             out = sel == 2 ? pack((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2, 255) : 0u;
         }
         if (format == 9) {
-            const std::uint32_t alpha = (mem_.load16(block + (uy & 3u) * 2u) >> ((ux & 3u) * 4u)) & 0xFu;
+            const std::uint32_t alpha = (rd16(block + (uy & 3u) * 2u) >> ((ux & 3u) * 4u)) & 0xFu;
             out = (out & 0x00FFFFFFu) | (expand4(alpha) << 24u);
         } else if (format == 10) {
-            const std::uint32_t a0 = mem_.load8(block + 6), a1 = mem_.load8(block + 7);
-            const std::uint64_t bits = mem_.load32(block) | (static_cast<std::uint64_t>(mem_.load16(block + 4)) << 32u);
+            const std::uint32_t a0 = rd8(block + 6), a1 = rd8(block + 7);
+            const std::uint64_t bits = rd32(block) | (static_cast<std::uint64_t>(rd16(block + 4)) << 32u);
             const std::uint32_t code = static_cast<std::uint32_t>(bits >> (((uy & 3u) * 4u + (ux & 3u)) * 3u)) & 7u;
             std::uint32_t alpha;
             if (code == 0) alpha = a0;
@@ -944,12 +948,12 @@ std::uint32_t Ge::fetch_texel(int level, int x, int y) const {
     }
     const std::uint32_t a = addr + offset;
     switch (format) {
-    case 0: case 1: case 2: return decode16(mem_.load16(a), format);
-    case 3: return mem_.load32(a);
-    case 4: return clut_lookup((mem_.load8(a) >> ((ux & 1u) * 4u)) & 0xFu);
-    case 5: return clut_lookup(mem_.load8(a));
-    case 6: return clut_lookup(mem_.load16(a));
-    default: return clut_lookup(mem_.load32(a));
+    case 0: case 1: case 2: return decode16(rd16(a), format);
+    case 3: return rd32(a);
+    case 4: return clut_lookup((rd8(a) >> ((ux & 1u) * 4u)) & 0xFu);
+    case 5: return clut_lookup(rd8(a));
+    case 6: return clut_lookup(rd16(a));
+    default: return clut_lookup(rd32(a));
     }
 }
 

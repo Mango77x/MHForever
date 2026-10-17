@@ -29,6 +29,14 @@ void set_working_directory(Runtime &rt, const std::string &psp_path);
 // Runs one sceUtility savedata request (hle_savedata.cpp) and stores its result in the parameter block.
 std::uint32_t execute_savedata(Runtime &rt, std::uint32_t params);
 
+// Frame-time accounting, reported by sceDisplaySetFrameBuf every few seconds ("[perf]" lines).
+struct PerfCounters {
+    std::uint64_t ge_us{};        // host time spent running display lists since the last report
+    std::uint64_t frames{};       // frames presented since the last report
+    std::uint64_t last_report{};  // host time of the last report
+};
+PerfCounters &perf();
+
 // Registration of each module group (called from Runtime's constructor).
 std::span<const HleFunction> thread_functions();   // ThreadManForUser, Kernel_Library
 std::span<const HleFunction> sysmem_functions();   // SysMemUserForUser

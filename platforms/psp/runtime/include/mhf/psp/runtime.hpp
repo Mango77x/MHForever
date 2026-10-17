@@ -19,6 +19,8 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <atomic>
+#include <thread>
 
 namespace mhf::psp {
 
@@ -139,6 +141,8 @@ private:
     RuntimeOptions options_;
     psprecomp::GuestMemory memory_;
     std::unique_ptr<Kernel> kernel_;
+    std::thread ticker_;                 // raises abi::interrupt_pending every few milliseconds
+    std::atomic<bool> ticker_stop_{false};
     std::vector<FunctionEntry> functions_; // sorted by address (main modules)
     std::vector<std::uint32_t> import_stubs_; // sorted; always native even when interpreting everything
     bool interpret_only_{};                   // MHF_INTERPRET_ONLY=1: run guest code with the interpreter (tests)

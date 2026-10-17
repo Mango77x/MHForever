@@ -9,6 +9,7 @@
 #include "psprecomp/allegrex_context.hpp"
 #include "psprecomp/guest_memory.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <span>
 
@@ -65,6 +66,14 @@ void jump(Runtime &rt, Context &ctx, std::uint32_t address);   // indirect tail 
 [[noreturn]] void arithmetic_overflow(Runtime &rt, std::uint32_t pc, std::uint32_t word);
 [[nodiscard]] HookFunction find_hook(Runtime &rt, const char *name);
 void call_import(Runtime &rt, Context &ctx, ImportEntry &import);
+
+// Set (from any host thread) when an interrupt may be due: the vblank ticker, a finished display list. Generated code
+// checks it on every backward branch, so a busy-waiting guest loop still sees its interrupts, as on the real CPU.
+extern std::atomic<bool> interrupt_pending;
+void service_interrupts(Runtime &rt);
+inline void poll_interrupts(Runtime &rt) {
+    if (interrupt_pending.load(std::memory_order_relaxed)) [[unlikely]] service_interrupts(rt);
+}
 } // namespace abi
 
 } // namespace mhf::psp

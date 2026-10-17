@@ -21,6 +21,7 @@
 #include <initializer_list>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace mhf::psp {
 
@@ -170,6 +171,9 @@ public:
     void signal_lw_mutex_waiters(LwMutex &mutex);
     void cancel_waiters(std::deque<int> &waiters, std::uint32_t result);
 
+    // Runs due interrupts (pollers, vblank, timers) from inside a running guest thread, then lets a thread they woke
+    // preempt it. Called through abi::poll_interrupts from busy-waiting guest code.
+    void service_from_thread();
     // Prints every thread with its state, wait and registers of interest (debugging hangs).
     void dump_threads(std::FILE *out) const;
     // Runs the scheduler until exit. Returns the program exit code.
@@ -179,6 +183,9 @@ public:
     void request_exit(int code) { exit_code_ = code; }
     [[nodiscard]] bool exiting() const noexcept { return exit_code_.has_value(); }
 
+    // Runtime services polled by the scheduler on every iteration, in scheduler context (e.g. delivering GE
+    // callbacks raised by the GE worker thread).
+    std::vector<std::function<void()>> pollers;
     // Host hook called by the scheduler on every iteration (input, presentation). May be empty.
     std::function<void()> host_poll;
 

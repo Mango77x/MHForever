@@ -2,7 +2,15 @@
 
 #include "psprecomp/common.hpp"
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <timeapi.h>
+#endif
+
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <iterator>
 #include <cstdio>
@@ -12,6 +20,25 @@
 #include <vector>
 
 namespace mhf::psp {
+
+namespace {
+
+// Sleeps for `us` microseconds with sub-millisecond accuracy. Plain sleeps on Windows round up to the 15.6 ms system
+// tick, which would make every frame miss its vblank: raise the timer resolution once, sleep for most of the wait and
+// yield for the rest.
+void precise_sleep(std::uint64_t us) {
+#if defined(_WIN32)
+    static const bool raised = [] { return timeBeginPeriod(1) == 0; }();
+    (void)raised;
+#endif
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(us);
+    constexpr std::uint64_t kSpinUs = 1500;
+    if (us > kSpinUs) std::this_thread::sleep_for(std::chrono::microseconds(us - kSpinUs));
+    while (std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+}
+
+} // namespace
+
 
 namespace {
 constexpr std::uint32_t kThreadTopReserve = 0x100u; // per-thread area the kernel keeps at the top of each stack
@@ -468,6 +495,14 @@ std::uint32_t Kernel::call_from_interrupt(std::uint32_t function, std::initializ
     return ctx.gpr[2];
 }
 
+void Kernel::service_from_thread() {
+    if (in_interrupt_ || current_ == nullptr) return;
+    if (host_poll) host_poll();
+    for (auto &poll : pollers) poll();
+    service_interrupts();
+    preempt_if_needed();
+}
+
 void Kernel::service_interrupts() {
     const std::uint64_t now = now_us();
     // Vblank: once per 59.94 Hz frame.
@@ -534,6 +569,7 @@ int Kernel::run_scheduler() {
         if (host_poll) {
             host_poll();
         }
+        for (auto &poll : pollers) poll();
         service_interrupts();
         if (exit_code_) {
             break;
@@ -567,9 +603,7 @@ int Kernel::run_scheduler() {
             const std::uint64_t sleep = earliest == kNoDeadline ? kMaxHostSleepUs
                                                                 : std::min(earliest > now ? earliest - now : 0,
                                                                            kMaxHostSleepUs);
-            if (sleep > 0) {
-                std::this_thread::sleep_for(std::chrono::microseconds(sleep));
-            }
+            if (sleep > 0) precise_sleep(sleep);
             continue;
         }
         current_ = next;

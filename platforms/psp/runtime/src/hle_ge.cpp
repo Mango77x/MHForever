@@ -1,7 +1,10 @@
 // sceGe_user: display-list submission (docs/05-runtime-hle.md §6).
 //
-// Lists run synchronously on submission through the software renderer (platforms/psp/gpu), which draws into guest
-// VRAM. Signal and finish callbacks fire in interrupt context while the list runs.
+// Like the real GE, display lists run in parallel with the CPU: a worker thread executes them in submission order
+// through the software renderer (platforms/psp/gpu), which draws into guest VRAM, while the game prepares the next
+// frame. A list that reaches its stall address waits for sceGeListUpdateStallAddr. Signal and finish callbacks raised
+// by the worker are delivered by the scheduler in interrupt context. sceGeListSync/sceGeDrawSync wait for the worker.
+// MHF_GE_SYNC=1 runs lists on the submitting thread instead (debugging).
 
 #include "hle.hpp"
 #include "kernel.hpp"
@@ -10,11 +13,15 @@
 
 #include "ge.hpp"
 
-#include <memory>
-
-#include <array>
+#include <atomic>
+#include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
+#include <deque>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -38,44 +45,143 @@ struct DisplayList {
     bool done{};
 };
 
-struct GeState {
-    std::unique_ptr<gpu::Ge> gpu;
-    std::map<int, GeCallback> callbacks;
-    std::map<int, DisplayList> lists;
-    int next_list{1};
-    int next_callback{0};
-    std::uint64_t lists_completed{};
+// A signal or finish raised by a list, waiting to be delivered to the game.
+struct GeEvent {
+    int callback{};
+    bool finish{};
+    std::uint32_t value{};
+    std::uint32_t pc{};
 };
 
-std::unordered_map<const Runtime *, GeState> g_ge;
-GeState &ge(Runtime &rt) { return g_ge[&rt]; }
+struct GeState {
+    Runtime *rt{};
+    std::unique_ptr<gpu::Ge> gpu;
+    std::map<int, GeCallback> callbacks; // scheduler side only
+    int next_callback{0};
 
-void fire(Runtime &rt, const DisplayList &list, bool finish, std::uint32_t value) {
-    auto &s = ge(rt);
-    const auto it = s.callbacks.find(list.callback);
-    if (it == s.callbacks.end()) {
-        return;
+    // Shared with the worker (guarded by mutex).
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::map<int, DisplayList> lists;
+    std::deque<int> queue; // lists not finished yet, in execution order
+    std::vector<GeEvent> events;
+    int next_list{1};
+    bool stop{};
+    std::atomic<int> pending{0}; // lists queued or running
+    std::thread worker;
+    bool synchronous{};
+
+    ~GeState() {
+        {
+            std::lock_guard lock(mutex);
+            stop = true;
+        }
+        wake.notify_all();
+        if (worker.joinable()) worker.join();
     }
-    const std::uint32_t function = finish ? it->second.finish_function : it->second.signal_function;
-    const std::uint32_t argument = finish ? it->second.finish_argument : it->second.signal_argument;
-    if (function != 0) {
-        rt.kernel().call_from_interrupt(function, {value, argument, list.pc});
+
+    gpu::Ge &renderer() {
+        if (!gpu) gpu = std::make_unique<gpu::Ge>(rt->memory());
+        return *gpu;
     }
+
+    // Runs the list at the head of the queue until it ends or stalls. Called with `lock` held; releases it while
+    // drawing. Returns true when the list ended.
+    bool step(std::unique_lock<std::mutex> &lock) {
+        const int id = queue.front();
+        DisplayList list = lists[id];
+        lock.unlock();
+        const std::uint64_t started = rt->now_us();
+        std::vector<GeEvent> raised;
+        const auto result = renderer().run(list.pc, list.stall, [&](bool finish, std::uint32_t value) {
+            raised.push_back({list.callback, finish, value, list.pc});
+        });
+        hle::perf().ge_us += rt->now_us() - started;
+        lock.lock();
+        auto &stored = lists[id];
+        stored.pc = result.pc;
+        if (!raised.empty()) {
+            events.insert(events.end(), raised.begin(), raised.end());
+            abi::interrupt_pending.store(true, std::memory_order_relaxed); // deliver them promptly
+        }
+        if (result.ended) {
+            stored.done = true;
+            queue.pop_front();
+            --pending;
+            // Keep the table small: completed lists are only needed for ListSync.
+            while (lists.size() > 64 && lists.begin()->second.done) lists.erase(lists.begin());
+            return true;
+        }
+        return false;
+    }
+
+    void worker_main() {
+        std::unique_lock lock(mutex);
+        while (!stop) {
+            if (queue.empty()) {
+                wake.wait(lock);
+                continue;
+            }
+            const DisplayList &head = lists[queue.front()];
+            const std::uint32_t pc = head.pc, stall = head.stall;
+            if (!step(lock) && lists[queue.front()].pc == pc && lists[queue.front()].stall == stall) {
+                // Stalled with nothing new to draw: wait for sceGeListUpdateStallAddr.
+                wake.wait(lock);
+            }
+        }
+    }
+
+    void submit_changed() {
+        if (synchronous) {
+            std::unique_lock lock(mutex);
+            while (!queue.empty()) {
+                const std::uint32_t pc = lists[queue.front()].pc;
+                if (!step(lock) && lists[queue.front()].pc == pc) break; // stalled
+            }
+            return;
+        }
+        if (!worker.joinable()) worker = std::thread([this] { worker_main(); });
+        wake.notify_all();
+    }
+
+    // Scheduler side: delivers queued signal/finish callbacks.
+    void deliver_events() {
+        std::vector<GeEvent> ready;
+        {
+            std::lock_guard lock(mutex);
+            if (events.empty()) return;
+            ready.swap(events);
+        }
+        for (const auto &e : ready) {
+            const auto it = callbacks.find(e.callback);
+            if (it == callbacks.end()) continue;
+            const std::uint32_t function = e.finish ? it->second.finish_function : it->second.signal_function;
+            const std::uint32_t argument = e.finish ? it->second.finish_argument : it->second.signal_argument;
+            if (function != 0) rt->kernel().call_from_interrupt(function, {e.value, argument, e.pc});
+        }
+    }
+};
+
+std::unordered_map<const Runtime *, std::unique_ptr<GeState>> g_ge;
+
+GeState &ge(Runtime &rt) {
+    auto &slot = g_ge[&rt];
+    if (!slot) {
+        slot = std::make_unique<GeState>();
+        slot->rt = &rt;
+        const char *sync = std::getenv("MHF_GE_SYNC");
+        slot->synchronous = sync != nullptr && sync[0] == '1';
+        GeState *state = slot.get();
+        rt.kernel().pollers.push_back([state] { state->deliver_events(); });
+    }
+    return *slot;
 }
 
-// Runs a list until it ends or reaches its stall address.
-void run_list(Runtime &rt, DisplayList &list) {
-    auto &s = ge(rt);
-    if (!s.gpu) {
-        s.gpu = std::make_unique<gpu::Ge>(rt.memory());
-    }
-    const auto result = s.gpu->run(list.pc, list.stall, [&](bool finish, std::uint32_t value) {
-        fire(rt, list, finish, value);
-    });
-    list.pc = result.pc;
-    if (result.ended) {
-        list.done = true;
-        ++s.lists_completed;
+// Blocks the calling guest thread until `done()` holds, polling every 100 us (the worker cannot wake guest threads).
+template <typename Done>
+void wait_for_ge(Runtime &rt, Done done) {
+    while (!done()) {
+        rt.kernel().wait(Kernel::WaitType::Delay, 0, rt.kernel().now_us() + 100u);
     }
 }
 
@@ -106,46 +212,86 @@ void GeUnsetCallback(Runtime &rt, Context &ctx) {
     ret(ctx, 0);
 }
 
-void enqueue(Runtime &rt, Context &ctx) {
+void enqueue(Runtime &rt, Context &ctx, bool head) {
     auto &s = ge(rt);
-    DisplayList list;
-    list.id = s.next_list++;
-    list.pc = arg(ctx, 0) & 0x0FFFFFFFu;
-    list.stall = arg(ctx, 1) & 0x0FFFFFFFu;
-    list.callback = sarg(ctx, 2);
-    list.argument = arg(ctx, 3);
-    const int id = list.id;
-    auto &stored = s.lists[id] = std::move(list);
-    ret(ctx, static_cast<std::uint32_t>(id));
-    run_list(rt, stored);
-    // Keep the table small: completed lists are only needed for ListSync.
-    while (s.lists.size() > 64 && s.lists.begin()->second.done) {
-        s.lists.erase(s.lists.begin());
+    int id;
+    {
+        std::lock_guard lock(s.mutex);
+        DisplayList list;
+        list.id = id = s.next_list++;
+        list.pc = arg(ctx, 0) & 0x0FFFFFFFu;
+        list.stall = arg(ctx, 1) & 0x0FFFFFFFu;
+        list.callback = sarg(ctx, 2);
+        list.argument = arg(ctx, 3);
+        s.lists[id] = list;
+        // A list added at the head runs next, but never interrupts the one already being drawn.
+        if (head && s.queue.size() > 1) s.queue.insert(s.queue.begin() + 1, id);
+        else s.queue.push_back(id);
+        ++s.pending;
     }
+    ret(ctx, static_cast<std::uint32_t>(id));
+    s.submit_changed();
 }
+void GeListEnQueue(Runtime &rt, Context &ctx) { enqueue(rt, ctx, false); }
+void GeListEnQueueHead(Runtime &rt, Context &ctx) { enqueue(rt, ctx, true); }
 
 void GeListUpdateStallAddr(Runtime &rt, Context &ctx) {
     auto &s = ge(rt);
-    const auto it = s.lists.find(sarg(ctx, 0));
-    if (it == s.lists.end()) {
-        ret(ctx, 0x80000100u); // SCE_KERNEL_ERROR_INVALID_ID
+    {
+        std::lock_guard lock(s.mutex);
+        const auto it = s.lists.find(sarg(ctx, 0));
+        if (it == s.lists.end()) {
+            ret(ctx, 0x80000100u); // SCE_KERNEL_ERROR_INVALID_ID
+            return;
+        }
+        it->second.stall = arg(ctx, 1) & 0x0FFFFFFFu;
+    }
+    ret(ctx, 0);
+    s.submit_changed();
+}
+
+// sceGeListSync(id, mode): mode 0 waits for the list, 1 peeks. 0 = completed, 2 = drawing.
+void GeListSync(Runtime &rt, Context &ctx) {
+    auto &s = ge(rt);
+    const int id = sarg(ctx, 0);
+    auto finished = [&] {
+        std::lock_guard lock(s.mutex);
+        const auto it = s.lists.find(id);
+        return it == s.lists.end() || it->second.done;
+    };
+    if (arg(ctx, 1) == 0) {
+        wait_for_ge(rt, finished);
+        ret(ctx, 0);
         return;
     }
-    it->second.stall = arg(ctx, 1) & 0x0FFFFFFFu;
-    ret(ctx, 0);
-    if (!it->second.done) run_list(rt, it->second);
+    ret(ctx, finished() ? 0u : 2u);
 }
 
-void GeListSync(Runtime &rt, Context &ctx) {
-    const auto &s = ge(rt);
-    const auto it = s.lists.find(sarg(ctx, 0));
-    // 0 = completed, 2 = drawing (stalled lists count as drawing).
-    ret(ctx, it == s.lists.end() || it->second.done ? 0u : 2u);
+// sceGeDrawSync(mode): mode 0 waits until every list has finished, 1 peeks.
+void GeDrawSync(Runtime &rt, Context &ctx) {
+    auto &s = ge(rt);
+    auto idle = [&] { return s.pending.load() == 0; };
+    if (arg(ctx, 0) == 0) {
+        wait_for_ge(rt, idle);
+        ret(ctx, 0);
+        return;
+    }
+    ret(ctx, idle() ? 0u : 2u);
 }
 
-void GeDrawSync(Runtime &, Context &ctx) { ret(ctx, 0); }
 void GeListDeQueue(Runtime &rt, Context &ctx) {
-    ge(rt).lists.erase(sarg(ctx, 0));
+    auto &s = ge(rt);
+    std::lock_guard lock(s.mutex);
+    const int id = sarg(ctx, 0);
+    // Only a list that has not started can be removed.
+    for (std::size_t i = 1; i < s.queue.size(); ++i) {
+        if (s.queue[i] == id) {
+            s.queue.erase(s.queue.begin() + static_cast<std::ptrdiff_t>(i));
+            s.lists.erase(id);
+            --s.pending;
+            break;
+        }
+    }
     ret(ctx, 0);
 }
 void GeBreakContinue(Runtime &, Context &ctx) { ret(ctx, 0); }
@@ -156,8 +302,8 @@ const HleFunction kFunctions[] = {
     {"sceGe_user", 0xB77905EAu, "sceGeEdramSetAddrTranslation", &GeEdramSetAddrTranslation},
     {"sceGe_user", 0xA4FC06A4u, "sceGeSetCallback", &GeSetCallback},
     {"sceGe_user", 0x05DB22CEu, "sceGeUnsetCallback", &GeUnsetCallback},
-    {"sceGe_user", 0xAB49E76Au, "sceGeListEnQueue", &enqueue},
-    {"sceGe_user", 0x1C0D95A6u, "sceGeListEnQueueHead", &enqueue},
+    {"sceGe_user", 0xAB49E76Au, "sceGeListEnQueue", &GeListEnQueue},
+    {"sceGe_user", 0x1C0D95A6u, "sceGeListEnQueueHead", &GeListEnQueueHead},
     {"sceGe_user", 0xE0D68148u, "sceGeListUpdateStallAddr", &GeListUpdateStallAddr},
     {"sceGe_user", 0x03444EB4u, "sceGeListSync", &GeListSync},
     {"sceGe_user", 0xB287BD61u, "sceGeDrawSync", &GeDrawSync},

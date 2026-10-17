@@ -117,6 +117,9 @@ private:
     // Continue at `target` inside this function if it is a block of ours, otherwise tail-call it.
     void goto_or_tail(std::uint32_t target, const char *indent) {
         if (function_.labels.contains(target)) {
+            // A backward jump closes a loop: let pending interrupts (vblank, GE callbacks) run there, as the real CPU
+            // would be interrupted inside a busy-wait.
+            if (target <= transfer_pc_) out_ << indent << "abi::poll_interrupts(rt);\n";
             out_ << indent << "goto " << label(target) << ";\n";
         } else {
             out_ << indent << call_expression(target) << "; return;\n";
@@ -152,6 +155,7 @@ private:
     }
 
     void write_control_transfer(const DecodedInstruction &d, std::uint32_t pc) {
+        transfer_pc_ = pc;
         const auto slot = decode(pc + 4u);
         instruction_count_ += 2;
         if (slot.is_control_flow() || slot.kind == OpcodeKind::Jr || slot.kind == OpcodeKind::Jalr) {
@@ -254,6 +258,7 @@ private:
     const Function &function_;
     std::ostringstream out_;
     std::set<std::uint32_t> continuations_;
+    std::uint32_t transfer_pc_{}; // address of the branch being emitted
 };
 
 void write_if_changed(const std::filesystem::path &path, const std::string &text) {
