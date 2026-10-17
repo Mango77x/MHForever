@@ -575,18 +575,41 @@ void Ge::draw_bezier_or_spline(std::uint32_t cmd, std::uint32_t) {
     }
 }
 
-// Clips against w > epsilon (behind the camera), then rasterizes in screen space.
+// Like the PSP: a triangle is clipped only against the near plane (clip-space z = -w); any other vertex must land
+// inside the GE's 4096x4096 screen coordinate space (before the screen offset), or the whole triangle is dropped.
+// Games rely on this culling: the alternative (clipping at w ~ 0) produces huge stretched triangles.
 void Ge::draw_triangle(Vertex a, Vertex b, Vertex c) {
-    constexpr float kNear = 1e-5f;
-    Vertex in[3] = {a, b, c};
+    const Vertex in[3] = {a, b, c};
+    const float offset_x = static_cast<float>(regs_[kOffsetX] & 0xFFFFu) / 16.0f;
+    const float offset_y = static_cast<float>(regs_[kOffsetY] & 0xFFFFu) / 16.0f;
+    bool any_clipped = false;
+    for (const Vertex &v : in) {
+        const bool inside = v.z > -v.w && v.w > 0.0f;
+        if (!inside) {
+            any_clipped = true;
+            continue;
+        }
+        const Vertex s = to_screen(v);
+        const float sx = s.x + offset_x, sy = s.y + offset_y;
+        if (!(sx >= 0.0f && sx < 4096.0f && sy >= 0.0f && sy < 4096.0f)) return; // outside the guard band
+    }
+    if (!any_clipped) {
+        draw_triangle_screen(to_screen(a), to_screen(b), to_screen(c));
+        return;
+    }
     Vertex out[4];
     int n = 0;
     for (int i = 0; i < 3; ++i) {
         const Vertex &p = in[i];
         const Vertex &q = in[(i + 1) % 3];
-        const bool pin = p.w > kNear, qin = q.w > kNear;
+        const float dp = p.z + p.w, dq = q.z + q.w; // signed distance to the near plane
+        const bool pin = dp > 0.0f && p.w > 0.0f, qin = dq > 0.0f && q.w > 0.0f;
         if (pin) out[n++] = p;
-        if (pin != qin) out[n++] = lerp(p, q, (kNear - p.w) / (q.w - p.w));
+        if (pin != qin && dp != dq) {
+            Vertex v = lerp(p, q, dp / (dp - dq));
+            if (v.w <= 0.0f) continue;
+            out[n++] = v;
+        }
     }
     if (n < 3) return;
     Vertex s[4];
