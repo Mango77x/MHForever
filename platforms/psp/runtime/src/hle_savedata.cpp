@@ -130,7 +130,9 @@ std::uint64_t file_time_us(const fs::path &path) {
     std::error_code ec;
     const auto t = fs::last_write_time(path, ec);
     if (ec) return 0;
-    const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(t);
+    // Shift by the offset between the two clocks now (std::chrono::clock_cast is missing from some standard libraries).
+    const auto sys = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+        t - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
     return static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(sys.time_since_epoch()).count());
 }
