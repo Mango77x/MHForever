@@ -8,6 +8,7 @@ add_library(mhf_psp_runtime STATIC
     src/hle_io.cpp
     src/hle_media.cpp
     src/hle_font.cpp
+    src/hle_sas.cpp
     src/hle_savedata.cpp
     src/hle_misc.cpp
     src/hle_sysmem.cpp

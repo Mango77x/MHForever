@@ -137,14 +137,14 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
                 copy_frame(*runtime, impl->frame);
                 impl->host.present(impl->frame.data(), 480, 272, 480);
             }
-            // Audio: hand the device what the game produced since the last poll.
+            // Audio: hand the device the output for the real time elapsed since the last poll.
             const std::uint64_t elapsed = now - impl->last_audio_us;
             if (elapsed >= 5000) {
                 impl->last_audio_us = now;
                 const auto frames = static_cast<std::size_t>(std::min<std::uint64_t>(elapsed * 44100u / 1'000'000u, 4096u));
                 std::vector<std::int16_t> mixed(frames * 2);
-                mix_audio(*runtime, mixed.data(), frames);
-                impl->host.queue_audio(mixed.data(), frames);
+                const std::size_t produced = mix_audio(*runtime, mixed.data(), frames);
+                if (produced > 0) impl->host.queue_audio(mixed.data(), produced);
             }
         }
         if (extra) extra();

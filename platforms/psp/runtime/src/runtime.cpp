@@ -69,6 +69,7 @@ Runtime::Runtime(RuntimeOptions options)
     add_hle(hle::misc_functions());
     add_hle(hle::ge_functions());
     add_hle(hle::media_functions());
+    add_hle(hle::sas_functions());
     add_hle(hle::font_functions());
 }
 

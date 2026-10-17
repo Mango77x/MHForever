@@ -1,4 +1,4 @@
-// sceAudio, sceSasCore, sceAtrac3plus, sceMpeg and sceUtility dialogs.
+// sceAudio, sceAtrac3plus, sceMpeg and sceUtility dialogs (sceSasCore: hle_sas.cpp).
 //
 // First pass: these keep the game's timing and state machines moving (audio output paces itself in real time,
 // decoders produce silence, movies report the end of their stream, dialogs finish at once). Real sound and video come next (docs/10-roadmap.md phases 2-3); every simplification is logged once. Savedata requests are carried
@@ -13,6 +13,7 @@
 #include <array>
 #include <deque>
 #include <cstdio>
+#include <cstdlib>
 #include <set>
 #include <string>
 #include <vector>
@@ -41,6 +42,7 @@ struct AudioChannel {
     std::uint32_t format{}; // 0 stereo, 0x10 mono
     std::uint64_t busy_until{};
     std::deque<std::int16_t> queue; // interleaved stereo waiting for the host mixer
+    bool primed{};                  // the host mixer is consuming this channel (see mix_audio)
 };
 std::array<AudioChannel, kChannels> g_channels{};
 constexpr std::size_t kMaxQueuedFrames = 44100 / 4; // 250 ms per channel
@@ -103,12 +105,14 @@ void output_blocking(Runtime &rt, Context &ctx) {
     }
     auto &c = g_channels[static_cast<std::size_t>(ch)];
     const std::uint64_t now = k(rt).now_us();
-    // The hardware buffers one block: block only while the previous one is still playing.
-    if (c.busy_until > now) {
-        k(rt).wait(Kernel::WaitType::Delay, 0, c.busy_until);
-    }
-    const std::uint64_t start = std::max(c.busy_until, k(rt).now_us());
-    c.busy_until = start + static_cast<std::uint64_t>(c.samples) * 1'000'000u / kSampleRate;
+    const std::uint64_t duration = static_cast<std::uint64_t>(c.samples) * 1'000'000u / kSampleRate;
+    // `busy_until` is when everything queued so far will have played. The game may run up to kLead ahead of real
+    // time (the hardware queues a block too), and after a short stall it catches up without blocking, so the output
+    // stream keeps its real-time rate; after a long pause it restarts from now.
+    constexpr std::uint64_t kLead = 20'000, kResync = 100'000;
+    if (c.busy_until + kResync < now) c.busy_until = now;
+    if (c.busy_until > now + kLead) k(rt).wait(Kernel::WaitType::Delay, 0, c.busy_until - kLead);
+    c.busy_until += duration;
     ret(ctx, c.samples);
 }
 
@@ -148,25 +152,6 @@ void AudioGetChannelRestLength(Runtime &rt, Context &ctx) {
 }
 
 void AudioZero(Runtime &, Context &ctx) { ret(ctx, 0); }
-
-// ---------------------------------------------------------------- sceSasCore (silent mixer)
-
-std::uint32_t g_sas_grain = 256;
-
-void SasInit(Runtime &, Context &ctx) {
-    note_once("sceSasCore mixes silence");
-    g_sas_grain = arg(ctx, 1) != 0 ? arg(ctx, 1) : 256;
-    ret(ctx, 0);
-}
-
-void SasCore(Runtime &rt, Context &ctx) {
-    rt.memory().zero(arg(ctx, 1), g_sas_grain * 4u); // stereo 16-bit
-    ret(ctx, 0);
-}
-
-void SasGetEndFlag(Runtime &, Context &ctx) { ret(ctx, 0xFFFFFFFFu); } // every voice has ended
-void SasGetOutputmode(Runtime &, Context &ctx) { ret(ctx, 0); }
-void SasZero(Runtime &, Context &ctx) { ret(ctx, 0); }
 
 // ---------------------------------------------------------------- sceAtrac3plus (silent decoder)
 
@@ -440,20 +425,6 @@ const HleFunction kFunctions[] = {
     {"sceAudio", 0xE9D97901u, "sceAudioGetChannelRestLen", &AudioGetChannelRestLength},
     {"sceAudio", 0x95FD0C2Du, "sceAudioChangeChannelConfig", &AudioZero},
     {"sceAudio", 0xB7E1D8E7u, "sceAudioChangeChannelVolume", &AudioZero},
-    {"sceSasCore", 0x42778A9Fu, "__sceSasInit", &SasInit},
-    {"sceSasCore", 0xA3589D81u, "__sceSasCore", &SasCore},
-    {"sceSasCore", 0x68A46B95u, "__sceSasGetEndFlag", &SasGetEndFlag},
-    {"sceSasCore", 0xE175EF66u, "__sceSasGetOutputmode", &SasGetOutputmode},
-    {"sceSasCore", 0x267A6DD2u, "__sceSasRevParam", &SasZero},
-    {"sceSasCore", 0x33D4AB37u, "__sceSasRevType", &SasZero},
-    {"sceSasCore", 0x440CA7D8u, "__sceSasSetVolume", &SasZero},
-    {"sceSasCore", 0x76F01ACAu, "__sceSasSetKeyOn", &SasZero},
-    {"sceSasCore", 0x99944089u, "__sceSasSetVoice", &SasZero},
-    {"sceSasCore", 0xA0CF2FA4u, "__sceSasSetKeyOff", &SasZero},
-    {"sceSasCore", 0xAD84D37Fu, "__sceSasSetPitch", &SasZero},
-    {"sceSasCore", 0xCBCD4F79u, "__sceSasSetSimpleADSR", &SasZero},
-    {"sceSasCore", 0xD5A229C9u, "__sceSasRevEVOL", &SasZero},
-    {"sceSasCore", 0xF983B186u, "__sceSasRevVON", &SasZero},
     {"sceAtrac3plus", 0x7A20E7AFu, "sceAtracSetDataAndGetID", &AtracSetDataAndGetID},
     {"sceAtrac3plus", 0x6A8C3CD5u, "sceAtracDecodeData", &AtracDecodeData},
     {"sceAtrac3plus", 0x9AE849A7u, "sceAtracGetRemainFrame", &AtracGetRemainFrame},
@@ -515,19 +486,37 @@ std::span<const HleFunction> media_functions() { return kFunctions; }
 namespace mhf::psp {
 
 std::size_t mix_audio(Runtime &, std::int16_t *out, std::size_t frames) {
-    std::size_t available = 0;
-    for (std::size_t i = 0; i < frames * 2; ++i) {
-        std::int32_t sum = 0;
+    // Each channel is a real-time stream that the game fills in blocks (256 frames for the voice mixer, 2048 for
+    // decoded music). A channel is only consumed once it holds two blocks, so the arrival jitter of its blocks never
+    // reaches the output; when it runs dry it is paused and refills instead of clicking.
+    for (std::size_t i = 0; i < frames; ++i) {
+        std::int32_t left = 0, right = 0;
         for (auto &c : hle::g_channels) {
-            if (!c.queue.empty()) {
-                sum += c.queue.front();
-                c.queue.pop_front();
-                available = std::max(available, i / 2 + 1);
+            const std::size_t prebuffer = std::max<std::size_t>(2u * c.samples, 1024u);
+            if (!c.primed && c.queue.size() / 2 >= prebuffer) c.primed = true;
+            if (!c.primed) continue;
+            if (c.queue.size() < 2) {
+                c.primed = false;
+                continue;
             }
+            left += c.queue.front();
+            c.queue.pop_front();
+            right += c.queue.front();
+            c.queue.pop_front();
         }
-        out[i] = static_cast<std::int16_t>(std::clamp(sum, -32768, 32767));
+        out[i * 2] = static_cast<std::int16_t>(std::clamp(left, -32768, 32767));
+        out[i * 2 + 1] = static_cast<std::int16_t>(std::clamp(right, -32768, 32767));
     }
-    return available;
+    // Debugging: MHF_AUDIO_DUMP=<file> records the mixed output as raw 16-bit stereo at 44.1 kHz.
+    static std::FILE *dump = [] {
+        const char *path = std::getenv("MHF_AUDIO_DUMP");
+        return path != nullptr ? std::fopen(path, "wb") : nullptr;
+    }();
+    if (dump != nullptr) {
+        std::fwrite(out, sizeof(std::int16_t), frames * 2, dump);
+        std::fflush(dump);
+    }
+    return frames;
 }
 
 } // namespace mhf::psp

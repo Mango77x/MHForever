@@ -190,8 +190,8 @@ GamepadState SdlHost::input() const {
 
 void SdlHost::queue_audio(const std::int16_t *stereo, std::size_t frames) {
     if (impl_->audio == nullptr) return;
-    // Keep at most ~100 ms queued; beyond that the emulation is ahead of the device and old audio would only add lag.
-    if (queued_audio_frames() > static_cast<std::size_t>(impl_->audio_rate / 10)) return;
+    // Keep at most ~200 ms queued; beyond that the emulation is ahead of the device and old audio would only add lag.
+    if (queued_audio_frames() > static_cast<std::size_t>(impl_->audio_rate / 5)) return;
     SDL_PutAudioStreamData(impl_->audio, stereo, static_cast<int>(frames * 4));
 }
 
