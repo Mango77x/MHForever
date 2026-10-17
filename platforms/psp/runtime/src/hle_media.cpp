@@ -1,4 +1,4 @@
-// sceAudio, sceAtrac3plus, sceMpeg and sceUtility dialogs (sceSasCore: hle_sas.cpp).
+// sceAudio, sceMpeg and sceUtility dialogs (sceSasCore: hle_sas.cpp, sceAtrac3plus: hle_atrac.cpp).
 //
 // First pass: these keep the game's timing and state machines moving (audio output paces itself in real time,
 // decoders produce silence, movies report the end of their stream, dialogs finish at once). Real sound and video come next (docs/10-roadmap.md phases 2-3); every simplification is logged once. Savedata requests are carried
@@ -152,63 +152,6 @@ void AudioGetChannelRestLength(Runtime &rt, Context &ctx) {
 }
 
 void AudioZero(Runtime &, Context &ctx) { ret(ctx, 0); }
-
-// ---------------------------------------------------------------- sceAtrac3plus (silent decoder)
-
-int g_next_atrac = 0;
-
-void AtracSetDataAndGetID(Runtime &, Context &ctx) {
-    note_once("sceAtrac3plus decodes silence");
-    ret(ctx, static_cast<std::uint32_t>(g_next_atrac++ % 6));
-}
-
-// (id, out, *samples, *end, *remainFrame)
-void AtracDecodeData(Runtime &rt, Context &ctx) {
-    constexpr std::uint32_t kFrameSamples = 2048;
-    auto &mem = rt.memory();
-    if (arg(ctx, 1) != 0) mem.zero(arg(ctx, 1), kFrameSamples * 4u);
-    if (arg(ctx, 2) != 0) mem.store32(arg(ctx, 2), kFrameSamples);
-    if (arg(ctx, 3) != 0) mem.store32(arg(ctx, 3), 0);
-    if (arg(ctx, 4) != 0) mem.store32(arg(ctx, 4), 0xFFFFFFFFu); // all data is in memory
-    ret(ctx, 0);
-}
-
-void AtracGetRemainFrame(Runtime &rt, Context &ctx) {
-    if (arg(ctx, 1) != 0) rt.memory().store32(arg(ctx, 1), 0xFFFFFFFFu);
-    ret(ctx, 0);
-}
-
-void AtracGetSoundSample(Runtime &rt, Context &ctx) {
-    if (arg(ctx, 1) != 0) rt.memory().store32(arg(ctx, 1), 0x100000u); // end sample
-    if (arg(ctx, 2) != 0) rt.memory().store32(arg(ctx, 2), 0xFFFFFFFFu); // loop start: none
-    if (arg(ctx, 3) != 0) rt.memory().store32(arg(ctx, 3), 0xFFFFFFFFu);
-    ret(ctx, 0);
-}
-
-void AtracGetBitrate(Runtime &rt, Context &ctx) {
-    if (arg(ctx, 1) != 0) rt.memory().store32(arg(ctx, 1), 64);
-    ret(ctx, 0);
-}
-
-void AtracGetLoopStatus(Runtime &rt, Context &ctx) {
-    if (arg(ctx, 1) != 0) rt.memory().store32(arg(ctx, 1), 0);
-    if (arg(ctx, 2) != 0) rt.memory().store32(arg(ctx, 2), 0);
-    ret(ctx, 0);
-}
-
-void AtracGetNextDecodePosition(Runtime &rt, Context &ctx) {
-    if (arg(ctx, 1) != 0) rt.memory().store32(arg(ctx, 1), 0);
-    ret(ctx, 0);
-}
-
-void AtracGetStreamDataInfo(Runtime &rt, Context &ctx) {
-    for (unsigned i = 1; i <= 3; ++i) {
-        if (arg(ctx, i) != 0) rt.memory().store32(arg(ctx, i), 0);
-    }
-    ret(ctx, 0);
-}
-
-void AtracZero(Runtime &, Context &ctx) { ret(ctx, 0); }
 
 // ---------------------------------------------------------------- sceMpeg (movies end immediately)
 
@@ -425,16 +368,6 @@ const HleFunction kFunctions[] = {
     {"sceAudio", 0xE9D97901u, "sceAudioGetChannelRestLen", &AudioGetChannelRestLength},
     {"sceAudio", 0x95FD0C2Du, "sceAudioChangeChannelConfig", &AudioZero},
     {"sceAudio", 0xB7E1D8E7u, "sceAudioChangeChannelVolume", &AudioZero},
-    {"sceAtrac3plus", 0x7A20E7AFu, "sceAtracSetDataAndGetID", &AtracSetDataAndGetID},
-    {"sceAtrac3plus", 0x6A8C3CD5u, "sceAtracDecodeData", &AtracDecodeData},
-    {"sceAtrac3plus", 0x9AE849A7u, "sceAtracGetRemainFrame", &AtracGetRemainFrame},
-    {"sceAtrac3plus", 0xA2BBA8BEu, "sceAtracGetSoundSample", &AtracGetSoundSample},
-    {"sceAtrac3plus", 0xA554A158u, "sceAtracGetBitrate", &AtracGetBitrate},
-    {"sceAtrac3plus", 0xFAA4F89Bu, "sceAtracGetLoopStatus", &AtracGetLoopStatus},
-    {"sceAtrac3plus", 0xE23E3A35u, "sceAtracGetNextDecodePosition", &AtracGetNextDecodePosition},
-    {"sceAtrac3plus", 0x5D268707u, "sceAtracGetStreamDataInfo", &AtracGetStreamDataInfo},
-    {"sceAtrac3plus", 0x61EB33F5u, "sceAtracReleaseAtracID", &AtracZero},
-    {"sceAtrac3plus", 0x868120B5u, "sceAtracSetLoopNum", &AtracZero},
     {"sceMpeg", 0xC132E22Fu, "sceMpegQueryMemSize", &MpegQueryMemSize},
     {"sceMpeg", 0xD7A29F46u, "sceMpegRingbufferQueryMemSize", &MpegRingbufferQueryMemSize},
     {"sceMpeg", 0x37295ED8u, "sceMpegRingbufferConstruct", &MpegRingbufferConstruct},

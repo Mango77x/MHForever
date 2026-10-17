@@ -50,8 +50,9 @@ std::span<const HleFunction> system_functions();   // LoadExecForUser, ModuleMgr
 std::span<const HleFunction> display_functions();  // sceDisplay, sceCtrl
 std::span<const HleFunction> misc_functions();     // interrupts, vtimers, modules, UMD, small services
 std::span<const HleFunction> ge_functions();       // sceGe_user
-std::span<const HleFunction> media_functions();    // sceAudio, sceAtrac3plus, sceMpeg, dialogs
+std::span<const HleFunction> media_functions();    // sceAudio, sceMpeg, dialogs
 std::span<const HleFunction> sas_functions();      // sceSasCore (voice mixer)
+std::span<const HleFunction> atrac_functions();    // sceAtrac3plus (music decoding)
 std::span<const HleFunction> font_functions();     // sceLibFont (free fonts)
 
 } // namespace mhf::psp::hle
