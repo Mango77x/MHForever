@@ -6,8 +6,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <memory>
 
 namespace mhf::psp {
+
+namespace gpu {
+class Backend;
+} // namespace gpu
 
 // Framebuffer the guest asked the display to scan out (sceDisplaySetFrameBuf).
 struct DisplayState {
@@ -46,6 +52,12 @@ void set_controller_state(Runtime &rt, const ControllerState &state);
 // Mixes up to `frames` stereo frames of what the game has output on its audio channels into `out` (interleaved
 // 16-bit, 44.1 kHz) and returns how many frames were available. Missing data is silence.
 std::size_t mix_audio(Runtime &rt, std::int16_t *out, std::size_t frames);
+
+// Hardware rendering: the factory runs once on the GE thread (where the backend then lives) before the first display
+// list. Returning nullptr keeps the software renderer. While a backend is active it also presents the displayed
+// framebuffer (sceDisplaySetFrameBuf). Returns whether a backend is currently active.
+void set_gpu_backend_factory(Runtime &rt, std::function<std::unique_ptr<gpu::Backend>()> factory);
+[[nodiscard]] bool gpu_backend_active(Runtime &rt);
 
 // Duration of one PSP video frame (59.94 Hz) in microseconds.
 inline constexpr std::uint64_t kVblankPeriodUs = 16683u;

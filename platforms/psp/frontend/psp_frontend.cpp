@@ -1,7 +1,11 @@
 #include "psp_frontend.hpp"
 
+#include "gl_backend.hpp"
 #include "host/sdl_host.hpp"
 #include "mhf/psp/host.hpp"
+
+#include <atomic>
+#include <cstdio>
 
 #include <algorithm>
 #include <cstring>
@@ -17,16 +21,22 @@ struct Frontend::Impl {
     std::uint64_t last_vblank{};
     std::uint64_t last_audio_us{};
     bool open{};
+    bool gpu{};
+    int render_scale{4};
+    std::atomic<int> gpu_state{0}; // 0 not started, 1 active, 2 unavailable (software presentation)
 };
 
 Frontend::Frontend() : impl_(std::make_unique<Impl>()) {}
 Frontend::~Frontend() = default;
 
-bool Frontend::open(const char *title, bool hidden, int scale) {
+bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int render_scale) {
     host::HostOptions o;
     o.title = title;
     o.hidden = hidden;
     o.scale = scale;
+    o.opengl = gpu;
+    impl_->gpu = gpu;
+    impl_->render_scale = render_scale;
     impl_->open = impl_->host.open(o);
     return impl_->open;
 }
@@ -97,6 +107,17 @@ ControllerState map_input(const host::GamepadState &g) {
 void Frontend::attach(Runtime &rt, std::function<void()> extra) {
     Impl *impl = impl_.get();
     Runtime *runtime = &rt;
+    if (impl->gpu && impl->open) {
+        set_gpu_backend_factory(rt, [impl, runtime]() -> std::unique_ptr<gpu::Backend> {
+            auto backend = make_gl_backend(static_cast<SDL_Window *>(impl->host.window_handle()), impl->render_scale,
+                                           runtime->memory());
+            if (!backend) std::fprintf(stderr, "[frontend] no OpenGL 3.3: using the software renderer\n");
+            impl->gpu_state = backend ? 1 : 2;
+            return backend;
+        });
+    } else {
+        impl->gpu_state = 2;
+    }
     rt.kernel_host_poll([impl, runtime, extra]() {
         if (impl->open) {
             if (!impl->host.poll()) {
@@ -106,7 +127,7 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
             set_controller_state(*runtime, map_input(impl->host.input()));
             const std::uint64_t now = runtime->now_us();
             const std::uint64_t vblank = now / kVblankPeriodUs;
-            if (vblank != impl->last_vblank) {
+            if (vblank != impl->last_vblank && impl->gpu_state == 2) {
                 impl->last_vblank = vblank;
                 copy_frame(*runtime, impl->frame);
                 impl->host.present(impl->frame.data(), 480, 272, 480);

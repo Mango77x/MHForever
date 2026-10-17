@@ -26,6 +26,7 @@ struct HostOptions {
     int scale = 2;     // initial window scale
     bool hidden = false; // no visible window (tests, servers)
     int audio_rate = 44100;
+    bool opengl = false; // window for an OpenGL 3.3 core context (the caller draws); no 2D renderer until needed
 };
 
 class SdlHost {
@@ -46,6 +47,11 @@ public:
 
     [[nodiscard]] GamepadState input() const;
 
+    // The SDL_Window (for OpenGL contexts); nullptr before open().
+    [[nodiscard]] void *window_handle() const;
+    // Toggles borderless fullscreen.
+    void toggle_fullscreen();
+
     // Queues interleaved stereo 16-bit samples for playback. Drops audio rather than growing the queue unbounded.
     void queue_audio(const std::int16_t *stereo, std::size_t frames);
     [[nodiscard]] std::size_t queued_audio_frames() const;
@@ -53,6 +59,7 @@ public:
     struct Impl;
 
 private:
+    bool create_renderer(unsigned long long window_flags);
     std::unique_ptr<Impl> impl_;
 };
 

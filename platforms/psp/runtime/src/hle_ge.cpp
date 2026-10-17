@@ -14,6 +14,7 @@
 #include "ge.hpp"
 
 #include <atomic>
+#include <functional>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
@@ -53,9 +54,17 @@ struct GeEvent {
     std::uint32_t pc{};
 };
 
+struct PresentRequest {
+    std::uint32_t address{}, stride{}, format{};
+};
+
 struct GeState {
     Runtime *rt{};
     std::unique_ptr<gpu::Ge> gpu;
+    std::function<std::unique_ptr<gpu::Backend>()> backend_factory;
+    std::unique_ptr<gpu::Backend> backend; // lives on the worker thread
+    std::atomic<bool> backend_active{false};
+    std::deque<PresentRequest> presents;   // queued as negative ids in `queue`
     std::map<int, GeCallback> callbacks; // scheduler side only
     int next_callback{0};
 
@@ -116,10 +125,28 @@ struct GeState {
     }
 
     void worker_main() {
+        if (backend_factory) {
+            backend = backend_factory();
+            if (backend) {
+                renderer().set_backend(backend.get());
+                backend_active = true;
+            }
+        }
         std::unique_lock lock(mutex);
         while (!stop) {
             if (queue.empty()) {
                 wake.wait(lock);
+                continue;
+            }
+            if (queue.front() < 0) {
+                const PresentRequest p = presents.front();
+                presents.pop_front();
+                queue.pop_front();
+                if (backend) {
+                    lock.unlock();
+                    backend->present(p.address, p.stride, p.format);
+                    lock.lock();
+                }
                 continue;
             }
             const DisplayList &head = lists[queue.front()];
@@ -129,6 +156,10 @@ struct GeState {
                 wake.wait(lock);
             }
         }
+        lock.unlock();
+        if (gpu) gpu->set_backend(nullptr);
+        backend.reset(); // its OpenGL context belongs to this thread
+        backend_active = false;
     }
 
     void submit_changed() {
@@ -316,5 +347,26 @@ const HleFunction kFunctions[] = {
 
 std::span<const HleFunction> ge_functions() { return kFunctions; }
 
+void ge_present(Runtime &rt, std::uint32_t address, std::uint32_t stride, std::uint32_t format) {
+    auto &s = ge(rt);
+    if (!s.backend_factory || s.synchronous) return;
+    {
+        std::lock_guard lock(s.mutex);
+        s.presents.push_back({address, stride, format});
+        s.queue.push_back(-1);
+    }
+    s.submit_changed();
+}
+
 } // namespace hle
+} // namespace mhf::psp
+
+namespace mhf::psp {
+
+void set_gpu_backend_factory(Runtime &rt, std::function<std::unique_ptr<gpu::Backend>()> factory) {
+    ge(rt).backend_factory = std::move(factory);
+}
+
+bool gpu_backend_active(Runtime &rt) { return ge(rt).backend_active.load(); }
+
 } // namespace mhf::psp

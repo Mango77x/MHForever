@@ -31,18 +31,20 @@ SdlHost::~SdlHost() {
     if (impl_->initialized) SDL_Quit();
 }
 
-bool SdlHost::open(const HostOptions &options) {
-    impl_->options = options;
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_AUDIO)) {
-        std::fprintf(stderr, "[host] SDL_Init failed: %s\n", SDL_GetError());
-        return false;
-    }
-    impl_->initialized = true;
-    const SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | (options.hidden ? SDL_WINDOW_HIDDEN : 0);
-    if (!SDL_CreateWindowAndRenderer(options.title, options.width * options.scale, options.height * options.scale, flags,
-                                     &impl_->window, &impl_->renderer)) {
-        std::fprintf(stderr, "[host] cannot create the window: %s\n", SDL_GetError());
-        return false;
+bool SdlHost::create_renderer(unsigned long long flags) {
+    const auto &options = impl_->options;
+    if (impl_->window == nullptr) {
+        if (!SDL_CreateWindowAndRenderer(options.title, options.width * options.scale, options.height * options.scale,
+                                         static_cast<SDL_WindowFlags>(flags), &impl_->window, &impl_->renderer)) {
+            std::fprintf(stderr, "[host] cannot create the window: %s\n", SDL_GetError());
+            return false;
+        }
+    } else if (impl_->renderer == nullptr) {
+        impl_->renderer = SDL_CreateRenderer(impl_->window, nullptr);
+        if (impl_->renderer == nullptr) {
+            std::fprintf(stderr, "[host] cannot create a renderer: %s\n", SDL_GetError());
+            return false;
+        }
     }
     SDL_SetRenderLogicalPresentation(impl_->renderer, options.width, options.height,
                                      SDL_LOGICAL_PRESENTATION_LETTERBOX);
@@ -50,7 +52,34 @@ bool SdlHost::open(const HostOptions &options) {
     impl_->texture = SDL_CreateTexture(impl_->renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING,
                                        options.width, options.height);
     SDL_SetTextureScaleMode(impl_->texture, SDL_SCALEMODE_NEAREST);
+    return true;
+}
 
+bool SdlHost::open(const HostOptions &options) {
+    impl_->options = options;
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
+        std::fprintf(stderr, "[host] SDL_Init failed: %s\n", SDL_GetError());
+        return false;
+    }
+    impl_->initialized = true;
+    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | (options.hidden ? SDL_WINDOW_HIDDEN : 0);
+    if (options.opengl) {
+        flags |= SDL_WINDOW_OPENGL;
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+        impl_->window = SDL_CreateWindow(options.title, options.width * options.scale, options.height * options.scale, flags);
+        if (impl_->window == nullptr) {
+            std::fprintf(stderr, "[host] cannot create the window: %s\n", SDL_GetError());
+            return false;
+        }
+    } else if (!create_renderer(flags)) {
+        return false;
+    }
+
+    if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) std::fprintf(stderr, "[host] no audio: %s\n", SDL_GetError());
     SDL_AudioSpec spec{SDL_AUDIO_S16, 2, options.audio_rate};
     impl_->audio_rate = options.audio_rate;
     impl_->audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
@@ -75,6 +104,9 @@ bool SdlHost::poll() {
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
         case SDL_EVENT_QUIT: keep_running = false; break;
+        case SDL_EVENT_KEY_DOWN:
+            if (e.key.key == SDLK_F11 || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT) != 0)) toggle_fullscreen();
+            break;
         case SDL_EVENT_GAMEPAD_ADDED:
             if (SDL_Gamepad *g = SDL_OpenGamepad(e.gdevice.which)) impl_->gamepads.push_back(g);
             break;
@@ -94,13 +126,21 @@ bool SdlHost::poll() {
 }
 
 void SdlHost::present(const std::uint32_t *pixels, int width, int height, int stride) {
-    if (impl_->renderer == nullptr) return;
+    if (impl_->renderer == nullptr && (impl_->window == nullptr || !create_renderer(0))) return;
     SDL_Rect area{0, 0, std::min(width, impl_->options.width), std::min(height, impl_->options.height)};
     SDL_UpdateTexture(impl_->texture, &area, pixels, stride * 4);
     SDL_SetRenderDrawColor(impl_->renderer, 0, 0, 0, 255);
     SDL_RenderClear(impl_->renderer);
     SDL_RenderTexture(impl_->renderer, impl_->texture, nullptr, nullptr);
     SDL_RenderPresent(impl_->renderer);
+}
+
+void *SdlHost::window_handle() const { return impl_->window; }
+
+void SdlHost::toggle_fullscreen() {
+    if (impl_->window == nullptr) return;
+    const bool full = (SDL_GetWindowFlags(impl_->window) & SDL_WINDOW_FULLSCREEN) != 0;
+    SDL_SetWindowFullscreen(impl_->window, !full);
 }
 
 GamepadState SdlHost::input() const {

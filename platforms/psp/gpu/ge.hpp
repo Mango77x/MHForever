@@ -6,6 +6,7 @@
 // effect a game relies on (render to texture, block transfers, reading back) behaves like the hardware. A Vulkan
 // backend will later replace the drawing part behind the same state.
 
+#include "backend.hpp"
 #include "psprecomp/guest_memory.hpp"
 
 #include <array>
@@ -53,7 +54,25 @@ public:
     [[nodiscard]] const Stats &stats() const noexcept { return stats_; }
     [[nodiscard]] std::uint32_t reg(std::uint32_t cmd) const noexcept { return regs_[cmd & 0xFF]; }
 
+    // Hardware drawing: with a backend installed, rasterization goes there instead of guest VRAM.
+    void set_backend(Backend *backend) noexcept { backend_ = backend; }
+    [[nodiscard]] Backend *backend() const noexcept { return backend_; }
+
+    // The current texture (level 0), for backends.
+    struct TextureInfo {
+        std::uint32_t address{}, stride{}, format{}, width{}, height{}, bytes{};
+        bool swizzled{};
+    };
+    [[nodiscard]] TextureInfo texture_info() const;
+    // Decodes level 0 into width*height ABGR8888 texels (CLUT, swizzling and DXT resolved).
+    void decode_texture(std::uint32_t *out) const;
+    // Hash of the texture bytes, and of the palette for indexed formats; changes when the texture would look different.
+    [[nodiscard]] std::uint64_t texture_hash() const;
+    // Incremented whenever the palette is reloaded.
+    [[nodiscard]] std::uint64_t clut_generation() const noexcept { return clut_generation_; }
+
 private:
+    ListResult run_commands(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event);
     void execute(std::uint32_t word, std::uint32_t pc);
     void draw_primitive(std::uint32_t data);
     void draw_bezier_or_spline(std::uint32_t cmd, std::uint32_t data);
@@ -89,7 +108,9 @@ private:
     [[nodiscard]] std::uint32_t read_pixel(int x, int y) const;
     void write_pixel(int x, int y, std::uint32_t abgr, std::uint32_t write_mask);
 
-    psprecomp::GuestMemory &mem_;
+
+    Backend *backend_{};
+    std::uint64_t clut_generation_{};
 
     // Direct access to guest RAM and EDRAM for the hot paths (vertices, texels, pixels): no bounds exceptions, an
     // address outside both reads 0 and ignores writes, like the open bus of the real GE would at worst.

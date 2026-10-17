@@ -121,7 +121,7 @@ Vertex lerp(const Vertex &a, const Vertex &b, float t) {
 
 float float24(std::uint32_t data) { return std::bit_cast<float>(data << 8u); }
 
-Ge::Ge(psprecomp::GuestMemory &memory) : mem_(memory) {
+Ge::Ge(psprecomp::GuestMemory &memory) {
     ram_size_ = memory.size();
     ram_ = memory.raw_pointer(psprecomp::GuestMemory::kPhysicalBase, ram_size_);
     vram_ = memory.raw_pointer(psprecomp::GuestMemory::kVramPhysicalBase, psprecomp::GuestMemory::kVramSize);
@@ -130,6 +130,12 @@ Ge::Ge(psprecomp::GuestMemory &memory) : mem_(memory) {
 // ---------------------------------------------------------------- display lists
 
 Ge::ListResult Ge::run(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event) {
+    const ListResult result = run_commands(pc, stall, on_event);
+    if (backend_ != nullptr) backend_->flush();
+    return result;
+}
+
+Ge::ListResult Ge::run_commands(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event) {
     constexpr std::uint64_t kMaxCommands = 20'000'000u;
     for (std::uint64_t n = 0; n < kMaxCommands; ++n) {
         if (stall != 0 && (pc & 0x0FFFFFFFu) == (stall & 0x0FFFFFFFu)) {
@@ -590,6 +596,10 @@ void Ge::draw_triangle(Vertex a, Vertex b, Vertex c) {
 }
 
 void Ge::draw_triangle_screen(const Vertex &a, const Vertex &b, const Vertex &c) {
+    if (backend_ != nullptr) {
+        backend_->triangle(*this, a, b, c);
+        return;
+    }
     const float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
     if (area == 0.0f || !std::isfinite(area)) return;
     // Culling is left to depth testing for now; the PSP's face orientation rule needs checking on hardware.
@@ -643,6 +653,10 @@ void Ge::draw_triangle_screen(const Vertex &a, const Vertex &b, const Vertex &c)
 }
 
 void Ge::draw_sprite(const Vertex &a, const Vertex &b) {
+    if (backend_ != nullptr) {
+        backend_->sprite(*this, a, b);
+        return;
+    }
     // Rectangle from the top-left vertex to the bottom-right one, with b's color; texture coordinates
     // interpolate linearly across it.
     const int sx1 = static_cast<int>(regs_[kScissor1] & 0x3FFu), sy1 = static_cast<int>((regs_[kScissor1] >> 10u) & 0x3FFu);
@@ -666,6 +680,19 @@ void Ge::draw_sprite(const Vertex &a, const Vertex &b) {
 }
 
 void Ge::draw_line(const Vertex &a, const Vertex &b) {
+    if (backend_ != nullptr) {
+        // A one-pixel-wide quad along the line.
+        const float dx = b.x - a.x, dy = b.y - a.y;
+        const float len = std::sqrt(dx * dx + dy * dy);
+        if (len <= 0.0f) return;
+        const float nx = -dy / len * 0.5f, ny = dx / len * 0.5f;
+        Vertex p0 = a, p1 = a, p2 = b, p3 = b;
+        p0.x += nx; p0.y += ny; p1.x -= nx; p1.y -= ny;
+        p2.x += nx; p2.y += ny; p3.x -= nx; p3.y -= ny;
+        backend_->triangle(*this, p0, p1, p2);
+        backend_->triangle(*this, p1, p3, p2);
+        return;
+    }
     const float dx = b.x - a.x, dy = b.y - a.y;
     const int steps = static_cast<int>(std::max(std::fabs(dx), std::fabs(dy)));
     for (int i = 0; i <= steps; ++i) {
@@ -676,6 +703,13 @@ void Ge::draw_line(const Vertex &a, const Vertex &b) {
 }
 
 void Ge::draw_point(const Vertex &p) {
+    if (backend_ != nullptr) {
+        Vertex a = p, b = p;
+        b.x += 1.0f;
+        b.y += 1.0f;
+        backend_->sprite(*this, a, b);
+        return;
+    }
     const int x = static_cast<int>(p.x), y = static_cast<int>(p.y);
     const int sx1 = static_cast<int>(regs_[kScissor1] & 0x3FFu), sy1 = static_cast<int>((regs_[kScissor1] >> 10u) & 0x3FFu);
     const int sx2 = static_cast<int>(regs_[kScissor2] & 0x3FFu), sy2 = static_cast<int>((regs_[kScissor2] >> 10u) & 0x3FFu);
@@ -859,16 +893,18 @@ void Ge::block_transfer(std::uint32_t data) {
     const std::uint32_t sx = regs_[kTransferSrcPos] & 0x3FFu, sy = (regs_[kTransferSrcPos] >> 10u) & 0x3FFu;
     const std::uint32_t dx = regs_[kTransferDstPos] & 0x3FFu, dy = (regs_[kTransferDstPos] >> 10u) & 0x3FFu;
     const std::uint32_t w = (regs_[kTransferSize] & 0x3FFu) + 1u, h = ((regs_[kTransferSize] >> 10u) & 0x3FFu) + 1u;
-    std::vector<std::uint8_t> row(w * bpp);
     for (std::uint32_t y = 0; y < h; ++y) {
-        mem_.copy_out(src + ((sy + y) * src_stride + sx) * bpp, row);
-        mem_.copy_in(dst + ((dy + y) * dst_stride + dx) * bpp, row);
+        const std::uint8_t *from = host(src + ((sy + y) * src_stride + sx) * bpp, w * bpp);
+        std::uint8_t *to = host(dst + ((dy + y) * dst_stride + dx) * bpp, w * bpp);
+        if (from != nullptr && to != nullptr) std::memmove(to, from, w * bpp);
     }
+    if (backend_ != nullptr) backend_->block_transfer(src, src_stride, sx, sy, dst, dst_stride, dx, dy, w, h, bpp);
 }
 
 // ---------------------------------------------------------------- textures
 
 void Ge::load_clut(std::uint32_t data) {
+    ++clut_generation_;
     const std::uint32_t address = (regs_[kClutAddr] & 0xFFFFF0u) | ((regs_[kClutAddrUpper] & 0x0F0000u) << 8u);
     const std::uint32_t bytes = std::min<std::uint32_t>((data & 0x3Fu) * 32u, 1024u);
     for (std::uint32_t i = 0; i < bytes / 4u; ++i) {
@@ -985,6 +1021,63 @@ void Ge::sample_texture(float u, float v, float out[4]) const {
         const float bottom = c01[i] + (c11[i] - c01[i]) * tx;
         out[i] = top + (bottom - top) * ty;
     }
+}
+
+} // namespace mhf::psp::gpu
+
+namespace mhf::psp::gpu {
+
+// ---------------------------------------------------------------- texture access for backends
+
+Ge::TextureInfo Ge::texture_info() const {
+    TextureInfo t;
+    t.address = (regs_[kTexAddr0] & 0xFFFFF0u) | ((regs_[kTexBufWidth0] & 0x0F0000u) << 8u);
+    t.stride = regs_[kTexBufWidth0] & 0x7FFu;
+    t.format = regs_[kTexFormat] & 0xFu;
+    t.width = 1u << (regs_[kTexSize0] & 0xFu);
+    t.height = 1u << ((regs_[kTexSize0] >> 8u) & 0xFu);
+    t.swizzled = (regs_[kTexMode] & 1u) != 0;
+    static constexpr std::uint32_t bits_for[11] = {16, 16, 16, 32, 4, 8, 16, 32, 4, 8, 8};
+    const std::uint32_t bits = bits_for[std::min<std::uint32_t>(t.format, 10u)];
+    const std::uint32_t rows = t.swizzled ? (t.height + 7u) & ~7u : t.height;
+    t.bytes = std::max(t.stride, t.width) * rows * bits / 8u;
+    return t;
+}
+
+void Ge::decode_texture(std::uint32_t *out) const {
+    const TextureInfo t = texture_info();
+    for (std::uint32_t y = 0; y < t.height; ++y) {
+        for (std::uint32_t x = 0; x < t.width; ++x) {
+            out[y * t.width + x] = fetch_texel(0, static_cast<int>(x), static_cast<int>(y));
+        }
+    }
+}
+
+std::uint64_t Ge::texture_hash() const {
+    const TextureInfo t = texture_info();
+    // FNV-1a over 64-bit words: fast and good enough to tell textures apart.
+    std::uint64_t h = 0xCBF29CE484222325ull;
+    auto mix = [&h](std::uint64_t v) {
+        h ^= v;
+        h *= 0x100000001B3ull;
+    };
+    mix(t.address);
+    mix((static_cast<std::uint64_t>(t.format) << 32u) | (t.width << 16u) | t.height);
+    mix(t.stride | (t.swizzled ? 0x10000u : 0u));
+    if (const std::uint8_t *p = host(t.address, t.bytes)) {
+        std::uint32_t i = 0;
+        for (; i + 8u <= t.bytes; i += 8u) {
+            std::uint64_t v;
+            std::memcpy(&v, p + i, 8);
+            mix(v);
+        }
+        for (; i < t.bytes; ++i) mix(p[i]);
+    }
+    if (t.format >= 4u && t.format <= 7u) {
+        mix(regs_[kClutFormat]);
+        for (const std::uint32_t c : clut_) mix(c);
+    }
+    return h;
 }
 
 } // namespace mhf::psp::gpu

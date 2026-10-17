@@ -37,6 +37,9 @@ struct PerfCounters {
 };
 PerfCounters &perf();
 
+// Queues a flip to the GPU backend, in order with the display lists (no-op without a backend).
+void ge_present(Runtime &rt, std::uint32_t address, std::uint32_t stride, std::uint32_t format);
+
 // Registration of each module group (called from Runtime's constructor).
 std::span<const HleFunction> thread_functions();   // ThreadManForUser, Kernel_Library
 std::span<const HleFunction> sysmem_functions();   // SysMemUserForUser

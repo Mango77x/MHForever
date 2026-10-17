@@ -44,3 +44,11 @@ mhf_add_homebrew(getest EXPECT "getest: [0-9]+ passed, 0 failed")
 mhf_add_homebrew(vfputest EXPECT "vfputest: [0-9]+ passed, 0 failed")
 mhf_add_homebrew(savetest EXPECT "savetest: [0-9]+ passed, 0 failed")
 mhf_add_homebrew(fonttest EXPECT "fonttest: [0-9]+ passed, 0 failed")
+
+# The GE test once more through the OpenGL renderer (offscreen, results read back into VRAM), when a frontend exists.
+if(TARGET mhf_psp_frontend)
+    set(work ${CMAKE_CURRENT_BINARY_DIR}/getest_psp)
+    add_test(NAME homebrew_getest_opengl COMMAND hb_getest ${work}/getest.elf --memstick ${work}/memstick --window)
+    set_tests_properties(homebrew_getest_opengl PROPERTIES PASS_REGULAR_EXPRESSION "getest: [0-9]+ passed, 0 failed"
+                         TIMEOUT 60 LABELS opengl ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen;MHF_GL_READBACK=1")
+endif()
