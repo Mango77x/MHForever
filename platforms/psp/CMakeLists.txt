@@ -3,6 +3,7 @@
 
 add_library(mhf_psp_tools STATIC
     tools/iso9660.cpp
+    tools/param_sfo.cpp
 )
 target_include_directories(mhf_psp_tools PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 mhf_target_warnings(mhf_psp_tools)
