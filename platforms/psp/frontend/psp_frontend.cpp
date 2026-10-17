@@ -23,11 +23,15 @@ struct Frontend::Impl {
     bool open{};
     bool gpu{};
     int render_scale{4};
-    std::atomic<int> gpu_state{0}; // 0 not started, 1 active, 2 unavailable (software presentation)
+    std::atomic<int> gpu_state{0};
+    Runtime *runtime{}; // 0 not started, 1 active, 2 unavailable (software presentation)
 };
 
 Frontend::Frontend() : impl_(std::make_unique<Impl>()) {}
-Frontend::~Frontend() = default;
+Frontend::~Frontend() {
+    // The GE thread draws into our window: stop it before the window is destroyed.
+    if (impl_->runtime != nullptr && impl_->gpu) stop_gpu_backend(*impl_->runtime);
+}
 
 bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int render_scale) {
     host::HostOptions o;
@@ -107,6 +111,7 @@ ControllerState map_input(const host::GamepadState &g) {
 void Frontend::attach(Runtime &rt, std::function<void()> extra) {
     Impl *impl = impl_.get();
     Runtime *runtime = &rt;
+    impl->runtime = runtime;
     if (impl->gpu && impl->open) {
         set_gpu_backend_factory(rt, [impl, runtime]() -> std::unique_ptr<gpu::Backend> {
             auto backend = make_gl_backend(static_cast<SDL_Window *>(impl->host.window_handle()), impl->render_scale,

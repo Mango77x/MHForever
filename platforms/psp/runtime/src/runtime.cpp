@@ -73,6 +73,7 @@ Runtime::Runtime(RuntimeOptions options)
 }
 
 Runtime::~Runtime() {
+    hle::ge_shutdown(*this);
     ticker_stop_ = true;
     if (ticker_.joinable()) ticker_.join();
     if (g_active == this) {

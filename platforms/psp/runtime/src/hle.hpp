@@ -38,6 +38,8 @@ struct PerfCounters {
 PerfCounters &perf();
 
 // Queues a flip to the GPU backend, in order with the display lists (no-op without a backend).
+// Stops the GE worker thread (at runtime shutdown).
+void ge_shutdown(Runtime &rt);
 void ge_present(Runtime &rt, std::uint32_t address, std::uint32_t stride, std::uint32_t format);
 
 // Registration of each module group (called from Runtime's constructor).

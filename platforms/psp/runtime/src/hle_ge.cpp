@@ -80,7 +80,10 @@ struct GeState {
     std::thread worker;
     bool synchronous{};
 
-    ~GeState() {
+    ~GeState() { shutdown(); }
+
+    // Stops the worker (which also destroys the GPU backend on its own thread).
+    void shutdown() {
         {
             std::lock_guard lock(mutex);
             stop = true;
@@ -347,6 +350,10 @@ const HleFunction kFunctions[] = {
 
 std::span<const HleFunction> ge_functions() { return kFunctions; }
 
+void ge_shutdown(Runtime &rt) {
+    if (const auto it = g_ge.find(&rt); it != g_ge.end() && it->second) it->second->shutdown();
+}
+
 void ge_present(Runtime &rt, std::uint32_t address, std::uint32_t stride, std::uint32_t format) {
     auto &s = ge(rt);
     if (!s.backend_factory || s.synchronous) return;
@@ -368,5 +375,7 @@ void set_gpu_backend_factory(Runtime &rt, std::function<std::unique_ptr<gpu::Bac
 }
 
 bool gpu_backend_active(Runtime &rt) { return ge(rt).backend_active.load(); }
+
+void stop_gpu_backend(Runtime &rt) { hle::ge_shutdown(rt); }
 
 } // namespace mhf::psp
