@@ -30,6 +30,7 @@ std::uint64_t next_vblank(Runtime &rt) { return (vcount(rt) + 1) * kVblankPeriod
 
 const DisplayState &display_state(Runtime &rt) { return video(rt).display; }
 void set_controller_state(Runtime &rt, const ControllerState &state) { video(rt).controller = state; }
+const ControllerState &controller_state(Runtime &rt) { return video(rt).controller; }
 
 namespace hle {
 namespace {

@@ -1,4 +1,4 @@
-// sceAudio, sceMpeg and sceUtility dialogs (sceSasCore: hle_sas.cpp, sceAtrac3plus: hle_atrac.cpp).
+// sceAudio and sceMpeg (sceUtility dialogs: hle_utility.cpp, sceSasCore: hle_sas.cpp, sceAtrac3plus: hle_atrac.cpp).
 //
 // First pass: these keep the game's timing and state machines moving (audio output paces itself in real time,
 // decoders produce silence, movies report the end of their stream, dialogs finish at once). Real sound and video come next (docs/10-roadmap.md phases 2-3); every simplification is logged once. Savedata requests are carried
@@ -224,140 +224,6 @@ void MpegAvcDecode(Runtime &rt, Context &ctx) {
 }
 void MpegZero(Runtime &, Context &ctx) { ret(ctx, 0); }
 
-// ---------------------------------------------------------------- sceUtility dialogs
-
-enum DialogStatus : std::uint32_t { kNone = 0, kInit = 1, kRunning = 2, kFinished = 3, kShutdown = 4 };
-
-struct Dialog {
-    std::uint32_t status{kNone};
-    std::uint32_t params{};
-};
-Dialog g_savedata, g_message, g_osk, g_netconf;
-
-std::uint32_t get_status(Dialog &d) {
-    const std::uint32_t s = d.status;
-    if (s == kShutdown) d.status = kNone;
-    if (s == kInit) d.status = kRunning;
-    return s;
-}
-
-void SavedataInitStart(Runtime &rt, Context &ctx) {
-    if (g_savedata.status != kNone) {
-        ret(ctx, 0x80110005u); // SCE_ERROR_UTILITY_WRONG_TYPE / busy
-        return;
-    }
-    g_savedata.params = arg(ctx, 0);
-    execute_savedata(rt, g_savedata.params); // the result goes into the parameter block
-    g_savedata.status = kInit;
-    ret(ctx, 0);
-}
-
-void SavedataUpdate(Runtime &, Context &ctx) {
-    if (g_savedata.status == kRunning || g_savedata.status == kInit) g_savedata.status = kFinished;
-    ret(ctx, 0);
-}
-void SavedataGetStatus(Runtime &, Context &ctx) { ret(ctx, get_status(g_savedata)); }
-void SavedataShutdownStart(Runtime &, Context &ctx) {
-    g_savedata.status = kShutdown;
-    ret(ctx, 0);
-}
-
-void MsgDialogInitStart(Runtime &rt, Context &ctx) {
-    g_message.params = arg(ctx, 0);
-    std::fprintf(stderr, "[hle] message dialog (mode %u, options %X, error %08X): \"%s\"\n",
-                 rt.memory().load32(g_message.params + 0x34), rt.memory().load32(g_message.params + 0x23C),
-                 rt.memory().load32(g_message.params + 0x38), read_string(rt, g_message.params + 0x3C, 512).c_str());
-    rt.memory().store32(g_message.params + 0x1C, 0);     // result
-    // No dialog UI yet: answer as a player who accepts. Yes/no questions get "yes" (1); messages with only an OK
-    // button get 1 too; plain messages, whose only button is "back", get "back" (3).
-    const std::uint32_t options = rt.memory().load32(g_message.params + 0x23C);
-    const bool has_buttons = (options & 0x10u) != 0 || (options & 0x20u) != 0; // YESNO, OK
-    rt.memory().store32(g_message.params + 0x240, has_buttons ? 1u : 3u);
-    g_message.status = kInit;
-    ret(ctx, 0);
-}
-void MsgDialogUpdate(Runtime &, Context &ctx) {
-    if (g_message.status == kRunning || g_message.status == kInit) g_message.status = kFinished;
-    ret(ctx, 0);
-}
-void MsgDialogGetStatus(Runtime &, Context &ctx) { ret(ctx, get_status(g_message)); }
-void MsgDialogShutdownStart(Runtime &, Context &ctx) {
-    g_message.status = kShutdown;
-    ret(ctx, 0);
-}
-
-// UTF-16 string from guest memory (up to `max` units), as UTF-8 for logs (non-ASCII shown as '?').
-std::string read_utf16(Runtime &rt, std::uint32_t address, std::uint32_t max) {
-    std::string out;
-    if (address == 0) return out;
-    for (std::uint32_t i = 0; i < max; ++i) {
-        const std::uint16_t c = rt.memory().load16(address + i * 2u);
-        if (c == 0) break;
-        out.push_back(c < 0x80 ? static_cast<char>(c) : '?');
-    }
-    return out;
-}
-
-// No keyboard UI yet: every field the game asks for gets its initial text, or RuntimeOptions::osk_default_text when
-// that is empty, as if the player had typed it and pressed Enter.
-void OskInitStart(Runtime &rt, Context &ctx) {
-    g_osk.params = arg(ctx, 0);
-    auto &mem = rt.memory();
-    const std::uint32_t count = mem.load32(g_osk.params + 0x30), fields = mem.load32(g_osk.params + 0x34);
-    for (std::uint32_t i = 0; fields != 0 && i < count && i < 16; ++i) {
-        const std::uint32_t field = fields + i * 0x34u;
-        const std::uint32_t intext = mem.load32(field + 32), capacity = mem.load32(field + 36);
-        const std::uint32_t outtext = mem.load32(field + 40), limit = mem.load32(field + 48);
-        std::u16string text;
-        for (std::uint32_t j = 0; intext != 0 && j < 512; ++j) {
-            const std::uint16_t c = mem.load16(intext + j * 2u);
-            if (c == 0) break;
-            text.push_back(static_cast<char16_t>(c));
-        }
-        if (text.empty()) {
-            for (const char c : rt.options().osk_default_text) text.push_back(static_cast<char16_t>(static_cast<unsigned char>(c)));
-        }
-        std::size_t max = text.size();
-        if (limit != 0) max = std::min<std::size_t>(max, limit);
-        if (capacity != 0) max = std::min<std::size_t>(max, capacity - 1u);
-        if (outtext != 0) {
-            for (std::size_t j = 0; j < max; ++j) mem.store16(outtext + static_cast<std::uint32_t>(j) * 2u, text[j]);
-            mem.store16(outtext + static_cast<std::uint32_t>(max) * 2u, 0);
-        }
-        mem.store32(field + 44, 2); // PSP_UTILITY_OSK_RESULT_CHANGED
-        std::fprintf(stderr, "[hle] on-screen keyboard \"%s\" -> \"%s\"\n",
-                     read_utf16(rt, mem.load32(field + 28), 64).c_str(), read_utf16(rt, outtext, 64).c_str());
-    }
-    mem.store32(g_osk.params + 0x1C, 0);
-    g_osk.status = kInit;
-    ret(ctx, 0);
-}
-void OskUpdate(Runtime &, Context &ctx) {
-    if (g_osk.status == kRunning || g_osk.status == kInit) g_osk.status = kFinished;
-    ret(ctx, 0);
-}
-void OskGetStatus(Runtime &, Context &ctx) { ret(ctx, get_status(g_osk)); }
-void OskShutdownStart(Runtime &, Context &ctx) {
-    g_osk.status = kShutdown;
-    ret(ctx, 0);
-}
-
-void NetconfInitStart(Runtime &rt, Context &ctx) {
-    g_netconf.params = arg(ctx, 0);
-    rt.memory().store32(g_netconf.params + 0x1C, 0);
-    g_netconf.status = kInit;
-    ret(ctx, 0);
-}
-void NetconfUpdate(Runtime &, Context &ctx) {
-    if (g_netconf.status == kRunning || g_netconf.status == kInit) g_netconf.status = kFinished;
-    ret(ctx, 0);
-}
-void NetconfGetStatus(Runtime &, Context &ctx) { ret(ctx, get_status(g_netconf)); }
-void NetconfShutdownStart(Runtime &, Context &ctx) {
-    g_netconf.status = kShutdown;
-    ret(ctx, 0);
-}
-
 const HleFunction kFunctions[] = {
     {"sceAudio", 0x5EC81C55u, "sceAudioChReserve", &AudioChReserve},
     {"sceAudio", 0x6FC46853u, "sceAudioChRelease", &AudioChRelease},
@@ -392,22 +258,6 @@ const HleFunction kFunctions[] = {
     {"sceMpeg", 0x800C44DFu, "sceMpegAtracDecode", &MpegZero},
     {"sceMpeg", 0xCEB870B1u, "sceMpegFreeAvcEsBuf", &MpegZero},
     {"sceMpeg", 0xF8DCB679u, "sceMpegQueryAtracEsSize", &MpegZero},
-    {"sceUtility", 0x50C4CD57u, "sceUtilitySavedataInitStart", &SavedataInitStart},
-    {"sceUtility", 0xD4B95FFBu, "sceUtilitySavedataUpdate", &SavedataUpdate},
-    {"sceUtility", 0x8874DBE0u, "sceUtilitySavedataGetStatus", &SavedataGetStatus},
-    {"sceUtility", 0x9790B33Cu, "sceUtilitySavedataShutdownStart", &SavedataShutdownStart},
-    {"sceUtility", 0x2AD8E239u, "sceUtilityMsgDialogInitStart", &MsgDialogInitStart},
-    {"sceUtility", 0x95FC253Bu, "sceUtilityMsgDialogUpdate", &MsgDialogUpdate},
-    {"sceUtility", 0x9A1C91D7u, "sceUtilityMsgDialogGetStatus", &MsgDialogGetStatus},
-    {"sceUtility", 0x67AF3428u, "sceUtilityMsgDialogShutdownStart", &MsgDialogShutdownStart},
-    {"sceUtility", 0xF6269B82u, "sceUtilityOskInitStart", &OskInitStart},
-    {"sceUtility", 0x4B85C861u, "sceUtilityOskUpdate", &OskUpdate},
-    {"sceUtility", 0xF3F76017u, "sceUtilityOskGetStatus", &OskGetStatus},
-    {"sceUtility", 0x3DFAEBA9u, "sceUtilityOskShutdownStart", &OskShutdownStart},
-    {"sceUtility", 0x4DB1E739u, "sceUtilityNetconfInitStart", &NetconfInitStart},
-    {"sceUtility", 0x91E70E35u, "sceUtilityNetconfUpdate", &NetconfUpdate},
-    {"sceUtility", 0x6332AA39u, "sceUtilityNetconfGetStatus", &NetconfGetStatus},
-    {"sceUtility", 0xF88155F6u, "sceUtilityNetconfShutdownStart", &NetconfShutdownStart},
 };
 
 } // namespace

@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace mhf::host {
 
@@ -17,6 +19,12 @@ struct GamepadState {
     bool up{}, down{}, left{}, right{};
     float left_x{}, left_y{};                   // -1..1
     float right_x{}, right_y{};
+};
+
+// Keyboard input for text and menus (dialogs drawn by the platform), in the order it happened.
+struct KeyEvent {
+    enum class Kind { Text, Enter, Escape, Backspace, Left, Right, Up, Down } kind = Kind::Text;
+    std::string text; // Kind::Text: UTF-8
 };
 
 struct HostOptions {
@@ -46,6 +54,11 @@ public:
     void present(const std::uint32_t *pixels, int width, int height, int stride);
 
     [[nodiscard]] GamepadState input() const;
+
+    // Key events since the last call (collected by poll()).
+    [[nodiscard]] std::vector<KeyEvent> take_key_events();
+    // Text entry (IME, typed characters). While it is on, the keyboard no longer acts as a gamepad.
+    void set_text_input(bool on);
 
     // The SDL_Window (for OpenGL contexts); nullptr before open().
     [[nodiscard]] void *window_handle() const;

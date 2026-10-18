@@ -17,6 +17,8 @@ struct SdlHost::Impl {
     std::vector<SDL_Gamepad *> gamepads;
     HostOptions options;
     int audio_rate{44100};
+    std::vector<KeyEvent> keys;
+    bool text_input{};
     bool initialized{};
 };
 
@@ -105,7 +107,25 @@ bool SdlHost::poll() {
         switch (e.type) {
         case SDL_EVENT_QUIT: keep_running = false; break;
         case SDL_EVENT_KEY_DOWN:
-            if (e.key.key == SDLK_F11 || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT) != 0)) toggle_fullscreen();
+            if (e.key.key == SDLK_F11 || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT) != 0)) {
+                toggle_fullscreen();
+                break;
+            }
+            switch (e.key.key) {
+            case SDLK_RETURN:
+            case SDLK_KP_ENTER: impl_->keys.push_back({KeyEvent::Kind::Enter, {}}); break;
+            case SDLK_ESCAPE: impl_->keys.push_back({KeyEvent::Kind::Escape, {}}); break;
+            case SDLK_BACKSPACE: impl_->keys.push_back({KeyEvent::Kind::Backspace, {}}); break;
+            case SDLK_LEFT: impl_->keys.push_back({KeyEvent::Kind::Left, {}}); break;
+            case SDLK_RIGHT: impl_->keys.push_back({KeyEvent::Kind::Right, {}}); break;
+            case SDLK_UP: impl_->keys.push_back({KeyEvent::Kind::Up, {}}); break;
+            case SDLK_DOWN: impl_->keys.push_back({KeyEvent::Kind::Down, {}}); break;
+            default: break;
+            }
+            if (impl_->keys.size() > 256) impl_->keys.erase(impl_->keys.begin());
+            break;
+        case SDL_EVENT_TEXT_INPUT:
+            if (impl_->text_input && e.text.text != nullptr) impl_->keys.push_back({KeyEvent::Kind::Text, e.text.text});
             break;
         case SDL_EVENT_GAMEPAD_ADDED:
             if (SDL_Gamepad *g = SDL_OpenGamepad(e.gdevice.which)) impl_->gamepads.push_back(g);
@@ -135,6 +155,19 @@ void SdlHost::present(const std::uint32_t *pixels, int width, int height, int st
     SDL_RenderPresent(impl_->renderer);
 }
 
+std::vector<KeyEvent> SdlHost::take_key_events() {
+    std::vector<KeyEvent> out;
+    out.swap(impl_->keys);
+    return out;
+}
+
+void SdlHost::set_text_input(bool on) {
+    if (impl_->window == nullptr || on == impl_->text_input) return;
+    impl_->text_input = on;
+    if (on) SDL_StartTextInput(impl_->window);
+    else SDL_StopTextInput(impl_->window);
+}
+
 void *SdlHost::window_handle() const { return impl_->window; }
 
 void SdlHost::toggle_fullscreen() {
@@ -145,7 +178,9 @@ void SdlHost::toggle_fullscreen() {
 
 GamepadState SdlHost::input() const {
     GamepadState s;
-    const bool *keys = SDL_GetKeyboardState(nullptr);
+    static const bool kNoKeys[SDL_SCANCODE_COUNT] = {};
+    // While text is being typed, letters are text, not buttons.
+    const bool *keys = impl_->text_input ? kNoKeys : SDL_GetKeyboardState(nullptr);
     // Keyboard defaults (remappable later, docs/07-launcher-ux.md).
     s.south = keys[SDL_SCANCODE_K];
     s.east = keys[SDL_SCANCODE_L];

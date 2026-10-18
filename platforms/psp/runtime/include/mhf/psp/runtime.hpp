@@ -74,8 +74,12 @@ struct RuntimeOptions {
     std::filesystem::path host_root = ".";
     // Folder with the free fonts served by sceLibFont (third_party/fonts, copied next to the executable).
     std::filesystem::path font_directory = "fonts";
-    // Text the on-screen keyboard returns for an empty field until it has a real UI (e.g. the hunter's name).
+    // Text the on-screen keyboard starts with when the game's field is empty (e.g. the hunter's name, from the
+    // launcher's pseudonym). Without interactive dialogs it is returned as typed.
     std::string osk_default_text = "Hunter";
+    // System dialogs (messages, keyboard, save/load) wait for the player and are drawn by the frontend. Off for
+    // headless runs and tests, where they answer at once (yes / the default text / the game's own slot).
+    bool interactive_dialogs = false;
     // Player volume preferences, 0..100 (100 = as the game mixes it): music is decoded ATRAC audio, effects the voice
     // mixer (sceSasCore).
     int music_volume = 100;

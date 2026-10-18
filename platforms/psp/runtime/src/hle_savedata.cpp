@@ -11,6 +11,7 @@
 // Parameter layout: pspsdk psputility_savedata.h (SceUtilitySavedataParam, firmware >= 2.00).
 
 #include "hle.hpp"
+#include "param_sfo.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -245,6 +246,7 @@ struct Request {
     Runtime &rt;
     std::uint32_t p;
     psprecomp::GuestMemory &mem;
+    std::optional<std::string> chosen{}; // slot the player picked in our list dialog (list modes)
 
     std::uint32_t u32(std::uint32_t off) const { return mem.load32(p + off); }
     std::string str(std::uint32_t off, std::size_t n) const { return read_string(rt, p + off, n); }
@@ -280,6 +282,7 @@ struct Request {
 
     // The slot the player would have picked in the list dialog; nullopt when there is nothing to pick.
     std::optional<std::string> pick(bool for_save) const {
+        if (chosen) return chosen;
         std::vector<std::string> list = name_list();
         if (list.empty()) {
             return save_name();
@@ -599,10 +602,75 @@ const char *mode_name(std::uint32_t mode) {
 
 } // namespace
 
-std::uint32_t execute_savedata(Runtime &rt, std::uint32_t params) {
+SavedataPlan savedata_plan(Runtime &rt, std::uint32_t params) {
     const Request request{rt, params, rt.memory()};
+    SavedataPlan plan;
+    plan.mode = request.u32(kMode);
+    switch (plan.mode) {
+    case kAutoLoad: plan.ui = SavedataPlan::Ui::Toast; plan.action = SavedataPlan::Action::Load; break;
+    case kAutoSave: plan.ui = SavedataPlan::Ui::Toast; plan.action = SavedataPlan::Action::Save; break;
+    case kLoad: plan.ui = SavedataPlan::Ui::Confirm; plan.action = SavedataPlan::Action::Load; break;
+    case kSave: plan.ui = SavedataPlan::Ui::Confirm; plan.action = SavedataPlan::Action::Save; break;
+    case kDelete: plan.ui = SavedataPlan::Ui::Confirm; plan.action = SavedataPlan::Action::Delete; break;
+    case kListLoad: plan.ui = SavedataPlan::Ui::List; plan.action = SavedataPlan::Action::Load; break;
+    case kListSave: plan.ui = SavedataPlan::Ui::List; plan.action = SavedataPlan::Action::Save; break;
+    case kListDelete: case kListAllDelete: plan.ui = SavedataPlan::Ui::List; plan.action = SavedataPlan::Action::Delete; break;
+    default: plan.ui = SavedataPlan::Ui::None; break;
+    }
+    if (plan.ui == SavedataPlan::Ui::None) return plan;
+    plan.new_title = request.str(kSfoSavedataTitle, 0x80);
+    plan.new_detail = request.str(kSfoDetail, 0x400);
+    std::vector<std::string> names = request.name_list();
+    if (names.empty()) names.push_back(request.save_name());
+    const auto describe = [&](const std::string &name) {
+        SavedataSlot slot;
+        slot.name = name;
+        const fs::path dir = request.dir_for(name);
+        slot.exists = Request::exists(dir);
+        if (slot.exists) {
+            std::ifstream in(dir / "PARAM.SFO", std::ios::binary);
+            std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (auto sfo = ParamSfo::parse(bytes)) {
+                slot.title = sfo->string("SAVEDATA_TITLE");
+                slot.detail = sfo->string("SAVEDATA_DETAIL");
+                if (slot.title.empty()) slot.title = sfo->string("TITLE");
+            }
+            std::error_code ec;
+            const auto when = fs::last_write_time(dir / "PARAM.SFO", ec);
+            if (!ec) {
+                const auto sys = std::chrono::time_point_cast<std::chrono::seconds>(
+                    when - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
+                const std::time_t t = std::chrono::system_clock::to_time_t(sys);
+                char buf[32];
+                std::strftime(buf, sizeof buf, "%Y-%m-%d %H:%M", std::localtime(&t));
+                slot.date = buf;
+            }
+        }
+        return slot;
+    };
+    if (plan.ui == SavedataPlan::Ui::List) {
+        for (const auto &n : names) {
+            SavedataSlot slot = describe(n);
+            if (!slot.exists && plan.action != SavedataPlan::Action::Save) continue;
+            plan.slots.push_back(std::move(slot));
+        }
+        if (const auto focus = request.pick(plan.action == SavedataPlan::Action::Save)) {
+            for (std::size_t i = 0; i < plan.slots.size(); ++i) {
+                if (plan.slots[i].name == *focus) plan.focus = static_cast<int>(i);
+            }
+        }
+    } else {
+        plan.slots.push_back(describe(request.save_name()));
+    }
+    return plan;
+}
+
+std::uint32_t execute_savedata(Runtime &rt, std::uint32_t params, const std::optional<std::string> &chosen) {
+    Request request{rt, params, rt.memory()};
+    request.chosen = chosen;
     const std::uint32_t mode = request.u32(kMode);
     const std::uint32_t result = request.run(mode);
+    if (chosen) request.set_save_name(*chosen);
     rt.memory().store32(params + kResult, result);
     std::string list;
     for (const auto &name : request.name_list()) list += (list.empty() ? "" : ",") + name;

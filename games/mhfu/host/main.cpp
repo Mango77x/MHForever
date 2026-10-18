@@ -1,7 +1,7 @@
 // Freedom Unite host: runs the recompiled game against the player's own ISO (docs/06-mhfu-module.md).
 //
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
-//             [--window] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
+//             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
 //             [--smooth-textures] [--music-volume 0-100] [--sfx-volume 0-100]
 // The executable supplies the initial data sections during development (open question Q-16 for releases).
@@ -103,6 +103,7 @@ int main(int argc, char **argv) {
     double dump_from = 0.0; // seconds of run time before frames are dumped
     double seconds = 0;
     bool window = false;
+    bool auto_dialogs = false;
     bool software = false; // --software: draw with the CPU renderer even in a window
     int render_scale = 4;  // --scale N: internal resolution = N x 480x272 (GPU renderer)
     bool fullscreen = false;
@@ -128,6 +129,7 @@ int main(int argc, char **argv) {
         else if (a == "--sfx-volume" && i + 1 < argc) options.sfx_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--input" && i + 1 < argc) script = parse_input_script(argv[++i]);
         else if (a == "--name" && i + 1 < argc) options.osk_default_text = argv[++i]; // text typed into keyboards
+        else if (a == "--auto-dialogs") auto_dialogs = true; // system dialogs answer at once even in a window
         else {
             std::fprintf(stderr, "usage: %s --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]\n",
                          argv[0]);
@@ -138,6 +140,8 @@ int main(int argc, char **argv) {
         std::fprintf(stderr, "error: --iso and --exe are required\n");
         return 2;
     }
+    // In a window the player answers the system dialogs (messages, keyboard, save/load) on screen.
+    options.interactive_dialogs = window && !auto_dialogs;
     try {
         Runtime runtime{options};
         runtime.load_elf(exe);

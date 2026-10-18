@@ -5,6 +5,8 @@
 #include "mhf/psp/runtime.hpp"
 
 #include <cstdint>
+#include <optional>
+#include <vector>
 #include <span>
 #include <string>
 
@@ -27,7 +29,25 @@ inline void ret64(Context &ctx, std::uint64_t value) {
 void set_working_directory(Runtime &rt, const std::string &psp_path);
 
 // Runs one sceUtility savedata request (hle_savedata.cpp) and stores its result in the parameter block.
-std::uint32_t execute_savedata(Runtime &rt, std::uint32_t params);
+// `chosen` is the slot the player picked in the list dialog (list modes); without it the request's own selection
+// is used.
+std::uint32_t execute_savedata(Runtime &rt, std::uint32_t params, const std::optional<std::string> &chosen = {});
+
+// What the savedata dialog should show before running a request (hle_utility.cpp draws it).
+struct SavedataSlot {
+    std::string name;                // save name (folder suffix)
+    std::string title, detail, date; // from the slot's PARAM.SFO, empty when the slot is free
+    bool exists = false;
+};
+struct SavedataPlan {
+    enum class Ui { None, Toast, Confirm, List } ui = Ui::None;
+    enum class Action { Load, Save, Delete } action = Action::Load;
+    std::uint32_t mode = 0;
+    std::vector<SavedataSlot> slots; // Confirm: the one slot; List: the choices
+    int focus = 0;
+    std::string new_title, new_detail; // what a save would write
+};
+[[nodiscard]] SavedataPlan savedata_plan(Runtime &rt, std::uint32_t params);
 
 // Frame-time accounting, reported by sceDisplaySetFrameBuf every few seconds ("[perf]" lines).
 struct PerfCounters {
@@ -52,6 +72,7 @@ std::span<const HleFunction> misc_functions();     // interrupts, vtimers, modul
 std::span<const HleFunction> ge_functions();       // sceGe_user
 std::span<const HleFunction> media_functions();    // sceAudio, sceMpeg, dialogs
 std::span<const HleFunction> sas_functions();      // sceSasCore (voice mixer)
+std::span<const HleFunction> utility_functions();  // sceUtility dialogs
 std::span<const HleFunction> atrac_functions();    // sceAtrac3plus (music decoding)
 std::span<const HleFunction> font_functions();     // sceLibFont (free fonts)
 

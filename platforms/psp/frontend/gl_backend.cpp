@@ -123,6 +123,7 @@ using MhfReadPixels = void(APIENTRY *)(GLint, GLint, GLsizei, GLsizei, GLenum, G
     X(PFNGLUSEPROGRAMPROC, UseProgram, glUseProgram)                                                               \
     X(PFNGLGETUNIFORMLOCATIONPROC, GetUniformLocation, glGetUniformLocation)                                       \
     X(PFNGLUNIFORM1IPROC, Uniform1i, glUniform1i)                                                                  \
+    X(PFNGLUNIFORM1FPROC, Uniform1f, glUniform1f)                                                                  \
     X(PFNGLUNIFORM2FPROC, Uniform2f, glUniform2f)                                                                  \
     X(PFNGLUNIFORM3FPROC, Uniform3f, glUniform3f)                                                                  \
     X(PFNGLUNIFORM4FPROC, Uniform4f, glUniform4f)                                                                  \
@@ -255,6 +256,15 @@ out vec4 o_color;
 void main() { o_color = vec4(texture(u_tex, v_uv).rgb, 1.0); }
 )";
 
+// The dialog overlay: premultiplied colour, faded in by u_alpha.
+constexpr const char *kOverlayFragment = R"(#version 330 core
+in vec2 v_uv;
+uniform sampler2D u_tex;
+uniform float u_alpha;
+out vec4 o_color;
+void main() { o_color = texture(u_tex, v_uv) * u_alpha; }
+)";
+
 // ---------------------------------------------------------------- pixel helpers
 
 std::uint32_t expand(std::uint32_t v, int bits) {
@@ -297,8 +307,10 @@ std::uint8_t to_byte(float v) { return static_cast<std::uint8_t>(std::clamp(v, 0
 
 class GlBackend final : public gpu::Backend {
 public:
-    GlBackend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory, bool smooth_textures)
-        : window_(window), scale_(std::max(1, scale)), memory_(memory), smooth_textures_(smooth_textures) {}
+    GlBackend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory, bool smooth_textures,
+              OverlayImage *overlay)
+        : window_(window), scale_(std::max(1, scale)), memory_(memory), smooth_textures_(smooth_textures),
+          overlay_(overlay) {}
 
     ~GlBackend() override {
         if (context_ != nullptr) SDL_GL_DestroyContext(context_);
@@ -399,12 +411,19 @@ private:
     // Debugging: MHF_GL_DUMP=<folder> writes every MHF_GL_DUMP_EVERY-th (default 60) presented frame as a PPM image,
     // starting at presented frame MHF_GL_DUMP_FROM (default 0).
     void dump_window(int w, int h);
+    void draw_overlay();
 
     SDL_Window *window_;
     SDL_GLContext context_{};
     int scale_;
     psprecomp::GuestMemory &memory_;
     bool smooth_textures_ = false;
+    OverlayImage *overlay_ = nullptr;
+    GLuint overlay_program_{}, overlay_texture_{};
+    GLint overlay_tex_{}, overlay_alpha_{}, overlay_uv_max_{};
+    std::uint64_t overlay_generation_{~0ull};
+    bool overlay_visible_{};
+    std::uint64_t overlay_shown_at_{}; // SDL ticks (ms) when it appeared, for the fade-in
     Gl gl_;
 
     GLuint draw_program_{}, present_program_{}, vao_{}, vbo_{}, empty_vao_{};
@@ -445,7 +464,12 @@ bool GlBackend::init() {
                  reinterpret_cast<const char *>(gl_.GetString(GL_VERSION)), 480 * scale_, 272 * scale_);
     draw_program_ = compile(kDrawVertex, kDrawFragment);
     present_program_ = compile(kPresentVertex, kPresentFragment);
-    if (draw_program_ == 0 || present_program_ == 0) return false;
+    overlay_program_ = compile(kPresentVertex, kOverlayFragment);
+    if (draw_program_ == 0 || present_program_ == 0 || overlay_program_ == 0) return false;
+    overlay_tex_ = uniform(overlay_program_, "u_tex");
+    overlay_alpha_ = uniform(overlay_program_, "u_alpha");
+    overlay_uv_max_ = uniform(overlay_program_, "u_uv_max");
+    gl_.GenTextures(1, &overlay_texture_);
     u_.target = uniform(draw_program_, "u_target");
     u_.uv_xform = uniform(draw_program_, "u_uv_xform");
     u_.tex_enable = uniform(draw_program_, "u_tex_enable");
@@ -1008,6 +1032,15 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
         gl_.BindVertexArray(empty_vao_);
         gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
+    if (window_w > 0 && window_h > 0) {
+        int w = window_w, h = window_w * 272 / 480;
+        if (h > window_h) {
+            h = window_h;
+            w = window_h * 480 / 272;
+        }
+        gl_.Viewport((window_w - w) / 2, (window_h - h) / 2, w, h);
+        draw_overlay();
+    }
     dump_window(window_w, window_h);
     SDL_GL_SwapWindow(window_);
     ++frame_;
@@ -1023,6 +1056,41 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
             }
         }
     }
+}
+
+void GlBackend::draw_overlay() {
+    if (overlay_ == nullptr) return;
+    {
+        std::lock_guard lock(overlay_->mutex);
+        if (overlay_->generation != overlay_generation_) {
+            overlay_generation_ = overlay_->generation;
+            if (overlay_->visible && !overlay_visible_) overlay_shown_at_ = SDL_GetTicks();
+            overlay_visible_ = overlay_->visible && overlay_->width > 0;
+            if (overlay_visible_) {
+                gl_.BindTexture(GL_TEXTURE_2D, overlay_texture_);
+                gl_.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+                gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, overlay_->width, overlay_->height, 0, GL_RGBA,
+                               GL_UNSIGNED_BYTE, overlay_->pixels.data());
+            }
+        }
+    }
+    if (!overlay_visible_) return;
+    const float t = static_cast<float>(SDL_GetTicks() - overlay_shown_at_) / 150.0f;
+    const float alpha = std::clamp(t, 0.0f, 1.0f);
+    gl_.Disable(GL_DEPTH_TEST);
+    gl_.Enable(GL_BLEND);
+    gl_.BlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+    gl_.BlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    gl_.UseProgram(overlay_program_);
+    gl_.Uniform1i(overlay_tex_, 0);
+    gl_.Uniform1f(overlay_alpha_, alpha * (2.0f - alpha)); // ease out
+    gl_.Uniform2f(overlay_uv_max_, 1.0f, 1.0f);
+    gl_.ActiveTexture(GL_TEXTURE0);
+    gl_.BindTexture(GL_TEXTURE_2D, overlay_texture_);
+    set_texture_params(true, true, true);
+    gl_.BindVertexArray(empty_vao_);
+    gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    gl_.Disable(GL_BLEND);
 }
 
 void GlBackend::dump_window(int w, int h) {
@@ -1051,8 +1119,8 @@ void GlBackend::dump_window(int w, int h) {
 } // namespace
 
 std::unique_ptr<gpu::Backend> make_gl_backend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory,
-                                              bool smooth_textures) {
-    auto backend = std::make_unique<GlBackend>(window, scale, memory, smooth_textures);
+                                              bool smooth_textures, OverlayImage *overlay) {
+    auto backend = std::make_unique<GlBackend>(window, scale, memory, smooth_textures, overlay);
     if (!backend->init()) return nullptr;
     return backend;
 }
