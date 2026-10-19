@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
-project(MHForever VERSION 0.0.1 LANGUAGES CXX)
+project(MHForever VERSION 0.1.0 LANGUAGES CXX)
+
+# Release programs must run on a clean Windows install: link the C/C++ runtime statically (no VC++ redistributable).
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
