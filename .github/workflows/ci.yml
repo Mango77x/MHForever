@@ -25,9 +25,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install Ninja and Clang (Linux)
+      - name: Install build dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libasound2-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev
       - name: Install pspdev toolchain for our homebrew tests (Linux)
         if: runner.os == 'Linux'
         run: |
