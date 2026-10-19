@@ -8,7 +8,8 @@ Read `docs/02-architecture.md` §9 before adding anything.
 | PSPRecomp framework | `third_party/psprecomp/` | MIT | `f6e7d41` (2026-08-13) | https://github.com/jessicanataliagta/PSPRecomp |
 | PSPRecomp instruction emitter (derived) | `platforms/psp/recomp/instruction_emitter.cpp`, branch conditions in `emitter.cpp` | MIT | `f6e7d41` | moved out of PSPRecomp's `tools/codegen_main.cpp`, notice kept in the file |
 | stb_truetype | `third_party/stb/` | MIT or public domain | v1.26 | https://github.com/nothings/stb |
-| ATRAC3/ATRAC3+ decoders (FFmpeg, standalone extraction) | `third_party/at3_standalone/` | LGPL-2.1-or-later (used under GPL-2.0) | PPSSPP `ext/at3_standalone` at `0665ea0` (2026-10) | https://github.com/hrydgard/ppsspp (code from https://ffmpeg.org). Our changes: `arch_config.h`, `compat.cpp` and the allocator in `mem.cpp` replace PPSSPP's helpers; `aac_defines.h` dropped |
+| ATRAC3/ATRAC3+ decoders (FFmpeg, standalone extraction) | `third_party/at3_standalone/` | LGPL-2.1-or-later (used under GPL-3.0-or-later) | PPSSPP `ext/at3_standalone` at `0665ea0` (2026-10) | https://github.com/hrydgard/ppsspp (code from https://ffmpeg.org). Our changes: `arch_config.h`, `compat.cpp` and the allocator in `mem.cpp` replace PPSSPP's helpers; `aac_defines.h` dropped |
+| PRX decrypter (PPSSPP `Core/ELF/PrxDecrypter`, trimmed) + libkirk | `third_party/ppsspp_prx/` | GPL-2.0-or-later (PrxDecrypter), GPL-3.0-or-later (`kirk_engine`), GPL-2.0-or-later or GPL-3.0-or-later (`bn.c`, `ec.c`), public domain (`AES.c`), permissive (`SHA1.c`) | PPSSPP master, 2026-10-19 (`ext/libkirk`, `Core/ELF/PrxDecrypter.*`) | https://github.com/hrydgard/ppsspp. See `third_party/ppsspp_prx/NOTICE.md`. Used only by the launcher's executable preparation |
 | Liberation Sans Regular (font) | `third_party/fonts/liberation-sans/` | SIL OFL 1.1 | 2.1.5 | https://github.com/liberationfonts/liberation-fonts (TTF as packaged by Debian `fonts-liberation` 1:2.1.5) |
 
 Fetched at build time (not stored in the repository):
@@ -30,4 +31,5 @@ PSPSDK stub libraries (pspdev, BSD-licensed). It contains identifiers only, no S
 Knowledge sources (no code copied): `tclamb/mhp2g-decomp` (CC0) documented the DATA.BIN header layout, the scrambling scheme and
 the `MWo3` overlay header used by `games/mhfu/tools/`. The game's substitution table itself is never included.
 
-Never include: Sony PGF fonts, firmware, keys, decryption code, game assets.
+Never include: Sony PGF fonts, firmware, game assets. The executable preparation module (`launcher/native/install/`) is ours; its decryption comes from
+`third_party/ppsspp_prx/`. The installer decrypts the player's own disc at install time, so no decrypted game code is stored here.

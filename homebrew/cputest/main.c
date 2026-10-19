@@ -1,6 +1,6 @@
 // cputest: checks Allegrex instruction semantics in the recompiled runtime (docs/04-recompiler.md §8).
 // Every expected value is written by hand from the architecture's definition, so the test does not depend on the
-// code under test. Our own code; GPL-2.0-only like the rest of the repository.
+// code under test. Our own code; GPL-3.0-or-later like the rest of the repository.
 #include <pspkernel.h>
 #include <setjmp.h>
 #include <stdio.h>

@@ -1,5 +1,5 @@
 // getest: draws known shapes with the GE and reads the framebuffer back (docs/05-runtime-hle.md §6).
-// Our own code; GPL-2.0-only like the rest of the repository.
+// Our own code; GPL-3.0-or-later like the rest of the repository.
 #include <pspdisplay.h>
 #include <pspgu.h>
 #include <pspgum.h>

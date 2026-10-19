@@ -45,7 +45,7 @@ Dependency rule: `games → platforms → core`. Never the other way. `core` and
 /
 ├─ CONTRIBUTING.md           contribution rules
 ├─ README.md
-├─ LICENSE                   (GPL-2.0-only)
+├─ LICENSE                   (GPL-3.0-or-later)
 ├─ THIRD_PARTY.md
 ├─ CMakeLists.txt            root; option -DMHF_GAMES="mhfu"
 ├─ CMakePresets.json
@@ -150,27 +150,22 @@ A literal instruction-by-instruction translation compiled with -O2 should be mor
 for a 222/333 MHz game, but **measure, don't assume**. Typical wins: inlining direct calls, `switch` for jump tables, native fast
 paths for hot functions (memcpy, VFPU math).
 
-## 9. Licenses (GPL-2.0-only)
+## 9. Licenses (GPL-3.0-or-later)
 
-| Candidate component | License | Compatible with MIT repo | Compatible with GPL-2.0 repo |
+| Candidate component | License | Compatible with MIT repo | Compatible with GPL-3.0+ repo |
 |---|---|---|---|
 | PSPRecomp | MIT | yes | yes |
 | N64Recomp | MIT | yes | yes |
-| Ace Combat X Recompilation | GPL-2.0 (no "or later" in sources → GPL-2.0-only `[VERIFY]`) | no (if code is copied) | yes, GPL-2.0-only |
-| PPSSPP | GPL-2.0-or-later | no | yes |
+| Ace Combat X Recompilation | GPL-2.0 (no "or later" in sources → GPL-2.0-only `[VERIFY]`) | no (if code is copied) | yes (GPL-2.0-only code cannot be combined: reference only unless it says "or later") |
+| PPSSPP | GPL-2.0-or-later (libkirk: GPL-3.0-or-later) | no | yes |
 | SDL3 | zlib | yes | yes |
 | Dear ImGui | MIT | yes | yes |
 | libjuice | MPL-2.0 | yes (file-level) | yes |
-| mhff / mhtools (MH formats) | GPL-3.0 | no | no (GPL-3 only) — reference only |
+| mhff / mhtools (MH formats) | GPL-3.0 | no | yes |
 | pspdev/vfpu-docs | GPL-3.0 (docs and tests) | reference only | reference only |
 
-**Decision**: the repository is **GPL-2.0-only**. Code from ACX recomp, PPSSPP (GPL-2.0-or-later, usable under GPL-2.0) and MIT/zlib/MPL projects can be reused with its notices; GPL-3-only code (mhff, mhtools, vfpu-docs) stays reference-only.
-
-Original rationale: if code from ACX recomp or PPSSPP is to be **copied** (e.g. the ATRAC3+ decoder ACX takes from
-FFmpeg/PPSSPP), pick **GPL-2.0-only**. If MIT is preferred, all code must be ours or permissive, and PPSSPP/ACX can only be used
-as behavioral reference (PSPRecomp's rule: "Reimplement required behavior from specifications, observations or independently
-documented semantics"). Decide before writing the first line of runtime.
+**Decision (2026-10-19)**: the repository is **GPL-3.0-or-later**, changed from GPL-2.0-only before anything was published (single copyright holder, no external contributions). Reason: PPSSPP's PRX decrypter needs libkirk's `kirk_engine`, which is GPL-3.0-or-later, and the installer needs it to decrypt the player's own executable. Code from PPSSPP (GPL-2.0-or-later, used under GPL-3), GPL-3 projects (mhff, mhtools, vfpu-docs) and MIT/zlib/MPL/LGPL/Apache projects can be reused with their notices. **GPL-2.0-only** code (the ACX recomp, if its sources carry no "or later") cannot be copied; it stays a behavioral reference.
 
 For ATRAC3/ATRAC3+, FFmpeg's decoders (LGPL-2.1+) are an option compatible with almost any license if linked dynamically or if
 the LGPL terms are respected. **Done (2026-10-17)**: `third_party/at3_standalone` (FFmpeg's decoders as extracted by
-PPSSPP), used under GPL-2.0 as LGPL-2.1-or-later permits; see `THIRD_PARTY.md`.
+PPSSPP), used under GPL-3.0-or-later as LGPL-2.1-or-later permits; see `THIRD_PARTY.md`.

@@ -9,12 +9,15 @@ If a change would break one of them, open an issue instead of a pull request.
    (encrypted or decrypted), game archives, textures, models, audio, video, game text, saves, game screenshots or
    memory dumps. Identification hashes (disc IDs, sizes, SHA-1/SHA-256) are allowed.
 2. **Never** commit code generated from a game executable. Recompiler output lives in git-ignored folders.
-3. **Never** add code that decrypts executables, keys, or any DRM-related routine. Preparing the input
-   executable is outside the scope of this repository.
+3. The game's executable is prepared on the player's machine, from the player's own disc image, by the installer
+   (`launcher/native/install/`). That module accepts only the executables listed in `games/*/regions/*/region.toml`
+   (size and SHA-1), refuses any result that does not match the recorded SHA-1, and is used only by the installer. Its decryption comes from
+   PPSSPP's PRX decrypter and libkirk (`third_party/ppsspp_prx/`, GPL-compatible, see `THIRD_PARTY.md`). Do not add
+   any other DRM-related code, and never commit its inputs or outputs.
 4. Trademarks: the names and logos of the games and their publishers are not used as the name of the product,
    the repository, the executables, the icons or the UI. Descriptive compatibility statements in plain text are fine
    ("works with your copy of ...").
-5. Third-party code must have a license compatible with GPL-2.0-only. Put it in `third_party/<name>/` with its
+5. Third-party code must have a license compatible with GPL-3.0-or-later. Put it in `third_party/<name>/` with its
    license and add an entry to `THIRD_PARTY.md`.
 6. Proprietary system fonts are not included. Use free fonts.
 7. No monetization: no donation or payment links in the software or the repository.

@@ -18,7 +18,7 @@ See `06-mhfu-module.md` §7. Our runtime implements those APIs and sends packets
 - **aemu / PRO Online**: the same protocol on real PSPs/Vitas via a plugin. So **a client compatible with aemu could play with PPSSPP
   users and real PSPs** .
 - `aemu_postoffice` publishes a C client (`postoffice_client.h`, `adhocctl.h`) meant to be integrated into PSP implementations.
-  License: **GPL-3.0** (verified 2026-10-17), so it cannot be linked into this GPL-2.0-only repository; the protocol can be
+  License: **GPL-3.0** (verified 2026-10-17), which is compatible with this GPL-3.0-or-later repository (relicensed 2026-10-19); the protocol can also be
   reimplemented from its `design.md`.
 
 ## 4. Design (decided 2026-10-17): friend codes and room codes, no accounts, no servers of our own
@@ -129,7 +129,7 @@ authentication).
 Optional mode, later: speak PPSSPP's adhoc-server protocol plus aemu postoffice to join existing community servers
 (not ours). Separate from the friends system.
 
-## 5. Libraries (licenses checked against GPL-2.0-only, 2026-10-17)
+## 5. Libraries (licenses checked 2026-10-17 against GPL-2.0-only; the repository is GPL-3.0-or-later since 2026-10-19, which only widens what is allowed)
 
 | Library | License | Use | Verdict |
 |---|---|---|---|
@@ -143,8 +143,7 @@ Optional mode, later: speak PPSSPP's adhoc-server protocol plus aemu postoffice 
 | aemu_postoffice | GPL-3.0 | PPSSPP relay protocol | ❌ link; ✅ reimplement the protocol |
 | HyperDHT (Holepunch) | MIT | DHT + hole punching by key | ⚠️ JavaScript runtime; reference only |
 
-If the repository ever moved to GPL-3.0-or-later (only our own code, PPSSPP's GPL-2.0-or-later and permissive code are in
-it today), iroh and toxcore would become usable; not needed for this design.
+Since the move to GPL-3.0-or-later, iroh (Apache-2.0) and toxcore (GPL-3.0+) are also license-compatible; not needed for this design.
 
 ## 6. Tests
 

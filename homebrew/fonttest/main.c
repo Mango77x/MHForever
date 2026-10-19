@@ -1,5 +1,5 @@
 // fonttest: sceLibFont through the runtime's free-font implementation (docs/05-runtime-hle.md, fonts).
-// Our own code; GPL-2.0-only like the rest of the repository.
+// Our own code; GPL-3.0-or-later like the rest of the repository.
 #include <pspkernel.h>
 #include <pspfont.h>
 #include <stdio.h>

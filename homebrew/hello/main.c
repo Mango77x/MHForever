@@ -1,5 +1,5 @@
 // hello: smallest program for the MH-Forever PSP runtime (phase 1).
-// Prints through stdout (sceIoWrite) and exits. Our own code; GPL-2.0-only like the rest of the repository.
+// Prints through stdout (sceIoWrite) and exits. Our own code; GPL-3.0-or-later like the rest of the repository.
 #include <pspkernel.h>
 #include <stdio.h>
 

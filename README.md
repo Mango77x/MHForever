@@ -43,7 +43,8 @@ built automatically (`-DMHF_WITH_SDL=OFF` to skip it).
 This uses your own copy of the game and never produces anything that may be committed or shared
 (see `CONTRIBUTING.md`).
 
-1. Prepare the decrypted executable of your own copy (`docs/06-mhfu-module.md` §3) and keep your ISO at hand.
+1. Keep your ISO at hand. The launcher's installer prepares the game's executable from it (`launcher --install <your.iso>`,
+   see `docs/07-launcher-ux.md` §3b); developers can instead point the tools at a prepared executable (`docs/06-mhfu-module.md` §3).
 2. Build the tools (`cmake --build --preset <preset>`), then generate the code:
    ```sh
    python games/mhfu/tools/prepare.py --iso <your.iso> --exe <decrypted EBOOT> --tools build/<preset>
@@ -69,4 +70,4 @@ git config core.hooksPath .githooks
 
 ## License
 
-GPL-2.0-only (see `LICENSE`). Third-party components keep their own licenses (see `THIRD_PARTY.md`).
+GPL-3.0-or-later (see `LICENSE`). Third-party components keep their own licenses (see `THIRD_PARTY.md`).

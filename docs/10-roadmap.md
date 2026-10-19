@@ -4,7 +4,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 ## Phase 0 — Foundations (no game needed)
 
-- [x] Repository skeleton: `core/`, `platforms/psp/`, `games/mhfu/` (region metadata), `tests/`, `LICENSE` (GPL-2.0), `.gitignore`,
+- [x] Repository skeleton: `core/`, `platforms/psp/`, `games/mhfu/` (region metadata), `tests/`, `LICENSE` (GPL-3.0-or-later), `.gitignore`,
       `.gitattributes`, `THIRD_PARTY.md`, PSPRecomp vendored in `third_party/psprecomp/` (2026-10-16).
 - [x] Root CMake with presets `linux-clang`, `windows-clang`, `windows-msvc`; builds and passes tests on Linux (2026-10-16).
       Windows build not yet verified locally.
@@ -68,6 +68,10 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 - [x] Gamepad-first launcher (`07` §3b, 2026-10-17): React/Motion UI in the system web view, add copy with SHA-1
   verification, settings passed to the game, play time; friends/rooms UI waits for online play.
+- [x] Installer scaffolding (`07` §3b, 2026-10-19): per-user data folder, image checks, optional image copy, `launcher --install`,
+  executable identity gate (size + SHA-1 in, SHA-1 out). Tests on a synthetic image, no game data.
+- [x] Executable preparation module: the decryption step behind `builtin_decryptor()` (PPSSPP's PRX decrypter, GPL), validated
+  byte for byte against `[dev_executable]` with the developer's disc (2026-10-19).
 - [ ] Launcher: language selection, icon, signed updates.
 - [ ] AppImage (Linux) and zip/installer (Windows). Deck testing by friends.
 **Acceptance**: a user with no development tools goes from "I have my ISO" to "I'm playing" using only the launcher.

@@ -1,5 +1,5 @@
 // vfputest: VFPU semantics checked against hand-computed values (docs/04-recompiler.md §8).
-// Our own code; GPL-2.0-only like the rest of the repository.
+// Our own code; GPL-3.0-or-later like the rest of the repository.
 #include <pspkernel.h>
 #include <stdio.h>
 #include <string.h>
