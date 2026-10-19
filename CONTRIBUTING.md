@@ -2,8 +2,9 @@
 
 ## Pull requests
 
-MHForever is maintained by one person and **does not accept unsolicited pull requests**. Pull requests that were not
-agreed beforehand will be closed without review. If you want to help, open an issue first and wait for a reply.
+Pull requests are welcome. MHForever has a single maintainer, who reviews every change and is the only one who merges.
+There is no guarantee that a pull request will be accepted or answered quickly. For anything large, open an issue first
+so the work is not wasted.
 
 Bug reports are welcome as issues. Never attach game files, saves, screenshots of the game or logs that contain game data
 (see the rules below). You are free to fork the project under the terms of the license.

@@ -48,8 +48,8 @@ Developed with AI assistance.
 
 ## For developers and contributors
 
-Build instructions are in [BUILDING.md](BUILDING.md). The project does not accept unsolicited pull requests; see
-[CONTRIBUTING.md](CONTRIBUTING.md) (bug reports as issues are welcome).
+Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug reports are welcome; every change is reviewed and merged by the maintainer. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 | | |
 |---|---|
