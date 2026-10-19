@@ -11,6 +11,8 @@
 #include "mhf/psp/generated.hpp"
 #include "mhf/psp/host.hpp"
 #include "mhf/psp/runtime.hpp"
+#include "iso9660.hpp"
+#include "param_sfo.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -92,6 +94,40 @@ void on_overlay_prepare(Runtime &rt, Context &ctx) {
     if (g_log_overlays || !ok) {
         std::fprintf(stderr, "[mhfu] overlay %d %s at %08X\n", overlay_id, ok ? "activated" : "UNKNOWN", image);
     }
+}
+
+// "MHForever - <the disc's own title>": the window names the game that is running. The title comes from the disc image's
+// PARAM.SFO (upper-case titles are shown in title case); without a readable image the window is just "MHForever".
+std::string window_title(const std::filesystem::path &disc_image) {
+    std::string title;
+    try {
+        if (!disc_image.empty()) {
+            mhf::psp::IsoImage image(disc_image);
+            if (const auto entry = image.find("/PSP_GAME/PARAM.SFO")) {
+                if (const auto sfo = mhf::psp::ParamSfo::parse(image.read_file(*entry, 0, entry->size))) {
+                    title = sfo->string("TITLE");
+                }
+            }
+        }
+    } catch (const std::exception &) {
+    }
+    // The disc's title carries a trademark sign (UTF-8 "\xE2\x84\xA2" or "\xC2\xAE"): not wanted in a window title.
+    for (const char *mark : {"\xE2\x84\xA2", "\xC2\xAE"}) {
+        for (std::size_t at = title.find(mark); at != std::string::npos; at = title.find(mark)) title.erase(at, std::strlen(mark));
+    }
+    while (!title.empty() && (title.back() == ' ' || title.back() == '\n')) title.pop_back();
+    if (title.empty()) return "MHForever";
+    bool all_upper = true;
+    for (const char c : title) all_upper = all_upper && !(c >= 'a' && c <= 'z');
+    if (all_upper) {
+        bool word_start = true;
+        for (char &c : title) {
+            const bool letter = c >= 'A' && c <= 'Z';
+            if (letter && !word_start) c = static_cast<char>(c - 'A' + 'a');
+            word_start = c == ' ' || c == '-';
+        }
+    }
+    return "MHForever - " + title;
 }
 
 } // namespace
@@ -186,7 +222,7 @@ int main(int argc, char **argv) {
         }
 #if defined(MHF_HAS_FRONTEND)
         mhf::psp::Frontend frontend;
-        if (window && frontend.open("MHForever", false, 2, !software, render_scale, fullscreen, smooth_textures)) {
+        if (window && frontend.open(window_title(options.disc_image).c_str(), false, 2, !software, render_scale, fullscreen, smooth_textures)) {
             frontend.attach(runtime, extra);
         } else if (window) {
             // A player asked for a window: never keep running invisibly.
