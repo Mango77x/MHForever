@@ -17,6 +17,7 @@ up from your own disc image.
 | **Frame rate** | **30 fps**, as on the original console. **60 fps is being worked on.** |
 | **Online play** | Not available yet. **Multiplayer over the internet is being designed and built**, so you can hunt with friends without a PSP. |
 | **Platforms** | Windows (64-bit). Linux and Steam Deck are planned. |
+| **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard defaults included. |
 | **Resolution** | Up to several times the original 480x272, with an optional smoother texture filter. |
 | **Other games and regions** | The US and Japanese releases of Freedom Unite, and other games of the series, are planned. |
 | **First public release** | In preparation. Watch the [Releases](../../releases) page. |
@@ -32,7 +33,7 @@ It is early software: the game boots and can be played, but expect rough edges a
 4. Press **Play**.
 
 Nothing from the game is ever included in MHForever or sent anywhere: everything is read from the image you provide.
-Your saves live next to the launcher. Any controller recognized by SDL works; there are keyboard defaults too.
+Your saves live next to the launcher. Any controller recognized by SDL should work (tested with a PS5 DualSense); there are keyboard defaults too.
 
 **Keyboard:** arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle, Q/E = L/R, Enter = Start,
 Backspace = Select.
