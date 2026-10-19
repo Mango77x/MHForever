@@ -1,0 +1,53 @@
+MHForever @VERSION@
+An unofficial Monster Hunter recompilation project
+===================================================
+
+MHForever lets you play Monster Hunter Freedom Unite (PSP) natively on your PC.
+It is NOT affiliated with, endorsed by or sponsored by Capcom or Sony.
+It contains no game content: you need your own copy of the game.
+
+
+What you need
+-------------
+* Windows 10 or 11, 64-bit.
+* A plain (uncompressed) .iso image of your own copy of Monster Hunter Freedom Unite,
+  European release (disc ID ULES01213, version 1.01). CSO/ZSO compressed images are not supported.
+* A controller is optional. Gamepads work out of the box (tested with a PS5 DualSense).
+  Keyboard: arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle,
+  Q/E = L/R, Enter = Start, Backspace = Select.
+
+
+How to play
+-----------
+1. Unzip this folder anywhere you can write to (not "Program Files").
+2. Open launcher.exe.
+3. Add your .iso. The launcher checks your copy and prepares what it needs from it.
+   In Settings you can choose to keep a copy of the image in MHForever's own folder.
+4. Press Play.
+
+Your saves are stored in the "memstick" folder next to launcher.exe.
+Prepared game data is stored in %APPDATA%\MHForever. Removing the game from the
+launcher deletes that data (never your original .iso).
+
+
+Windows may warn you
+--------------------
+launcher.exe and mhfu.exe are not digitally signed. Windows SmartScreen can show
+"Windows protected your PC": choose "More info" and then "Run anyway". The launcher
+also needs the Microsoft Edge WebView2 runtime, which Windows 10/11 normally includes.
+
+
+Status
+------
+Early release. Freedom Unite runs at 30 fps, as on the original console. 60 fps and online
+multiplayer are being worked on. Expect rough edges.
+
+
+Source code and licenses
+------------------------
+MHForever is free software, GPL-3.0-or-later: see LICENSE.
+Source code of MHForever and bug reports: https://github.com/Mango77x/MHForever
+Third-party components and their licenses: THIRD_PARTY.md and the licenses folder.
+Note: mhfu.exe contains the game's program translated to native code from the game's own
+executable. That translated code is produced from game data and cannot be published;
+everything else in the project (the recompiler, runtime and launcher) is in the repository.

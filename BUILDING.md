@@ -43,3 +43,16 @@ git config core.hooksPath .githooks
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the rules every change must follow.
+
+## Making a release (Windows)
+
+The release zip is assembled from programs built elsewhere; game data never goes into it.
+
+1. Build the launcher on Windows (`cmake --preset windows-msvc`, then `cmake --build --preset windows-msvc`). The C/C++
+   runtime is linked statically, so the launcher runs on a clean Windows install.
+2. Build `mhfu.exe` from the generated code (see above) in a Release configuration.
+3. Package them with the free fonts and the licenses:
+   ```sh
+   python scripts/package_release.py --version 0.1.0 --launcher <launcher.exe> --game <mhfu.exe> --fonts <the fonts folder next to mhfu.exe>
+   ```
+   This writes `MHForever-<version>-windows-x64.zip` and its `.sha256`. The text shown to players is `dist/PLAYER_README.txt`.
