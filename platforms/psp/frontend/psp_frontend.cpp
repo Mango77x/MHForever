@@ -211,6 +211,12 @@ ControllerState map_input(const host::GamepadState &g) {
     set(g.down, buttons::kDown);
     set(g.left, buttons::kLeft);
     set(g.right, buttons::kRight);
+    // The PSP has no right stick: it drives the D-pad, which is what the game uses for its camera (docs/07-launcher-ux.md §5).
+    constexpr float kRightStickThreshold = 0.5f;
+    set(g.right_y < -kRightStickThreshold, buttons::kUp);
+    set(g.right_y > kRightStickThreshold, buttons::kDown);
+    set(g.right_x < -kRightStickThreshold, buttons::kLeft);
+    set(g.right_x > kRightStickThreshold, buttons::kRight);
     auto axis = [](float v) { return static_cast<std::uint8_t>(std::clamp(128.0f + v * 127.0f, 0.0f, 255.0f)); };
     s.lx = axis(g.left_x);
     s.ly = axis(g.left_y);
