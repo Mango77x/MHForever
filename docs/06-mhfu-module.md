@@ -33,7 +33,9 @@ ISO:
 - `EBOOT.BIN`: 1,910,384 bytes, `~PSP` header (encrypted) · SHA-1 `e7ad91caa8afe7840c61a39c90d491e3779c35c7`.
 - `BOOT.BIN`: 1,910,044 bytes, **all zeros**.
 
-Decrypted executable (developer-only, `user_data/exe/`):
+Decrypted (prepared) executable. Players get it from the installer (`07-launcher-ux.md` §3b), which reads the encrypted
+`EBOOT.BIN` above, checks its SHA-1 and writes the result to the per-user data folder; developers may also keep one in
+`user_data/exe/`. Both are checked against these identification values:
 - SHA-1 `04b60ee797bd628faa0525ebd52186fa05967963`, 1,910,384 bytes.
 - ELF `EXEC`, MIPS, entry point `0x08906934`, **no relocations** (fixed-address executable).
 - `.text` at `0x08804000`, size `0x109E38` (~1.04 MB, 272,270 instruction words). `.data` ~770 KB. Import stubs in `.sceStub.text`.

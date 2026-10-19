@@ -2,6 +2,7 @@
 // a real copy is identified and verified (label requires_game_data; never run in CI).
 
 #include "hash.hpp"
+#include "install/installer.hpp"
 #include "json.hpp"
 #include "launcher.hpp"
 #include "param_sfo.hpp"
@@ -127,16 +128,45 @@ int main() {
 
     // The player's copy (requires game data).
     if (const char *iso = std::getenv("MHF_TEST_ISO")) {
-        Launcher l(dir);
-        double last = 0;
-        auto r = l.add_game(iso, {[&](const char *, double f) { last = f; }});
-        CHECK(r.game.has_value());
-        if (r.game) {
-            CHECK((*r.game)["discId"].as_string() == "ULES01213");
-            CHECK((*r.game)["verification"].as_string() == "verified");
+        // Identification: a developer executable of the right size is already known, so only the image is checked.
+        {
+            fs::create_directories(dir / "exe");
+            std::ofstream(dir / "exe" / "ULES01213_EBOOT.BIN", std::ios::binary) << std::string(1910384, '\0');
+            Launcher l(dir, dir / "data_identify");
+            double last = 0;
+            auto r = l.add_game(iso, {[&](const char *, double f) { last = f; }});
+            CHECK(r.game.has_value());
+            if (r.game) {
+                CHECK((*r.game)["discId"].as_string() == "ULES01213");
+                CHECK((*r.game)["verification"].as_string() == "verified");
+            }
+            CHECK(last > 0.99);
+            std::printf("identified %s\n", r.game ? r.game->dump().c_str() : r.error.c_str());
         }
-        CHECK(last > 0.99);
-        std::printf("identified %s\n", r.game ? r.game->dump().c_str() : r.error.c_str());
+        // Executable preparation: the encrypted executable on the disc must pass the identity gate of the catalog.
+        // Without a decryptor in this build the only acceptable outcome is "unavailable", never "another release".
+        {
+            const CatalogEntry *entry = nullptr;
+            for (const auto &e : catalog()) {
+                if (std::string(e.disc_id) == "ULES01213") entry = &e;
+            }
+            CHECK(entry != nullptr);
+            if (entry) {
+                const fs::path data = dir / "data_prepare";
+                const auto r = install::install_from_image(iso, *entry, data, install::InstallOptions{true, false},
+                                                           install::builtin_decryptor(), {});
+                if (install::builtin_decryptor()) {
+                    CHECK(r.error == install::InstallError::None);
+                    // Byte for byte the executable the recompiled code was generated from.
+                    std::ifstream in(r.executable, std::ios::binary);
+                    install::Bytes bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                    CHECK(install::sha1_hex(bytes) == entry->dev_executable_sha1);
+                } else {
+                    CHECK(r.error == install::InstallError::PreparationUnavailable);
+                }
+                std::printf("preparation: %s\n", r.error == install::InstallError::None ? "prepared" : r.message.c_str());
+            }
+        }
     }
 
     fs::remove_all(dir);

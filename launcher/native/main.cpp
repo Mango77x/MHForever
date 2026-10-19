@@ -9,14 +9,18 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #if defined(_WIN32)
 #include <windows.h>
+#include <shellapi.h>
 #endif
 
 extern const unsigned char kUiHtml[];
@@ -239,6 +243,54 @@ void on_play(const char *id, const Json &args) {
     });
 }
 
+// `launcher --install <image.iso> [--in-place | --copy]`: the same setup as "Add my copy", without the window.
+int run_install_cli(const std::vector<std::string> &args) {
+    fs::path iso;
+    std::optional<bool> copy;
+    for (std::size_t i = 1; i < args.size(); ++i) {
+        if (args[i] == "--install") continue;
+        if (args[i] == "--in-place") copy = false;
+        else if (args[i] == "--copy") copy = true;
+        else if (!args[i].empty() && args[i][0] != '-') iso = platform::from_utf8(args[i]);
+        else {
+            std::fprintf(stderr, "unknown option: %s\n", args[i].c_str());
+            return 2;
+        }
+    }
+    if (iso.empty()) {
+        std::fprintf(stderr, "usage: launcher --install <image.iso> [--in-place | --copy]\n");
+        return 2;
+    }
+    Launcher launcher(platform::executable_dir());
+    if (copy) {
+        Json settings;
+        settings["copyImage"] = *copy;
+        launcher.set_settings(settings);
+    }
+    mhf::launcher::Progress progress{[](const char *phase, double fraction) {
+        std::fprintf(stderr, "\r%-10s %3d%%", phase, static_cast<int>(fraction * 100));
+        if (fraction >= 1) std::fputc('\n', stderr);
+    }};
+    const auto result = launcher.add_game(iso, progress);
+    if (!result.game) {
+        std::fprintf(stderr, "error: %s\n", result.error.c_str());
+        return 1;
+    }
+    std::printf("%s (%s) is ready. Image: %s\n", (*result.game)["title"].as_string().c_str(),
+                (*result.game)["discId"].as_string().c_str(), (*result.game)["isoPath"].as_string().c_str());
+    return 0;
+}
+
+#if defined(_WIN32)
+// A window-subsystem program has no console of its own: borrow the one it was started from.
+void attach_parent_console() {
+    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+        std::freopen("CONOUT$", "w", stdout);
+        std::freopen("CONOUT$", "w", stderr);
+    }
+}
+#endif
+
 } // namespace
 
 #if defined(_WIN32)
@@ -246,9 +298,24 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     // Paint the window in the launcher's ground colour from the first frame (no white flash).
     SetEnvironmentVariableW(L"WEBVIEW2_DEFAULT_BACKGROUND_COLOR", L"FF0B0C10");
     const bool debug = GetEnvironmentVariableW(L"MHF_LAUNCHER_DEBUG", nullptr, 0) > 0;
+    {
+        // WinMain leaves the CRT's __wargv unset, so read the wide command line directly.
+        int wargc = 0;
+        LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
+        if (wargv != nullptr) {
+            std::vector<std::string> args;
+            for (int i = 0; i < wargc; ++i) args.push_back(platform::to_utf8(fs::path(wargv[i])));
+            LocalFree(wargv);
+            if (args.size() > 1 && args[1] == "--install") {
+                attach_parent_console();
+                return run_install_cli(args);
+            }
+        }
+    }
 #else
-int main() {
+int main(int argc, char **argv) {
     const bool debug = std::getenv("MHF_LAUNCHER_DEBUG") != nullptr;
+    if (argc > 1 && std::string(argv[1]) == "--install") return run_install_cli(std::vector<std::string>(argv, argv + argc));
 #endif
     g_app.launcher = std::make_unique<Launcher>(platform::executable_dir());
     g_app.view = webview_create(debug ? 1 : 0, nullptr);

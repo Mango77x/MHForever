@@ -54,6 +54,8 @@ foreach(game IN LISTS MHF_GAMES)
         set(_dump_size "")
         set(_exe_size "0")
         set(_exe_sha1 "")
+        set(_enc_size "0")
+        set(_enc_sha1 "")
         foreach(line IN LISTS _lines)
             if(line MATCHES "^\\[\\[?([a-z_]+)\\]")
                 set(_section "${CMAKE_MATCH_1}")
@@ -76,6 +78,12 @@ foreach(game IN LISTS MHF_GAMES)
                     elseif(_key STREQUAL "sha1")
                         string(APPEND _dumps "{${_dump_size}ULL, \"${_value}\"}, ")
                     endif()
+                elseif(_section STREQUAL "encrypted_executable")
+                    if(_key STREQUAL "size")
+                        set(_enc_size "${_value}")
+                    elseif(_key STREQUAL "sha1")
+                        set(_enc_sha1 "${_value}")
+                    endif()
                 elseif(_section STREQUAL "dev_executable")
                     if(_key STREQUAL "size")
                         set(_exe_size "${_value}")
@@ -86,22 +94,28 @@ foreach(game IN LISTS MHF_GAMES)
             endif()
         endforeach()
         string(APPEND _catalog_text
-            "{\"${game}\", \"${_title}\", \"${_disc}\", \"${_version}\", \"${_market}\", \"${_status}\", {${_dumps}}, ${_exe_size}ULL, \"${_exe_sha1}\"},\n")
+            "{\"${game}\", \"${_title}\", \"${_disc}\", \"${_version}\", \"${_market}\", \"${_status}\", {${_dumps}}, ${_exe_size}ULL, \"${_exe_sha1}\", ${_enc_size}ULL, \"${_enc_sha1}\"},\n")
     endforeach()
 endforeach()
 file(CONFIGURE OUTPUT ${_catalog} CONTENT "${_catalog_text}")
 
 # ------------------------------------------------------------------ executable
+add_subdirectory(${CMAKE_SOURCE_DIR}/third_party/ppsspp_prx ${CMAKE_BINARY_DIR}/third_party/ppsspp_prx)
+
 add_executable(mhf_launcher
     native/main.cpp
     native/launcher.cpp
     native/json.cpp
     native/hash.cpp
     native/platform.cpp
+    native/install/data_dir.cpp
+    native/install/executable_preparation.cpp
+    native/install/installer.cpp
+    native/install/prx_decryptor.cpp
     ${_ui_cpp}
 )
 target_include_directories(mhf_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(mhf_launcher PRIVATE mhf_core mhf_psp_tools mhf_webview)
+target_link_libraries(mhf_launcher PRIVATE mhf_core mhf_psp_tools mhf_webview mhf_prx)
 target_compile_definitions(mhf_launcher PRIVATE MHF_VERSION_STRING="${PROJECT_VERSION}")
 set_target_properties(mhf_launcher PROPERTIES OUTPUT_NAME launcher)
 if(WIN32)
@@ -116,9 +130,22 @@ mhf_target_warnings(mhf_launcher)
 # ------------------------------------------------------------------ tests
 if(MHF_BUILD_TESTS)
     add_executable(test_launcher tests/test_launcher.cpp native/launcher.cpp native/json.cpp native/hash.cpp
-                                 native/platform.cpp)
+                                 native/platform.cpp native/install/data_dir.cpp
+                                 native/install/executable_preparation.cpp native/install/installer.cpp
+                                 native/install/prx_decryptor.cpp)
     target_include_directories(test_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
-    target_link_libraries(test_launcher PRIVATE mhf_psp_tools mhf_webview)
+    target_link_libraries(test_launcher PRIVATE mhf_psp_tools mhf_webview mhf_prx)
+    if(WIN32)
+        target_link_libraries(test_launcher PRIVATE comdlg32 dwmapi bcrypt) # platform.cpp
+    endif()
     target_compile_definitions(test_launcher PRIVATE MHF_VERSION_STRING="${PROJECT_VERSION}")
     add_test(NAME launcher_core COMMAND test_launcher)
+
+    # The installer on a synthetic disc image and a fake decryptor: no game data.
+    add_executable(test_install tests/test_install.cpp native/install/data_dir.cpp native/install/executable_preparation.cpp
+                                native/install/installer.cpp native/install/prx_decryptor.cpp native/hash.cpp native/json.cpp)
+    target_include_directories(test_install PRIVATE native)
+    target_link_libraries(test_install PRIVATE mhf_psp_tools mhf_prx)
+    mhf_target_warnings(test_install)
+    add_test(NAME launcher_install COMMAND test_install)
 endif()

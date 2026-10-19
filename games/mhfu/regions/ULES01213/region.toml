@@ -11,7 +11,13 @@ size = 886702080
 sha1 = "631e3d1651550617ed4b83351d874e6c06bd56b0"
 md5 = "0449187d420ce68db2bf4d2886d3aa99"
 
-# Developer-only input used to prepare releases (CONTRIBUTING.md). Never shipped, never committed.
+# The encrypted executable on the disc (PSP_GAME/SYSDIR/EBOOT.BIN). The installer accepts only this file.
+[encrypted_executable]
+size = 1910384
+sha1 = "e7ad91caa8afe7840c61a39c90d491e3779c35c7"
+
+# The prepared (plain) executable the recompiled code was generated from. The installer checks its output against
+# this; developer builds may also use a file that matches it. Identification only: never shipped, never committed.
 [dev_executable]
 size = 1910384
 sha1 = "04b60ee797bd628faa0525ebd52186fa05967963"

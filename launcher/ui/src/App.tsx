@@ -10,7 +10,17 @@ import { clock, hours } from './format';
 import { startNavigation } from './gamepad';
 
 type Screen = 'home' | 'library' | 'settings';
-type Verify = { phase: 'reading' | 'hashing' | 'done' | 'failed'; progress: number; file: string; game?: Game; message?: string };
+type Verify = { phase: 'reading' | 'hashing' | 'preparing' | 'copying' | 'done' | 'failed'; progress: number; file: string; game?: Game; message?: string };
+
+function verifyLabel(phase: Verify['phase'], progress: number): string {
+  const percent = `${Math.round(progress * 100)}%`;
+  switch (phase) {
+    case 'reading': return 'Reading the disc';
+    case 'preparing': return 'Preparing the game from your disc';
+    case 'copying': return `Copying the disc image · ${percent}`;
+    default: return `Comparing with known good dumps · ${percent}`;
+  }
+}
 type Launch = { phase: 'checking' | 'starting' | 'running' | 'exited' | 'failed'; startedAt: number; seconds?: number; message?: string };
 
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 };
@@ -95,7 +105,7 @@ export default function App() {
   // B / Escape closes the topmost layer.
   useEffect(() => {
     const back = () => {
-      if (verify && verify.phase !== 'reading' && verify.phase !== 'hashing') setVerify(null);
+      if (verify && (verify.phase === 'done' || verify.phase === 'failed')) setVerify(null);
       else if (launch && (launch.phase === 'failed' || launch.phase === 'exited')) setLaunch(null);
       else if (profileOpen) setProfileOpen(false);
       else if (friendsOpen) setFriendsOpen(false);
@@ -322,7 +332,7 @@ export default function App() {
                   <h2>Checking your copy</h2>
                   <div className="progress" aria-hidden="true"><div style={{ width: `${Math.round(verify.progress * 100)}%` }} /></div>
                   <span className="muted" style={{ fontSize: 14 }}>
-                    {verify.file} · {verify.phase === 'reading' ? 'Reading the disc' : `Comparing with known good dumps · ${Math.round(verify.progress * 100)}%`}
+                    {verify.file} · {verifyLabel(verify.phase, verify.progress)}
                   </span>
                 </>
               )}

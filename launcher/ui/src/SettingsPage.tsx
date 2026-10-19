@@ -85,6 +85,14 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
         </div>
       </motion.div>
 
+      <motion.div className="glass section" {...rise(0.1)}>
+        <h3>Game files</h3>
+        <div className="srow">
+          <div className="slabel"><b>Keep a copy of my disc image</b><span>Copies the image into MHForever's own folder the next time you add your game, so it keeps working if the original moves. Needs about 1 GB.</span></div>
+          <Toggle on={s.copyImage} onToggle={() => onChange({ copyImage: !s.copyImage })} label="Keep a copy of my disc image" />
+        </div>
+      </motion.div>
+
       <motion.div className="glass section" {...rise(0.12)}>
         <h3>Audio</h3>
         <Volume id="vol-music" label="Music" value={s.musicVolume} onCommit={(v) => onChange({ musicVolume: v })} />
@@ -138,7 +146,7 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
         <div className="srow">
           <div className="slabel">
             <b>MHForever {state.version}</b>
-            <span>Free software (GPL-2.0). It contains no game content: it runs the copy you own.</span>
+            <span>Free software (GPL-3.0 or later). It contains no game content: it runs the copy you own.</span>
           </div>
         </div>
       </motion.div>

@@ -24,8 +24,7 @@ enhancements), multiplayer (create room / join with code), diagnostics (logs, "c
 ## 3b. Implementation (2026-10-17)
 
 The launcher is `launcher/`: a native host plus a web UI shown in the **system web view** (WebView2 on Windows,
-WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt is out (LGPL-3/GPL-3, incompatible with
-GPL-2.0-only); Dear ImGui could not reach the target visual/motion quality.
+WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was ruled out when the repository was GPL-2.0-only (it is GPL-3.0-or-later now); Dear ImGui could not reach the target visual/motion quality.
 
 - **UI** (`launcher/ui`): React + TypeScript + Motion (spring animations, shared-layout transitions), Sora/Manrope fonts
   (OFL) bundled. `vite build` produces one self-contained `index.html` (scripts, styles and fonts inlined) that CMake
@@ -49,8 +48,24 @@ GPL-2.0-only); Dear ImGui could not reach the target visual/motion quality.
   if the WebView2 runtime is missing; the game starts without a console window.
 - Tests: `launcher_core` (hashes, JSON, PARAM.SFO, settings, identity persistence; with `MHF_TEST_ISO` it verifies a real
   copy, never in CI). The UI was checked with screenshots in Chromium and WebKitGTK.
-- Still to do: launcher-managed updates (signed), language selection, icon, Steam Deck packaging (AppImage/Flatpak),
-  per-user data folder option.
+- **Installer (2026-10-19)**, modelled on the first-run installer of TeamGDB/Yakumo (its issues #26/#27/#28, PR #35): adding
+  a copy also *sets the game up* from the image, so a player needs nothing but the disc image. Code: `launcher/native/install/`.
+  - *Per-user data* (`data_dir`): `MHF_DATA_DIR`, else `%APPDATA%/MHForever` or `$XDG_DATA_HOME/MHForever`
+    (`~/.local/share/MHForever`); layout `games/<DISC_ID>/executable.elf` and, when the image is copied, `image.iso`.
+    Executable lookup order: the path set in Settings, the per-user folder, then the developer layout (`../exe`, next to the ISO).
+    `launcher.json`, saves (`memstick`) and logs stay next to the launcher for now.
+  - *Executable preparation* (`executable_preparation`): reads `PSP_GAME/SYSDIR/EBOOT.BIN` from the image, accepts it only if
+    its size and SHA-1 equal `[encrypted_executable]` in `region.toml`, then refuses any output whose SHA-1 is not
+    `[dev_executable]`'s. The decryption itself is a replaceable `Decryptor`; `builtin_decryptor()` (`prx_decryptor.cpp`) wraps PPSSPP's PRX
+    decrypter (`third_party/ppsspp_prx`) and rebuilds the signed-ELF layout (plain ELF + `FFEEDDCC` marker + the last bytes of
+    the original file). Verified on the EU disc: output is byte for byte `[dev_executable]` (SHA-1 `04b60ee7…`).
+  - *Setup flow* (`installer`): checks the image (compressed CSO/ZSO, not an image, another revision, damaged), prepares the
+    executable, and with the **Keep a copy of my disc image** setting checks free space and copies it under a temporary name
+    with progress. Nothing partial is left behind on failure. Removing a game deletes only what the installer stored.
+  - `launcher --install <image.iso> [--in-place | --copy]` runs the same setup without the window (Windows borrows the
+    parent console).
+- Still to do: launcher-managed updates (signed), language selection, icon, Steam Deck packaging
+  (AppImage/Flatpak), moving the per-user folder, moving saves there.
 
 ## 4. Bundled toolchain (only for model B; not needed with model A)
 

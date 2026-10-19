@@ -1,6 +1,8 @@
 #include "launcher.hpp"
 
 #include "hash.hpp"
+#include "install/data_dir.hpp"
+#include "install/installer.hpp"
 #include "iso9660.hpp"
 #include "param_sfo.hpp"
 #include "platform.hpp"
@@ -60,6 +62,7 @@ Json default_settings() {
     s["scale"] = 4;
     s["fullscreen"] = false;
     s["smoothTextures"] = false;
+    s["copyImage"] = false; // keep a copy of the disc image in the data directory
     s["musicVolume"] = 100;
     s["sfxVolume"] = 100;
     return s;
@@ -67,7 +70,13 @@ Json default_settings() {
 
 } // namespace
 
-Launcher::Launcher(fs::path base_dir) : base_(std::move(base_dir)), file_(base_ / "launcher.json") { load(); }
+Launcher::Launcher(fs::path base_dir) : Launcher(std::move(base_dir), install::user_data_dir()) {}
+
+Launcher::Launcher(fs::path base_dir, fs::path data_dir)
+    : base_(std::move(base_dir)), file_(base_ / "launcher.json"), data_dir_(std::move(data_dir)),
+      decryptor_(install::builtin_decryptor()) {
+    load();
+}
 
 void Launcher::load() {
     std::ifstream in(file_, std::ios::binary);
@@ -150,6 +159,7 @@ fs::path Launcher::find_executable(const CatalogEntry &entry) {
     std::vector<fs::path> candidates;
     const std::string configured = data_["executablePath"].as_string();
     if (!configured.empty()) candidates.push_back(platform::from_utf8(configured));
+    candidates.push_back(install::executable_path(data_dir_, entry.disc_id)); // prepared by the installer
     const std::string name = std::string(entry.disc_id) + "_EBOOT.BIN";
     candidates.push_back(base_ / ".." / "exe" / name);
     candidates.push_back(base_ / "exe" / name);
@@ -217,7 +227,7 @@ void Launcher::set_settings(const Json &partial) {
     num("scale", 1, 4);
     num("musicVolume", 0, 100);
     num("sfxVolume", 0, 100);
-    for (const char *key : {"fullscreen", "smoothTextures"}) {
+    for (const char *key : {"fullscreen", "smoothTextures", "copyImage"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
     save();
@@ -277,6 +287,29 @@ Launcher::AddResult Launcher::add_game(const fs::path &iso, const Progress &prog
     } else if (progress.report) {
         progress.report("hashing", 1);
     }
+    // Set the game up from the image: prepare its executable (unless a usable one is already known, as in developer
+    // builds) and keep a copy of the image when the player chose to. Planned regions are only recognised.
+    fs::path stored_iso = iso;
+    if (std::string(entry->status) != "planned") {
+        bool have_executable = false;
+        bool copy_image = false;
+        {
+            std::lock_guard lock(mutex_);
+            have_executable = !find_executable(*entry).empty();
+            copy_image = data_["settings"]["copyImage"].as_bool();
+        }
+        install::InstallOptions options;
+        options.prepare_executable = !have_executable;
+        options.copy_image = copy_image;
+        if (options.prepare_executable || options.copy_image) {
+            auto installed = install::install_from_image(iso, *entry, data_dir_, options, decryptor_, progress);
+            if (installed.error != install::InstallError::None) {
+                result.error = installed.message;
+                return result;
+            }
+            stored_iso = installed.image;
+        }
+    }
     {
         std::lock_guard lock(mutex_);
         auto &games = data_["games"].array();
@@ -285,7 +318,7 @@ Launcher::AddResult Launcher::add_game(const fs::path &iso, const Progress &prog
                     games.end());
         Json g;
         g["discId"] = entry->disc_id;
-        g["isoPath"] = platform::to_utf8(fs::weakly_canonical(iso, ec));
+        g["isoPath"] = platform::to_utf8(fs::weakly_canonical(stored_iso, ec));
         g["verification"] = verification;
         games.insert(games.begin(), g);
         save();
@@ -296,7 +329,7 @@ Launcher::AddResult Launcher::add_game(const fs::path &iso, const Progress &prog
     out["region"] = region_name(entry->market);
     out["discId"] = entry->disc_id;
     out["version"] = version.empty() ? std::string(entry->version) : version;
-    out["isoPath"] = platform::to_utf8(iso);
+    out["isoPath"] = platform::to_utf8(stored_iso);
     out["verification"] = verification;
     out["supported"] = std::string(entry->status) != "planned";
     result.game = out;
@@ -306,12 +339,21 @@ Launcher::AddResult Launcher::add_game(const fs::path &iso, const Progress &prog
 void Launcher::remove_game(const std::string &id) {
     std::lock_guard lock(mutex_);
     auto &games = data_["games"].array();
+    std::vector<std::string> removed; // disc ids whose installed data goes with them
+    for (const auto &g : games) {
+        const CatalogEntry *e = entry_for(g["discId"].as_string());
+        if (e != nullptr && id == e->game) removed.emplace_back(e->disc_id);
+    }
     games.erase(std::remove_if(games.begin(), games.end(),
                                [&](const Json &g) {
                                    const CatalogEntry *e = entry_for(g["discId"].as_string());
                                    return e == nullptr || id == e->game;
                                }),
                 games.end());
+    for (const auto &disc_id : removed) {
+        std::error_code ec;
+        fs::remove_all(install::game_dir(data_dir_, disc_id), ec); // only our own folder; never the player's image
+    }
     save();
 }
 

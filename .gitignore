@@ -44,3 +44,6 @@ homebrew/**/*.o
 homebrew/**/*.elf
 *.PBP
 
+# Local build trees
+build*/
+windows-msvc/

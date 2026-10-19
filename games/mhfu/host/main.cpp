@@ -4,7 +4,8 @@
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
 //             [--smooth-textures] [--music-volume 0-100] [--sfx-volume 0-100]
-// The executable supplies the initial data sections during development (open question Q-16 for releases).
+// The executable supplies the initial data sections. The launcher's installer prepares it from the player's own disc image
+// (launcher/native/install/); developer builds can also point --exe at a file that matches region.toml's dev_executable.
 
 #include "mhf/psp/frame_dump.hpp"
 #include "mhf/psp/generated.hpp"

@@ -21,6 +21,7 @@ export interface Settings {
   scale: number; // 1..4
   fullscreen: boolean;
   smoothTextures: boolean;
+  copyImage: boolean; // keep a copy of the disc image in MHForever's own folder
   musicVolume: number; // 0..100
   sfxVolume: number; // 0..100
 }
@@ -43,7 +44,7 @@ export interface State {
 }
 
 export type LauncherEvent =
-  | { type: 'verify'; phase: 'reading' | 'hashing'; progress: number; file: string }
+  | { type: 'verify'; phase: 'reading' | 'hashing' | 'preparing' | 'copying'; progress: number; file: string }
   | { type: 'verified'; game: Game }
   | { type: 'verifyFailed'; message: string }
   | { type: 'launch'; phase: 'checking' | 'starting' | 'running' }
@@ -83,7 +84,7 @@ function simulated(): Native {
     platform: 'browser',
     pseudonym: 'Hunter',
     friendCode: 'K7Q2-M9XA-4RTD-8PLE',
-    settings: { scale: 4, fullscreen: false, smoothTextures: false, musicVolume: 80, sfxVolume: 90 },
+    settings: { scale: 4, fullscreen: false, smoothTextures: false, copyImage: false, musicVolume: 80, sfxVolume: 90 },
     games: [],
     stats: { secondsPlayed: 0, sessions: 0, lastPlayed: null },
     executable: { path: '', found: true },
