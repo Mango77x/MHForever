@@ -21,7 +21,7 @@ if(MHF_BUILD_TESTS)
     add_test(NAME mhfu_data_bin COMMAND test_mhfu_data_bin)
 endif()
 
-# The game itself, built from code recompiled on the developer's machine (never committed, see CONTRIBUTING.md).
+# The game itself, built from code recompiled on the developer's machine (never committed, CONTRIBUTING.md).
 # Prepare it with games/mhfu/tools/prepare.py, then configure with -DMHF_MHFU_GENERATED=<that folder>.
 set(MHF_MHFU_GENERATED "" CACHE PATH "Folder with mhf_recomp output for Freedom Unite (developer-only)")
 if(MHF_MHFU_GENERATED)

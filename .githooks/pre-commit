@@ -1,5 +1,5 @@
 #!/bin/sh
-# Blocks commits containing game data or derived content (CONTRIBUTING.md).
+# Blocks commits containing game data or derived content (see CONTRIBUTING.md).
 # Enable once per clone with: git config core.hooksPath .githooks
 if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
 exec "$PY" "$(git rev-parse --show-toplevel)/scripts/check_repo_content.py" --staged

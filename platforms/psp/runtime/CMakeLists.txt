@@ -43,7 +43,7 @@ endfunction()
 
 # mhf_add_recompiled_program(<name> ELF <path> [PARTS <n>] [MAIN <source>])
 # Recompiles <path> at build time with mhf_recomp and links the output with the runtime into executable <name>.
-# The generated sources live in the build tree only (never committed, see CONTRIBUTING.md).
+# The generated sources live in the build tree only (never committed, CONTRIBUTING.md).
 function(mhf_add_recompiled_program name)
     cmake_parse_arguments(ARG "" "ELF;PARTS;MAIN;DEPENDS" "" ${ARGN})
     if(NOT ARG_PARTS)

@@ -1,5 +1,5 @@
 # Canonical symbol map for ULES01213 (EU, DISC_VERSION 1.01). See docs/06-mhfu-module.md §5.
-# Addresses only; no game code or data. Every entry was verified against the developer's EU executable
+# Addresses only; no game code or data. Every entry was verified against the reference EU executable
 # (SHA-1 04b60ee797bd628faa0525ebd52186fa05967963) on 2026-10-16.
 
 [functions]
