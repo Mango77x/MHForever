@@ -26,10 +26,15 @@ if(WIN32)
         endif()
         set(MHF_WEBVIEW2_INCLUDE_DIR ${webview2_sdk_SOURCE_DIR}/build/native/include)
     endif()
-    # MinGW ships eventtoken.h in lower case; WebView2.h asks for EventToken.h.
-    set(_shim ${CMAKE_BINARY_DIR}/webview2-shim)
-    file(WRITE ${_shim}/EventToken.h "#pragma once\n#include <eventtoken.h>\n")
-    target_include_directories(mhf_webview SYSTEM INTERFACE ${MHF_WEBVIEW2_INCLUDE_DIR} ${_shim})
+    target_include_directories(mhf_webview SYSTEM INTERFACE ${MHF_WEBVIEW2_INCLUDE_DIR})
+    if(NOT MSVC)
+        # MinGW ships eventtoken.h in lower case; WebView2.h asks for EventToken.h. Not for MSVC/clang-cl: Windows
+        # filesystems ignore case, so the shim would include itself and hide the SDK's real header (winrt/eventtoken.h,
+        # found through the Developer shell's INCLUDE), leaving EventRegistrationToken undefined.
+        set(_shim ${CMAKE_BINARY_DIR}/webview2-shim)
+        file(WRITE ${_shim}/EventToken.h "#pragma once\n#include <eventtoken.h>\n")
+        target_include_directories(mhf_webview SYSTEM INTERFACE ${_shim})
+    endif()
     target_link_libraries(mhf_webview INTERFACE advapi32 ole32 shell32 shlwapi user32 version)
 else()
     find_package(PkgConfig REQUIRED)
