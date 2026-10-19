@@ -127,6 +127,19 @@ if(WIN32)
 endif()
 mhf_target_warnings(mhf_launcher)
 
+# The launcher starts each game's program from its own folder, so building the launcher also builds every game program
+# that exists (a game target exists only when its generated code is configured) and places it (with its fonts) next to the launcher.
+foreach(game IN LISTS MHF_GAMES)
+    if(TARGET ${game})
+        add_dependencies(mhf_launcher ${game})
+        add_custom_command(TARGET mhf_launcher POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${game}> $<TARGET_FILE_DIR:mhf_launcher>
+            COMMAND ${CMAKE_COMMAND} -E copy_directory $<TARGET_FILE_DIR:${game}>/fonts $<TARGET_FILE_DIR:mhf_launcher>/fonts
+            COMMENT "Placing ${game} and its fonts next to the launcher"
+            VERBATIM)
+    endif()
+endforeach()
+
 # ------------------------------------------------------------------ tests
 if(MHF_BUILD_TESTS)
     add_executable(test_launcher tests/test_launcher.cpp native/launcher.cpp native/json.cpp native/hash.cpp
