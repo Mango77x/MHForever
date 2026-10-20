@@ -243,7 +243,7 @@ void on_play(const char *id, const Json &args) {
     });
 }
 
-// `launcher --install <image.iso> [--in-place | --copy]`: the same setup as "Add my copy", without the window.
+// `MHForever --install <image.iso> [--in-place | --copy]`: the same setup as "Add my copy", without the window.
 int run_install_cli(const std::vector<std::string> &args) {
     fs::path iso;
     std::optional<bool> copy;
@@ -258,7 +258,7 @@ int run_install_cli(const std::vector<std::string> &args) {
         }
     }
     if (iso.empty()) {
-        std::fprintf(stderr, "usage: launcher --install <image.iso> [--in-place | --copy]\n");
+        std::fprintf(stderr, "usage: MHForever --install <image.iso> [--in-place | --copy]\n");
         return 2;
     }
     Launcher launcher(platform::executable_dir());

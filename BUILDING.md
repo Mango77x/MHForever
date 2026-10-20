@@ -20,7 +20,7 @@ built automatically (`-DMHF_WITH_SDL=OFF` to skip it).
 This uses your own copy of the game and never produces anything that may be committed or shared
 (see `CONTRIBUTING.md`).
 
-1. Keep your ISO at hand. Players get the game's executable prepared by the launcher's installer (`launcher --install <your.iso>`,
+1. Keep your ISO at hand. Players get the game's executable prepared by the launcher's installer (`MHForever --install <your.iso>`,
    see `docs/07-launcher-ux.md` §3b); developers can instead point the tools at a prepared executable (`docs/06-mhfu-module.md` §3).
 2. Build the tools (`cmake --build --preset <preset>`), then generate the code:
    ```sh
@@ -56,6 +56,6 @@ The release zip is assembled from programs built elsewhere; game data never goes
 2. Build `mhfu.exe` from the generated code (see above) in a Release configuration.
 3. Package them with the free fonts and the licenses:
    ```sh
-   python scripts/package_release.py --version 0.1.0 --launcher <launcher.exe> --game <mhfu.exe> --fonts <the fonts folder next to mhfu.exe>
+   python scripts/package_release.py --version 0.1.0 --launcher <MHForever.exe> --game <mhfu.exe> --fonts <the fonts folder next to mhfu.exe>
    ```
    This writes `MHForever-<version>-windows-x64.zip` and its `.sha256`. The text shown to players is `dist/PLAYER_README.txt`.

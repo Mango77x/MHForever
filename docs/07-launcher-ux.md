@@ -63,7 +63,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   - *Setup flow* (`installer`): checks the image (compressed CSO/ZSO, not an image, another revision, damaged), prepares the
     executable, and with the **Keep a copy of my disc image** setting checks free space and copies it under a temporary name
     with progress. Nothing partial is left behind on failure. Removing a game deletes only what the installer stored.
-  - `launcher --install <image.iso> [--in-place | --copy]` runs the same setup without the window (Windows borrows the
+  - `MHForever --install <image.iso> [--in-place | --copy]` runs the same setup without the window (Windows borrows the
     parent console).
 - **Release packaging (2026-10-19)**: `scripts/package_release.py` assembles the Windows zip (launcher, game program, free fonts,
   licenses and `dist/PLAYER_README.txt`) and refuses anything that looks like game data. 0.1.0 was published this way.

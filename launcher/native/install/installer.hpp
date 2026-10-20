@@ -1,6 +1,6 @@
 #pragma once
 
-// First-run setup from the player's own disc image (the launcher's "Add my copy" flow plus `launcher --install`):
+// First-run setup from the player's own disc image (the launcher's "Add my copy" flow plus `MHForever --install`):
 // checks the image, prepares the game's executable from it, and optionally keeps a copy of the image in the per-user
 // data directory. The launcher talks to the player; this talks to the files.
 

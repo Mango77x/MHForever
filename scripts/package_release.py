@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Assemble the Windows release zip from binaries built elsewhere.
 
-  package_release.py --version 0.1.0 --launcher <launcher.exe> --game <mhfu.exe> --fonts <fonts dir> [--out <dir>]
+  package_release.py --version 0.1.0 --launcher <MHForever.exe> --game <mhfu.exe> --fonts <fonts dir> [--out <dir>]
 
 The zip contains our programs, the free fonts, the project and third-party licenses and a player README. It never contains
 game data: the script refuses disc images, executables other than the two programs, and anything it does not know.
@@ -35,7 +35,7 @@ def main() -> int:
         print("error: --version must look like 0.1.0", file=sys.stderr)
         return 2
 
-    files: dict[str, pathlib.Path] = {"launcher.exe": args.launcher, "mhfu.exe": args.game}
+    files: dict[str, pathlib.Path] = {"MHForever.exe": args.launcher, "mhfu.exe": args.game}
     if not args.fonts.is_dir():
         print(f"error: {args.fonts} is not a folder", file=sys.stderr)
         return 2

@@ -44,7 +44,7 @@ It is early software: the game boots and can be played, but expect rough edges a
 ## How it works for a player
 
 1. Download MHForever from the [Releases](../../releases) page and unzip it anywhere.
-2. Open `launcher.exe` and add **your own** `.iso` of Freedom Unite (a plain, uncompressed image of your UMD).
+2. Open `MHForever.exe` and add **your own** `.iso` of Freedom Unite (a plain, uncompressed image of your UMD).
 3. The launcher checks your copy and prepares everything it needs from it on your PC. You can also let it keep a copy
    of your image in its own folder.
 4. Press **Play**.

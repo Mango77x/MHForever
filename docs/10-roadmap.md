@@ -71,7 +71,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 - [x] Gamepad-first launcher (`07` §3b, 2026-10-17): React/Motion UI in the system web view, add copy with SHA-1
   verification, settings passed to the game, play time; friends/rooms UI waits for online play.
-- [x] Installer scaffolding (`07` §3b, 2026-10-19): per-user data folder, image checks, optional image copy, `launcher --install`,
+- [x] Installer scaffolding (`07` §3b, 2026-10-19): per-user data folder, image checks, optional image copy, `MHForever --install`,
   executable identity gate (size + SHA-1 in, SHA-1 out). Tests on a synthetic image, no game data.
 - [x] Executable preparation module: the decryption step behind `builtin_decryptor()` (PPSSPP's PRX decrypter, GPL), validated
   byte for byte against `[dev_executable]` with the developer's disc (2026-10-19).
