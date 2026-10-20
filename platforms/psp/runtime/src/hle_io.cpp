@@ -739,5 +739,15 @@ std::optional<fs::path> resolve_under_root(const fs::path &root, const std::stri
 std::span<const HleFunction> io_functions() { return kFunctions; }
 
 void set_working_directory(Runtime &rt, const std::string &psp_path) { state(rt).cwd = psp_path; }
+std::string working_directory(Runtime &rt) { return state(rt).cwd; }
+
+void io_release(Runtime &rt) {
+    const auto it = g_states.find(&rt);
+    if (it == g_states.end()) return;
+    for (auto &[fd, f] : it->second.files) {
+        if (f.file != nullptr) std::fclose(f.file);
+    }
+    g_states.erase(it);
+}
 
 } // namespace mhf::psp::hle

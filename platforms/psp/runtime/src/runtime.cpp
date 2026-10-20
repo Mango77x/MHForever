@@ -79,6 +79,9 @@ Runtime::~Runtime() {
     hle::ge_shutdown(*this);
     ticker_stop_ = true;
     if (ticker_.joinable()) ticker_.join();
+    hle::ge_release(*this);
+    hle::display_release(*this);
+    hle::io_release(*this);
     if (g_active == this) {
         g_active = nullptr;
     }

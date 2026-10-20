@@ -354,6 +354,8 @@ void ge_shutdown(Runtime &rt) {
     if (const auto it = g_ge.find(&rt); it != g_ge.end() && it->second) it->second->shutdown();
 }
 
+void ge_release(Runtime &rt) { g_ge.erase(&rt); }
+
 void ge_present(Runtime &rt, std::uint32_t address, std::uint32_t stride, std::uint32_t format) {
     auto &s = ge(rt);
     if (!s.backend_factory || s.synchronous) return;

@@ -34,6 +34,13 @@ inline void ret64(Context &ctx, std::uint64_t value) {
 
 // Sets the current directory used for relative PSP paths (IoFileMgr).
 void set_working_directory(Runtime &rt, const std::string &psp_path);
+[[nodiscard]] std::string working_directory(Runtime &rt);
+
+// Per-runtime HLE state lives in module-level tables keyed by the Runtime; the destructor drops each entry (closing
+// host files and so on) so that a later Runtime at the same address starts clean.
+void io_release(Runtime &rt);
+void display_release(Runtime &rt);
+void ge_release(Runtime &rt);
 
 // Runs one sceUtility savedata request (hle_savedata.cpp) and stores its result in the parameter block.
 // `chosen` is the slot the player picked in the list dialog (list modes); without it the request's own selection

@@ -28,6 +28,10 @@ std::uint64_t vcount(Runtime &rt) { return rt.kernel().now_us() / kVblankPeriodU
 std::uint64_t next_vblank(Runtime &rt) { return (vcount(rt) + 1) * kVblankPeriodUs; }
 } // namespace
 
+namespace hle {
+void display_release(Runtime &rt) { g_video.erase(&rt); }
+} // namespace hle
+
 const DisplayState &display_state(Runtime &rt) { return video(rt).display; }
 void set_controller_state(Runtime &rt, const ControllerState &state) { video(rt).controller = state; }
 const ControllerState &controller_state(Runtime &rt) { return video(rt).controller; }
