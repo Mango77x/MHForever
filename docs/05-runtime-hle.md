@@ -247,6 +247,21 @@ one ubershader (texture functions, fog, alpha test, depth range) and fixed-funct
   not updated; `MHF_GL_READBACK=1` copies targets back after every list, for tests), CLUT textures read from a render
   target, Bézier/spline patches. `homebrew_getest_opengl` runs the GE test through it (offscreen EGL, read back).
 - Debugging: `MHF_GL_DUMP=<dir>` (+ `MHF_GL_DUMP_EVERY=n`) writes presented frames as PPM.
+- *Frame interpolation* (enhancement, `--interpolate`, off by default; branch work, not yet tried on the game): the game's
+  logic runs once per flip at 30 fps, so a 60 fps picture can only come from the renderer. The backend keeps the batches
+  of each flip (draw state + final vertices) and, at the next flip, draws the picture's batches again into a scratch
+  target, starting from the previous picture, with every triangle halfway between its position in the previous flip and
+  in this one (screen space; texture coordinates, colors and depth are the flip's own). It shows that picture at once and
+  the flip's own picture half a frame later (`Backend::next_wakeup`/`tick`, honoured by the GE worker between lists), so
+  the added latency is half a frame. Batches are paired with the previous flip's by shape (vertex count, through mode,
+  clear, textured), looking ahead up to four batches. Not interpolated, and shown as before: triangles any of whose
+  vertices moved more than 96 PSP pixels (cuts, objects appearing), batches without a partner (particles, changing
+  meshes), flips whose render target was copied into or sampled while being drawn, flips at an already fast pace
+  (< 22 ms) or after a stall (> 150 ms), and the first flip after any of those. `MHF_INTERPOLATE=1` forces it on,
+  `MHF_INTERP_LOG=1` prints how often each case happens. `homebrew_motiontest_interpolation` checks that shapes moving a
+  fixed step per frame move in equal steps between pictures. Limits: motion that is not rigid in screen space (rotation,
+  perspective change) is only approximated; a game that re-renders a scene from several passes into one target may need
+  per-case handling; the stats line is how to find out on the real game.
 
 Why OpenGL first instead of Vulkan : the same code runs on Windows, Linux and the Steam Deck, it needs no shader
 toolchain, and it was the fastest way to 30 fps at high resolution. The backend interface keeps a Vulkan
