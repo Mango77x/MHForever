@@ -18,6 +18,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
@@ -205,39 +206,68 @@ OpenFile *file(Runtime &rt, int fd) {
     return it != s.files.end() ? &it->second : nullptr;
 }
 
+// Guest transfers are moved through a bounded buffer: the size comes from the game and may be huge.
+constexpr std::uint32_t kIoChunk = 64u * 1024u;
+
 std::int64_t do_read(Runtime &rt, int fd, std::uint32_t address, std::uint32_t size) {
     if (fd == 0) return 0;
     OpenFile *f = file(rt, fd);
     if (f == nullptr) return static_cast<std::int32_t>(error::kIoBadFile);
+    if (size == 0) return 0;
+    if (!rt.memory().contains(address, size)) {
+        throw std::runtime_error("sceIoRead: buffer outside guest memory");
+    }
     if (f->file == nullptr) {
         const std::uint64_t left = f->position < f->image_size ? f->image_size - f->position : 0;
         const auto n = static_cast<std::uint32_t>(std::min<std::uint64_t>(left, size));
-        if (n != 0) {
-            const auto bytes = state(rt).disc->read_bytes(f->image_offset + f->position, n);
-            rt.memory().copy_in(address, bytes);
-            f->position += n;
+        for (std::uint32_t done = 0; done < n;) {
+            const std::uint32_t chunk = std::min(kIoChunk, n - done);
+            const auto bytes = state(rt).disc->read_bytes(f->image_offset + f->position, chunk);
+            rt.memory().copy_in(address + done, bytes);
+            f->position += chunk;
+            done += chunk;
         }
         return n;
     }
-    std::vector<std::uint8_t> buffer(size);
-    const std::size_t n = std::fread(buffer.data(), 1, size, f->file);
-    rt.memory().copy_in(address, std::span(buffer.data(), n));
-    return static_cast<std::int64_t>(n);
+    std::vector<std::uint8_t> buffer(std::min(size, kIoChunk));
+    std::uint32_t total = 0;
+    while (total < size) {
+        const std::uint32_t want = std::min<std::uint32_t>(kIoChunk, size - total);
+        const std::size_t n = std::fread(buffer.data(), 1, want, f->file);
+        if (n == 0) break;
+        rt.memory().copy_in(address + total, std::span(buffer.data(), n));
+        total += static_cast<std::uint32_t>(n);
+        if (n < want) break;
+    }
+    return static_cast<std::int64_t>(total);
 }
 
 std::int64_t do_write(Runtime &rt, int fd, std::uint32_t address, std::uint32_t size) {
-    std::vector<std::uint8_t> buffer(size);
-    rt.memory().copy_out(address, buffer);
+    OpenFile *f = nullptr;
+    std::FILE *out = nullptr;
     if (fd == 1 || fd == 2) {
-        std::FILE *out = fd == 1 ? stdout : stderr;
-        std::fwrite(buffer.data(), 1, size, out);
-        std::fflush(out);
-        return size;
+        out = fd == 1 ? stdout : stderr;
+    } else {
+        f = file(rt, fd);
+        if (f == nullptr) return static_cast<std::int32_t>(error::kIoBadFile);
+        if (f->file == nullptr) return static_cast<std::int32_t>(0x8001001Eu);
+        out = f->file;
     }
-    OpenFile *f = file(rt, fd);
-    if (f == nullptr) return static_cast<std::int32_t>(error::kIoBadFile);
-    if (f->file == nullptr) return static_cast<std::int32_t>(0x8001001Eu);
-    return static_cast<std::int64_t>(std::fwrite(buffer.data(), 1, size, f->file));
+    if (size == 0) return 0;
+    if (!rt.memory().contains(address, size)) {
+        throw std::runtime_error("sceIoWrite: buffer outside guest memory");
+    }
+    std::vector<std::uint8_t> buffer(std::min(size, kIoChunk));
+    std::uint32_t total = 0;
+    while (total < size) {
+        const std::uint32_t want = std::min<std::uint32_t>(kIoChunk, size - total);
+        rt.memory().copy_out(address + total, std::span(buffer.data(), want));
+        const std::size_t n = std::fwrite(buffer.data(), 1, want, out);
+        total += static_cast<std::uint32_t>(n);
+        if (n < want) break;
+    }
+    if (f == nullptr) std::fflush(out);
+    return static_cast<std::int64_t>(total);
 }
 
 std::int64_t do_seek(Runtime &rt, int fd, std::int64_t offset, int whence) {
