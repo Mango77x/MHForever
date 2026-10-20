@@ -126,6 +126,28 @@ int main() {
         CHECK(!r.game && !r.error.empty());
     }
 
+    // A failed write must never destroy the saved state. Putting a directory where save() wants its temporary file makes
+    // the write fail the same way a full disk does.
+    {
+        const fs::path blocked = dir / "blocked";
+        fs::create_directories(blocked);
+        std::string blocked_code;
+        {
+            Launcher l(blocked);
+            blocked_code = l.state()["friendCode"].as_string();
+        }
+        fs::create_directories(blocked / "launcher.json.tmp");
+        {
+            Launcher l(blocked);
+            l.set_pseudonym("Changed"); // save() cannot write
+        }
+        fs::remove_all(blocked / "launcher.json.tmp");
+        CHECK(fs::is_regular_file(blocked / "launcher.json"));
+        Launcher after(blocked);
+        CHECK(after.state()["friendCode"].as_string() == blocked_code); // same identity, not a fresh one
+        CHECK(after.state()["pseudonym"].as_string() == "Hunter");      // the previous file is intact
+    }
+
     // The player's copy (requires game data).
     if (const char *iso = std::getenv("MHF_TEST_ISO")) {
         // Identification: a developer executable of the right size is already known, so only the image is checked.

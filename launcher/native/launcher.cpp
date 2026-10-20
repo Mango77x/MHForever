@@ -113,16 +113,36 @@ void Launcher::load() {
 
 void Launcher::save() {
     const fs::path tmp = file_.string() + ".tmp";
+    bool written = false;
     {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
         out << data_.dump(true) << '\n';
+        out.flush();
+        out.close();
+        written = static_cast<bool>(out);
     }
     std::error_code ec;
-    fs::rename(tmp, file_, ec);
-    if (ec) {
-        fs::remove(file_, ec);
-        fs::rename(tmp, file_, ec);
+    if (!written) {
+        // Full disk or no permission: keep the previous launcher.json (it holds the identity seed) as it is.
+        if (fs::is_regular_file(tmp, ec)) fs::remove(tmp, ec);
+        return;
     }
+    fs::rename(tmp, file_, ec);
+    if (!ec) return;
+    // rename() normally replaces the old file. If this filesystem refuses, move the old one aside and put it back
+    // when the new one cannot be placed.
+    fs::path backup = file_;
+    backup += ".old";
+    fs::remove(backup, ec);
+    fs::rename(file_, backup, ec);
+    std::error_code move_ec;
+    fs::rename(tmp, file_, move_ec);
+    if (move_ec) {
+        fs::rename(backup, file_, ec);
+        fs::remove(tmp, ec);
+        return;
+    }
+    fs::remove(backup, ec);
 }
 
 // Friend code: 80 bits of SHA-256(identity seed) in Crockford base32, XXXX-XXXX-XXXX-XXXX. Provisional until online
