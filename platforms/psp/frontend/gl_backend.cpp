@@ -301,6 +301,29 @@ struct GpuVertex {
     float fog;
 };
 
+using DrawKey = std::array<std::uint32_t, kStateRegs.size() + 2>;
+
+// The value of a state register as it was when `key` was captured (kStateRegs plus the alpha mask).
+std::uint32_t key_reg(const DrawKey &key, std::uint32_t reg) {
+    if (reg == kMaskAlpha) return key[kStateRegs.size() + 1];
+    for (std::size_t i = 0; i < kStateRegs.size(); ++i) {
+        if (kStateRegs[i] == reg) return key[i];
+    }
+    return 0; // not a draw-state register: nothing here reads one
+}
+
+// Everything needed to set up OpenGL for a batch of primitives: the registers plus what was resolved from guest
+// memory when the batch started (the texture and the render target).
+struct DrawSetup {
+    DrawKey key{};
+    GLuint texture{};     // 0: untextured
+    float uv_xform[4]{1, 1, 0, 0};
+    bool through{};
+    float tex_width{1}, tex_height{1};
+    std::uint32_t target{}; // VRAM offset of the render target
+    bool self_sampled{};    // the texture is a copy of the target being drawn: it cannot be replayed later
+};
+
 std::uint8_t to_byte(float v) { return static_cast<std::uint8_t>(std::clamp(v, 0.0f, 255.0f) + 0.5f); }
 
 // ---------------------------------------------------------------- the backend
@@ -370,7 +393,7 @@ private:
     };
 
     void prepare(const gpu::Ge &ge) {
-        std::array<std::uint32_t, kStateRegs.size() + 2> key{};
+        DrawKey key{};
         for (std::size_t i = 0; i < kStateRegs.size(); ++i) key[i] = ge.reg(kStateRegs[i]);
         key[kStateRegs.size()] = static_cast<std::uint32_t>(ge.clut_generation());
         key[kStateRegs.size() + 1] = ge.reg(kMaskAlpha);
@@ -397,6 +420,7 @@ private:
     }
 
     void apply_state(const gpu::Ge &ge);
+    void emit_state(const DrawSetup &setup, RenderTarget &rt);
     void draw_batch();
     void read_back();
     RenderTarget &target_for(std::uint32_t address, std::uint32_t stride, std::uint32_t format,
@@ -442,7 +466,8 @@ private:
     GLuint display_texture_{};
     std::vector<std::uint32_t> pixels_;
 
-    std::array<std::uint32_t, kStateRegs.size() + 2> state_key_{};
+    DrawKey state_key_{};
+    DrawSetup setup_{}; // of the batch being collected
     bool have_state_{};
     bool through_{};
     float tex_width_{1}, tex_height_{1};
@@ -726,32 +751,52 @@ GLenum blend_factor(std::uint32_t f, bool source_side, std::uint32_t fixed, bool
 }
 
 void GlBackend::apply_state(const gpu::Ge &ge) {
-    // Render target.
+    DrawSetup setup;
+    setup.key = state_key_;
     const std::uint32_t fb = ge.reg(kFramebufPtr) & 0x1FFFF0u;
     const std::uint32_t stride = ge.reg(kFramebufWidth) & 0x7FCu;
     const std::uint32_t format = ge.reg(kFramebufPixFormat) & 3u;
-    const std::uint32_t sx1 = ge.reg(kScissor1) & 0x3FFu, sy1 = (ge.reg(kScissor1) >> 10u) & 0x3FFu;
-    const std::uint32_t sx2 = ge.reg(kScissor2) & 0x3FFu, sy2 = (ge.reg(kScissor2) >> 10u) & 0x3FFu;
+    const std::uint32_t sy2 = (ge.reg(kScissor2) >> 10u) & 0x3FFu;
     RenderTarget &rt = target_for(fb, stride == 0 ? 512u : stride, format, sy2 + 1u);
     current_ = &rt;
     rt.last_draw = frame_;
     through_ = (ge.reg(kVertexType) & (1u << 23u)) != 0;
+    setup.through = through_;
+    setup.target = rt.address;
+
+    // Texture (may blit, so before the target is bound).
+    const bool clear = (ge.reg(kClearMode) & 1u) != 0;
+    const bool textured = !clear && (ge.reg(kTextureMapEnable) & 1u) != 0;
+    tex_width_ = tex_height_ = 1.0f;
+    if (textured) {
+        gl_.ActiveTexture(GL_TEXTURE0);
+        setup.texture = texture_for(ge, setup.uv_xform);
+        setup.self_sampled = setup.texture == copy_texture_;
+    }
+    setup.tex_width = tex_width_;
+    setup.tex_height = tex_height_;
+    setup_ = setup;
+    emit_state(setup, rt);
+}
+
+void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
+    const auto R = [&](std::uint32_t reg) { return key_reg(setup.key, reg); };
+    const std::uint32_t sx1 = R(kScissor1) & 0x3FFu, sy1 = (R(kScissor1) >> 10u) & 0x3FFu;
+    const std::uint32_t sx2 = R(kScissor2) & 0x3FFu, sy2 = (R(kScissor2) >> 10u) & 0x3FFu;
+    const bool through = setup.through;
+    const float *uv_xform = setup.uv_xform;
 
     gl_.UseProgram(draw_program_);
     gl_.BindVertexArray(vao_);
 
-    // Texture (may blit, so before binding the target).
-    const bool clear = (ge.reg(kClearMode) & 1u) != 0;
-    const bool textured = !clear && (ge.reg(kTextureMapEnable) & 1u) != 0;
-    float uv_xform[4] = {1, 1, 0, 0};
-    tex_width_ = tex_height_ = 1.0f;
+    const bool clear = (R(kClearMode) & 1u) != 0;
+    const bool textured = !clear && (R(kTextureMapEnable) & 1u) != 0;
     if (textured) {
         gl_.ActiveTexture(GL_TEXTURE0);
-        const GLuint tex = texture_for(ge, uv_xform);
-        gl_.BindTexture(GL_TEXTURE_2D, tex);
+        gl_.BindTexture(GL_TEXTURE_2D, setup.texture);
         // Enhancement (off by default): bilinear filtering for 3D textures; 2D (through-mode) art stays as drawn.
-        const bool linear = (ge.reg(kTexFilter) & 0x100u) != 0 || (smooth_textures_ && !through_);
-        set_texture_params(linear, (ge.reg(kTexWrap) & 1u) != 0, (ge.reg(kTexWrap) & 0x100u) != 0);
+        const bool linear = (R(kTexFilter) & 0x100u) != 0 || (smooth_textures_ && !through);
+        set_texture_params(linear, (R(kTexWrap) & 1u) != 0, (R(kTexWrap) & 0x100u) != 0);
     }
 
     gl_.BindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
@@ -771,7 +816,7 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
     gl_.Uniform1i(u_.tex_enable, textured ? 1 : 0);
 
     if (clear) {
-        const std::uint32_t cm = ge.reg(kClearMode);
+        const std::uint32_t cm = R(kClearMode);
         const bool rgb = (cm & 0x100u) != 0, alpha = (cm & 0x200u) != 0, depth = (cm & 0x400u) != 0;
         gl_.Disable(GL_BLEND);
         gl_.ColorMask(rgb, rgb, rgb, alpha);
@@ -783,48 +828,48 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
         return;
     }
 
-    const std::uint32_t func = ge.reg(kTexFunc);
+    const std::uint32_t func = R(kTexFunc);
     gl_.Uniform1i(u_.tex_func, static_cast<GLint>(func & 7u));
     gl_.Uniform1i(u_.tex_rgba, (func & 0x100u) != 0 ? 1 : 0);
     gl_.Uniform1i(u_.tex_double, (func & 0x10000u) != 0 ? 1 : 0);
     float env[3];
-    unpack_rgb(ge.reg(kTexEnvColor), env);
+    unpack_rgb(R(kTexEnvColor), env);
     gl_.Uniform3f(u_.env, env[0], env[1], env[2]);
-    const bool fog = !through_ && (ge.reg(kFogEnable) & 1u) != 0;
+    const bool fog = !through && (R(kFogEnable) & 1u) != 0;
     gl_.Uniform1i(u_.fog_enable, fog ? 1 : 0);
     float fog_color[3];
-    unpack_rgb(ge.reg(kFogColor), fog_color);
+    unpack_rgb(R(kFogColor), fog_color);
     gl_.Uniform3f(u_.fog_color, fog_color[0], fog_color[1], fog_color[2]);
 
-    if ((ge.reg(kAlphaTestEnable) & 1u) != 0) {
-        const std::uint32_t at = ge.reg(kAlphaTest);
+    if ((R(kAlphaTestEnable) & 1u) != 0) {
+        const std::uint32_t at = R(kAlphaTest);
         gl_.Uniform1i(u_.alpha_func, static_cast<GLint>(at & 7u));
         gl_.Uniform1i(u_.alpha_ref, static_cast<GLint>((at >> 8u) & 0xFFu));
         gl_.Uniform1i(u_.alpha_mask, static_cast<GLint>((at >> 16u) & 0xFFu));
     } else {
         gl_.Uniform1i(u_.alpha_func, 1);
     }
-    const std::uint32_t minz = ge.reg(kMinZ) & 0xFFFFu, maxz = ge.reg(kMaxZ) & 0xFFFFu;
-    const bool zrange = !through_ && maxz != 0 && (minz != 0 || maxz != 0xFFFFu);
+    const std::uint32_t minz = R(kMinZ) & 0xFFFFu, maxz = R(kMaxZ) & 0xFFFFu;
+    const bool zrange = !through && maxz != 0 && (minz != 0 || maxz != 0xFFFFu);
     gl_.Uniform1i(u_.zrange_enable, zrange ? 1 : 0);
     gl_.Uniform2f(u_.zrange, static_cast<float>(minz), static_cast<float>(maxz));
 
     // Depth.
-    if ((ge.reg(kZTestEnable) & 1u) != 0) {
+    if ((R(kZTestEnable) & 1u) != 0) {
         static constexpr GLenum funcs[8] = {GL_NEVER, GL_ALWAYS, GL_EQUAL, GL_NOTEQUAL, GL_LESS, GL_LEQUAL, GL_GREATER, GL_GEQUAL};
         gl_.Enable(GL_DEPTH_TEST);
-        gl_.DepthFunc(funcs[ge.reg(kZTest) & 7u]);
-        gl_.DepthMask((ge.reg(kZWriteDisable) & 1u) == 0 ? GL_TRUE : GL_FALSE);
+        gl_.DepthFunc(funcs[R(kZTest) & 7u]);
+        gl_.DepthMask((R(kZWriteDisable) & 1u) == 0 ? GL_TRUE : GL_FALSE);
     } else {
         gl_.Disable(GL_DEPTH_TEST);
         gl_.DepthMask(GL_FALSE);
     }
 
     // Blending.
-    if ((ge.reg(kAlphaBlendEnable) & 1u) != 0) {
-        const std::uint32_t mode = ge.reg(kBlendMode);
+    if ((R(kAlphaBlendEnable) & 1u) != 0) {
+        const std::uint32_t mode = R(kBlendMode);
         bool constant_a = false, constant_b = false;
-        const std::uint32_t fix_a = ge.reg(kBlendFixedA), fix_b = ge.reg(kBlendFixedB);
+        const std::uint32_t fix_a = R(kBlendFixedA), fix_b = R(kBlendFixedB);
         const GLenum src = blend_factor(mode & 0xFu, true, fix_a, constant_a);
         GLenum dst = blend_factor((mode >> 4u) & 0xFu, false, fix_b, constant_b);
         std::uint32_t constant = constant_a ? fix_a : fix_b;
@@ -848,8 +893,8 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
     }
 
     // Write masks (a channel is written unless every bit of it is masked).
-    const std::uint32_t mask = ge.reg(kMaskRgb);
-    const bool keep_alpha = (ge.reg(kStencilTestEnable) & 1u) != 0 || (ge.reg(kMaskAlpha) & 0xFFu) == 0xFFu;
+    const std::uint32_t mask = R(kMaskRgb);
+    const bool keep_alpha = (R(kStencilTestEnable) & 1u) != 0 || (R(kMaskAlpha) & 0xFFu) == 0xFFu;
     gl_.ColorMask((mask & 0xFFu) != 0xFFu, ((mask >> 8u) & 0xFFu) != 0xFFu, ((mask >> 16u) & 0xFFu) != 0xFFu, !keep_alpha);
 }
 
