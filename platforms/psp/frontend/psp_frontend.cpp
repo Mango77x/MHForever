@@ -31,7 +31,7 @@ struct Frontend::Impl {
     bool gpu{};
     int render_scale{4};
     bool smooth_textures{};
-    bool interpolate{};
+    int target_fps{30};
     std::atomic<int> gpu_state{0};
     // System dialogs drawn over the game. Drawing one takes a few tens of milliseconds at 4x, so a worker thread
     // does it; the emulation thread only hands over the latest view.
@@ -96,7 +96,7 @@ Frontend::~Frontend() {
 }
 
 bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int render_scale, bool fullscreen,
-                    bool smooth_textures, bool interpolate) {
+                    bool smooth_textures, int target_fps) {
     host::HostOptions o;
     o.title = title;
     o.hidden = hidden;
@@ -105,7 +105,7 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
     impl_->gpu = gpu;
     impl_->render_scale = render_scale;
     impl_->smooth_textures = smooth_textures;
-    impl_->interpolate = interpolate;
+    impl_->target_fps = target_fps;
     impl_->open = impl_->host.open(o);
     if (impl_->open && fullscreen && !hidden) impl_->host.toggle_fullscreen();
     return impl_->open;
@@ -234,7 +234,7 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
     if (impl->gpu && impl->open) {
         set_gpu_backend_factory(rt, [impl, runtime]() -> std::unique_ptr<gpu::Backend> {
             auto backend = make_gl_backend(static_cast<SDL_Window *>(impl->host.window_handle()), impl->render_scale,
-                                           runtime->memory(), impl->smooth_textures, &impl->overlay, impl->interpolate);
+                                           runtime->memory(), impl->smooth_textures, &impl->overlay, impl->target_fps);
             if (!backend) std::fprintf(stderr, "[frontend] no OpenGL 3.3: using the software renderer\n");
             impl->gpu_state = backend ? 1 : 2;
             return backend;

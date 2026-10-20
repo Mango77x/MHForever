@@ -247,21 +247,26 @@ one ubershader (texture functions, fog, alpha test, depth range) and fixed-funct
   not updated; `MHF_GL_READBACK=1` copies targets back after every list, for tests), CLUT textures read from a render
   target, Bézier/spline patches. `homebrew_getest_opengl` runs the GE test through it (offscreen EGL, read back).
 - Debugging: `MHF_GL_DUMP=<dir>` (+ `MHF_GL_DUMP_EVERY=n`) writes presented frames as PPM.
-- *Frame interpolation* (enhancement, `--interpolate`, off by default; branch work, not yet tried on the game): the game's
-  logic runs once per flip at 30 fps, so a 60 fps picture can only come from the renderer. The backend keeps the batches
-  of each flip (draw state + final vertices) and, at the next flip, draws the picture's batches again into a scratch
-  target, starting from the previous picture, with every triangle halfway between its position in the previous flip and
-  in this one (screen space; texture coordinates, colors and depth are the flip's own). It shows that picture at once and
-  the flip's own picture half a frame later (`Backend::next_wakeup`/`tick`, honoured by the GE worker between lists), so
-  the added latency is half a frame. Batches are paired with the previous flip's by shape (vertex count, through mode,
-  clear, textured), looking ahead up to four batches. Not interpolated, and shown as before: triangles any of whose
-  vertices moved more than 96 PSP pixels (cuts, objects appearing), batches without a partner (particles, changing
-  meshes), flips whose render target was copied into or sampled while being drawn, flips at an already fast pace
-  (< 22 ms) or after a stall (> 150 ms), and the first flip after any of those. `MHF_INTERPOLATE=1` forces it on,
-  `MHF_INTERP_LOG=1` prints how often each case happens. `homebrew_motiontest_interpolation` checks that shapes moving a
-  fixed step per frame move in equal steps between pictures. Limits: motion that is not rigid in screen space (rotation,
-  perspective change) is only approximated; a game that re-renders a scene from several passes into one target may need
-  per-case handling; the stats line is how to find out on the real game.
+- *Frame interpolation* (enhancement, `--fps N`, 30 = off by default; branch work, not yet tried on the game): the game's
+  logic runs once per flip at 30 fps, so a higher rate can only come from the renderer. `N` is rounded to a whole
+  multiple k of 30, from 1 to 6 (30, 60, 90, 120, 150, 180). The backend keeps the batches of each flip (draw state +
+  final vertices). At the next flip it draws that flip's batches again into a scratch target, starting from the previous
+  picture, with every triangle at phase j/k between its position in the previous flip and in this one (screen space;
+  texture coordinates, colors and depth are the flip's own), for j = 1 .. k-1, and then shows the flip itself. The first
+  picture goes out at once and the others at even intervals (`Backend::next_wakeup`/`tick`, honoured by the GE worker
+  between lists), so a flip appears (k-1)/k of a frame late: 17 ms at 60 fps, up to 28 ms at 180. In-between pictures
+  that are already late when their turn comes are dropped (counted in the log), so a slow GPU degrades toward fewer
+  pictures instead of slowing the game. Batches are paired with the previous flip's by shape (vertex count, through
+  mode, clear, textured), looking ahead up to four batches. Not interpolated, and shown as before: triangles any of
+  whose vertices moved more than 96 PSP pixels (cuts, objects appearing), batches without a partner (particles,
+  changing meshes), flips whose render target was copied into or sampled while being drawn, flips at an already fast
+  pace (< 22 ms) or after a stall (> 150 ms), and the first flip after any of those. `MHF_FPS=<n>` overrides the option,
+  `MHF_INTERP_LOG=1` prints how often each case happens. `homebrew_motiontest_interpolation` checks 60, 90, 120 and 180
+  fps: about k pictures per flip, equal steps for shapes moving a fixed step per frame, and a static shape that stays put.
+  Limits: motion that is not rigid in screen space (rotation, perspective change) is only approximated; the output has no
+  vsync yet, so a monitor whose refresh differs from the target may show uneven pacing or tearing; a game that
+  re-renders a scene from several passes into one target may need per-case handling; the stats line is how to find out
+  on the real game.
 
 Why OpenGL first instead of Vulkan : the same code runs on Windows, Linux and the Steam Deck, it needs no shader
 toolchain, and it was the fastest way to 30 fps at high resolution. The backend interface keeps a Vulkan

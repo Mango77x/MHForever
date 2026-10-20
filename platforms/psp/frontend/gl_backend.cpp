@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <deque>
 #include <optional>
 #include <set>
 #include <cmath>
@@ -333,6 +334,13 @@ struct TapeEntry {
     std::vector<GpuVertex> vertices;
 };
 
+// A picture waiting for its moment on screen: `phase` 1 is the flip itself, below that a picture between the
+// previous flip (0) and this one.
+struct Picture {
+    float phase{1};
+    std::chrono::steady_clock::time_point due;
+};
+
 // A copy of a finished picture (the last two are kept).
 struct Slot {
     GLuint texture{}, fbo{};
@@ -346,9 +354,9 @@ std::uint8_t to_byte(float v) { return static_cast<std::uint8_t>(std::clamp(v, 0
 class GlBackend final : public gpu::Backend {
 public:
     GlBackend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory, bool smooth_textures,
-              OverlayImage *overlay, bool interpolate)
+              OverlayImage *overlay, int factor)
         : window_(window), scale_(std::max(1, scale)), memory_(memory), smooth_textures_(smooth_textures),
-          overlay_(overlay), interpolate_(interpolate) {}
+          overlay_(overlay), factor_(std::clamp(factor, 1, 6)), interpolate_(factor > 1) {}
 
     ~GlBackend() override {
         if (context_ != nullptr) SDL_GL_DestroyContext(context_);
@@ -388,15 +396,10 @@ public:
     void present(std::uint32_t address, std::uint32_t stride, std::uint32_t pixel_format) override;
 
     [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> next_wakeup() const override {
-        if (deferred_) return deferred_->due;
+        if (!pictures_.empty()) return pictures_.front().due;
         return std::nullopt;
     }
-    void tick() override {
-        if (!deferred_) return;
-        const Deferred d = *deferred_;
-        deferred_.reset();
-        show(d.texture, d.uv_max[0], d.uv_max[1]);
-    }
+    void tick() override;
 
 private:
     struct RenderTarget {
@@ -451,8 +454,11 @@ private:
     void show(GLuint texture, float uv_max_x, float uv_max_y);
     void finish_flip();
     bool present_interpolated(RenderTarget &shown, const float uv_max[2]);
+    void show_picture(const Picture &picture);
+    void flush_pictures();
     void ensure_slot(Slot &slot, GLsizei w, GLsizei h);
-    void render_midpoint(const RenderTarget &shown, const std::vector<TapeEntry> &now);
+    void render_between(const RenderTarget &shown, const std::vector<TapeEntry> &now,
+                        const std::vector<TapeEntry> &before, const Slot &before_slot, float t);
     void draw_batch();
     void read_back();
     RenderTarget &target_for(std::uint32_t address, std::uint32_t stride, std::uint32_t format,
@@ -501,9 +507,12 @@ private:
     DrawKey state_key_{};
     DrawSetup setup_{}; // of the batch being collected
 
-    // Frame interpolation (enhancement, off by default). The game flips at 30 fps; for each flip we show a picture
-    // halfway between the previous flip and this one, then the flip itself half a frame later. The halfway picture
-    // is the batches of this flip drawn again with every triangle moved back toward where it was in the last one.
+    // Frame interpolation (enhancement, off by default). The game flips at 30 fps and the output runs at
+    // `factor_` times that: every flip is followed by factor_ - 1 pictures between it and the next one, each made by
+    // drawing the flip's batches again with every triangle placed between its position in the previous flip and in
+    // this one. Pictures are shown at even intervals on a timer the GE worker honours between display lists; a flip is
+    // shown (factor_ - 1)/factor_ of a frame late.
+    int factor_ = 1;
     bool interpolate_ = false;
     std::vector<TapeEntry> tape_;           // batches since the last flip
     std::vector<TapeEntry> previous_;       // the last flip's batches that drew to the picture it showed
@@ -511,17 +520,21 @@ private:
     bool previous_valid_ = false;
     Slot slots_[2];
     int fill_slot_ = 0;
-    RenderTarget scratch_;                  // where the halfway picture is drawn
-    struct Deferred {
-        GLuint texture{};
+    RenderTarget scratch_;                  // where in-between pictures are drawn
+    // The flip being shown: what later pictures are made from.
+    struct {
+        std::vector<TapeEntry> now, before;
+        std::uint32_t address{}, width{}, height{}, stride{}, format{};
+        int before_slot{};
+        GLuint final_texture{};
         float uv_max[2]{1, 1};
-        std::chrono::steady_clock::time_point due;
-    };
-    std::optional<Deferred> deferred_;
+        std::chrono::steady_clock::duration slack{};
+    } flip_;
+    std::deque<Picture> pictures_;
     std::chrono::steady_clock::time_point last_flip_{};
     std::uint64_t shown_{1};                // pictures put on screen
     struct {
-        std::uint64_t interpolated{}, skipped_shape{}, skipped_copy{}, skipped_timing{}, skipped_first{};
+        std::uint64_t interpolated{}, skipped_shape{}, skipped_copy{}, skipped_timing{}, skipped_first{}, late{};
     } stats_;
     bool have_state_{};
     bool through_{};
@@ -1093,7 +1106,7 @@ void GlBackend::block_transfer(std::uint32_t src, std::uint32_t /*src_stride: th
 void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32_t pixel_format) {
     draw_batch();
     have_state_ = false;
-    tick(); // the second picture of the previous flip, if it is still waiting
+    flush_pictures(); // pictures of the previous flip that never got their turn
     const std::uint32_t offset = address & 0x001FFFFFu;
     GLuint texture = 0;
     float uv_max[2] = {1, 1};
@@ -1243,9 +1256,9 @@ std::size_t blend_vertices(const std::vector<GpuVertex> &before, std::vector<Gpu
 
 } // namespace
 
-void GlBackend::render_midpoint(const RenderTarget &shown, const std::vector<TapeEntry> &now) {
+void GlBackend::render_between(const RenderTarget &shown, const std::vector<TapeEntry> &now,
+                               const std::vector<TapeEntry> &before_batches, const Slot &before_slot, float t) {
     const GLsizei w = static_cast<GLsizei>(shown.width) * scale_, h = static_cast<GLsizei>(shown.height) * scale_;
-    const Slot &before_slot = slots_[1 - fill_slot_];
     if (scratch_.fbo == 0 || scratch_.width != shown.width || scratch_.height != shown.height) {
         if (scratch_.fbo != 0) {
             gl_.DeleteFramebuffers(1, &scratch_.fbo);
@@ -1268,27 +1281,66 @@ void GlBackend::render_midpoint(const RenderTarget &shown, const std::vector<Tap
     gl_.DepthMask(GL_TRUE);
     gl_.Clear(GL_DEPTH_BUFFER_BIT);
 
-    std::size_t before = 0;
+    std::size_t paired = 0;
     std::vector<GpuVertex> vertices;
     for (const TapeEntry &entry : now) {
         vertices = entry.vertices;
         // Pair it with the same batch of the previous flip (allowing a few extra batches in between).
-        for (std::size_t look = 0; look < 4 && before + look < previous_.size(); ++look) {
-            const TapeEntry &candidate = previous_[before + look];
+        for (std::size_t look = 0; look < 4 && paired + look < before_batches.size(); ++look) {
+            const TapeEntry &candidate = before_batches[paired + look];
             if (same_shape(entry, candidate)) {
-                if (!clearing(entry.setup)) blend_vertices(candidate.vertices, vertices, 0.5f);
-                before += look + 1;
+                if (!clearing(entry.setup)) blend_vertices(candidate.vertices, vertices, t);
+                paired += look + 1;
                 break;
             }
         }
         emit_state(entry.setup, scratch_);
         draw_vertices(vertices);
     }
+    have_state_ = false;
 }
 
-// Shows the halfway picture now and schedules the flip's own picture half a frame later. Returns false (nothing
-// shown) when this flip cannot be interpolated; the caller then shows it as usual. Either way the picture is kept
-// for the next flip.
+void GlBackend::show_picture(const Picture &picture) {
+    if (picture.phase >= 1.0f) {
+        show(flip_.final_texture, flip_.uv_max[0], flip_.uv_max[1]);
+        return;
+    }
+    RenderTarget shown;
+    shown.address = flip_.address;
+    shown.width = flip_.width;
+    shown.height = flip_.height;
+    shown.stride = flip_.stride;
+    shown.format = flip_.format;
+    render_between(shown, flip_.now, flip_.before, slots_[flip_.before_slot], picture.phase);
+    show(scratch_.color, flip_.uv_max[0], flip_.uv_max[1]);
+}
+
+// Called by the GE worker when the next picture is due.
+void GlBackend::tick() {
+    while (!pictures_.empty()) {
+        const Picture picture = pictures_.front();
+        pictures_.pop_front();
+        // Behind schedule (the GE had other work): in-between pictures that are already late are dropped.
+        if (picture.phase < 1.0f && std::chrono::steady_clock::now() - picture.due > flip_.slack) {
+            ++stats_.late;
+            continue;
+        }
+        show_picture(picture);
+        return;
+    }
+}
+
+void GlBackend::flush_pictures() {
+    while (!pictures_.empty()) {
+        const Picture picture = pictures_.front();
+        pictures_.pop_front();
+        if (picture.phase >= 1.0f) show_picture(picture);
+    }
+}
+
+// Shows the first in-between picture now and schedules the rest, ending with the flip's own picture. Returns false
+// (nothing shown) when this flip cannot be interpolated; the caller then shows it as usual. Either way the picture is
+// kept for the next flip.
 bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2]) {
     const auto now = std::chrono::steady_clock::now();
     const auto interval = now - last_flip_;
@@ -1326,14 +1378,27 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
     } else if (mine.empty() || previous_.empty()) {
         ++stats_.skipped_shape;
     } else {
-        render_midpoint(shown, mine);
-        show(scratch_.color, uv_max[0], uv_max[1]);
-        Deferred d;
-        d.texture = slots_[fill_slot_].texture;
-        d.uv_max[0] = uv_max[0];
-        d.uv_max[1] = uv_max[1];
-        d.due = now + std::chrono::microseconds(static_cast<long long>(std::clamp(ms, 22.0, 150.0) * 500.0));
-        deferred_ = d;
+        flip_.now = mine;
+        flip_.before = std::move(previous_);
+        flip_.address = shown.address;
+        flip_.width = shown.width;
+        flip_.height = shown.height;
+        flip_.stride = shown.stride;
+        flip_.format = shown.format;
+        flip_.before_slot = 1 - fill_slot_;
+        flip_.final_texture = slots_[fill_slot_].texture;
+        flip_.uv_max[0] = uv_max[0];
+        flip_.uv_max[1] = uv_max[1];
+        const auto step = std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval / factor_);
+        flip_.slack = step;
+        // Pictures at phases 1/k .. (k-1)/k, then the flip (phase 1); the first one goes out right now.
+        for (int j = 2; j <= factor_; ++j) {
+            Picture p;
+            p.phase = static_cast<float>(j) / static_cast<float>(factor_);
+            p.due = now + step * (j - 1);
+            pictures_.push_back(p);
+        }
+        show_picture(Picture{1.0f / static_cast<float>(factor_), now});
         ++stats_.interpolated;
         done = true;
     }
@@ -1344,10 +1409,13 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
     static const bool log = std::getenv("MHF_INTERP_LOG") != nullptr;
     if (log && (stats_.interpolated + stats_.skipped_shape + stats_.skipped_copy + stats_.skipped_timing +
                 stats_.skipped_first) % 120 == 0) {
-        std::fprintf(stderr, "[interp] interpolated %llu, skipped: first %llu, copy %llu, timing %llu, shape %llu\n",
-                     static_cast<unsigned long long>(stats_.interpolated), static_cast<unsigned long long>(stats_.skipped_first),
-                     static_cast<unsigned long long>(stats_.skipped_copy), static_cast<unsigned long long>(stats_.skipped_timing),
-                     static_cast<unsigned long long>(stats_.skipped_shape));
+        std::fprintf(stderr,
+                     "[interp] x%d: interpolated %llu, skipped: first %llu, copy %llu, timing %llu, shape %llu; "
+                     "pictures dropped late %llu\n",
+                     factor_, static_cast<unsigned long long>(stats_.interpolated),
+                     static_cast<unsigned long long>(stats_.skipped_first), static_cast<unsigned long long>(stats_.skipped_copy),
+                     static_cast<unsigned long long>(stats_.skipped_timing), static_cast<unsigned long long>(stats_.skipped_shape),
+                     static_cast<unsigned long long>(stats_.late));
     }
     return done;
 }
@@ -1413,9 +1481,11 @@ void GlBackend::dump_window(int w, int h) {
 } // namespace
 
 std::unique_ptr<gpu::Backend> make_gl_backend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory,
-                                              bool smooth_textures, OverlayImage *overlay, bool interpolate) {
-    if (const char *v = std::getenv("MHF_INTERPOLATE")) interpolate = v[0] == '1'; // testing aid
-    auto backend = std::make_unique<GlBackend>(window, scale, memory, smooth_textures, overlay, interpolate);
+                                              bool smooth_textures, OverlayImage *overlay, int target_fps) {
+    if (const char *v = std::getenv("MHF_FPS")) target_fps = std::atoi(v); // testing aid
+    // The game flips at 30 fps: the output rate is a whole multiple of it, from 1x (as the game) to 6x (180 fps).
+    const int factor = std::clamp((target_fps + 15) / 30, 1, 6);
+    auto backend = std::make_unique<GlBackend>(window, scale, memory, smooth_textures, overlay, factor);
     if (!backend->init()) return nullptr;
     return backend;
 }

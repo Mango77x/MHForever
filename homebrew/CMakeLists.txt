@@ -61,7 +61,7 @@ if(TARGET mhf_psp_frontend)
     if(Python3_Interpreter_FOUND)
         add_test(NAME homebrew_motiontest_interpolation
                  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_interpolation.py
-                         $<TARGET_FILE:hb_motiontest> ${work}/motiontest.elf ${work}/memstick)
-        set_tests_properties(homebrew_motiontest_interpolation PROPERTIES TIMEOUT 120 LABELS opengl)
+                         $<TARGET_FILE:hb_motiontest> ${work}/motiontest.elf ${work}/memstick 60 90 120 180)
+        set_tests_properties(homebrew_motiontest_interpolation PROPERTIES TIMEOUT 300 LABELS opengl)
     endif()
 endif()
