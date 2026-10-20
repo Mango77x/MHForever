@@ -4,14 +4,27 @@
 [![Release](https://img.shields.io/github/v/release/Mango77x/MHForever)](https://github.com/Mango77x/MHForever/releases)
 [![License: GPL-3.0-or-later](https://img.shields.io/github/license/Mango77x/MHForever)](LICENSE)
 
-**An unofficial Monster Hunter recompilation project.**
+**Monster Hunter Freedom Unite on PC: an unofficial native port through static recompilation.**
 
-Play **Monster Hunter Freedom Unite** natively on your PC: no emulator, any controller, a launcher that sets everything
-up from your own disc image.
+MHForever turns the PSP version of *Monster Hunter Freedom Unite* (*Monster Hunter Portable 2nd G* in Japan, MHFU) into a
+native PC program: no emulator, any controller, and a launcher that sets everything up from your own disc image.
+
+**Right now only *Monster Hunter Freedom Unite* (European release) is supported. More games are planned**: MHForever is
+the first step of a wider Monster Hunter recompilation project, and each game is a module of its own.
 
 > Not affiliated with, endorsed by or sponsored by Capcom or Sony. Requires your own legitimate copy of the game.
 > No game assets are included or downloaded: no disc image, textures, models, audio, text or saves. "Monster Hunter" is
 > a trademark of its owner and is used here only to describe which games the project works with.
+
+## Supported games
+
+| Game | Original platform | Release | Status |
+|---|---|---|---|
+| **Monster Hunter Freedom Unite** | PSP | Europe (`ULES01213`, v1.01) | **Playable** |
+| Monster Hunter Freedom Unite | PSP | US and Japan | Planned |
+| Other Monster Hunter games | PSP, later PS2 | | Planned, see the [roadmap](docs/10-roadmap.md) |
+
+Only the first row works today. The others are plans, not promises: they are listed so you know where the project is going.
 
 ## Where the project is today
 
