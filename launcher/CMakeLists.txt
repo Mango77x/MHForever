@@ -117,9 +117,10 @@ add_executable(mhf_launcher
 target_include_directories(mhf_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(mhf_launcher PRIVATE mhf_core mhf_psp_tools mhf_webview mhf_prx)
 target_compile_definitions(mhf_launcher PRIVATE MHF_VERSION_STRING="${PROJECT_VERSION}")
-set_target_properties(mhf_launcher PROPERTIES OUTPUT_NAME launcher)
+set_target_properties(mhf_launcher PROPERTIES OUTPUT_NAME MHForever) # MHForever.exe on Windows
 if(WIN32)
     set_target_properties(mhf_launcher PROPERTIES WIN32_EXECUTABLE ON)
+    target_sources(mhf_launcher PRIVATE ${MHF_WINDOWS_ICON_RC})
     target_link_libraries(mhf_launcher PRIVATE comdlg32 dwmapi bcrypt)
     if(MINGW OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_link_options(mhf_launcher PRIVATE -mwindows)

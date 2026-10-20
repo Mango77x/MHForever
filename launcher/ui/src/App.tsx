@@ -2,7 +2,8 @@ import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { api, onEvent, type Game, type LauncherEvent, type Settings, type State } from './bridge';
-import { AlertIcon, CheckIcon, ChevronIcon, CloseIcon, CopyIcon, FriendsIcon, HomeIcon, LibraryIcon, LogoMark, SlidersIcon } from './icons';
+import { AlertIcon, CheckIcon, ChevronIcon, CloseIcon, CopyIcon, FriendsIcon, HomeIcon, LibraryIcon, SlidersIcon } from './icons';
+import logoUrl from '../../../assets/branding/icon-128.png';
 import { Home } from './Home';
 import { Library } from './Library';
 import { SettingsPage } from './SettingsPage';
@@ -149,7 +150,7 @@ export default function App() {
         <div className="grain" aria-hidden="true" />
 
         <nav className="rail" aria-label="Main">
-          <div className="logo" role="img" aria-label="MHForever"><LogoMark /></div>
+          <img className="logo" src={logoUrl} alt="MHForever" width={46} height={46} draggable={false} />
           {nav.map((n) => (
             <button
               key={n.id}

@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 project(MHForever VERSION 0.1.0 LANGUAGES CXX)
 
+# Windows executables carry the MHForever icon (a resource file, compiled by the platform resource compiler).
+if(WIN32)
+    enable_language(RC)
+    set(MHF_WINDOWS_ICON_RC ${CMAKE_SOURCE_DIR}/assets/branding/MHForever.rc)
+endif()
+
 # Release programs must run on a clean Windows install: link the C/C++ runtime statically (no VC++ redistributable).
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

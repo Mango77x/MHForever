@@ -21,19 +21,19 @@ What you need
 How to play
 -----------
 1. Unzip this folder anywhere you can write to (not "Program Files").
-2. Open launcher.exe.
+2. Open MHForever.exe.
 3. Add your .iso. The launcher checks your copy and prepares what it needs from it.
    In Settings you can choose to keep a copy of the image in MHForever's own folder.
 4. Press Play.
 
-Your saves are stored in the "memstick" folder next to launcher.exe.
+Your saves are stored in the "memstick" folder next to MHForever.exe.
 Prepared game data is stored in %APPDATA%\MHForever. Removing the game from the
 launcher deletes that data (never your original .iso).
 
 
 Windows may warn you
 --------------------
-launcher.exe and mhfu.exe are not digitally signed. Windows SmartScreen can show
+MHForever.exe and mhfu.exe are not digitally signed. Windows SmartScreen can show
 "Windows protected your PC": choose "More info" and then "Run anyway". The launcher
 also needs the Microsoft Edge WebView2 runtime, which Windows 10/11 normally includes.
 
