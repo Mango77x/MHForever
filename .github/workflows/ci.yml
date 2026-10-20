@@ -56,12 +56,10 @@ jobs:
       - name: Test
         run: ctest --preset ${{ matrix.preset }}
 
-  # AddressSanitizer + UndefinedBehaviorSanitizer over the whole test suite. Informational for now: it reports
-  # but does not block merges until the first runs show the suite is clean (then drop continue-on-error).
+  # AddressSanitizer + UndefinedBehaviorSanitizer over the whole test suite.
   sanitizers:
     needs: content-guard
     runs-on: ubuntu-24.04
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install build dependencies
