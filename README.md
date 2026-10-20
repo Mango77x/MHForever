@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/branding/logo-text.png" alt="MHForever" width="220">
+</p>
+
 # MHForever
 
 [![CI](https://github.com/Mango77x/MHForever/actions/workflows/ci.yml/badge.svg)](https://github.com/Mango77x/MHForever/actions/workflows/ci.yml)
