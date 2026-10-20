@@ -146,7 +146,7 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
         <div className="srow">
           <div className="slabel">
             <b>MHForever {state.version}</b>
-            <span>Free software (GPL-3.0 or later). It contains no game content: it runs the copy you own.</span>
+            <span>Free software (GPL-3.0 or later). It contains none of the game's assets: it runs the copy you own.</span>
           </div>
         </div>
       </motion.div>
