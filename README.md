@@ -6,8 +6,8 @@ Play **Monster Hunter Freedom Unite** natively on your PC: no emulator, any cont
 up from your own disc image.
 
 > Not affiliated with, endorsed by or sponsored by Capcom or Sony. Requires your own legitimate copy of the game.
-> No game content is included or downloaded. "Monster Hunter" is a trademark of its owner and is used here only to
-> describe which games the project works with.
+> No game assets are included or downloaded: no disc image, textures, models, audio, text or saves. "Monster Hunter" is
+> a trademark of its owner and is used here only to describe which games the project works with.
 
 ## Where the project is today
 
@@ -32,7 +32,8 @@ It is early software: the game boots and can be played, but expect rough edges a
    of your image in its own folder.
 4. Press **Play**.
 
-Nothing from the game is ever included in MHForever or sent anywhere: everything is read from the image you provide.
+The game's assets (graphics, audio, text, data) are never included in MHForever or sent anywhere: they are read from the
+image you provide.
 Your saves live next to the launcher. Any controller recognized by SDL should work (tested with a PS5 DualSense); there are keyboard defaults too.
 
 **Keyboard:** arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle, Q/E = L/R, Enter = Start,

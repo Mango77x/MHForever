@@ -4,7 +4,8 @@ An unofficial Monster Hunter recompilation project
 
 MHForever lets you play Monster Hunter Freedom Unite (PSP) natively on your PC.
 It is NOT affiliated with, endorsed by or sponsored by Capcom or Sony.
-It contains no game content: you need your own copy of the game.
+It contains none of the game's assets (no disc image, graphics, audio or text): you need your own copy
+of the game.
 
 
 What you need
@@ -48,6 +49,3 @@ Source code and licenses
 MHForever is free software, GPL-3.0-or-later: see LICENSE.
 Source code of MHForever and bug reports: https://github.com/Mango77x/MHForever
 Third-party components and their licenses: THIRD_PARTY.md and the licenses folder.
-Note: mhfu.exe contains the game's program translated to native code from the game's own
-executable. That translated code is produced from game data and cannot be published;
-everything else in the project (the recompiler, runtime and launcher) is in the repository.
