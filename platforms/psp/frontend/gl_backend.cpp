@@ -16,6 +16,9 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <optional>
+#include <set>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -324,6 +327,18 @@ struct DrawSetup {
     bool self_sampled{};    // the texture is a copy of the target being drawn: it cannot be replayed later
 };
 
+// One batch of primitives as it was drawn, kept to draw it again between two flips (frame interpolation).
+struct TapeEntry {
+    DrawSetup setup;
+    std::vector<GpuVertex> vertices;
+};
+
+// A copy of a finished picture (the last two are kept).
+struct Slot {
+    GLuint texture{}, fbo{};
+    GLsizei width{}, height{};
+};
+
 std::uint8_t to_byte(float v) { return static_cast<std::uint8_t>(std::clamp(v, 0.0f, 255.0f) + 0.5f); }
 
 // ---------------------------------------------------------------- the backend
@@ -331,9 +346,9 @@ std::uint8_t to_byte(float v) { return static_cast<std::uint8_t>(std::clamp(v, 0
 class GlBackend final : public gpu::Backend {
 public:
     GlBackend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory, bool smooth_textures,
-              OverlayImage *overlay)
+              OverlayImage *overlay, bool interpolate)
         : window_(window), scale_(std::max(1, scale)), memory_(memory), smooth_textures_(smooth_textures),
-          overlay_(overlay) {}
+          overlay_(overlay), interpolate_(interpolate) {}
 
     ~GlBackend() override {
         if (context_ != nullptr) SDL_GL_DestroyContext(context_);
@@ -371,6 +386,17 @@ public:
     void flush() override;
 
     void present(std::uint32_t address, std::uint32_t stride, std::uint32_t pixel_format) override;
+
+    [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> next_wakeup() const override {
+        if (deferred_) return deferred_->due;
+        return std::nullopt;
+    }
+    void tick() override {
+        if (!deferred_) return;
+        const Deferred d = *deferred_;
+        deferred_.reset();
+        show(d.texture, d.uv_max[0], d.uv_max[1]);
+    }
 
 private:
     struct RenderTarget {
@@ -421,6 +447,12 @@ private:
 
     void apply_state(const gpu::Ge &ge);
     void emit_state(const DrawSetup &setup, RenderTarget &rt);
+    void draw_vertices(const std::vector<GpuVertex> &vertices);
+    void show(GLuint texture, float uv_max_x, float uv_max_y);
+    void finish_flip();
+    bool present_interpolated(RenderTarget &shown, const float uv_max[2]);
+    void ensure_slot(Slot &slot, GLsizei w, GLsizei h);
+    void render_midpoint(const RenderTarget &shown, const std::vector<TapeEntry> &now);
     void draw_batch();
     void read_back();
     RenderTarget &target_for(std::uint32_t address, std::uint32_t stride, std::uint32_t format,
@@ -468,6 +500,29 @@ private:
 
     DrawKey state_key_{};
     DrawSetup setup_{}; // of the batch being collected
+
+    // Frame interpolation (enhancement, off by default). The game flips at 30 fps; for each flip we show a picture
+    // halfway between the previous flip and this one, then the flip itself half a frame later. The halfway picture
+    // is the batches of this flip drawn again with every triangle moved back toward where it was in the last one.
+    bool interpolate_ = false;
+    std::vector<TapeEntry> tape_;           // batches since the last flip
+    std::vector<TapeEntry> previous_;       // the last flip's batches that drew to the picture it showed
+    std::set<std::uint32_t> touched_;       // render targets written by something other than batches (copies)
+    bool previous_valid_ = false;
+    Slot slots_[2];
+    int fill_slot_ = 0;
+    RenderTarget scratch_;                  // where the halfway picture is drawn
+    struct Deferred {
+        GLuint texture{};
+        float uv_max[2]{1, 1};
+        std::chrono::steady_clock::time_point due;
+    };
+    std::optional<Deferred> deferred_;
+    std::chrono::steady_clock::time_point last_flip_{};
+    std::uint64_t shown_{1};                // pictures put on screen
+    struct {
+        std::uint64_t interpolated{}, skipped_shape{}, skipped_copy{}, skipped_timing{}, skipped_first{};
+    } stats_;
     bool have_state_{};
     bool through_{};
     float tex_width_{1}, tex_height_{1};
@@ -941,11 +996,22 @@ void GlBackend::read_back() {
 
 void GlBackend::draw_batch() {
     if (batch_.empty()) return;
-    gl_.BindBuffer(GL_ARRAY_BUFFER, vbo_);
-    gl_.BufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(batch_.size() * sizeof(GpuVertex)), batch_.data(),
-                   GL_STREAM_DRAW);
-    gl_.DrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(batch_.size()));
+    if (interpolate_) {
+        if (tape_.size() >= 20000) { // a game that never flips: do not keep everything
+            tape_.clear();
+            touched_.insert(~0u);
+        }
+        tape_.push_back({setup_, batch_});
+    }
+    draw_vertices(batch_);
     batch_.clear();
+}
+
+void GlBackend::draw_vertices(const std::vector<GpuVertex> &vertices) {
+    gl_.BindBuffer(GL_ARRAY_BUFFER, vbo_);
+    gl_.BufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices.size() * sizeof(GpuVertex)), vertices.data(),
+                   GL_STREAM_DRAW);
+    gl_.DrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size()));
 }
 
 // ---------------------------------------------------------------- transfers and presentation
@@ -989,6 +1055,7 @@ void GlBackend::block_transfer(std::uint32_t src, std::uint32_t /*src_stride: th
         const std::uint32_t fx = src_offset % from->stride + sx, fy = src_offset / from->stride + sy;
         RenderTarget &to = target_for(dst & 0x001FFFF0u, dst_stride, format, dy + height);
         to.last_draw = frame_;
+        touched_.insert(to.address);
         gl_.BindFramebuffer(GL_READ_FRAMEBUFFER, from->fbo);
         gl_.BindFramebuffer(GL_DRAW_FRAMEBUFFER, to.fbo);
         gl_.Disable(GL_SCISSOR_TEST);
@@ -1017,6 +1084,7 @@ void GlBackend::block_transfer(std::uint32_t src, std::uint32_t /*src_stride: th
     }
     // CPU-made pixels copied into a framebuffer the GE draws to: bring them into the render target.
     if (RenderTarget *to = find_target(dst & 0x001FFFFFu, true)) {
+        touched_.insert(to->address);
         const std::uint32_t offset = ((dst & 0x001FFFFFu) - to->address) / to->bytes_per_pixel();
         upload_rect(*to, offset % to->stride + dx, offset / to->stride + dy, width, height);
     }
@@ -1025,13 +1093,16 @@ void GlBackend::block_transfer(std::uint32_t src, std::uint32_t /*src_stride: th
 void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32_t pixel_format) {
     draw_batch();
     have_state_ = false;
+    tick(); // the second picture of the previous flip, if it is still waiting
     const std::uint32_t offset = address & 0x001FFFFFu;
     GLuint texture = 0;
     float uv_max[2] = {1, 1};
+    RenderTarget *drawn = nullptr;
     const auto it = targets_.find(offset);
     // A target the GE drew since the last flip (or the one before) shows what the game rendered; otherwise the CPU
     // made this screen (movies, loading screens), so show guest memory.
     if (it != targets_.end() && it->second.last_draw + 1 >= frame_) {
+        drawn = &it->second;
         texture = it->second.color;
         uv_max[0] = 480.0f / static_cast<float>(it->second.width);
         uv_max[1] = 272.0f / static_cast<float>(it->second.height);
@@ -1050,6 +1121,17 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
         texture = display_texture_;
     }
 
+    if (interpolate_) {
+        if (drawn == nullptr || !present_interpolated(*drawn, uv_max)) show(texture, uv_max[0], uv_max[1]);
+        if (drawn == nullptr) previous_valid_ = false;
+    } else {
+        show(texture, uv_max[0], uv_max[1]);
+    }
+    finish_flip();
+}
+
+// Puts a picture on the window: letterboxed to the PSP's 480:272, with the dialog overlay on top.
+void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
     int window_w = 0, window_h = 0;
     SDL_GetWindowSizeInPixels(window_, &window_w, &window_h);
     gl_.BindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1059,7 +1141,6 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
     gl_.ClearColor(0, 0, 0, 1);
     gl_.Clear(GL_COLOR_BUFFER_BIT);
     if (texture != 0 && window_w > 0 && window_h > 0) {
-        // Letterbox to the PSP's 480:272.
         int w = window_w, h = window_w * 272 / 480;
         if (h > window_h) {
             h = window_h;
@@ -1070,7 +1151,7 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
         gl_.Disable(GL_BLEND);
         gl_.UseProgram(present_program_);
         gl_.Uniform1i(present_tex_, 0);
-        gl_.Uniform2f(present_uv_max_, uv_max[0], uv_max[1]);
+        gl_.Uniform2f(present_uv_max_, uv_max_x, uv_max_y);
         gl_.ActiveTexture(GL_TEXTURE0);
         gl_.BindTexture(GL_TEXTURE_2D, texture);
         set_texture_params(true, true, true);
@@ -1088,7 +1169,13 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
     }
     dump_window(window_w, window_h);
     SDL_GL_SwapWindow(window_);
+    ++shown_;
+}
+
+void GlBackend::finish_flip() {
     ++frame_;
+    tape_.clear();
+    touched_.clear();
 
     // Forget textures not used for a while.
     if ((frame_ & 255u) == 0) {
@@ -1101,6 +1188,168 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
             }
         }
     }
+}
+
+void GlBackend::ensure_slot(Slot &slot, GLsizei w, GLsizei h) {
+    if (slot.fbo != 0 && slot.width == w && slot.height == h) return;
+    if (slot.fbo != 0) {
+        gl_.DeleteFramebuffers(1, &slot.fbo);
+        gl_.DeleteTextures(1, &slot.texture);
+    }
+    gl_.GenTextures(1, &slot.texture);
+    gl_.BindTexture(GL_TEXTURE_2D, slot.texture);
+    gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    set_texture_params(true, true, true);
+    gl_.GenFramebuffers(1, &slot.fbo);
+    gl_.BindFramebuffer(GL_FRAMEBUFFER, slot.fbo);
+    gl_.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, slot.texture, 0);
+    slot.width = w;
+    slot.height = h;
+    previous_valid_ = false; // the older picture, if it was this slot, is gone
+}
+
+namespace {
+
+// How far (PSP pixels) a vertex may move between two flips and still be taken as the same point: beyond that it is
+// a cut, an object appearing, or a different thing drawn in the same place.
+constexpr float kMaxMove = 96.0f;
+
+bool clearing(const DrawSetup &s) { return (key_reg(s.key, kClearMode) & 1u) != 0; }
+
+bool same_shape(const TapeEntry &a, const TapeEntry &b) {
+    return a.vertices.size() == b.vertices.size() && a.setup.through == b.setup.through &&
+           clearing(a.setup) == clearing(b.setup) && (a.setup.texture != 0) == (b.setup.texture != 0);
+}
+
+// `out` holds this flip's vertices; moves each triangle back toward `before` by (1 - t) when every one of its
+// vertices moved a believable distance.
+std::size_t blend_vertices(const std::vector<GpuVertex> &before, std::vector<GpuVertex> &out, float t) {
+    std::size_t moved = 0;
+    for (std::size_t i = 0; i + 2 < out.size(); i += 3) {
+        bool ok = true;
+        for (std::size_t k = 0; k < 3; ++k) {
+            ok = ok && std::fabs(out[i + k].x - before[i + k].x) <= kMaxMove &&
+                 std::fabs(out[i + k].y - before[i + k].y) <= kMaxMove;
+        }
+        if (!ok) continue;
+        for (std::size_t k = 0; k < 3; ++k) {
+            out[i + k].x = before[i + k].x + (out[i + k].x - before[i + k].x) * t;
+            out[i + k].y = before[i + k].y + (out[i + k].y - before[i + k].y) * t;
+        }
+        ++moved;
+    }
+    return moved;
+}
+
+} // namespace
+
+void GlBackend::render_midpoint(const RenderTarget &shown, const std::vector<TapeEntry> &now) {
+    const GLsizei w = static_cast<GLsizei>(shown.width) * scale_, h = static_cast<GLsizei>(shown.height) * scale_;
+    const Slot &before_slot = slots_[1 - fill_slot_];
+    if (scratch_.fbo == 0 || scratch_.width != shown.width || scratch_.height != shown.height) {
+        if (scratch_.fbo != 0) {
+            gl_.DeleteFramebuffers(1, &scratch_.fbo);
+            gl_.DeleteTextures(1, &scratch_.color);
+            gl_.DeleteRenderbuffers(1, &scratch_.depth);
+        }
+        scratch_ = RenderTarget{};
+        scratch_.address = shown.address;
+        scratch_.stride = shown.stride;
+        scratch_.width = shown.width;
+        scratch_.format = shown.format;
+        allocate(scratch_, shown.height);
+    }
+    // Start from the previous picture, with a fresh depth buffer.
+    gl_.BindFramebuffer(GL_READ_FRAMEBUFFER, before_slot.fbo);
+    gl_.BindFramebuffer(GL_DRAW_FRAMEBUFFER, scratch_.fbo);
+    gl_.Disable(GL_SCISSOR_TEST);
+    gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    gl_.BlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    gl_.DepthMask(GL_TRUE);
+    gl_.Clear(GL_DEPTH_BUFFER_BIT);
+
+    std::size_t before = 0;
+    std::vector<GpuVertex> vertices;
+    for (const TapeEntry &entry : now) {
+        vertices = entry.vertices;
+        // Pair it with the same batch of the previous flip (allowing a few extra batches in between).
+        for (std::size_t look = 0; look < 4 && before + look < previous_.size(); ++look) {
+            const TapeEntry &candidate = previous_[before + look];
+            if (same_shape(entry, candidate)) {
+                if (!clearing(entry.setup)) blend_vertices(candidate.vertices, vertices, 0.5f);
+                before += look + 1;
+                break;
+            }
+        }
+        emit_state(entry.setup, scratch_);
+        draw_vertices(vertices);
+    }
+}
+
+// Shows the halfway picture now and schedules the flip's own picture half a frame later. Returns false (nothing
+// shown) when this flip cannot be interpolated; the caller then shows it as usual. Either way the picture is kept
+// for the next flip.
+bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2]) {
+    const auto now = std::chrono::steady_clock::now();
+    const auto interval = now - last_flip_;
+    last_flip_ = now;
+
+    const GLsizei w = static_cast<GLsizei>(shown.width) * scale_, h = static_cast<GLsizei>(shown.height) * scale_;
+    ensure_slot(slots_[0], w, h);
+    ensure_slot(slots_[1], w, h);
+
+    // The batches that drew to the picture being shown, and whether anything else wrote to it.
+    std::vector<TapeEntry> mine;
+    bool self_sampled = false;
+    for (TapeEntry &e : tape_) {
+        if (e.setup.target != shown.address) continue;
+        self_sampled = self_sampled || e.setup.self_sampled;
+        mine.push_back(std::move(e));
+    }
+    const bool copied = touched_.count(shown.address) != 0 || touched_.count(~0u) != 0;
+
+    // Keep this picture for the next flip.
+    gl_.BindFramebuffer(GL_READ_FRAMEBUFFER, shown.fbo);
+    gl_.BindFramebuffer(GL_DRAW_FRAMEBUFFER, slots_[fill_slot_].fbo);
+    gl_.Disable(GL_SCISSOR_TEST);
+    gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    gl_.BlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+    const auto ms = std::chrono::duration<double, std::milli>(interval).count();
+    bool done = false;
+    if (!previous_valid_) {
+        ++stats_.skipped_first;
+    } else if (copied || self_sampled) {
+        ++stats_.skipped_copy;
+    } else if (ms < 22.0 || ms > 150.0) {
+        ++stats_.skipped_timing; // already fast, or a stall: nothing to fill in
+    } else if (mine.empty() || previous_.empty()) {
+        ++stats_.skipped_shape;
+    } else {
+        render_midpoint(shown, mine);
+        show(scratch_.color, uv_max[0], uv_max[1]);
+        Deferred d;
+        d.texture = slots_[fill_slot_].texture;
+        d.uv_max[0] = uv_max[0];
+        d.uv_max[1] = uv_max[1];
+        d.due = now + std::chrono::microseconds(static_cast<long long>(std::clamp(ms, 22.0, 150.0) * 500.0));
+        deferred_ = d;
+        ++stats_.interpolated;
+        done = true;
+    }
+    previous_ = std::move(mine);
+    previous_valid_ = !copied && !self_sampled && !previous_.empty();
+    fill_slot_ = 1 - fill_slot_;
+
+    static const bool log = std::getenv("MHF_INTERP_LOG") != nullptr;
+    if (log && (stats_.interpolated + stats_.skipped_shape + stats_.skipped_copy + stats_.skipped_timing +
+                stats_.skipped_first) % 120 == 0) {
+        std::fprintf(stderr, "[interp] interpolated %llu, skipped: first %llu, copy %llu, timing %llu, shape %llu\n",
+                     static_cast<unsigned long long>(stats_.interpolated), static_cast<unsigned long long>(stats_.skipped_first),
+                     static_cast<unsigned long long>(stats_.skipped_copy), static_cast<unsigned long long>(stats_.skipped_timing),
+                     static_cast<unsigned long long>(stats_.skipped_shape));
+    }
+    return done;
 }
 
 void GlBackend::draw_overlay() {
@@ -1148,12 +1397,12 @@ void GlBackend::dump_window(int w, int h) {
         const char *v = std::getenv("MHF_GL_DUMP_FROM"); // first presented frame to dump
         return v != nullptr ? std::strtoul(v, nullptr, 10) : 0ul;
     }();
-    if (folder == nullptr || w <= 0 || h <= 0 || frame_ < from || frame_ % every != 0) return;
+    if (folder == nullptr || w <= 0 || h <= 0 || shown_ < from || shown_ % every != 0) return;
     std::vector<std::uint8_t> rgb(static_cast<std::size_t>(w) * h * 3u);
     gl_.PixelStorei(GL_PACK_ALIGNMENT, 1);
     gl_.ReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, rgb.data());
     char path[1024];
-    std::snprintf(path, sizeof path, "%s/gl_%06llu.ppm", folder, static_cast<unsigned long long>(frame_));
+    std::snprintf(path, sizeof path, "%s/gl_%06llu.ppm", folder, static_cast<unsigned long long>(shown_));
     if (std::FILE *f = std::fopen(path, "wb")) {
         std::fprintf(f, "P6\n%d %d\n255\n", w, h);
         for (int y = h - 1; y >= 0; --y) std::fwrite(rgb.data() + static_cast<std::size_t>(y) * w * 3u, 1, static_cast<std::size_t>(w) * 3u, f);
@@ -1164,8 +1413,9 @@ void GlBackend::dump_window(int w, int h) {
 } // namespace
 
 std::unique_ptr<gpu::Backend> make_gl_backend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory,
-                                              bool smooth_textures, OverlayImage *overlay) {
-    auto backend = std::make_unique<GlBackend>(window, scale, memory, smooth_textures, overlay);
+                                              bool smooth_textures, OverlayImage *overlay, bool interpolate) {
+    if (const char *v = std::getenv("MHF_INTERPOLATE")) interpolate = v[0] == '1'; // testing aid
+    auto backend = std::make_unique<GlBackend>(window, scale, memory, smooth_textures, overlay, interpolate);
     if (!backend->init()) return nullptr;
     return backend;
 }

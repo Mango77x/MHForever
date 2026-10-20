@@ -53,3 +53,15 @@ if(TARGET mhf_psp_frontend)
     set_tests_properties(homebrew_getest_opengl PROPERTIES PASS_REGULAR_EXPRESSION "getest: [0-9]+ passed, 0 failed"
                          TIMEOUT 60 LABELS opengl ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen;MHF_GL_READBACK=1")
 endif()
+
+# Frame interpolation (docs/05-runtime-hle.md): motiontest with it on, pictures checked for even motion.
+if(TARGET mhf_psp_frontend)
+    set(work ${CMAKE_CURRENT_BINARY_DIR}/motiontest_psp)
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME homebrew_motiontest_interpolation
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_interpolation.py
+                         $<TARGET_FILE:hb_motiontest> ${work}/motiontest.elf ${work}/memstick)
+        set_tests_properties(homebrew_motiontest_interpolation PROPERTIES TIMEOUT 120 LABELS opengl)
+    endif()
+endif()

@@ -7,7 +7,9 @@
 // primitives go to the backend instead of the software rasterizer; the backend reads the rest of the draw state
 // (textures, blending, tests, framebuffer) from the GE registers through the Ge it is given.
 
+#include <chrono>
 #include <cstdint>
+#include <optional>
 
 namespace mhf::psp::gpu {
 
@@ -31,6 +33,11 @@ public:
     virtual void flush() = 0;
     // The game asked to show the framebuffer at `address` (VRAM, as given to sceDisplaySetFrameBuf).
     virtual void present(std::uint32_t address, std::uint32_t stride, std::uint32_t pixel_format) = 0;
+
+    // For backends that show more than one picture per flip (frame interpolation): when `tick` should be called next
+    // (on the steady clock), or nothing. Called on the thread that owns the backend, between display lists.
+    [[nodiscard]] virtual std::optional<std::chrono::steady_clock::time_point> next_wakeup() const { return std::nullopt; }
+    virtual void tick() {}
 };
 
 } // namespace mhf::psp::gpu
