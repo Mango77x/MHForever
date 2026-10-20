@@ -69,10 +69,8 @@ button { -webkit-tap-highlight-color: transparent; }
   background: rgba(10, 10, 12, 0.45); backdrop-filter: blur(20px);
 }
 .logo {
-  width: 46px; height: 46px; border-radius: 15px; margin-bottom: 18px;
-  display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(145deg, var(--accent), #c95a3c);
-  box-shadow: 0 10px 30px -10px var(--accent);
+  width: 46px; height: 46px; border-radius: 15px; margin-bottom: 18px; display: block;
+  box-shadow: 0 10px 30px -12px var(--accent);
 }
 .rail-btn {
   position: relative; width: 52px; height: 52px; border-radius: 16px; border: 0; background: transparent;
