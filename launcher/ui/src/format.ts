@@ -24,4 +24,5 @@ export function lastPlayed(unix: number | null): string {
   return new Date(unix * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+export const frameRates = [30, 60, 90, 120, 150, 180];
 export const resolutions = ['480 × 272', '960 × 544', '1440 × 816', '1920 × 1088'];

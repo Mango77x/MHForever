@@ -62,6 +62,7 @@ Json default_settings() {
     s["scale"] = 4;
     s["fullscreen"] = false;
     s["smoothTextures"] = false;
+    s["fps"] = 30; // output rate: the game's own 30, or a multiple of it up to 180 (in-between pictures)
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
     s["musicVolume"] = 100;
     s["sfxVolume"] = 100;
@@ -245,6 +246,9 @@ void Launcher::set_settings(const Json &partial) {
         if (partial[key].is_number()) s[key] = std::clamp(std::round(partial[key].as_number()), lo, hi);
     };
     num("scale", 1, 4);
+    if (partial["fps"].is_number()) { // whole multiples of the game's 30 fps, 30..180
+        s["fps"] = std::clamp(std::round(partial["fps"].as_number() / 30.0), 1.0, 6.0) * 30.0;
+    }
     num("musicVolume", 0, 100);
     num("sfxVolume", 0, 100);
     for (const char *key : {"fullscreen", "smoothTextures", "copyImage"}) {
@@ -437,6 +441,10 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
                  data_["pseudonym"].as_string(), "--music-volume", num("musicVolume"), "--sfx-volume", num("sfxVolume")};
     if (s["fullscreen"].as_bool()) plan.args.push_back("--fullscreen");
     if (s["smoothTextures"].as_bool()) plan.args.push_back("--smooth-textures");
+    if (s["fps"].as_number() > 30) {
+        plan.args.push_back("--fps");
+        plan.args.push_back(num("fps"));
+    }
     fs::create_directories(base_ / "memstick", ec);
     return plan;
 }
