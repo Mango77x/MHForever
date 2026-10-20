@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="assets/branding/logo-text.png" alt="MHForever" width="220">
-</p>
-
-# MHForever
+<h1 align="center">
+  <img src="assets/branding/banner.png" alt="MHForever" width="720">
+</h1>
 
 [![CI](https://github.com/Mango77x/MHForever/actions/workflows/ci.yml/badge.svg)](https://github.com/Mango77x/MHForever/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Mango77x/MHForever)](https://github.com/Mango77x/MHForever/releases)
