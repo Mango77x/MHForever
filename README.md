@@ -1,5 +1,9 @@
 # MHForever
 
+[![CI](https://github.com/Mango77x/MHForever/actions/workflows/ci.yml/badge.svg)](https://github.com/Mango77x/MHForever/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Mango77x/MHForever)](https://github.com/Mango77x/MHForever/releases)
+[![License: GPL-3.0-or-later](https://img.shields.io/github/license/Mango77x/MHForever)](LICENSE)
+
 **An unofficial Monster Hunter recompilation project.**
 
 Play **Monster Hunter Freedom Unite** natively on your PC: no emulator, any controller, a launcher that sets everything
@@ -20,13 +24,13 @@ up from your own disc image.
 | **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard defaults included. |
 | **Resolution** | Up to several times the original 480x272, with an optional smoother texture filter. |
 | **Other games and regions** | The US and Japanese releases of Freedom Unite, and other games of the series, are planned. |
-| **First public release** | In preparation. Watch the [Releases](../../releases) page. |
+| **Latest release** | **0.1.0** (2026-10-19). See the [Releases](../../releases) page. |
 
 It is early software: the game boots and can be played, but expect rough edges and bugs. Reports are welcome.
 
 ## How it works for a player
 
-1. Download MHForever from the Releases page (when the first release is out) and unzip it anywhere.
+1. Download MHForever from the [Releases](../../releases) page and unzip it anywhere.
 2. Open `launcher.exe` and add **your own** `.iso` of Freedom Unite (a plain, uncompressed image of your UMD).
 3. The launcher checks your copy and prepares everything it needs from it on your PC. You can also let it keep a copy
    of your image in its own folder.
