@@ -133,24 +133,7 @@ std::optional<fs::path> host_path(Runtime &rt, const std::string &psp_path) {
     else if (device == "disc0" || device == "umd0" || device == "umd1") root = o.disc_root;
     else if (device == "host0") root = o.host_root;
     else return std::nullopt;
-    // Normalize without leaving the root.
-    std::vector<std::string> parts;
-    std::size_t start = 0;
-    while (start <= rest.size()) {
-        const auto slash = rest.find_first_of("/\\", start);
-        const std::string part = rest.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
-        if (part == "..") {
-            if (parts.empty()) return std::nullopt;
-            parts.pop_back();
-        } else if (!part.empty() && part != ".") {
-            parts.push_back(part);
-        }
-        if (slash == std::string::npos) break;
-        start = slash + 1;
-    }
-    fs::path result = root;
-    for (const auto &p : parts) result /= p;
-    return result;
+    return hle::resolve_under_root(root, rest);
 }
 
 int allocate_fd(IoState &s) {
@@ -700,6 +683,28 @@ const HleFunction kFunctions[] = {
 };
 
 } // namespace
+
+std::optional<fs::path> resolve_under_root(const fs::path &root, const std::string &rest) {
+    std::vector<std::string> parts;
+    std::size_t start = 0;
+    while (start <= rest.size()) {
+        const auto slash = rest.find_first_of("/\\", start);
+        const std::string part = rest.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+        if (part == "..") {
+            if (parts.empty()) return std::nullopt;
+            parts.pop_back();
+        } else if (!part.empty() && part != ".") {
+            // `path /= "C:"` would replace the whole path on Windows, and "a:b" names an NTFS stream.
+            if (part.find_first_of(":*?\"<>|") != std::string::npos) return std::nullopt;
+            parts.push_back(part);
+        }
+        if (slash == std::string::npos) break;
+        start = slash + 1;
+    }
+    fs::path result = root;
+    for (const auto &p : parts) result /= p;
+    return result;
+}
 
 std::span<const HleFunction> io_functions() { return kFunctions; }
 

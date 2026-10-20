@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <optional>
 #include <vector>
+#include <filesystem>
 #include <span>
 #include <string>
 
@@ -24,6 +25,12 @@ inline void ret64(Context &ctx, std::uint64_t value) {
 }
 
 [[nodiscard]] std::string read_string(Runtime &rt, std::uint32_t address, std::size_t max_length = 256);
+
+// Joins the part of a PSP path after "device:" onto `root`. Nothing is returned when the path would leave the root
+// (".." above it) or contains a component the host could read as something else than a plain name: a ':' (a Windows
+// drive such as "C:", or an NTFS stream) or a character Windows forbids in file names.
+[[nodiscard]] std::optional<std::filesystem::path> resolve_under_root(const std::filesystem::path &root,
+                                                                       const std::string &rest);
 
 // Sets the current directory used for relative PSP paths (IoFileMgr).
 void set_working_directory(Runtime &rt, const std::string &psp_path);
