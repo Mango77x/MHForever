@@ -36,9 +36,15 @@ jobs:
             libasound2-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev
       - name: Install pspdev toolchain for our homebrew tests (Linux)
         if: runner.os == 'Linux'
+        env:
+          PSPDEV_RELEASE: v20261001
+          PSPDEV_SHA256: a86efe624e770005290919617859e9df24bd8fcd3e364f4587f23ec7364b0acd
         run: |
-          curl -sSL https://github.com/pspdev/pspdev/releases/latest/download/pspdev-ubuntu-latest-x86_64.tar.gz \
-            | sudo tar xz -C /opt
+          curl -sSfL -o pspdev.tar.gz \
+            "https://github.com/pspdev/pspdev/releases/download/${PSPDEV_RELEASE}/pspdev-ubuntu-latest-x86_64.tar.gz"
+          echo "${PSPDEV_SHA256}  pspdev.tar.gz" | sha256sum --check -
+          sudo tar xzf pspdev.tar.gz -C /opt
+          rm pspdev.tar.gz
           echo "PSPDEV=/opt/pspdev" >> "$GITHUB_ENV"
       - name: Set up MSVC environment (Windows)
         if: runner.os == 'Windows'
