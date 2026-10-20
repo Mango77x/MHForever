@@ -6,9 +6,9 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 - [x] Repository skeleton: `core/`, `platforms/psp/`, `games/mhfu/` (region metadata), `tests/`, `LICENSE` (GPL-3.0-or-later), `.gitignore`,
       `.gitattributes`, `THIRD_PARTY.md`, PSPRecomp vendored in `third_party/psprecomp/` (2026-10-16).
-- [x] Root CMake with presets `linux-clang`, `windows-clang`, `windows-msvc`; builds and passes tests on Linux (2026-10-16).
-      Windows build not yet verified locally.
-- [x] GitHub Actions CI (content guard + build/test on Ubuntu and Windows) written; first run pending until the repo is on GitHub.
+- [x] Root CMake with presets `linux-clang`, `windows-clang`, `windows-msvc`; builds and passes tests on Linux (2026-10-16)
+      and on Windows (CI and the release build, 2026-10-19).
+- [x] GitHub Actions CI (content guard + build/test on Ubuntu and Windows) green on `main` since 2026-10-19.
 - [x] Content guard `scripts/check_repo_content.py` (paths, `~PSP`/PSF/ISO/PSMF signatures, MIPS ELF, size) + `.githooks/pre-commit`
       (enable with `git config core.hooksPath .githooks`) (2026-10-16).
 - [x] pspdev toolchain in CI (Linux job) to build our own `homebrew/` (2026-10-16).
@@ -26,7 +26,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Runtime `mhf_psp_runtime`: guest memory, fibers + scheduler, threads, semaphores, event flags, lwmutex, SysMem,
       IoFileMgr/Stdio over host folders, sceDisplay/sceCtrl (headless), sceRtc, UtilsForUser, scePower, LoadExec.
       `hello` and `threadtest` 17/17 pass natively on Linux (2026-10-16).
-- [ ] `core`: SDL3 window, Vulkan, SDL3 input, audio output.
+- [x] `core`: SDL3 window, input and audio output (`core/host/sdl_host.cpp`, 2026-10-16).
 - [x] GE software renderer covering through mode and 3D (`05` §6); `getest` checks pixels (2026-10-16).
 - [x] Interpreter fallback for code the analysis did not reach (`04` §7), VFPU included; every homebrew test also runs
       fully interpreted (`MHF_INTERPRET_ONLY=1`) (2026-10-16).
@@ -43,7 +43,10 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Overlay loader located in the EU executable (request/finish/prepare, region table, active-slot array); hook point
       `mh_overlay_prepare` recorded in `regions/ULES01213/symbols.toml` (2026-10-16).
 - [ ] Full VFPU in the recompiler + vfputest.
-- [x] GE (software): T&L, vertex formats, swizzled/CLUT/DXT textures, framebuffers in VRAM (2026-10-16). Vulkan backend pending.
+- [x] GE (software): T&L, vertex formats, swizzled/CLUT/DXT textures, framebuffers in VRAM (2026-10-16).
+- [x] GE hardware renderer: OpenGL 3.3 behind the `gpu::Backend` interface, upscaling and render to texture
+      (2026-10-17; known gaps in `05` §6).
+- [ ] Vulkan backend (optional: OpenGL already covers Windows, Linux and the Deck).
 - [x] Developer build of the game: `games/mhfu/tools/prepare.py` + `-DMHF_MHFU_GENERATED=...` → `mhfu` executable that
       reads the ISO directly (2026-10-16).
 - [x] `sceLibFont` over a free font (Liberation Sans + stb_truetype); menu and dialog text render (2026-10-16).
@@ -58,7 +61,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Savedata (`sceUtility`) save/load/list/delete/sizes to plain folders, `homebrew/savetest` (2026-10-16).
 - [x] Our own UI for the save list, message dialog and on-screen keyboard (`05` §5h, 2026-10-18): drawn over the game,
       gamepad and physical keyboard; verified in FU's character creation (name typed, autosave toast).
-- [ ] GE: framebuffer manager (effects), Bézier if used.
+- [ ] GE: stencil, color test, logic ops, CPU reads of framebuffers; Bézier/spline patches if used (gaps in `05` §6).
 - [ ] Overlays: stage and monster overlays dispatch correctly.
 - [ ] Village, shop, Felyne kitchen, one gathering quest and one hunting quest completed.
 - [ ] Performance measured on a modest PC and on Linux.
@@ -73,7 +76,8 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Executable preparation module: the decryption step behind `builtin_decryptor()` (PPSSPP's PRX decrypter, GPL), validated
   byte for byte against `[dev_executable]` with the developer's disc (2026-10-19).
 - [ ] Launcher: language selection, icon, signed updates.
-- [ ] AppImage (Linux) and zip/installer (Windows). Deck testing by friends.
+- [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19).
+- [ ] Windows installer and AppImage (Linux). Deck testing by friends.
 **Acceptance**: a user with no development tools goes from "I have my ISO" to "I'm playing" using only the launcher.
 
 ## Phase 5 — Multiplayer
