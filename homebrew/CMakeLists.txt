@@ -44,6 +44,7 @@ mhf_add_homebrew(getest EXPECT "getest: [0-9]+ passed, 0 failed")
 mhf_add_homebrew(vfputest EXPECT "vfputest: [0-9]+ passed, 0 failed")
 mhf_add_homebrew(savetest EXPECT "savetest: [0-9]+ passed, 0 failed")
 mhf_add_homebrew(fonttest EXPECT "fonttest: [0-9]+ passed, 0 failed")
+mhf_add_homebrew(motiontest EXPECT "motiontest: done")
 
 # The GE test once more through the OpenGL renderer (offscreen, results read back into VRAM), when a frontend exists.
 if(TARGET mhf_psp_frontend)
