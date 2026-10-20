@@ -12,7 +12,7 @@
                    │ Game executable (release binary, no assets)       │
                    │  recompiled code (main EBOOT + overlays)          │
                    │  + platforms/psp/runtime (HLE)                    │
-                   │  + platforms/psp/gpu (GE→Vulkan), audio           │
+                   │  + platforms/psp/gpu (GE→OpenGL), audio           │
                    │  + games/mhfu (profile, patches, enhancements)    │
                    │  + core (input, audio out, net, UI)               │
                    └───────────────────────┬──────────────────────────┘
@@ -27,13 +27,17 @@ Developer machine only (never CI):
 
 Layers, bottom-up:
 
-1. **core/** — console-independent: window and input (SDL3), audio output, Vulkan base, config, logging, network
-   (P2P/relay), debug overlay (Dear ImGui), launcher.
+1. **core/** — console-independent: the SDL3 host (window, input, audio output) and base utilities. Config, logging,
+   network (P2P/relay) and a debug overlay are planned.
 2. **platforms/psp/** — knows the PSP but no specific game:
-   - `tools/`: ISO9660 reader, ELF/PRX loader, function analyzer, Allegrex→C++ recompiler, overlay support.
-   - `runtime/`: memory, CPU context, threads, HLE of system libraries (by NID), overlay manager, fallback interpreter.
-   - `gpu/`: GE→Vulkan.
-   - `audio/`: SAS, ATRAC3+, PCM.
+   - `tools/`: ISO9660 and PARAM.SFO readers.
+   - `recomp/`: function analyzer and Allegrex→C++ emitter (`mhf_recomp`); the ELF loader and MIPS decoder come from
+     `third_party/psprecomp`.
+   - `runtime/`: memory, CPU context, kernel (fibers, threads, semaphores...), HLE of system libraries (by NID), SAS and
+     ATRAC3+ audio, overlay manager, fallback interpreter.
+   - `gpu/`: GE list processing, vertex decoding, T&L and the software renderer, behind a backend interface.
+   - `frontend/`: glue to the SDL3 host, the OpenGL 3.3 backend and the system dialogs drawn over the game.
+   - `hle/`: the NID database (system function names, no Sony code).
 3. **games/mhfu/** — the profile: regions (hashes, symbol maps), recompiler configuration, overlay table, patches, native fast
    paths, optional enhancements, game tests.
 
@@ -43,52 +47,57 @@ Dependency rule: `games → platforms → core`. Never the other way. `core` and
 
 ```
 /
-├─ CONTRIBUTING.md           contribution rules
-├─ README.md
-├─ LICENSE                   (GPL-3.0-or-later)
-├─ THIRD_PARTY.md
+├─ CONTRIBUTING.md  README.md  BUILDING.md  THIRD_PARTY.md  LICENSE (GPL-3.0-or-later)
 ├─ CMakeLists.txt            root; option -DMHF_GAMES="mhfu"
 ├─ CMakePresets.json
-├─ cmake/                    toolchains, helpers
-├─ core/
-│  ├─ app/  input/  audio/  render/  net/  config/  log/  ui/  launcher/
+├─ cmake/                    SDL3 and webview helpers
+├─ core/                     app/ (entry point), base/ (version), host/ (SDL3 window, input, audio)
 ├─ platforms/psp/
-│  ├─ tools/   (isoread, elfload, analyze, recomp, overlays)
-│  ├─ runtime/ (memory, context, kernel, io, ctrl, display, power, rtc, utility, net, overlay manager, ...)
-│  ├─ gpu/     (GE parser, state, Vulkan backend, texture cache, framebuffer manager)
-│  ├─ audio/   (sas, atrac, mpeg/psmf)
-│  └─ data/    (NID database: system function names, no Sony code)
-├─ games/mhfu/
-│  ├─ game.toml               module metadata
-│  ├─ regions/ULES01213/      region.toml, symbols.toml, recomp.toml, overlays.toml, patches/
-│  ├─ regions/ULUS10391/
-│  ├─ regions/ULJM05500/
-│  ├─ host/                   game-specific HLE, fast paths, integration
-│  ├─ enhancements/           widescreen, fps, analog camera (toggleable)
+│  ├─ tools/                 ISO9660 and PARAM.SFO readers
+│  ├─ recomp/                analyzer and Allegrex→C++ emitter (mhf_recomp)
+│  ├─ runtime/               src/ (kernel, HLE libraries, interpreter, fibers), include/mhf/psp/, host/
+│  ├─ gpu/                   GE processing, software renderer, backend interface
+│  ├─ frontend/              SDL3 glue, OpenGL 3.3 backend, system dialogs
+│  ├─ hle/                   NID database (system function names, no Sony code)
 │  └─ tests/
-├─ homebrew/                  our own PSP programs (pspdev) used by tests
-├─ tests/                     core + platform tests
-├─ third_party/
+├─ games/mhfu/
+│  ├─ game.toml              module metadata
+│  ├─ regions/ULES01213/     region.toml, symbols.toml, overlays.toml (ULUS10391 and ULJM05500: region.toml for now)
+│  ├─ host/                  game-specific host (command line, overlay hook, integration)
+│  ├─ tools/                 DATA.BIN reader, overlay extractor, prepare.py
+│  └─ tests/
+├─ launcher/                 native/ (+ install/), ui/ (React), tests/
+├─ homebrew/                 our own PSP programs (pspdev) used by tests
+├─ tests/                    repository-level tests; support/check.hpp
+├─ scripts/                  content guard, NID extraction, release packaging
+├─ dist/                     text shipped with the release
+├─ third_party/              psprecomp, at3_standalone, ppsspp_prx, stb, fonts
 ├─ docs/
-├─ research/                  git-ignored except README.md
-└─ user_data/                 ALWAYS git-ignored: isos/, exe/, overlays/, generated/, build-game/, saves/
+├─ research/                 git-ignored except README.md
+└─ user_data/                ALWAYS git-ignored: isos/, exe/, overlays/, generated/, build-game/, saves/
 ```
+
+Planned and not present yet: `games/mhfu/enhancements/` and per-region `patches/`, a network module in `core/`, and the
+US and JP symbol maps.
 
 ## 3. Player pipeline
 
 1. **Import**: the player picks their ISO.
 2. **Identify**: hash (SHA-1) of the ISO → known region in `games/*/regions/*/region.toml`. Unknown hash: clear message, stop.
-3. **Index**: the ISO9660 reader indexes the files (and an LBA manifest, since PSP games sometimes read by sector).
-4. **Play**: the launcher starts the release binary pointing at the ISO. The runtime serves file reads from it.
+3. **Prepare**: the launcher's installer reads the game's executable from the image, checks it against the region's
+   identification values and prepares it in the per-user data folder (`07-launcher-ux.md` §3b). The image can optionally be
+   copied there too.
+4. **Play**: the launcher starts the release binary pointing at the ISO and the prepared executable. The runtime serves file
+   reads from the ISO (including raw-sector reads, since PSP games sometimes read by sector).
 
-Open point: the executable's initial `.data`/`.rodata` contents are needed at run time. How they reach the runtime is
-still being decided; this repository never contains them.
+The executable's initial `.data`/`.rodata` contents come from that prepared executable; this repository never contains it.
 
 ## 4. Developer pipeline (release preparation, local only)
 
 1. Prepare the input executable from your own copy (outside the repo) → `user_data/exe/`.
 2. Extract overlays from `DATA.BIN` using the game's own loading logic knowledge → `user_data/overlays/` (`04-recompiler.md` §4).
-3. Analyze + recompile with the region's `recomp.toml`, `symbols.toml`, `overlays.toml` → `user_data/generated/`.
+3. Analyze + recompile with the region's `symbols.toml` and the extracted `overlays.toml` → `user_data/generated/`
+   (`games/mhfu/tools/prepare.py` runs steps 2 and 3).
 4. Build with symbols and debug overlay for development, or as a release binary.
 
 Alternatively (model B), steps 1–3 move to the player's machine (requires a bundled toolchain, `07-launcher-ux.md` §4).
@@ -101,12 +110,12 @@ Alternatively (model B), steps 1–3 move to the player's machine (requires a bu
 | Build | CMake ≥ 3.20 + Ninja, presets | Standard; PSPRecomp and N64Recomp use it |
 | Compiler | Clang on both OSes (clang-cl or MSVC on Windows acceptable) | Uniform behavior |
 | Window/input/audio | SDL3 | Controllers, Steam Input, Deck |
-| Rendering | Vulkan 1.2+ | Deck/Linux/Windows (DX12 optional later) |
-| Debug UI | Dear ImGui (MIT) | ACX recomp uses the same |
-| Config | TOML (toml++) | N64Recomp uses TOML |
-| Network | libjuice (MPL-2.0, ICE) or GameNetworkingSockets (BSD-3) | See `08-multiplayer.md` |
+| Rendering | OpenGL 3.3 (implemented); Vulkan 1.2+ possible later | Same code on Windows, Linux and Deck; backend interface keeps Vulkan open |
+| Debug UI | Dear ImGui (MIT), planned | Not used yet; ACX recomp uses the same |
+| Config | TOML, read by a small in-house parser (`mini_toml.hpp`) | N64Recomp uses TOML |
+| Network | libjuice (MPL-2.0, ICE) or GameNetworkingSockets (BSD-3), planned | Phase 5, see `08-multiplayer.md` |
 | MIPS decoding | PSPRecomp decoder (MIT): covers all but 55 words of FU's main `.text` | Measured, `04-recompiler.md` §1 |
-| Tests | doctest or Catch2 + ctest | |
+| Tests | In-house `tests/support/check.hpp` + ctest | Dependency-free |
 | CI | GitHub Actions: Windows + Ubuntu, no game data | |
 
 ## 6. Module configuration (draft format)

@@ -117,10 +117,10 @@ The EU version is probably multilingual (EN/FR/DE/ES/IT) and picks the language 
 
 | Enhancement | Estimated difficulty | Notes |
 |---|---|---|
-| Internal resolution ×N | Low | Renderer |
-| Texture filtering / MSAA | Low | Renderer |
+| Internal resolution ×N | Low | Renderer. Done: `--scale`, launcher setting |
+| Texture filtering / MSAA | Low | Renderer. Bilinear option done (`--smooth-textures`); MSAA not |
 | Widescreen 16:9 / 16:10 (Deck) | Medium | Projection + HUD; HUD may stretch |
-| Right-stick camera | Medium | Level 1: map stick → D-pad (`07`). Level 2: hook the camera function |
+| Right-stick camera | Medium | Level 1 (stick → D-pad, `07`) done. Level 2: hook the camera function |
 | 60 fps | High | Logic is usually tied to framerate; needs timer study. Can break multiplayer sync |
 | Button icons per controller | Medium | Replace button textures at runtime with our own art |
 | Own pause/system menu | Low | |

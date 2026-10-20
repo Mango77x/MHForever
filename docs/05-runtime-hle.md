@@ -198,7 +198,7 @@ mirrors the recompiler's emitter case by case) instead of crashing; each such fu
 `MHF_INTERPRET_ONLY=1` runs everything except HLE stubs in the interpreter: every homebrew test also runs in that mode
 (`homebrew_<name>_interpreted`), which keeps the two execution paths in agreement.
 
-## 6. GE → Vulkan (`platforms/psp/gpu`)
+## 6. GE rendering (`platforms/psp/gpu`, `platforms/psp/frontend`): software reference, OpenGL 3.3; Vulkan later
 
 **Implemented first (2026-10-16)**: a software reference renderer (`platforms/psp/gpu/ge.cpp`) that runs display lists
 synchronously on submission and draws straight into guest VRAM: list control flow (jump/call/return/signal/finish,

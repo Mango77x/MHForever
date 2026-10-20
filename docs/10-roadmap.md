@@ -92,12 +92,13 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 ## Phase 6 — US and JP regions
 
-- [ ] `symbols.toml`, `recomp.toml`, `overlays.toml` for ULUS10391 and ULJM05500; symbol-coverage test.
+- [ ] `symbols.toml` and `overlays.toml` for ULUS10391 and ULJM05500; symbol-coverage test.
 **Acceptance**: all three regions meet phase 3 criteria.
 
 ## Phase 7 — Optional enhancements
 
-Internal resolution, widescreen, analog camera, per-controller icons, 60 fps (research). See `06-mhfu-module.md` §9.
+Done: internal resolution (`--scale`, launcher setting), bilinear texture option, right stick as D-pad camera, fullscreen toggle.
+Pending: widescreen, analog camera hook, per-controller icons, 60 fps (research). See `06-mhfu-module.md` §9.
 
 ## Phase 8 — Next game
 

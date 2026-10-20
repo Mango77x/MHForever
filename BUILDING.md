@@ -1,6 +1,9 @@
 # Building MHForever from source
 
 Requirements: CMake ≥ 3.20, Ninja, Clang (Linux) or Visual Studio 2022 with clang-cl (Windows), Python 3 for repository checks.
+The launcher also needs Node.js/npm to build its UI (pass `-DMHF_BUILD_LAUNCHER=OFF` to skip the launcher). On Linux it needs the
+WebKitGTK 4.1 and GTK 3 development packages, and SDL3 looks for the audio, OpenGL and input ones. The CI installs:
+`ninja-build clang pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev libasound2-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev`.
 
 ```sh
 cmake --preset linux-clang        # or windows-clang / windows-msvc

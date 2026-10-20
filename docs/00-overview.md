@@ -3,7 +3,7 @@
 ## 1. What MHForever is
 
 A **single platform** (one launcher) from which players run classic games of the series **natively on PC**, with any
-controller and with friends over the internet — in the spirit of PokeMMO: the program ships no content and every player
+controller and with friends over the internet — in the spirit of PokeMMO: the program ships no game assets and every player
 provides their own copy.
 
 - **Native** means the game's code is translated *ahead of time* (static recompilation) to C++ and compiled for x86-64/ARM64.
@@ -19,7 +19,7 @@ provides their own copy.
 
 - Not a general PSP emulator (it does not load arbitrary ISOs; only titles with a module).
 - Not a remake or clean-room reimplementation (a possible long-term evolution, see §5).
-- It does not include or download game content.
+- It does not include or download game assets.
 
 ## 3. Why static recompilation (and not manual decompilation)
 
@@ -48,7 +48,7 @@ is used as a **knowledge source** (names, structures), not as the base of the po
 ## 5. Phased vision (summary; details in `10-roadmap.md`)
 
 0. Foundations: repo, CI, legal, name, test homebrew.
-1. Minimal PSP runtime on our own homebrew (window, controller, audio, GE→Vulkan).
+1. Minimal PSP runtime on our own homebrew (window, controller, audio, GE→OpenGL 3.3; Vulkan optional later).
 2. Freedom Unite boots to the main menu (EU first).
 3. Village and first quests playable, saving works.
 4. Launcher and packaging.

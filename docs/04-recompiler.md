@@ -15,7 +15,8 @@ overlay technique. PSPRecomp's code is vendored into `third_party/` or forked in
 
 1. Decrypted ELF (developer-only, from own copy).
 2. Overlay binaries extracted from `DATA.BIN` (developer-only; §4).
-3. `recomp.toml` per region: paths, functions to skip/replace, instruction patches, jump-table hints.
+3. Command-line options of `mhf_recomp` (`--elf`, `--out`, `--name`, `--parts`, `--nids`, `--overlays`, `--symbols`, `--hook`).
+   A per-region `recomp.toml` (functions to skip/replace, instruction patches, jump-table hints) is planned and not needed yet.
 4. `symbols.toml` (optional but improves output and enables hooks).
 5. `overlays.toml`: overlay list, load address, file location inside `DATA.BIN`.
 6. Platform NID database.
