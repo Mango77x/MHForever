@@ -55,3 +55,36 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
       - name: Test
         run: ctest --preset ${{ matrix.preset }}
+
+  # AddressSanitizer + UndefinedBehaviorSanitizer over the whole test suite. Informational for now: it reports
+  # but does not block merges until the first runs show the suite is clean (then drop continue-on-error).
+  sanitizers:
+    needs: content-guard
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang libclang-rt-18-dev pkg-config libwebkit2gtk-4.1-dev \
+            libgtk-3-dev libasound2-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev
+      - name: Install pspdev toolchain for our homebrew tests
+        env:
+          PSPDEV_RELEASE: v20261001
+          PSPDEV_SHA256: a86efe624e770005290919617859e9df24bd8fcd3e364f4587f23ec7364b0acd
+        run: |
+          curl -sSfL -o pspdev.tar.gz \
+            "https://github.com/pspdev/pspdev/releases/download/${PSPDEV_RELEASE}/pspdev-ubuntu-latest-x86_64.tar.gz"
+          echo "${PSPDEV_SHA256}  pspdev.tar.gz" | sha256sum --check -
+          sudo tar xzf pspdev.tar.gz -C /opt
+          rm pspdev.tar.gz
+          echo "PSPDEV=/opt/pspdev" >> "$GITHUB_ENV"
+      - name: Configure
+        run: cmake --preset linux-clang-asan
+      - name: Build
+        run: cmake --build --preset linux-clang-asan
+      - name: Test
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: ctest --preset linux-clang-asan

@@ -21,6 +21,15 @@
       }
     },
     {
+      "name": "linux-clang-asan",
+      "inherits": "linux-clang",
+      "displayName": "Linux (Clang, ASan + UBSan)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MHF_SANITIZE": "ON"
+      }
+    },
+    {
       "name": "windows-clang",
       "inherits": "base",
       "displayName": "Windows (clang-cl)",
@@ -45,11 +54,13 @@
   ],
   "buildPresets": [
     { "name": "linux-clang", "configurePreset": "linux-clang" },
+    { "name": "linux-clang-asan", "configurePreset": "linux-clang-asan" },
     { "name": "windows-clang", "configurePreset": "windows-clang" },
     { "name": "windows-msvc", "configurePreset": "windows-msvc" }
   ],
   "testPresets": [
     { "name": "linux-clang", "configurePreset": "linux-clang", "output": { "outputOnFailure": true } },
+    { "name": "linux-clang-asan", "configurePreset": "linux-clang-asan", "output": { "outputOnFailure": true } },
     { "name": "windows-clang", "configurePreset": "windows-clang", "output": { "outputOnFailure": true } },
     { "name": "windows-msvc", "configurePreset": "windows-msvc", "output": { "outputOnFailure": true } }
   ]
