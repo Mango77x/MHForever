@@ -50,6 +50,3 @@ export const AlertIcon = ({ size = 18, color = 'currentColor', width = 2.2 }: P)
 export const FolderIcon = ({ size = 18, color = 'currentColor', width = 2 }: P) => (
   <svg {...base(size, color, width)}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" /></svg>
 );
-export const LogoMark = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a1208" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 18 L10 6 L14 13 L16 10 L20 18 Z" /></svg>
-);
