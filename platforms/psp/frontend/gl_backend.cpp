@@ -614,6 +614,7 @@ private:
         std::vector<TapeEntry> now, before;
         std::vector<Camera> cameras;        // of `now`
         std::vector<Camera> cameras_before; // the camera of `before` each one continues (or the same one)
+        std::vector<int> partner;           // per batch of `now`: the 2D batch of `before` it continues, or -1
         std::uint32_t address{}, width{}, height{}, stride{}, format{};
         int before_slot{};
         GLuint final_texture{};
@@ -624,7 +625,7 @@ private:
     std::chrono::steady_clock::time_point last_flip_{};
     std::uint64_t shown_{1};                // pictures put on screen
     struct {
-        std::uint64_t interpolated{}, skipped_shape{}, skipped_copy{}, skipped_timing{}, skipped_first{}, late{};
+        std::uint64_t interpolated{}, skipped_shape{}, skipped_copy{}, skipped_timing{}, skipped_first{}, skipped_ui{}, late{};
     } stats_;
     bool have_state_{};
     bool through_{};
@@ -1341,32 +1342,103 @@ constexpr float kMaxUvChange = 0.01f;
 
 bool clearing(const DrawSetup &s) { return (key_reg(s.key, kClearMode) & 1u) != 0; }
 
-bool same_shape(const TapeEntry &a, const TapeEntry &b) {
-    return a.vertices.size() == b.vertices.size() && a.setup.through == b.setup.through &&
-           clearing(a.setup) == clearing(b.setup) && (a.setup.texture != 0) == (b.setup.texture != 0);
+// The same on-screen thing in two flips: same draw state (texture, blending, target...), same texture object (a
+// texture whose content changed is another one, see texture_for) and the same number of vertices.
+bool same_batch(const TapeEntry &a, const TapeEntry &b) {
+    return a.vertices.size() == b.vertices.size() && a.setup.through == b.setup.through && a.setup.key == b.setup.key &&
+           a.setup.texture == b.setup.texture && a.setup.uv_xform[0] == b.setup.uv_xform[0] &&
+           a.setup.uv_xform[1] == b.setup.uv_xform[1] && a.setup.uv_xform[2] == b.setup.uv_xform[2] &&
+           a.setup.uv_xform[3] == b.setup.uv_xform[3];
 }
 
-// `out` holds this flip's vertices; moves each triangle back toward `before` by (1 - t) when every one of its
-// vertices moved a believable distance and kept its texture coordinates.
-std::size_t blend_vertices(const std::vector<GpuVertex> &before, std::vector<GpuVertex> &out, float t) {
-    std::size_t moved = 0;
-    for (std::size_t i = 0; i + 2 < out.size(); i += 3) {
-        bool ok = true;
-        for (std::size_t k = 0; k < 3; ++k) {
-            ok = ok && std::fabs(out[i + k].x - before[i + k].x) <= kMaxMove &&
-                 std::fabs(out[i + k].y - before[i + k].y) <= kMaxMove &&
-                 std::fabs(out[i + k].u - before[i + k].u) <= kMaxUvChange &&
-                 std::fabs(out[i + k].v - before[i + k].v) <= kMaxUvChange;
+// Screen-space (2D) triangles move rigidly: a sprite slides, it does not stretch. Only such triangles, whose texture
+// coordinates stayed the same too, are placed between their two positions.
+constexpr float kMaxRigidSkew = 1.5f;
+
+enum class Move { Still, Blend, Refuse };
+
+Move classify_triangle(const GpuVertex *before, const GpuVertex *now) {
+    float dx[3], dy[3];
+    bool still = true;
+    for (int k = 0; k < 3; ++k) {
+        dx[k] = now[k].x - before[k].x;
+        dy[k] = now[k].y - before[k].y;
+        if (std::fabs(now[k].u - before[k].u) > kMaxUvChange || std::fabs(now[k].v - before[k].v) > kMaxUvChange) {
+            return Move::Refuse;
         }
-        if (!ok) continue;
+        if (std::fabs(dx[k]) > kMaxMove || std::fabs(dy[k]) > kMaxMove) return Move::Refuse;
+        still = still && std::fabs(dx[k]) < 0.01f && std::fabs(dy[k]) < 0.01f;
+    }
+    if (still) return Move::Still;
+    for (int k = 1; k < 3; ++k) {
+        if (std::fabs(dx[k] - dx[0]) > kMaxRigidSkew || std::fabs(dy[k] - dy[0]) > kMaxRigidSkew) return Move::Refuse;
+    }
+    return Move::Blend;
+}
+
+// `out` holds this flip's vertices; moves each triangle back toward `before` by (1 - t) when it slid rigidly.
+void blend_vertices(const std::vector<GpuVertex> &before, std::vector<GpuVertex> &out, float t) {
+    for (std::size_t i = 0; i + 2 < out.size(); i += 3) {
+        if (classify_triangle(&before[i], &out[i]) != Move::Blend) continue;
         for (std::size_t k = 0; k < 3; ++k) {
             out[i + k].x = before[i + k].x + (out[i + k].x - before[i + k].x) * t;
             out[i + k].y = before[i + k].y + (out[i + k].y - before[i + k].y) * t;
-            out[i + k].z = before[i + k].z + (out[i + k].z - before[i + k].z) * t;
         }
-        ++moved;
     }
-    return moved;
+}
+
+// Pairs the 2D batches of this flip with the previous flip's (looking ahead a few batches) and measures how much of the
+// textured 2D content changed in a way an in-between picture cannot show: sprites that appeared, vanished or jumped.
+// The previous picture is the base of every in-between picture, so such sprites would show twice for a moment (item
+// icons of a list, text). Returns that count in sprites; `partner` gets, per batch of `now`, its pair or -1.
+std::size_t analyze_2d(const std::vector<TapeEntry> &now, const std::vector<TapeEntry> &before, std::vector<int> &partner) {
+    partner.assign(now.size(), -1);
+    std::vector<bool> used(before.size(), false);
+    std::size_t next = 0, changed = 0;
+    for (std::size_t i = 0; i < now.size(); ++i) {
+        const TapeEntry &e = now[i];
+        if (!e.setup.through) continue;
+        for (std::size_t look = 0; look < 4 && next + look < before.size(); ++look) {
+            if (same_batch(e, before[next + look])) {
+                partner[i] = static_cast<int>(next + look);
+                used[next + look] = true;
+                next += look + 1;
+                break;
+            }
+        }
+    }
+    for (std::size_t i = 0; i < now.size(); ++i) {
+        const TapeEntry &e = now[i];
+        if (!e.setup.through || clearing(e.setup) || e.setup.texture == 0) continue;
+        if (partner[i] < 0) {
+            changed += e.vertices.size() / 6;
+            continue;
+        }
+        const TapeEntry &b = before[static_cast<std::size_t>(partner[i])];
+        std::size_t refused = 0;
+        for (std::size_t v = 0; v + 2 < e.vertices.size(); v += 3) {
+            refused += classify_triangle(&b.vertices[v], &e.vertices[v]) == Move::Refuse ? 1u : 0u;
+        }
+        changed += (refused + 1) / 2;
+    }
+    for (std::size_t j = 0; j < before.size(); ++j) {
+        const TapeEntry &b = before[j];
+        if (!used[j] && b.setup.through && !clearing(b.setup) && b.setup.texture != 0) changed += b.vertices.size() / 6;
+    }
+    return changed;
+}
+
+// More changed sprites than this, in a flip that does not clear the screen, and the flip is shown as the game drew it
+// (menus, item lists, dialogs over the previous picture). A flip that clears the colors first (every 3D scene, with
+// its HUD) draws everything again over nothing, so the previous picture cannot show through and nothing is skipped.
+constexpr std::size_t kMaxChangedSprites = 6;
+
+bool clears_screen(const std::vector<TapeEntry> &batches) {
+    for (const TapeEntry &e : batches) {
+        const std::uint32_t mode = key_reg(e.setup.key, kClearMode);
+        if ((mode & 1u) != 0 && (mode & 0x100u) != 0) return true; // clear mode with the color buffer
+    }
+    return false;
 }
 
 bool nearly_equal(float a, float b) { return std::fabs(a - b) <= 1e-3f * std::max(1.0f, std::fabs(a)); }
@@ -1501,20 +1573,18 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
 
     std::vector<Camera> cameras(flip_.cameras.size());
     for (std::size_t i = 0; i < cameras.size(); ++i) cameras[i] = between(flip_.cameras_before[i], flip_.cameras[i], t);
-    std::size_t paired = 0;
     std::vector<GpuVertex> vertices;
-    for (const TapeEntry &entry : now) {
+    for (std::size_t i = 0; i < now.size(); ++i) {
+        const TapeEntry &entry = now[i];
         vertices = entry.vertices;
-        // Pair it with the same batch of the previous flip (allowing a few extra batches in between).
-        for (std::size_t look = 0; look < 4 && paired + look < before_batches.size(); ++look) {
-            const TapeEntry &candidate = before_batches[paired + look];
-            if (same_shape(entry, candidate)) {
-                if (!clearing(entry.setup) && entry.setup.through) blend_vertices(candidate.vertices, vertices, t);
-                paired += look + 1;
-                break;
+        if (entry.setup.through) {
+            const int partner = i < flip_.partner.size() ? flip_.partner[i] : -1;
+            if (partner >= 0 && !clearing(entry.setup)) {
+                blend_vertices(before_batches[static_cast<std::size_t>(partner)].vertices, vertices, t);
             }
+        } else {
+            place_again(entry, cameras, vertices, t);
         }
-        if (!entry.setup.through) place_again(entry, cameras, vertices, t);
         emit_state(entry.setup, scratch_);
         draw_vertices(vertices);
     }
@@ -1590,6 +1660,7 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
 
     const auto ms = std::chrono::duration<double, std::milli>(interval).count();
     bool done = false;
+    std::vector<int> partner;
     if (!previous_valid_) {
         ++stats_.skipped_first;
     } else if (copied || self_sampled) {
@@ -1598,7 +1669,10 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
         ++stats_.skipped_timing; // already fast, or a stall: nothing to fill in
     } else if (mine.empty() || previous_.empty()) {
         ++stats_.skipped_shape;
+    } else if (analyze_2d(mine, previous_, partner) > kMaxChangedSprites && !clears_screen(mine)) {
+        ++stats_.skipped_ui; // lists, menus and dialogs: sprites appear, vanish or jump
     } else {
+        flip_.partner = std::move(partner);
         flip_.now = mine;
         flip_.before = std::move(previous_);
         flip_.cameras = cameras_;
@@ -1658,14 +1732,14 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
 
     static const bool log = std::getenv("MHF_INTERP_LOG") != nullptr;
     if (log && (stats_.interpolated + stats_.skipped_shape + stats_.skipped_copy + stats_.skipped_timing +
-                stats_.skipped_first) % 120 == 0) {
+                stats_.skipped_first + stats_.skipped_ui) % 120 == 0) {
         std::fprintf(stderr,
-                     "[interp] x%d: interpolated %llu, skipped: first %llu, copy %llu, timing %llu, shape %llu; "
-                     "pictures dropped late %llu\n",
+                     "[interp] x%d: interpolated %llu, skipped: first %llu, copy %llu, timing %llu, shape %llu, "
+                     "menus %llu; pictures dropped late %llu\n",
                      factor_, static_cast<unsigned long long>(stats_.interpolated),
                      static_cast<unsigned long long>(stats_.skipped_first), static_cast<unsigned long long>(stats_.skipped_copy),
                      static_cast<unsigned long long>(stats_.skipped_timing), static_cast<unsigned long long>(stats_.skipped_shape),
-                     static_cast<unsigned long long>(stats_.late));
+                     static_cast<unsigned long long>(stats_.skipped_ui), static_cast<unsigned long long>(stats_.late));
     }
     return done;
 }
