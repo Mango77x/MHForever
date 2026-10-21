@@ -72,8 +72,8 @@ are deterministic, cheap and avoid OS scheduling jitter. The scheduler stays beh
 ## 3. Time
 
 - Virtual clock at 222 or 333 MHz per `scePowerSetClockFrequency`; `sceKernelGetSystemTimeLow` in real microseconds.
-- Vblank at 59.94 Hz as master signal. The game likely runs at 30 fps `[VERIFY]`; 60 fps is an optional enhancement that requires
-  studying the game logic (`06-mhfu-module.md` §9).
+- Vblank at 59.94 Hz as master signal. The game flips at 30 fps (measured on the owner's disc); higher rates come from
+  renderer-side frame interpolation (§6), not from the game logic (`06-mhfu-module.md` §9).
 
 ## 4. File system
 

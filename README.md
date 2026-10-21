@@ -48,7 +48,7 @@ Only the first row works today. The others are plans, not promises: they are lis
 | **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard defaults included. |
 | **Resolution** | Up to several times the original 480x272, with an optional smoother texture filter. |
 | **Other games and regions** | The US and Japanese releases of Freedom Unite, and other games of the series, are planned. |
-| **Latest release** | **0.1.0** (2026-10-19). See the [Releases](../../releases) page. |
+| **Latest release** | **0.2.0** (2026-10-21). See the [Releases](../../releases) page. |
 
 It is early software: the game boots and can be played, but expect rough edges and bugs. Reports are welcome.
 
