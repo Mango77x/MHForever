@@ -65,6 +65,9 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [ ] Overlays: stage and monster overlays dispatch correctly.
 - [ ] Village, shop, Felyne kitchen, one gathering quest and one hunting quest completed.
 - [ ] Performance measured on a modest PC and on Linux.
+- [x] Owner playtest (2026-10-21): single player played from start to finish on Windows. Fixed in 0.2.1: audio clicks (the
+      output device was fed 0.2 % too little, `psp_frontend.cpp`) and flicker of item icons and text at 60 fps and above.
+      Known: occasional text or texture flicker, 180 fps not sustained in the heaviest areas, real PSP saves not importable.
 **Acceptance**: complete 3 quests and save/load without failures; stable framerate matching the original.
 
 ## Phase 4 — Launcher and packaging
@@ -75,7 +78,9 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
   executable identity gate (size + SHA-1 in, SHA-1 out). Tests on a synthetic image, no game data.
 - [x] Executable preparation module: the decryption step behind `builtin_decryptor()` (PPSSPP's PRX decrypter, GPL), validated
   byte for byte against `[dev_executable]` with the developer's disc (2026-10-19).
-- [ ] Launcher: language selection, icon, signed updates.
+- [x] Saves (`<Documents>/MHForever/saves/<DISC_ID>`) and `launcher.json` (`%APPDATA%/MHForever`) kept outside the program folder,
+      with a one-time copy from the old layout (0.2.1, 2026-10-22).
+- [ ] Launcher: language selection, signed updates.
 - [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19), v0.2.0 adds frame interpolation (2026-10-21), v0.2.1 fixes audio clicks and keeps saves and settings outside the program folder (2026-10-22).
 - [ ] Windows installer and AppImage (Linux). Deck testing by friends.
 **Acceptance**: a user with no development tools goes from "I have my ISO" to "I'm playing" using only the launcher.

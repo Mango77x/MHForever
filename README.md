@@ -46,11 +46,12 @@ Only the first row works today. The others are plans, not promises: they are lis
 | **Online play** | Not available yet. **Multiplayer over the internet is being designed and built**, so you can hunt with friends without a PSP. |
 | **Platforms** | Windows (64-bit). Linux and Steam Deck are planned. |
 | **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard defaults included. |
+| **Saves** | Kept in `Documents\MHForever\saves`, one folder per game; settings in `%APPDATA%\MHForever`. Updating never loses them. Saves from a real PSP are not supported yet. |
 | **Resolution** | Up to several times the original 480x272, with an optional smoother texture filter. |
 | **Other games and regions** | The US and Japanese releases of Freedom Unite, and other games of the series, are planned. |
 | **Latest release** | **0.2.1** (2026-10-22). See the [Releases](../../releases) page. |
 
-It is early software: the game boots and can be played, but expect rough edges and bugs. Reports are welcome.
+It is early software: according to the maintainer's testing, single player can be played from start to finish, but expect rough edges and bugs. Reports are welcome.
 
 ## How it works for a player
 
