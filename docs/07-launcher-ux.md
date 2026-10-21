@@ -66,7 +66,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   - `MHForever --install <image.iso> [--in-place | --copy]` runs the same setup without the window (Windows borrows the
     parent console).
 - **Release packaging (2026-10-19)**: `scripts/package_release.py` assembles the Windows zip (launcher, game program, free fonts,
-  licenses and `dist/PLAYER_README.txt`) and refuses anything that looks like game data. 0.1.0, 0.2.0 and 0.2.1 were published this way.
+  licenses and `dist/PLAYER_README.txt`) and refuses anything that looks like game data. 0.1.0, 0.2.0, 0.2.1 and 0.2.2 were published this way.
 - Still to do: launcher-managed updates (signed), language selection, icon, Steam Deck packaging
   (AppImage/Flatpak), moving the per-user folder, moving saves there.
 
