@@ -257,8 +257,8 @@ one ubershader (texture functions, fog, alpha test, depth range) and fixed-funct
   drawing command, so a repeated model is told apart) are first moved back toward where they were, so objects that move
   on their own are interpolated as well. Placing the points again, instead of moving the screen-space vertices of
   paired triangles, matters for terrain: the GE clips and culls it differently every flip, so triangle lists never
-  match. 2D batches (through mode) are paired with the previous flip's only when they have exactly the same draw state,
-  texture object and vertex count (looking ahead up to four batches), and a triangle is moved in screen space only when
+  match. 2D batches (through mode) are paired with the previous flip's only when they have exactly the same draw state
+  (the game alternates two draw buffers, so which one a batch went to does not count), texture object and vertex count (looking ahead up to four batches), and a triangle is moved in screen space only when
   it slid rigidly (no more than 32 PSP pixels, vertices within 1.5 px of each other's displacement) with the same
   texture coordinates. Since every in-between picture starts from the previous picture, sprites that appear, vanish or
   jump would show twice for a moment (item icons, lists): when more than 6 of them change in a flip that does not clear
