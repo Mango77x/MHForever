@@ -41,7 +41,9 @@ enum Reg : std::uint32_t {
     kTexFilter = 0xC6, kTexWrap = 0xC7, kTexFunc = 0xC9, kTexEnvColor = 0xCA, kFogColor = 0xCF,
     kFramebufPixFormat = 0xD2, kClearMode = 0xD3, kScissor1 = 0xD4, kScissor2 = 0xD5, kMinZ = 0xD6, kMaxZ = 0xD7,
     kAlphaTest = 0xDB, kZTest = 0xDE, kBlendMode = 0xDF, kBlendFixedA = 0xE0, kBlendFixedB = 0xE1,
-    kZWriteDisable = 0xE7, kMaskRgb = 0xE8, kMaskAlpha = 0xE9,
+    kZWriteDisable = 0xE7, kMaskRgb = 0xE8, kMaskAlpha = 0xE9, kViewportXScale = 0x42, kViewportYScale = 0x43,
+    kViewportZScale = 0x44, kViewportXCenter = 0x45, kViewportYCenter = 0x46, kViewportZCenter = 0x47, kOffsetX = 0x4C,
+    kOffsetY = 0x4D,
 };
 
 // Registers whose value changes how a primitive is drawn (anything else only affects vertex processing).
@@ -328,10 +330,32 @@ struct DrawSetup {
     bool self_sampled{};    // the texture is a copy of the target being drawn: it cannot be replayed later
 };
 
+// The camera a vertex was placed with: view and projection matrices, viewport and screen offset.
+struct Camera {
+    std::array<float, 12> view{};
+    std::array<float, 16> proj{};
+    std::array<float, 8> viewport{}; // x, y, z scale; x, y, z center; x, y offset
+    bool operator==(const Camera &) const = default;
+};
+constexpr std::uint16_t kNoCamera = 0xFFFF;
+
+// Where a recorded vertex came from, to place it again for an in-between picture (frame interpolation): its point in
+// the world (before the view matrix) and the camera. Sprite corners take x and y from different points.
+struct Origin {
+    float x_world[3]{}, y_world[3]{};
+    std::uint64_t x_key{}, y_key{};  // the same point in another flip has the same key (0: no identity)
+    std::uint16_t camera{kNoCamera}; // kNoCamera: drawn where it was recorded
+    bool sprite{};
+    // Where the same points were in the previous flip, when they were drawn then (filled in for the flip shown).
+    bool x_moved{}, y_moved{};
+    float x_before[3]{}, y_before[3]{};
+};
+
 // One batch of primitives as it was drawn, kept to draw it again between two flips (frame interpolation).
 struct TapeEntry {
     DrawSetup setup;
     std::vector<GpuVertex> vertices;
+    std::vector<Origin> origins; // one per vertex
 };
 
 // A picture waiting for its moment on screen: `phase` 1 is the flip itself, below that a picture between the
@@ -370,6 +394,16 @@ public:
         push(a, flat ? &c : nullptr);
         push(b, flat ? &c : nullptr);
         push(c, nullptr);
+        if (interpolate_) {
+            const std::uint16_t camera = a.has_world && b.has_world && c.has_world ? camera_for(ge) : kNoCamera;
+            record(a, a, camera, false);
+            record(b, b, camera, false);
+            record(c, c, camera, false);
+        }
+    }
+
+    void draw_started(std::uint32_t vertex_address) override {
+        if (interpolate_) draw_use_ = ++draw_uses_[vertex_address];
     }
 
     void sprite(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b) override {
@@ -385,6 +419,15 @@ public:
         push(tr, nullptr);
         push(br, nullptr);
         push(bl, nullptr);
+        if (interpolate_) {
+            const std::uint16_t camera = a.has_world && b.has_world ? camera_for(ge) : kNoCamera;
+            record(a, a, camera, true); // top left: x and y from a
+            record(b, a, camera, true); // top right
+            record(a, b, camera, true); // bottom left
+            record(b, a, camera, true);
+            record(b, b, camera, true); // bottom right
+            record(a, b, camera, true);
+        }
     }
 
     void block_transfer(std::uint32_t src, std::uint32_t src_stride, std::uint32_t sx, std::uint32_t sy,
@@ -448,6 +491,41 @@ private:
         batch_.push_back(g);
     }
 
+    // Frame interpolation: the camera of the vertices being drawn (an index into cameras_), and where each recorded
+    // vertex came from.
+    std::uint16_t camera_for(const gpu::Ge &ge) {
+        Camera c;
+        std::copy(ge.view_matrix().m.begin(), ge.view_matrix().m.end(), c.view.begin());
+        std::copy(ge.proj_matrix().m.begin(), ge.proj_matrix().m.end(), c.proj.begin());
+        c.viewport = {gpu::float24(ge.reg(kViewportXScale)), gpu::float24(ge.reg(kViewportYScale)),
+                      gpu::float24(ge.reg(kViewportZScale)), gpu::float24(ge.reg(kViewportXCenter)),
+                      gpu::float24(ge.reg(kViewportYCenter)), gpu::float24(ge.reg(kViewportZCenter)),
+                      static_cast<float>(ge.reg(kOffsetX) & 0xFFFFu) / 16.0f,
+                      static_cast<float>(ge.reg(kOffsetY) & 0xFFFFu) / 16.0f};
+        if (camera_ < cameras_.size() && cameras_[camera_] == c) return camera_;
+        for (std::size_t i = 0; i < cameras_.size(); ++i) {
+            if (cameras_[i] == c) return camera_ = static_cast<std::uint16_t>(i);
+        }
+        if (cameras_.size() >= kNoCamera) return kNoCamera;
+        cameras_.push_back(c);
+        return camera_ = static_cast<std::uint16_t>(cameras_.size() - 1);
+    }
+    [[nodiscard]] std::uint64_t key_of(const gpu::Vertex &v) const {
+        return v.source == 0 ? 0 : (static_cast<std::uint64_t>(draw_use_) << 32u) | v.source;
+    }
+    void record(const gpu::Vertex &x_from, const gpu::Vertex &y_from, std::uint16_t camera, bool sprite) {
+        Origin o;
+        std::copy(x_from.world, x_from.world + 3, o.x_world);
+        std::copy(y_from.world, y_from.world + 3, o.y_world);
+        o.x_key = key_of(x_from);
+        o.y_key = key_of(y_from);
+        o.camera = camera;
+        o.sprite = sprite;
+        batch_origins_.push_back(o);
+    }
+    void place_again(const TapeEntry &entry, const std::vector<Camera> &cameras, std::vector<GpuVertex> &vertices,
+                     float t) const;
+
     void apply_state(const gpu::Ge &ge);
     void emit_state(const DrawSetup &setup, RenderTarget &rt);
     void draw_vertices(const std::vector<GpuVertex> &vertices);
@@ -498,6 +576,9 @@ private:
     std::map<std::uint32_t, RenderTarget> targets_; // by VRAM offset
     RenderTarget *current_{};
     std::unordered_map<std::uint64_t, CachedTexture> textures_;
+    // Textures replaced by new content while a recorded batch (frame interpolation) may still draw with them; they
+    // are deleted a few flips later.
+    std::vector<std::pair<std::uint64_t, GLuint>> retired_textures_;
     GLuint copy_texture_{}, copy_fbo_{};               // for sampling the target being drawn
     std::uint32_t copy_width_{}, copy_height_{};
     GLuint upload_texture_{};                          // CPU pixels on their way to a target or the screen
@@ -509,13 +590,20 @@ private:
 
     // Frame interpolation (enhancement, off by default). The game flips at 30 fps and the output runs at
     // `factor_` times that: every flip is followed by factor_ - 1 pictures between it and the next one, each made by
-    // drawing the flip's batches again with every triangle placed between its position in the previous flip and in
-    // this one. Pictures are shown at even intervals on a timer the GE worker honours between display lists; a flip is
+    // drawing the flip's batches again through a camera between the two flips (3D), with things that moved on their
+    // own placed between their two positions. Pictures are shown at even intervals on a timer the GE worker honours
+    // only while it has no display list to run, so they never slow the game down (late ones are dropped); a flip is
     // shown (factor_ - 1)/factor_ of a frame late.
     int factor_ = 1;
     bool interpolate_ = false;
     std::vector<TapeEntry> tape_;           // batches since the last flip
     std::vector<TapeEntry> previous_;       // the last flip's batches that drew to the picture it showed
+    std::vector<Camera> cameras_;           // cameras used since the last flip (Origin::camera indexes them)
+    std::vector<Camera> previous_cameras_;  // the last flip's
+    std::uint16_t camera_{kNoCamera};       // the last one found
+    std::unordered_map<std::uint32_t, std::uint32_t> draw_uses_; // drawing commands per vertex address since the flip
+    std::uint32_t draw_use_{};              // of the current drawing command: tells repeated draws of a model apart
+    std::unordered_map<std::uint64_t, const float *> points_before_; // scratch: the previous flip's points by key
     std::set<std::uint32_t> touched_;       // render targets written by something other than batches (copies)
     bool previous_valid_ = false;
     Slot slots_[2];
@@ -524,6 +612,8 @@ private:
     // The flip being shown: what later pictures are made from.
     struct {
         std::vector<TapeEntry> now, before;
+        std::vector<Camera> cameras;        // of `now`
+        std::vector<Camera> cameras_before; // the camera of `before` each one continues (or the same one)
         std::uint32_t address{}, width{}, height{}, stride{}, format{};
         int before_slot{};
         GLuint final_texture{};
@@ -540,6 +630,7 @@ private:
     bool through_{};
     float tex_width_{1}, tex_height_{1};
     std::vector<GpuVertex> batch_;
+    std::vector<Origin> batch_origins_; // frame interpolation: one per vertex of batch_
     std::uint64_t frame_{1};
 };
 
@@ -789,6 +880,11 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
             t.hash = hash;
             pixels_.resize(static_cast<std::size_t>(info.width) * info.height);
             ge.decode_texture(pixels_.data());
+            if (interpolate_ && t.texture != 0) {
+                // A recorded batch may replay with the old content: never overwrite a texture in place.
+                retired_textures_.emplace_back(frame_, t.texture);
+                t.texture = 0;
+            }
             if (t.texture == 0) gl_.GenTextures(1, &t.texture);
             gl_.BindTexture(GL_TEXTURE_2D, t.texture);
             gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(info.width), static_cast<GLsizei>(info.height),
@@ -1014,10 +1110,11 @@ void GlBackend::draw_batch() {
             tape_.clear();
             touched_.insert(~0u);
         }
-        tape_.push_back({setup_, batch_});
+        tape_.push_back({setup_, batch_, batch_origins_});
     }
     draw_vertices(batch_);
     batch_.clear();
+    batch_origins_.clear();
 }
 
 void GlBackend::draw_vertices(const std::vector<GpuVertex> &vertices) {
@@ -1189,6 +1286,17 @@ void GlBackend::finish_flip() {
     ++frame_;
     tape_.clear();
     touched_.clear();
+    cameras_.clear();
+    camera_ = kNoCamera;
+    draw_uses_.clear();
+    for (auto i = retired_textures_.begin(); i != retired_textures_.end();) {
+        if (i->first + 4 < frame_) {
+            gl_.DeleteTextures(1, &i->second);
+            i = retired_textures_.erase(i);
+        } else {
+            ++i;
+        }
+    }
 
     // Forget textures not used for a while.
     if ((frame_ & 255u) == 0) {
@@ -1225,7 +1333,11 @@ namespace {
 
 // How far (PSP pixels) a vertex may move between two flips and still be taken as the same point: beyond that it is
 // a cut, an object appearing, or a different thing drawn in the same place.
-constexpr float kMaxMove = 96.0f;
+constexpr float kMaxMove = 32.0f;
+
+// Texture coordinates travel with a point of the mesh, so two vertices that are the same point have the same ones
+// (up to a small tolerance); when they differ the pairing is wrong, or the texture is animated.
+constexpr float kMaxUvChange = 0.01f;
 
 bool clearing(const DrawSetup &s) { return (key_reg(s.key, kClearMode) & 1u) != 0; }
 
@@ -1235,26 +1347,132 @@ bool same_shape(const TapeEntry &a, const TapeEntry &b) {
 }
 
 // `out` holds this flip's vertices; moves each triangle back toward `before` by (1 - t) when every one of its
-// vertices moved a believable distance.
+// vertices moved a believable distance and kept its texture coordinates.
 std::size_t blend_vertices(const std::vector<GpuVertex> &before, std::vector<GpuVertex> &out, float t) {
     std::size_t moved = 0;
     for (std::size_t i = 0; i + 2 < out.size(); i += 3) {
         bool ok = true;
         for (std::size_t k = 0; k < 3; ++k) {
             ok = ok && std::fabs(out[i + k].x - before[i + k].x) <= kMaxMove &&
-                 std::fabs(out[i + k].y - before[i + k].y) <= kMaxMove;
+                 std::fabs(out[i + k].y - before[i + k].y) <= kMaxMove &&
+                 std::fabs(out[i + k].u - before[i + k].u) <= kMaxUvChange &&
+                 std::fabs(out[i + k].v - before[i + k].v) <= kMaxUvChange;
         }
         if (!ok) continue;
         for (std::size_t k = 0; k < 3; ++k) {
             out[i + k].x = before[i + k].x + (out[i + k].x - before[i + k].x) * t;
             out[i + k].y = before[i + k].y + (out[i + k].y - before[i + k].y) * t;
+            out[i + k].z = before[i + k].z + (out[i + k].z - before[i + k].z) * t;
         }
         ++moved;
     }
     return moved;
 }
 
+bool nearly_equal(float a, float b) { return std::fabs(a - b) <= 1e-3f * std::max(1.0f, std::fabs(a)); }
+
+// The camera of the previous flip that `now` continues: same projection and viewport, and the nearest view matrix,
+// which may only have turned a little (a cut is not interpolated).
+const Camera *continued_camera(const Camera &now, const std::vector<Camera> &before) {
+    const Camera *best = nullptr;
+    float best_distance = 0;
+    for (const Camera &c : before) {
+        bool same_lens = true;
+        for (std::size_t i = 0; i < c.proj.size() && same_lens; ++i) same_lens = nearly_equal(now.proj[i], c.proj[i]);
+        for (std::size_t i = 0; i < c.viewport.size() && same_lens; ++i) same_lens = nearly_equal(now.viewport[i], c.viewport[i]);
+        if (!same_lens) continue;
+        float turn = 0, distance = 0;
+        for (std::size_t i = 0; i < 12; ++i) {
+            const float d = std::fabs(now.view[i] - c.view[i]);
+            if (i < 9) turn += d;
+            distance += d;
+        }
+        if (turn > 0.75f) continue;
+        if (best == nullptr || distance < best_distance) {
+            best = &c;
+            best_distance = distance;
+        }
+    }
+    return best;
+}
+
+Camera between(const Camera &a, const Camera &b, float t) {
+    Camera c = b;
+    for (std::size_t i = 0; i < c.view.size(); ++i) c.view[i] = a.view[i] + (b.view[i] - a.view[i]) * t;
+    for (std::size_t i = 0; i < c.proj.size(); ++i) c.proj[i] = a.proj[i] + (b.proj[i] - a.proj[i]) * t;
+    return c;
+}
+
+// World point to screen (x, y in PSP pixels, z 0..65535, 1/w), like the GE; false behind the near plane.
+bool project(const Camera &c, const float p[3], float out[4]) {
+    float view[3];
+    for (std::size_t i = 0; i < 3; ++i) {
+        view[i] = p[0] * c.view[i] + p[1] * c.view[3 + i] + p[2] * c.view[6 + i] + c.view[9 + i];
+    }
+    float clip[4];
+    for (std::size_t i = 0; i < 4; ++i) {
+        clip[i] = view[0] * c.proj[i] + view[1] * c.proj[4 + i] + view[2] * c.proj[8 + i] + c.proj[12 + i];
+    }
+    if (!(clip[3] > 0.0f) || !(clip[2] > -clip[3])) return false;
+    const float inv_w = 1.0f / clip[3];
+    out[0] = clip[0] * inv_w * c.viewport[0] + c.viewport[3] - c.viewport[6];
+    out[1] = clip[1] * inv_w * c.viewport[1] + c.viewport[4] - c.viewport[7];
+    out[2] = clip[2] * inv_w * c.viewport[2] + c.viewport[5];
+    out[3] = inv_w;
+    return std::isfinite(out[0]) && std::isfinite(out[1]);
+}
+
+// Places a point for an in-between picture: seen through the camera between the two flips and, when the same point
+// was drawn in the previous flip (`was`), moved back toward where it was then (things that move on their own).
+bool place(const float world[3], const float *was, const Camera &camera, float t, float out[4]) {
+    if (!project(camera, world, out)) return false;
+    if (was == nullptr) return true;
+    const float moved[3] = {was[0] + (world[0] - was[0]) * t, was[1] + (world[1] - was[1]) * t,
+                            was[2] + (world[2] - was[2]) * t};
+    // A point that seems to have jumped far is another thing drawn from the same data: keep it where it is now.
+    float s[4];
+    if (project(camera, moved, s) && std::fabs(s[0] - out[0]) <= kMaxMove && std::fabs(s[1] - out[1]) <= kMaxMove) {
+        std::copy(s, s + 4, out);
+    }
+    return true;
+}
+
 } // namespace
+
+// Moves a recorded 3D batch to phase `t` between the previous flip and this one, with `cameras` the cameras at that
+// phase. Each triangle is placed again as a whole, or left where it was drawn when one of its points cannot be (no
+// camera, behind the camera).
+void GlBackend::place_again(const TapeEntry &entry, const std::vector<Camera> &cameras, std::vector<GpuVertex> &vertices,
+                            float t) const {
+    if (entry.origins.size() != vertices.size()) return;
+    for (std::size_t i = 0; i + 2 < vertices.size(); i += 3) {
+        GpuVertex placed[3];
+        bool ok = true;
+        for (std::size_t k = 0; k < 3 && ok; ++k) {
+            const Origin &o = entry.origins[i + k];
+            placed[k] = vertices[i + k];
+            if (o.camera >= cameras.size()) { // also kNoCamera
+                ok = false;
+                break;
+            }
+            const Camera &camera = cameras[o.camera];
+            float sx[4];
+            ok = place(o.x_world, o.x_moved ? o.x_before : nullptr, camera, t, sx);
+            if (!ok) break;
+            placed[k].x = sx[0];
+            if (o.sprite) {
+                float sy[4];
+                ok = place(o.y_world, o.y_moved ? o.y_before : nullptr, camera, t, sy);
+                placed[k].y = sy[1];
+            } else {
+                placed[k].y = sx[1];
+                placed[k].z = sx[2];
+                placed[k].inv_w = sx[3];
+            }
+        }
+        if (ok) std::copy(placed, placed + 3, vertices.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+}
 
 void GlBackend::render_between(const RenderTarget &shown, const std::vector<TapeEntry> &now,
                                const std::vector<TapeEntry> &before_batches, const Slot &before_slot, float t) {
@@ -1281,6 +1499,8 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
     gl_.DepthMask(GL_TRUE);
     gl_.Clear(GL_DEPTH_BUFFER_BIT);
 
+    std::vector<Camera> cameras(flip_.cameras.size());
+    for (std::size_t i = 0; i < cameras.size(); ++i) cameras[i] = between(flip_.cameras_before[i], flip_.cameras[i], t);
     std::size_t paired = 0;
     std::vector<GpuVertex> vertices;
     for (const TapeEntry &entry : now) {
@@ -1289,11 +1509,12 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
         for (std::size_t look = 0; look < 4 && paired + look < before_batches.size(); ++look) {
             const TapeEntry &candidate = before_batches[paired + look];
             if (same_shape(entry, candidate)) {
-                if (!clearing(entry.setup)) blend_vertices(candidate.vertices, vertices, t);
+                if (!clearing(entry.setup) && entry.setup.through) blend_vertices(candidate.vertices, vertices, t);
                 paired += look + 1;
                 break;
             }
         }
+        if (!entry.setup.through) place_again(entry, cameras, vertices, t);
         emit_state(entry.setup, scratch_);
         draw_vertices(vertices);
     }
@@ -1338,9 +1559,9 @@ void GlBackend::flush_pictures() {
     }
 }
 
-// Shows the first in-between picture now and schedules the rest, ending with the flip's own picture. Returns false
-// (nothing shown) when this flip cannot be interpolated; the caller then shows it as usual. Either way the picture is
-// kept for the next flip.
+// Schedules the in-between pictures, the first one due at once, ending with the flip's own picture. Returns false
+// (nothing scheduled) when this flip cannot be interpolated; the caller then shows it as usual. Either way the picture
+// is kept for the next flip.
 bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2]) {
     const auto now = std::chrono::steady_clock::now();
     const auto interval = now - last_flip_;
@@ -1380,6 +1601,34 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
     } else {
         flip_.now = mine;
         flip_.before = std::move(previous_);
+        flip_.cameras = cameras_;
+        flip_.cameras_before.clear();
+        for (const Camera &c : cameras_) {
+            const Camera *before = continued_camera(c, previous_cameras_);
+            flip_.cameras_before.push_back(before != nullptr ? *before : c);
+        }
+        // Where each point of this flip was in the previous one (objects that move on their own).
+        points_before_.clear();
+        for (const TapeEntry &e : flip_.before) {
+            for (const Origin &o : e.origins) {
+                if (o.x_key != 0) points_before_.try_emplace(o.x_key, o.x_world);
+                if (o.y_key != 0 && o.y_key != o.x_key) points_before_.try_emplace(o.y_key, o.y_world);
+            }
+        }
+        for (TapeEntry &e : flip_.now) {
+            for (Origin &o : e.origins) {
+                if (o.x_key != 0) {
+                    const auto it = points_before_.find(o.x_key);
+                    o.x_moved = it != points_before_.end();
+                    if (o.x_moved) std::copy(it->second, it->second + 3, o.x_before);
+                }
+                if (o.y_key != 0) {
+                    const auto it = points_before_.find(o.y_key);
+                    o.y_moved = it != points_before_.end();
+                    if (o.y_moved) std::copy(it->second, it->second + 3, o.y_before);
+                }
+            }
+        }
         flip_.address = shown.address;
         flip_.width = shown.width;
         flip_.height = shown.height;
@@ -1398,11 +1647,12 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
             p.due = now + step * (j - 1);
             pictures_.push_back(p);
         }
-        show_picture(Picture{1.0f / static_cast<float>(factor_), now});
+        pictures_.push_front(Picture{1.0f / static_cast<float>(factor_), now});
         ++stats_.interpolated;
         done = true;
     }
     previous_ = std::move(mine);
+    previous_cameras_ = cameras_;
     previous_valid_ = !copied && !self_sampled && !previous_.empty();
     fill_slot_ = 1 - fill_slot_;
 

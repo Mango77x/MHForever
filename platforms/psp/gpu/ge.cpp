@@ -115,6 +115,8 @@ Vertex lerp(const Vertex &a, const Vertex &b, float t) {
     v.r = l(a.r, b.r); v.g = l(a.g, b.g); v.b = l(a.b, b.b); v.a = l(a.a, b.a);
     v.sr = l(a.sr, b.sr); v.sg = l(a.sg, b.sg); v.sb = l(a.sb, b.sb);
     v.fog = l(a.fog, b.fog);
+    for (int i = 0; i < 3; ++i) v.world[i] = l(a.world[i], b.world[i]);
+    v.has_world = a.has_world && b.has_world;
     return v;
 }
 
@@ -456,6 +458,8 @@ Vertex Ge::transform(const DecodedVertex &in) const {
     float clip[4];
     mul44(proj_, v4, clip);
     out.x = clip[0]; out.y = clip[1]; out.z = clip[2]; out.w = clip[3];
+    std::copy(world, world + 3, out.world);
+    out.has_world = true;
 
     // Texture coordinates.
     const std::uint32_t map = regs_[kTexMapMode] & 3u;
@@ -516,6 +520,7 @@ void Ge::draw_primitive(std::uint32_t data) {
     ++stats_.primitives;
     stats_.vertices += count;
 
+    if (backend_ != nullptr) backend_->draw_started(vaddr);
     std::vector<Vertex> verts;
     verts.reserve(count);
     std::uint32_t max_index = 0;
@@ -526,6 +531,7 @@ void Ge::draw_primitive(std::uint32_t data) {
         else if (index_format == 3) index = rd32(iaddr + i * 4u);
         max_index = std::max(max_index, index);
         verts.push_back(transform(decode_vertex(vaddr + index * vsize)));
+        verts.back().source = vaddr + index * vsize;
     }
     // The vertex (or index) pointer advances past what was consumed.
     if (index_format == 0) regs_[kVaddr] = vaddr + count * vsize;
@@ -711,6 +717,7 @@ void Ge::draw_line(const Vertex &a, const Vertex &b) {
         if (len <= 0.0f) return;
         const float nx = -dy / len * 0.5f, ny = dx / len * 0.5f;
         Vertex p0 = a, p1 = a, p2 = b, p3 = b;
+        for (Vertex *v : {&p0, &p1, &p2, &p3}) v->has_world = false; // offset on screen: cannot be placed again
         p0.x += nx; p0.y += ny; p1.x -= nx; p1.y -= ny;
         p2.x += nx; p2.y += ny; p3.x -= nx; p3.y -= ny;
         backend_->triangle(*this, p0, p1, p2);
@@ -729,6 +736,7 @@ void Ge::draw_line(const Vertex &a, const Vertex &b) {
 void Ge::draw_point(const Vertex &p) {
     if (backend_ != nullptr) {
         Vertex a = p, b = p;
+        a.has_world = b.has_world = false;
         b.x += 1.0f;
         b.y += 1.0f;
         backend_->sprite(*this, a, b);
