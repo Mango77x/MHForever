@@ -69,6 +69,8 @@ fs::path user_saves_dir() {
     return user_data_dir() / "saves";
 }
 
+fs::path game_saves_dir(const fs::path &saves_dir, std::string_view disc_id) { return saves_dir / std::string(disc_id); }
+
 fs::path game_dir(const fs::path &data_dir, std::string_view disc_id) { return data_dir / "games" / std::string(disc_id); }
 fs::path executable_path(const fs::path &data_dir, std::string_view disc_id) { return game_dir(data_dir, disc_id) / "executable.elf"; }
 fs::path image_path(const fs::path &data_dir, std::string_view disc_id) { return game_dir(data_dir, disc_id) / "image.iso"; }

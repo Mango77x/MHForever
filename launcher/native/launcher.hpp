@@ -46,7 +46,7 @@ public:
     explicit Launcher(std::filesystem::path base_dir);
     // `data_dir` holds what the installer makes from the player's disc image (install/data_dir.hpp).
     Launcher(std::filesystem::path base_dir, std::filesystem::path data_dir);
-    // `saves_dir` is the game's memory stick root (install::user_saves_dir() in the real launcher).
+    // `saves_dir` holds one memory stick per game, <saves_dir>/<DISC_ID> (install::user_saves_dir() in the real launcher).
     Launcher(std::filesystem::path base_dir, std::filesystem::path data_dir, std::filesystem::path saves_dir);
 
     // Everything the UI shows, as the bridge's State object.
@@ -87,8 +87,8 @@ public:
     [[nodiscard]] const std::filesystem::path &saves_dir() const { return saves_dir_; }
 
     // Saves used to live in <launcher folder>/memstick, which an update (a new folder) leaves behind. Copies what is
-    // there into saves_dir() once per source folder, never overwriting and never deleting the old files.
-    void import_legacy_saves();
+    // there into the memory stick of `disc_id` once per source folder, never overwriting and never deleting the old files.
+    void import_legacy_saves(const std::string &disc_id);
 
 private:
     void load();

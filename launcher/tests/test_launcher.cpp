@@ -141,26 +141,27 @@ int main() {
         std::ofstream(old_save / "DATA.BIN", std::ios::binary) << "old";
         Launcher l(base, data);
         CHECK(l.saves_dir() == data / "saves");
-        l.import_legacy_saves();
-        const fs::path moved = data / "saves" / "PSP" / "SAVEDATA" / "ULES01213SLOT1" / "DATA.BIN";
+        l.import_legacy_saves("ULES01213");
+        const fs::path stick = data / "saves" / "ULES01213"; // one memory stick per game
+        const fs::path moved = stick / "PSP" / "SAVEDATA" / "ULES01213SLOT1" / "DATA.BIN";
         CHECK(fs::is_regular_file(moved));
         CHECK(fs::is_regular_file(old_save / "DATA.BIN")); // the old copy stays
         std::ofstream(moved, std::ios::binary) << "newer";  // played on after the import
-        l.import_legacy_saves();                            // same source: nothing happens
+        l.import_legacy_saves("ULES01213");                 // same source: nothing happens
         std::string text;
         std::ifstream(moved, std::ios::binary) >> text;
         CHECK(text == "newer");
         fs::remove(moved);
         Launcher again(base, data);
-        again.import_legacy_saves();                        // a deleted save does not come back
+        again.import_legacy_saves("ULES01213");             // a deleted save does not come back
         CHECK(!fs::exists(moved));
         // A second old folder (another unzipped version) is imported too, without touching what exists.
         const fs::path base2 = dir / "saves_base2";
         fs::create_directories(base2 / "memstick" / "PSP" / "SAVEDATA" / "ULES01213SLOT2");
         std::ofstream(base2 / "memstick" / "PSP" / "SAVEDATA" / "ULES01213SLOT2" / "DATA.BIN") << "two";
         Launcher third(base2, data);
-        third.import_legacy_saves();
-        CHECK(fs::is_regular_file(data / "saves" / "PSP" / "SAVEDATA" / "ULES01213SLOT2" / "DATA.BIN"));
+        third.import_legacy_saves("ULES01213");
+        CHECK(fs::is_regular_file(stick / "PSP" / "SAVEDATA" / "ULES01213SLOT2" / "DATA.BIN"));
     }
 
     // Not a disc image.

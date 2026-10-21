@@ -54,7 +54,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   - *Per-user data* (`data_dir`): `MHF_DATA_DIR`, else `%APPDATA%/MHForever` or `$XDG_DATA_HOME/MHForever`
     (`~/.local/share/MHForever`); layout `games/<DISC_ID>/executable.elf` and, when the image is copied, `image.iso`.
     Executable lookup order: the path set in Settings, the per-user folder, then the developer layout (`../exe`, next to the ISO).
-    `launcher.json` and logs stay next to the launcher for now; saves live in `<Documents>/MHForever/saves` (`install::user_saves_dir()`, `MHF_SAVES_DIR` overrides), imported once from the old `<launcher>/memstick`.
+    `launcher.json` and logs stay next to the launcher for now; saves live in `<Documents>/MHForever/saves/<DISC_ID>` (`install::user_saves_dir()`, `MHF_SAVES_DIR` overrides), imported once from the old `<launcher>/memstick`.
   - *Executable preparation* (`executable_preparation`): reads `PSP_GAME/SYSDIR/EBOOT.BIN` from the image, accepts it only if
     its size and SHA-1 equal `[encrypted_executable]` in `region.toml`, then refuses any output whose SHA-1 is not
     `[dev_executable]`'s. The decryption itself is a replaceable `Decryptor`; `builtin_decryptor()` (`prx_decryptor.cpp`) wraps PPSSPP's PRX
@@ -109,5 +109,5 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
 
 - Windows: `%APPDATA%/MHForever/`. Linux: `$XDG_DATA_HOME/MHForever/` (`~/.local/share/MHForever`).
 - Today the per-user folder holds `games/<DISC_ID>/executable.elf` (and `image.iso` when a copy is kept); `launcher.json`,
-  `game.log` stays next to the launcher (§3b); the saves are in `<Documents>/MHForever/saves`.
+  `game.log` stays next to the launcher (§3b); the saves are in `<Documents>/MHForever/saves/<DISC_ID>`.
 - Target: `saves/`, `logs/` and `config.toml` there too, and an option to move the folder.
