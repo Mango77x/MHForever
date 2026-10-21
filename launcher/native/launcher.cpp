@@ -71,12 +71,35 @@ Json default_settings() {
 
 } // namespace
 
-Launcher::Launcher(fs::path base_dir) : Launcher(std::move(base_dir), install::user_data_dir()) {}
+Launcher::Launcher(fs::path base_dir)
+    : Launcher(std::move(base_dir), install::user_data_dir(), install::user_saves_dir()) {}
 
-Launcher::Launcher(fs::path base_dir, fs::path data_dir)
+Launcher::Launcher(fs::path base_dir, fs::path data_dir) : Launcher(std::move(base_dir), data_dir, data_dir / "saves") {}
+
+Launcher::Launcher(fs::path base_dir, fs::path data_dir, fs::path saves_dir)
     : base_(std::move(base_dir)), file_(base_ / "launcher.json"), data_dir_(std::move(data_dir)),
-      decryptor_(install::builtin_decryptor()) {
+      saves_dir_(std::move(saves_dir)), decryptor_(install::builtin_decryptor()) {
     load();
+}
+
+void Launcher::import_legacy_saves() {
+    std::error_code ec;
+    const fs::path old = base_ / "memstick";
+    if (!fs::is_directory(old / "PSP" / "SAVEDATA", ec)) return;
+    if (fs::exists(saves_dir_, ec) && fs::equivalent(old, saves_dir_, ec)) return;
+    const std::string source = platform::to_utf8(fs::weakly_canonical(old, ec));
+    const fs::path marker = saves_dir_ / ".imported";
+    {
+        std::ifstream in(marker);
+        for (std::string line; std::getline(in, line);) {
+            if (line == source) return; // already imported from that folder
+        }
+    }
+    fs::create_directories(saves_dir_, ec);
+    if (ec) return;
+    fs::copy(old, saves_dir_, fs::copy_options::recursive | fs::copy_options::skip_existing, ec);
+    if (ec) return; // try again next time; nothing was overwritten
+    std::ofstream(marker, std::ios::app) << source << '\n';
 }
 
 void Launcher::load() {
@@ -436,8 +459,9 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
     }
     const Json &s = data_["settings"];
     const auto num = [&](const char *key) { return std::to_string(static_cast<int>(s[key].as_number())); };
+    import_legacy_saves();
     plan.args = {"--iso", platform::to_utf8(iso), "--exe", platform::to_utf8(exe), "--memstick",
-                 platform::to_utf8(base_ / "memstick"), "--window", "--scale", num("scale"), "--name",
+                 platform::to_utf8(saves_dir_), "--window", "--scale", num("scale"), "--name",
                  data_["pseudonym"].as_string(), "--music-volume", num("musicVolume"), "--sfx-volume", num("sfxVolume")};
     if (s["fullscreen"].as_bool()) plan.args.push_back("--fullscreen");
     if (s["smoothTextures"].as_bool()) plan.args.push_back("--smooth-textures");
@@ -445,7 +469,7 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back("--fps");
         plan.args.push_back(num("fps"));
     }
-    fs::create_directories(base_ / "memstick", ec);
+    fs::create_directories(saves_dir_, ec);
     return plan;
 }
 

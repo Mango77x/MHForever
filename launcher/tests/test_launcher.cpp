@@ -132,6 +132,37 @@ int main() {
         CHECK(again.state()["settings"]["fps"].as_number() == 90);
     }
 
+    // Saves live outside the launcher folder; the ones an older version left next to it are imported once, copied and
+    // never overwritten or deleted.
+    {
+        const fs::path base = dir / "saves_base", data = dir / "saves_data";
+        const fs::path old_save = base / "memstick" / "PSP" / "SAVEDATA" / "ULES01213SLOT1";
+        fs::create_directories(old_save);
+        std::ofstream(old_save / "DATA.BIN", std::ios::binary) << "old";
+        Launcher l(base, data);
+        CHECK(l.saves_dir() == data / "saves");
+        l.import_legacy_saves();
+        const fs::path moved = data / "saves" / "PSP" / "SAVEDATA" / "ULES01213SLOT1" / "DATA.BIN";
+        CHECK(fs::is_regular_file(moved));
+        CHECK(fs::is_regular_file(old_save / "DATA.BIN")); // the old copy stays
+        std::ofstream(moved, std::ios::binary) << "newer";  // played on after the import
+        l.import_legacy_saves();                            // same source: nothing happens
+        std::string text;
+        std::ifstream(moved, std::ios::binary) >> text;
+        CHECK(text == "newer");
+        fs::remove(moved);
+        Launcher again(base, data);
+        again.import_legacy_saves();                        // a deleted save does not come back
+        CHECK(!fs::exists(moved));
+        // A second old folder (another unzipped version) is imported too, without touching what exists.
+        const fs::path base2 = dir / "saves_base2";
+        fs::create_directories(base2 / "memstick" / "PSP" / "SAVEDATA" / "ULES01213SLOT2");
+        std::ofstream(base2 / "memstick" / "PSP" / "SAVEDATA" / "ULES01213SLOT2" / "DATA.BIN") << "two";
+        Launcher third(base2, data);
+        third.import_legacy_saves();
+        CHECK(fs::is_regular_file(data / "saves" / "PSP" / "SAVEDATA" / "ULES01213SLOT2" / "DATA.BIN"));
+    }
+
     // Not a disc image.
     {
         std::ofstream(dir / "junk.iso") << "not an iso";

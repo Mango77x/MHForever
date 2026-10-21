@@ -7,6 +7,8 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include <knownfolders.h>
+#include <shlobj.h>
 #endif
 
 namespace mhf::launcher::install {
@@ -50,6 +52,21 @@ fs::path user_data_dir() {
     std::error_code ec;
     const fs::path here = fs::current_path(ec);
     return (ec ? fs::path(".") : here) / "data";
+}
+
+fs::path user_saves_dir() {
+    if (const auto override_dir = env_path("MHF_SAVES_DIR")) return *override_dir;
+#if defined(_WIN32)
+    PWSTR documents = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &documents)) && documents != nullptr) {
+        const fs::path folder(documents);
+        CoTaskMemFree(documents);
+        if (!folder.empty()) return folder / kAppName / "saves";
+    } else if (documents != nullptr) {
+        CoTaskMemFree(documents);
+    }
+#endif
+    return user_data_dir() / "saves";
 }
 
 fs::path game_dir(const fs::path &data_dir, std::string_view disc_id) { return data_dir / "games" / std::string(disc_id); }

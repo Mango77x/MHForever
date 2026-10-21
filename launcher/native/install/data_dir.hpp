@@ -12,6 +12,11 @@ namespace mhf::launcher::install {
 // ~/.local/share/MHForever elsewhere.
 std::filesystem::path user_data_dir();
 
+// Where the player's saves live, outside the folder the launcher runs from so that updating the launcher (a new
+// folder) never loses them: MHF_SAVES_DIR if set; otherwise <Documents>/MHForever/saves on Windows (the real Documents
+// folder, wherever the system redirects it), <user data>/saves elsewhere. It is the game's memory stick root.
+std::filesystem::path user_saves_dir();
+
 // <data>/games/<DISC_ID>/ and the files the installer writes into it.
 std::filesystem::path game_dir(const std::filesystem::path &data_dir, std::string_view disc_id);
 std::filesystem::path executable_path(const std::filesystem::path &data_dir, std::string_view disc_id);

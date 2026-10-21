@@ -26,7 +26,9 @@ How to play
    In Settings you can choose to keep a copy of the image in MHForever's own folder.
 4. Press Play.
 
-Your saves are stored in the "memstick" folder next to MHForever.exe.
+Your saves are stored in Documents\MHForever\saves, so updating MHForever never loses them.
+If you played an older version, the "memstick" folder next to its MHForever.exe is copied there
+the first time you press Play (copy it next to the new MHForever.exe if you unzipped a new folder).
 Prepared game data is stored in %APPDATA%\MHForever. Removing the game from the
 launcher deletes that data (never your original .iso).
 

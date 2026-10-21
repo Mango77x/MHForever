@@ -62,7 +62,7 @@ It is early software: the game boots and can be played, but expect rough edges a
 
 The game's assets (graphics, audio, text, data) are never included in MHForever or sent anywhere: they are read from the
 image you provide.
-Your saves live next to the launcher. Any controller recognized by SDL should work (tested with a PS5 DualSense); there are keyboard defaults too.
+Your saves live in `Documents\MHForever\saves`, outside the program folder, so updating never loses them. Any controller recognized by SDL should work (tested with a PS5 DualSense); there are keyboard defaults too.
 
 **Keyboard:** arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle, Q/E = L/R, Enter = Start,
 Backspace = Select.
