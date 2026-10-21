@@ -28,11 +28,24 @@ if(MHF_MHFU_GENERATED)
     file(GLOB mhfu_generated_sources CONFIGURE_DEPENDS ${MHF_MHFU_GENERATED}/*.cpp)
     # The generated code is its own library, compiled only against the stable ABI headers, so that host-side changes
     # (frontend, SDL, options) never force the long rebuild of the game code.
+    if(MSVC)
+        # Debug info (/Zi) and /O2 push the compiler out of heap on the largest generated files; this directory only.
+        string(REGEX REPLACE "/Zi|/O2|/Ob[0-9]" "" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
+        string(REGEX REPLACE "/Zi|/O2|/Ob[0-9]" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+    endif()
     add_library(mhfu_generated STATIC ${mhfu_generated_sources})
     target_include_directories(mhfu_generated PRIVATE ${MHF_MHFU_GENERATED})
     target_link_libraries(mhfu_generated PRIVATE mhf_psp_runtime)
     if(MSVC)
         target_compile_options(mhfu_generated PRIVATE /w /bigobj /O1)
+        # A few huge generated files (several MB) make the optimizer use tens of GB, or run out of heap. Build those
+        # without optimization (still fast enough: the hot code lives in the other parts).
+        foreach(src ${mhfu_generated_sources})
+            file(SIZE ${src} src_size)
+            if(src_size GREATER 5000000)
+                set_source_files_properties(${src} PROPERTIES COMPILE_OPTIONS /Od)
+            endif()
+        endforeach()
     else()
         target_compile_options(mhfu_generated PRIVATE -w -O1)
     endif()
