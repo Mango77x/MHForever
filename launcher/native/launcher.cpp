@@ -77,7 +77,7 @@ Launcher::Launcher(fs::path base_dir)
 Launcher::Launcher(fs::path base_dir, fs::path data_dir) : Launcher(std::move(base_dir), data_dir, data_dir / "saves") {}
 
 Launcher::Launcher(fs::path base_dir, fs::path data_dir, fs::path saves_dir)
-    : base_(std::move(base_dir)), file_(base_ / "launcher.json"), data_dir_(std::move(data_dir)),
+    : base_(std::move(base_dir)), file_(data_dir / "launcher.json"), data_dir_(std::move(data_dir)),
       saves_dir_(std::move(saves_dir)), decryptor_(install::builtin_decryptor()) {
     load();
 }
@@ -104,6 +104,16 @@ void Launcher::import_legacy_saves(const std::string &disc_id) {
 }
 
 void Launcher::load() {
+    // launcher.json (settings, library, identity) used to sit next to the executable, which an update (a new folder)
+    // leaves behind. It lives in the per-user data folder now; an old one is copied there once, never deleted.
+    {
+        std::error_code ec;
+        const fs::path old = base_ / "launcher.json";
+        if (!fs::exists(file_, ec) && fs::is_regular_file(old, ec)) {
+            fs::create_directories(file_.parent_path(), ec);
+            fs::copy_file(old, file_, fs::copy_options::skip_existing, ec);
+        }
+    }
     std::ifstream in(file_, std::ios::binary);
     if (in) {
         std::stringstream ss;
@@ -137,6 +147,10 @@ void Launcher::load() {
 }
 
 void Launcher::save() {
+    {
+        std::error_code ec;
+        fs::create_directories(file_.parent_path(), ec);
+    }
     const fs::path tmp = file_.string() + ".tmp";
     bool written = false;
     {

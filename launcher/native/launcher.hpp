@@ -1,7 +1,7 @@
 #pragma once
 
 // The launcher's state and actions, independent of the UI toolkit: the library of the player's copies, settings,
-// local identity, play statistics, and launching the game. Persisted in launcher.json next to the executable.
+// local identity, play statistics, and launching the game. Persisted in launcher.json in the per-user data folder.
 
 #include "install/executable_preparation.hpp"
 #include "json.hpp"

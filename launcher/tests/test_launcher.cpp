@@ -93,7 +93,7 @@ int main() {
     fs::create_directories(dir);
     std::string code;
     {
-        Launcher l(dir);
+        Launcher l(dir, dir);
         Json s = l.state();
         code = s["friendCode"].as_string();
         CHECK(std::regex_match(code, std::regex("^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$")));
@@ -126,10 +126,30 @@ int main() {
         CHECK(!plan.error.empty()); // no game files here
     }
     {
-        Launcher again(dir); // reloads launcher.json
+        Launcher again(dir, dir); // reloads launcher.json
         CHECK(again.state()["friendCode"].as_string() == code);
         CHECK(again.state()["settings"]["fullscreen"].as_bool());
         CHECK(again.state()["settings"]["fps"].as_number() == 90);
+    }
+
+    // launcher.json lives in the data folder; one left next to the executable by an older version is copied there once.
+    {
+        const fs::path base = dir / "config_base", data = dir / "config_data";
+        fs::create_directories(base);
+        std::ofstream(base / "launcher.json") << R"({"pseudonym": "OldHunter", "identitySeed": ")" << std::string(64, 'a')
+                                              << R"("})";
+        {
+            Launcher l(base, data);
+            CHECK(l.state()["pseudonym"].as_string() == "OldHunter");
+            CHECK(fs::is_regular_file(data / "launcher.json"));
+            CHECK(fs::is_regular_file(base / "launcher.json")); // the old file stays
+            Json s;
+            s["fullscreen"] = true;
+            l.set_settings(s);
+        }
+        Launcher again(base, data); // the data folder's file wins from now on
+        CHECK(again.state()["settings"]["fullscreen"].as_bool());
+        CHECK(again.state()["pseudonym"].as_string() == "OldHunter");
     }
 
     // Saves live outside the launcher folder; the ones an older version left next to it are imported once, copied and
@@ -167,7 +187,7 @@ int main() {
     // Not a disc image.
     {
         std::ofstream(dir / "junk.iso") << "not an iso";
-        Launcher l(dir);
+        Launcher l(dir, dir);
         auto r = l.add_game(dir / "junk.iso", {});
         CHECK(!r.game && !r.error.empty());
     }
@@ -179,17 +199,17 @@ int main() {
         fs::create_directories(blocked);
         std::string blocked_code;
         {
-            Launcher l(blocked);
+            Launcher l(blocked, blocked);
             blocked_code = l.state()["friendCode"].as_string();
         }
         fs::create_directories(blocked / "launcher.json.tmp");
         {
-            Launcher l(blocked);
+            Launcher l(blocked, blocked);
             l.set_pseudonym("Changed"); // save() cannot write
         }
         fs::remove_all(blocked / "launcher.json.tmp");
         CHECK(fs::is_regular_file(blocked / "launcher.json"));
-        Launcher after(blocked);
+        Launcher after(blocked, blocked);
         CHECK(after.state()["friendCode"].as_string() == blocked_code); // same identity, not a fresh one
         CHECK(after.state()["pseudonym"].as_string() == "Hunter");      // the previous file is intact
     }
