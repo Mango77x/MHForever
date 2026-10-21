@@ -18,9 +18,9 @@ public:
     // Opens the window (hidden = no visible window, for tests). Returns false when no display is available.
     // With `gpu`, the GE draws through OpenGL at `render_scale` times the PSP resolution (software rendering is the
     // fallback when OpenGL 3.3 is missing). `fullscreen` starts in borderless fullscreen; `smooth_textures` is the
-    // bilinear texture enhancement.
+    // bilinear texture enhancement and `target_fps` the output rate: multiples of the game's 30 fps up to 180, made with in-between pictures.
     bool open(const char *title, bool hidden = false, int scale = 2, bool gpu = true, int render_scale = 4,
-              bool fullscreen = false, bool smooth_textures = false);
+              bool fullscreen = false, bool smooth_textures = false, int target_fps = 30);
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
     void attach(Runtime &rt, std::function<void()> extra = {});

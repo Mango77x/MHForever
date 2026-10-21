@@ -21,6 +21,7 @@ export interface Settings {
   scale: number; // 1..4
   fullscreen: boolean;
   smoothTextures: boolean;
+  fps: number; // 30..180, a multiple of 30
   copyImage: boolean; // keep a copy of the disc image in MHForever's own folder
   musicVolume: number; // 0..100
   sfxVolume: number; // 0..100
@@ -84,7 +85,7 @@ function simulated(): Native {
     platform: 'browser',
     pseudonym: 'Hunter',
     friendCode: 'K7Q2-M9XA-4RTD-8PLE',
-    settings: { scale: 4, fullscreen: false, smoothTextures: false, copyImage: false, musicVolume: 80, sfxVolume: 90 },
+    settings: { scale: 4, fullscreen: false, smoothTextures: false, fps: 30, copyImage: false, musicVolume: 80, sfxVolume: 90 },
     games: [],
     stats: { secondsPlayed: 0, sessions: 0, lastPlayed: null },
     executable: { path: '', found: true },

@@ -102,12 +102,25 @@ int main() {
         partial["scale"] = 9;
         partial["musicVolume"] = -5;
         partial["fullscreen"] = true;
+        partial["fps"] = 100; // snaps to a multiple of 30
         l.set_settings(partial);
         l.set_pseudonym("Rathalos\x01Slayer");
         s = l.state();
         CHECK(s["settings"]["scale"].as_number() == 4);
         CHECK(s["settings"]["musicVolume"].as_number() == 0);
         CHECK(s["settings"]["fullscreen"].as_bool());
+        CHECK(s["settings"]["fps"].as_number() == 90);
+        Json fast;
+        fast["fps"] = 500;
+        l.set_settings(fast);
+        CHECK(l.state()["settings"]["fps"].as_number() == 180);
+        Json slow;
+        slow["fps"] = 5;
+        l.set_settings(slow);
+        CHECK(l.state()["settings"]["fps"].as_number() == 30);
+        Json back;
+        back["fps"] = 90;
+        l.set_settings(back);
         CHECK(s["pseudonym"].as_string() == "RathalosSlayer");
         auto plan = l.plan_launch("mhfu");
         CHECK(!plan.error.empty()); // no game files here
@@ -116,6 +129,7 @@ int main() {
         Launcher again(dir); // reloads launcher.json
         CHECK(again.state()["friendCode"].as_string() == code);
         CHECK(again.state()["settings"]["fullscreen"].as_bool());
+        CHECK(again.state()["settings"]["fps"].as_number() == 90);
     }
 
     // Not a disc image.

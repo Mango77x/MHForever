@@ -3,7 +3,7 @@
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
-//             [--smooth-textures] [--music-volume 0-100] [--sfx-volume 0-100]
+//             [--smooth-textures] [--fps 30..180] [--music-volume 0-100] [--sfx-volume 0-100]
 // The executable supplies the initial data sections. The launcher's installer prepares it from the player's own disc image
 // (launcher/native/install/); developer builds can also point --exe at a file that matches region.toml's dev_executable.
 
@@ -145,6 +145,7 @@ int main(int argc, char **argv) {
     int render_scale = 4;  // --scale N: internal resolution = N x 480x272 (GPU renderer)
     bool fullscreen = false;
     bool smooth_textures = false;
+    int target_fps = 30; // --fps N: 30 (the game's own rate) or a multiple of it up to 180
     std::vector<ScriptedPress> script;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -162,6 +163,7 @@ int main(int argc, char **argv) {
         else if (a == "--scale" && i + 1 < argc) render_scale = std::clamp(std::stoi(argv[++i]), 1, 8);
         else if (a == "--fullscreen") fullscreen = true;
         else if (a == "--smooth-textures") smooth_textures = true; // enhancement, off by default
+        else if (a == "--fps" && i + 1 < argc) target_fps = std::clamp(std::stoi(argv[++i]), 30, 180); // enhancement
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--sfx-volume" && i + 1 < argc) options.sfx_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--input" && i + 1 < argc) script = parse_input_script(argv[++i]);
@@ -222,7 +224,7 @@ int main(int argc, char **argv) {
         }
 #if defined(MHF_HAS_FRONTEND)
         mhf::psp::Frontend frontend;
-        if (window && frontend.open(window_title(options.disc_image).c_str(), false, 2, !software, render_scale, fullscreen, smooth_textures)) {
+        if (window && frontend.open(window_title(options.disc_image).c_str(), false, 2, !software, render_scale, fullscreen, smooth_textures, target_fps)) {
             frontend.attach(runtime, extra);
         } else if (window) {
             // A player asked for a window: never keep running invisibly.

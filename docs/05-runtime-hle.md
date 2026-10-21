@@ -247,6 +247,31 @@ one ubershader (texture functions, fog, alpha test, depth range) and fixed-funct
   not updated; `MHF_GL_READBACK=1` copies targets back after every list, for tests), CLUT textures read from a render
   target, Bézier/spline patches. `homebrew_getest_opengl` runs the GE test through it (offscreen EGL, read back).
 - Debugging: `MHF_GL_DUMP=<dir>` (+ `MHF_GL_DUMP_EVERY=n`) writes presented frames as PPM.
+- *Frame interpolation* (enhancement, `--fps N`, 30 = off by default; tried on the real game at 60, 120 and 180): the
+  game's logic runs once per flip at 30 fps, so a higher rate can only come from the renderer. `N` is rounded to a whole
+  multiple k of 30, from 1 to 6 (30, 60, 90, 120, 150, 180). The backend keeps the batches of each flip (draw state +
+  final vertices). At the next flip it draws that flip's batches again into a scratch target, starting from the previous
+  picture, at phase j/k for j = 1 .. k-1, and then shows the flip itself. 3D batches are placed again from the world
+  position of every vertex (the GE keeps it, `Vertex::world`) through a camera interpolated between the previous flip's
+  view/projection and this one's; vertices that were drawn in the previous flip too (same guest address and same
+  drawing command, so a repeated model is told apart) are first moved back toward where they were, so objects that move
+  on their own are interpolated as well. Placing the points again, instead of moving the screen-space vertices of
+  paired triangles, matters for terrain: the GE clips and culls it differently every flip, so triangle lists never
+  match. 2D batches (through mode) are still paired by shape (vertex count, clear, textured), looking ahead up to
+  four batches, and moved in screen space only when nothing moves more than 32 PSP pixels and the texture coordinates
+  stay put. Textures are never overwritten in place while recorded batches may still use them (the old one is retired
+  and deleted four flips later). Not interpolated, and shown as before: points behind the near plane, a camera that
+  turned too much (cuts), batches without a partner, flips whose render target was copied into or sampled while
+  being drawn, flips at an already fast pace (< 22 ms) or after a stall (> 150 ms), and the first flip after any of
+  those. The in-between pictures are made only while the GE has no display list to run (`Backend::next_wakeup`/`tick`,
+  honoured by the GE worker), so a heavy scene shows fewer of them instead of slowing the game down; late ones are
+  dropped (counted in the log). A flip appears (k-1)/k of a frame late: 17 ms at 60 fps, up to 28 ms at 180.
+  `MHF_FPS=<n>` overrides the option, `MHF_INTERP_LOG=1` prints how often each case happens.
+  `homebrew_motiontest_interpolation` checks 60, 90, 120 and 180 fps: about k pictures per flip, equal steps for shapes
+  moving a fixed step per frame, and a static shape that stays put (needs pspdev; not run in the last change).
+  Limits: the cost of an in-between picture grows with the geometry of the scene, so 180 fps is not sustained in the
+  heaviest areas; the output has no vsync yet, so a monitor whose refresh differs from the target may show uneven
+  pacing or tearing.
 
 Why OpenGL first instead of Vulkan : the same code runs on Windows, Linux and the Steam Deck, it needs no shader
 toolchain, and it was the fastest way to 30 fps at high resolution. The backend interface keeps a Vulkan

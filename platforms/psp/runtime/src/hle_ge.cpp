@@ -13,6 +13,7 @@
 
 #include "ge.hpp"
 
+#include <chrono>
 #include <atomic>
 #include <functional>
 #include <condition_variable>
@@ -136,9 +137,36 @@ struct GeState {
             }
         }
         std::unique_lock lock(mutex);
+        // Waits for work, but not past the moment the backend wants to be called (a second picture for a flip).
+        const auto wait_for_work = [&] {
+            const auto due = backend ? backend->next_wakeup() : std::nullopt;
+            if (due) wake.wait_until(lock, *due);
+            else wake.wait(lock);
+        };
+        // The list at the head stalled with nothing to draw: the GE is idle until the game adds to it.
+        int stalled_id = -1;
+        std::uint32_t stalled_pc = 0, stalled_stall = 0;
+        const auto idle = [&] {
+            if (queue.empty()) return true;
+            const int id = queue.front();
+            if (id < 0) return false;
+            const DisplayList &l = lists[id];
+            return id == stalled_id && l.pc == stalled_pc && l.stall == stalled_stall;
+        };
         while (!stop) {
+            if (backend) {
+                const auto due = backend->next_wakeup();
+                // Pictures the backend adds on its own (frame interpolation) only take time the game's drawing does
+                // not need: a busy scene shows fewer of them instead of slowing the game down.
+                if (due && std::chrono::steady_clock::now() >= *due && idle()) {
+                    lock.unlock();
+                    backend->tick();
+                    lock.lock();
+                    continue;
+                }
+            }
             if (queue.empty()) {
-                wake.wait(lock);
+                wait_for_work();
                 continue;
             }
             if (queue.front() < 0) {
@@ -156,7 +184,10 @@ struct GeState {
             const std::uint32_t pc = head.pc, stall = head.stall;
             if (!step(lock) && lists[queue.front()].pc == pc && lists[queue.front()].stall == stall) {
                 // Stalled with nothing new to draw: wait for sceGeListUpdateStallAddr.
-                wake.wait(lock);
+                stalled_id = queue.front();
+                stalled_pc = pc;
+                stalled_stall = stall;
+                wait_for_work();
             }
         }
         lock.unlock();

@@ -30,6 +30,11 @@ struct Vertex {
     float r{}, g{}, b{}, a{};   // primary color 0..255
     float sr{}, sg{}, sb{};     // secondary (specular) color
     float fog{1};
+    // For frame interpolation in backends: the position before the view matrix, and the guest address the vertex was
+    // read from (0 when it was made up by clipping, or for lines and points).
+    float world[3]{};
+    bool has_world{};
+    std::uint32_t source{};
 };
 
 // Called for SIGNAL and FINISH commands: (is_finish, value).
@@ -70,6 +75,9 @@ public:
     [[nodiscard]] std::uint64_t texture_hash() const;
     // Incremented whenever the palette is reloaded.
     [[nodiscard]] std::uint64_t clut_generation() const noexcept { return clut_generation_; }
+    // The current camera, for backends that place vertices again (frame interpolation).
+    [[nodiscard]] const Matrix43 &view_matrix() const noexcept { return view_; }
+    [[nodiscard]] const Matrix44 &proj_matrix() const noexcept { return proj_; }
 
 private:
     ListResult run_commands(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event);

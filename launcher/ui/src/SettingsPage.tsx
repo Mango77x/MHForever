@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
 import type { Settings, State } from './bridge';
 import { CopyIcon } from './icons';
-import { resolutions } from './format';
+import { frameRates, resolutions } from './format';
 
 const rise = (delay: number) => ({
   initial: { opacity: 0, y: 18, filter: 'blur(6px)' },
@@ -72,6 +72,15 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
             <span className="pill" style={{ transform: `translateX(${(s.scale - 1) * 100}%)` }} />
             {[1, 2, 3, 4].map((n) => (
               <button key={n} className={s.scale === n ? 'on' : ''} role="radio" aria-checked={s.scale === n} onClick={() => onChange({ scale: n })}>{n}×</button>
+            ))}
+          </div>
+        </div>
+        <div className="srow">
+          <div className="slabel"><b>Frame rate</b><span>{s.fps === 30 ? 'As the original game: 30 fps.' : `${s.fps} fps: the game still runs at 30, in-between pictures are drawn. Experimental.`}</span></div>
+          <div className="seg wide" role="radiogroup" aria-label="Frame rate" style={{ '--n': frameRates.length } as CSSProperties}>
+            <span className="pill" style={{ transform: `translateX(${Math.max(0, frameRates.indexOf(s.fps)) * 100}%)` }} />
+            {frameRates.map((n) => (
+              <button key={n} className={s.fps === n ? 'on' : ''} role="radio" aria-checked={s.fps === n} onClick={() => onChange({ fps: n })}>{n}</button>
             ))}
           </div>
         </div>

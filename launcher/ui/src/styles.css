@@ -270,10 +270,11 @@ button { -webkit-tap-highlight-color: transparent; }
 .slabel { display: flex; flex-direction: column; gap: 4px; min-width: 200px; flex: 1; }
 .slabel b { font-weight: 700; }
 .slabel span { color: var(--mute); font-size: 13px; word-break: break-all; }
-.seg { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); border-radius: 14px; padding: 4px; width: min(360px, 100%); }
+.seg { position: relative; display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); border-radius: 14px; padding: 4px; width: min(360px, 100%); }
+.seg.wide { width: min(480px, 100%); }
 .seg button { position: relative; z-index: 1; border: 0; background: transparent; height: 40px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 14px; color: var(--mute); transition: color 0.25s; }
 .seg button.on { color: var(--on-accent); }
-.seg .pill { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / 4); border-radius: 10px; background: var(--accent); box-shadow: 0 8px 24px -8px var(--accent); transition: transform 0.5s var(--spring); }
+.seg .pill { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / var(--n, 4)); border-radius: 10px; background: var(--accent); box-shadow: 0 8px 24px -8px var(--accent); transition: transform 0.5s var(--spring); }
 .tog { width: 56px; height: 32px; border-radius: 999px; border: 0; cursor: pointer; background: rgba(255, 236, 210, 0.12); position: relative; transition: background 0.3s; flex: none; }
 .tog::after { content: ''; position: absolute; top: 4px; left: 4px; width: 24px; height: 24px; border-radius: 50%; background: var(--ink); transition: transform 0.45s var(--spring); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }
 .tog.on { background: var(--accent); }

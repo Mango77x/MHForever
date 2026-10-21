@@ -7,7 +7,9 @@
 // primitives go to the backend instead of the software rasterizer; the backend reads the rest of the draw state
 // (textures, blending, tests, framebuffer) from the GE registers through the Ge it is given.
 
+#include <chrono>
 #include <cstdint>
+#include <optional>
 
 namespace mhf::psp::gpu {
 
@@ -21,6 +23,8 @@ public:
     // Screen-space vertices: x, y in framebuffer pixels, z in 0..65535, w = 1/w for perspective correction (1 in
     // through mode), u, v normalized (through mode: texels), colors 0..255, fog 0..1.
     virtual void triangle(const Ge &ge, const Vertex &a, const Vertex &b, const Vertex &c) = 0;
+    // A drawing command starts, with its vertex address (called even when nothing of it reaches the screen).
+    virtual void draw_started(std::uint32_t vertex_address) { (void)vertex_address; }
     // Axis-aligned rectangle between two corners; color, depth and fog come from `b`.
     virtual void sprite(const Ge &ge, const Vertex &a, const Vertex &b) = 0;
     // A block transfer (GE copy between memory rectangles) has been performed in guest memory.
@@ -31,6 +35,11 @@ public:
     virtual void flush() = 0;
     // The game asked to show the framebuffer at `address` (VRAM, as given to sceDisplaySetFrameBuf).
     virtual void present(std::uint32_t address, std::uint32_t stride, std::uint32_t pixel_format) = 0;
+
+    // For backends that show more than one picture per flip (frame interpolation): when `tick` should be called next
+    // (on the steady clock), or nothing. Called on the thread that owns the backend, between display lists.
+    [[nodiscard]] virtual std::optional<std::chrono::steady_clock::time_point> next_wakeup() const { return std::nullopt; }
+    virtual void tick() {}
 };
 
 } // namespace mhf::psp::gpu

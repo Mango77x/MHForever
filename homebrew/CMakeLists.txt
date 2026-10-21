@@ -44,6 +44,7 @@ mhf_add_homebrew(getest EXPECT "getest: [0-9]+ passed, 0 failed")
 mhf_add_homebrew(vfputest EXPECT "vfputest: [0-9]+ passed, 0 failed")
 mhf_add_homebrew(savetest EXPECT "savetest: [0-9]+ passed, 0 failed")
 mhf_add_homebrew(fonttest EXPECT "fonttest: [0-9]+ passed, 0 failed")
+mhf_add_homebrew(motiontest EXPECT "motiontest: done")
 
 # The GE test once more through the OpenGL renderer (offscreen, results read back into VRAM), when a frontend exists.
 if(TARGET mhf_psp_frontend)
@@ -51,4 +52,16 @@ if(TARGET mhf_psp_frontend)
     add_test(NAME homebrew_getest_opengl COMMAND hb_getest ${work}/getest.elf --memstick ${work}/memstick --window)
     set_tests_properties(homebrew_getest_opengl PROPERTIES PASS_REGULAR_EXPRESSION "getest: [0-9]+ passed, 0 failed"
                          TIMEOUT 60 LABELS opengl ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen;MHF_GL_READBACK=1")
+endif()
+
+# Frame interpolation (docs/05-runtime-hle.md): motiontest with it on, pictures checked for even motion.
+if(TARGET mhf_psp_frontend)
+    set(work ${CMAKE_CURRENT_BINARY_DIR}/motiontest_psp)
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME homebrew_motiontest_interpolation
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_interpolation.py
+                         $<TARGET_FILE:hb_motiontest> ${work}/motiontest.elf ${work}/memstick 60 90 120 180)
+        set_tests_properties(homebrew_motiontest_interpolation PROPERTIES TIMEOUT 300 LABELS opengl)
+    endif()
 endif()
