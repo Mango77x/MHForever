@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 
 #include <algorithm>
 #include <cstring>
@@ -27,6 +28,13 @@ struct Frontend::Impl {
     std::vector<std::uint32_t> frame = std::vector<std::uint32_t>(480 * 272);
     std::uint64_t last_vblank{};
     std::uint64_t last_audio_us{};
+    double audio_owed{};        // frames of real time not yet handed to the device (keeps the fraction of a frame)
+    bool audio_primed{};
+    // MHF_AUDIO_LOG=1: how well the output device is fed (why the sound may click), printed every 5 s.
+    struct AudioStats {
+        std::uint64_t polls{}, empty{}, lost_us{}, longest_gap_us{}, dropped{}, min_queued{~0ull}, sum_queued{};
+        std::uint64_t last_print_us{};
+    } audio_stats;
     bool open{};
     bool gpu{};
     int render_scale{4};
@@ -265,7 +273,51 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
             const std::uint64_t elapsed = now - impl->last_audio_us;
             if (elapsed >= 5000) {
                 impl->last_audio_us = now;
-                const auto frames = static_cast<std::size_t>(std::min<std::uint64_t>(elapsed * 44100u / 1'000'000u, 4096u));
+                // The time since the last poll in frames, keeping the fraction: truncating it every few milliseconds
+                // starved the device by ~0.2 % (a click every time its queue ran empty). The queue is steered toward
+                // kAudioCushion frames by a few frames per poll, so the device clock and ours cannot drift apart.
+                constexpr std::int64_t kAudioCushion = 1764; // 40 ms
+                if (!impl->audio_primed) { // start with the cushion filled with silence
+                    impl->audio_primed = true;
+                    const std::vector<std::int16_t> silence(static_cast<std::size_t>(kAudioCushion) * 2, 0);
+                    impl->host.queue_audio(silence.data(), static_cast<std::size_t>(kAudioCushion));
+                }
+                impl->audio_owed += static_cast<double>(elapsed) * 44100.0 / 1'000'000.0;
+                const std::uint64_t wanted = static_cast<std::uint64_t>(impl->audio_owed);
+                const std::int64_t queued_now = static_cast<std::int64_t>(impl->host.queued_audio_frames());
+                const std::int64_t steer = std::clamp((kAudioCushion - queued_now) / 128, std::int64_t{-2}, std::int64_t{2});
+                const std::int64_t target = std::max<std::int64_t>(static_cast<std::int64_t>(wanted) + steer, 0);
+                const auto frames = static_cast<std::size_t>(std::min<std::int64_t>(target, 4096));
+                impl->audio_owed -= static_cast<double>(wanted);
+                if (wanted > 4096u) impl->audio_owed = 0.0; // a long stall: the rest of that time is gone
+                static const bool log_audio = std::getenv("MHF_AUDIO_LOG") != nullptr;
+                if (log_audio) {
+                    auto &st = impl->audio_stats;
+                    const std::uint64_t queued = impl->host.queued_audio_frames();
+                    ++st.polls;
+                    st.empty += queued == 0 ? 1u : 0u;
+                    st.min_queued = std::min(st.min_queued, queued);
+                    st.sum_queued += queued;
+                    st.longest_gap_us = std::max(st.longest_gap_us, elapsed);
+                    if (wanted > frames + 2u) st.lost_us += (wanted - frames) * 1'000'000u / 44100u; // time never mixed
+                    if (queued > 44100u / 5u) ++st.dropped;                                       // chunk thrown away
+                    if (now - st.last_print_us >= 5'000'000u) {
+                        if (st.last_print_us != 0 && st.polls > 0) {
+                            std::fprintf(stderr,
+                                         "[audio] 5 s: polls %llu, device queue empty at %llu, queue min %llu / avg %llu frames, "
+                                         "longest gap %llu ms, mixed-away time %llu ms, chunks dropped %llu\n",
+                                         static_cast<unsigned long long>(st.polls), static_cast<unsigned long long>(st.empty),
+                                         static_cast<unsigned long long>(st.min_queued == ~0ull ? 0 : st.min_queued),
+                                         static_cast<unsigned long long>(st.sum_queued / st.polls),
+                                         static_cast<unsigned long long>(st.longest_gap_us / 1000u),
+                                         static_cast<unsigned long long>(st.lost_us / 1000u),
+                                         static_cast<unsigned long long>(st.dropped));
+                        }
+                        st = {};
+                        st.min_queued = ~0ull;
+                        st.last_print_us = now;
+                    }
+                }
                 std::vector<std::int16_t> mixed(frames * 2);
                 const std::size_t produced = mix_audio(*runtime, mixed.data(), frames);
                 if (produced > 0) impl->host.queue_audio(mixed.data(), produced);
