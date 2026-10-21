@@ -66,8 +66,9 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [ ] Village, shop, Felyne kitchen, one gathering quest and one hunting quest completed.
 - [ ] Performance measured on a modest PC and on Linux.
 - [x] Owner playtest (2026-10-21): single player played from start to finish on Windows. Fixed in 0.2.1: audio clicks (the
-      output device was fed 0.2 % too little, `psp_frontend.cpp`) and flicker of item icons and text at 60 fps and above.
-      Known: occasional text or texture flicker, 180 fps not sustained in the heaviest areas, real PSP saves not importable.
+      output device was fed 0.2 % too little, `psp_frontend.cpp`) and flicker of item icons, text and textures at 60 fps and
+      above (2D sprites are paired strictly, `05` §6).
+      Known: 180 fps not sustained in the heaviest areas, real PSP saves not importable.
 **Acceptance**: complete 3 quests and save/load without failures; stable framerate matching the original.
 
 ## Phase 4 — Launcher and packaging
