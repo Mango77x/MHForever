@@ -47,3 +47,6 @@ homebrew/**/*.elf
 # Local build trees
 build*/
 windows-msvc/
+
+# Saves written by developer runs of mhfu/homebrew with the default memory stick folder
+/memstick/
