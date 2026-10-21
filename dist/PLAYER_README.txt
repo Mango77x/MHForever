@@ -40,8 +40,10 @@ also needs the Microsoft Edge WebView2 runtime, which Windows 10/11 normally inc
 
 Status
 ------
-Early release. Freedom Unite runs at 30 fps, as on the original console. 60 fps and online
-multiplayer are being worked on. Expect rough edges.
+Early release. Freedom Unite runs at 30 fps, as on the original console. Settings also
+offers 60 to 180 fps (any multiple of 30): the game still runs at 30 and the extra pictures
+are drawn in between, so it is experimental and heavy scenes may not hold the highest rates.
+Online multiplayer is being worked on. Expect rough edges.
 
 
 Source code and licenses

@@ -76,7 +76,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Executable preparation module: the decryption step behind `builtin_decryptor()` (PPSSPP's PRX decrypter, GPL), validated
   byte for byte against `[dev_executable]` with the developer's disc (2026-10-19).
 - [ ] Launcher: language selection, icon, signed updates.
-- [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19).
+- [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19), v0.2.0 adds frame interpolation (2026-10-21).
 - [ ] Windows installer and AppImage (Linux). Deck testing by friends.
 **Acceptance**: a user with no development tools goes from "I have my ISO" to "I'm playing" using only the launcher.
 
@@ -98,7 +98,8 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 ## Phase 7 — Optional enhancements
 
 Done: internal resolution (`--scale`, launcher setting), bilinear texture option, right stick as D-pad camera, fullscreen toggle.
-Pending: widescreen, analog camera hook, per-controller icons, 60 fps (research). See `06-mhfu-module.md` §9.
+Done too: 60 to 180 fps by frame interpolation (`--fps`, launcher setting; `05-runtime-hle.md` §6, v0.2.0).
+Pending: widescreen, analog camera hook, per-controller icons, vsync and a lighter interpolation path for heavy scenes. See `06-mhfu-module.md` §9.
 
 ## Phase 8 — Next game
 
