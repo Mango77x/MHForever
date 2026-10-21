@@ -1342,11 +1342,21 @@ constexpr float kMaxUvChange = 0.01f;
 
 bool clearing(const DrawSetup &s) { return (key_reg(s.key, kClearMode) & 1u) != 0; }
 
-// The same on-screen thing in two flips: same draw state (texture, blending, target...), same texture object (a
-// texture whose content changed is another one, see texture_for) and the same number of vertices.
+// Draw state compared register by register, except the draw buffer address.
+bool same_state(const DrawKey &a, const DrawKey &b) {
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (i < kStateRegs.size() && kStateRegs[i] == kFramebufPtr) continue; // the draw buffer alternates every flip
+        if (a[i] != b[i]) return false;
+    }
+    return true;
+}
+
+// The same on-screen thing in two flips: same draw state (texture, blending...; the game alternates two draw buffers,
+// so which one it went to does not count), same texture object (a texture whose content changed is another one, see
+// texture_for) and the same number of vertices.
 bool same_batch(const TapeEntry &a, const TapeEntry &b) {
-    return a.vertices.size() == b.vertices.size() && a.setup.through == b.setup.through && a.setup.key == b.setup.key &&
-           a.setup.texture == b.setup.texture && a.setup.uv_xform[0] == b.setup.uv_xform[0] &&
+    return a.vertices.size() == b.vertices.size() && a.setup.through == b.setup.through &&
+           same_state(a.setup.key, b.setup.key) && a.setup.texture == b.setup.texture && a.setup.uv_xform[0] == b.setup.uv_xform[0] &&
            a.setup.uv_xform[1] == b.setup.uv_xform[1] && a.setup.uv_xform[2] == b.setup.uv_xform[2] &&
            a.setup.uv_xform[3] == b.setup.uv_xform[3];
 }
