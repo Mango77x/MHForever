@@ -5,6 +5,7 @@
 [![CI](https://github.com/Mango77x/MHForever/actions/workflows/ci.yml/badge.svg)](https://github.com/Mango77x/MHForever/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Mango77x/MHForever)](https://github.com/Mango77x/MHForever/releases)
 [![License: GPL-3.0-or-later](https://img.shields.io/github/license/Mango77x/MHForever)](LICENSE)
+[![Website](https://img.shields.io/badge/website-mango77x.github.io%2FMHForever--site-f2a541)](https://mango77x.github.io/MHForever-site/)
 
 **Monster Hunter Freedom Unite on PC: an unofficial native port through static recompilation.**
 
@@ -17,6 +18,14 @@ the first step of a wider Monster Hunter recompilation project, and each game is
 > Not affiliated with, endorsed by or sponsored by Capcom or Sony. Requires your own legitimate copy of the game.
 > No game assets are included or downloaded: no disc image, textures, models, audio, text or saves. "Monster Hunter" is
 > a trademark of its owner and is used here only to describe which games the project works with.
+
+## Website
+
+**https://mango77x.github.io/MHForever-site/**
+
+The project website explains what MHForever is, shows which games are supported, and always links to the latest
+release. It is built from its own repository,
+[MHForever-site](https://github.com/Mango77x/MHForever-site). The downloads, the code and the issues live here.
 
 ## Supported games
 
