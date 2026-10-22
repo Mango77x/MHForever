@@ -260,7 +260,7 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
     overlay::MenuView v;
     v.title = "Paused";
     v.subtitle = impl.title;
-    v.hint = "Arrows: move and change   Enter: select   Esc: resume";
+    v.hint = "Arrows move  |  Enter select  |  Esc back";
     v.items.push_back(menu_item(Kind::Button, kResume, "Resume"));
     v.items.push_back(menu_item(Kind::Heading, 0, "SOUND"));
     v.items.push_back(menu_item(Kind::Slider, kMusic, "Music", impl.music_volume));
@@ -268,11 +268,7 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
     v.items.push_back(menu_item(Kind::Heading, 0, "VIDEO"));
     v.items.push_back(menu_item(Kind::Toggle, kFullscreen, "Fullscreen", impl.host.window_rect().fullscreen ? 1 : 0));
     v.items.push_back(menu_item(Kind::Toggle, kSmooth, "Smooth textures", impl.live.smooth_textures ? 1 : 0));
-    v.items.push_back(menu_item(Kind::Info, 0, std::to_string(impl.render_scale) + "x resolution, " +
-                                                   std::to_string(impl.target_fps) + " fps (set in the launcher)"));
-    v.items.push_back(menu_item(Kind::Heading, 0, "ONLINE"));
-    v.items.push_back(menu_item(Kind::Info, 0, "Friends, rooms and invites arrive"));
-    v.items.push_back(menu_item(Kind::Info, 0, "with online play."));
+    v.items.push_back(menu_item(Kind::Info, 0, std::to_string(impl.render_scale) + "x, " + std::to_string(impl.target_fps) + " fps (set in launcher)"));
     overlay::MenuItem quit = menu_item(Kind::Button, kQuit, "Quit the game");
     quit.danger = true;
     v.items.push_back(quit);
@@ -284,7 +280,7 @@ overlay::MenuView menu_confirm_quit() {
     overlay::MenuView v;
     v.title = "Quit the game?";
     v.subtitle = "Progress since your last save is lost.";
-    v.hint = "Enter: select   Esc: back";
+    v.hint = "Enter select  |  Esc back";
     v.items.push_back(menu_item(Kind::Button, kQuitNo, "Keep playing"));
     overlay::MenuItem yes = menu_item(Kind::Button, kQuitYes, "Quit without saving");
     yes.danger = true;

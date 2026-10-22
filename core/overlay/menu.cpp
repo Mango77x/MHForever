@@ -95,116 +95,118 @@ Menu::Event Menu::press(Key key) {
 struct MenuRenderer::Impl : Painter {
     explicit Impl(const std::filesystem::path &font_directory) : Painter(font_directory) {}
 
-    static constexpr float kPanelX = 20.0f, kPanelY = 14.0f, kPanelW = 240.0f, kPanelH = 244.0f, kPad = 14.0f;
+    // A compact panel on the left that is as tall as its rows (logical units of the 480x272 canvas).
+    static constexpr float kPanelX = 14.0f, kPanelY = 14.0f, kPanelW = 168.0f, kPad = 10.0f;
+    static constexpr float kHeaderH = 31.0f, kFooterH = 18.0f, kMaxH = 244.0f;
 
     static float row_height(const MenuItem &item) {
         switch (item.kind) {
-        case MenuItem::Kind::Heading: return 20.0f;
-        case MenuItem::Kind::Info: return 15.0f;
-        default: return item.detail.empty() ? 22.0f : 30.0f;
+        case MenuItem::Kind::Heading: return 15.0f;
+        case MenuItem::Kind::Info: return 10.5f;
+        default: return item.detail.empty() ? 15.5f : 23.0f;
         }
     }
 
-    void panel() {
-        rrect(kPanelX, kPanelY + 3.0f, kPanelW, kPanelH, 12.0f, kBlack, 0.35f); // shadow
-        rrect(kPanelX, kPanelY, kPanelW, kPanelH, 12.0f, kPanelTop, 0.97f, 0.0f, &kPanelBottom);
-        rrect(kPanelX, kPanelY, kPanelW, kPanelH, 12.0f, kWhite, 0.09f, 0.6f);
-        rrect(kPanelX + 18.0f, kPanelY, kPanelW - 36.0f, 1.6f, 0.8f, kAccent, 0.95f); // accent line
+    void panel(float h) {
+        rrect(kPanelX, kPanelY + 2.0f, kPanelW, h, 9.0f, kBlack, 0.30f); // shadow
+        rrect(kPanelX, kPanelY, kPanelW, h, 9.0f, kPanelTop, 0.95f, 0.0f, &kPanelBottom);
+        rrect(kPanelX, kPanelY, kPanelW, h, 9.0f, kWhite, 0.08f, 0.5f);
     }
 
     void row(float x, float y, float w, const MenuItem &item, bool selected) {
         const float h = row_height(item);
         if (item.kind == MenuItem::Kind::Heading) {
-            text(x + 2.0f, y + 14.0f, item.label, 8.5f, kAccent, 0.95f, true);
+            text(x + 3.0f, y + 11.0f, item.label, 6.2f, kDim, 0.85f, true);
             return;
         }
         if (item.kind == MenuItem::Kind::Info) {
-            text(x + 2.0f, y + 11.0f, fit(item.label, 8.5f, w - 4.0f), 8.5f, kDim);
+            text(x + 3.0f, y + 7.5f, fit(item.label, 6.6f, w - 6.0f), 6.6f, kDim, 0.9f);
             return;
         }
         const float alpha = item.enabled ? 1.0f : 0.4f;
+        const float rh = h - 2.0f;
         if (selected) {
-            rrect(x, y, w, h - 2.0f, 7.0f, kAccent, 0.13f);
-            rrect(x, y, w, h - 2.0f, 7.0f, kAccent, 0.85f, 0.8f);
-        } else {
-            rrect(x, y, w, h - 2.0f, 7.0f, kWhite, 0.035f);
+            rrect(x, y, w, rh, 5.0f, kAccent, 0.14f);
+            rrect(x, y, 2.0f, rh, 1.0f, kAccent, 0.95f); // accent bar on the left
         }
         const Color label_color = item.danger ? kDanger : kText;
-        const float base = item.detail.empty() ? y + (h - 2.0f) * 0.5f + 3.6f : y + 12.0f;
-        // The control on the right first, to know how much room the label has.
-        float control = 0.0f;
-        const float right = x + w - 10.0f;
+        const float base = item.detail.empty() ? y + rh * 0.5f + 3.0f : y + 9.5f;
+        const float right = x + w - 7.0f;
+        float control = 0.0f; // room taken by the control on the right
         switch (item.kind) {
         case MenuItem::Kind::Slider: {
             const std::string number = std::to_string(item.value);
-            const float nw = 22.0f;
-            text(right - measure(number, 9.0f), base, number, 9.0f, kText, alpha);
-            const float bar_w = 64.0f, bx = right - nw - bar_w - 4.0f, by = base - 5.0f;
+            text(right - measure(number, 7.5f), base, number, 7.5f, kDim, alpha);
+            const float bar_w = 42.0f, bx = right - 16.0f - bar_w, by = base - 3.6f;
             const float span = static_cast<float>(std::max(item.max - item.min, 1));
             const float t = std::clamp(static_cast<float>(item.value - item.min) / span, 0.0f, 1.0f);
-            rrect(bx, by, bar_w, 4.0f, 2.0f, kWhite, 0.14f * alpha);
-            if (t > 0.0f) rrect(bx, by, std::max(bar_w * t, 4.0f), 4.0f, 2.0f, kAccent, alpha);
-            control = nw + bar_w + 8.0f;
+            rrect(bx, by, bar_w, 2.4f, 1.2f, kWhite, 0.16f * alpha);
+            if (t > 0.0f) rrect(bx, by, std::max(bar_w * t, 2.4f), 2.4f, 1.2f, kAccent, alpha);
+            if (selected) rrect(bx + bar_w * t - 2.4f, by - 1.2f, 4.8f, 4.8f, 2.4f, kText, alpha); // knob
+            control = 16.0f + bar_w + 8.0f;
             break;
         }
         case MenuItem::Kind::Toggle: {
             const bool on = item.value != 0;
-            const float pw = 24.0f, ph = 12.0f, px = right - pw, py = base - 8.5f;
-            rrect(px, py, pw, ph, ph * 0.5f, on ? kAccent : kWhite, on ? alpha : 0.14f * alpha);
-            rrect(on ? px + pw - ph + 1.5f : px + 1.5f, py + 1.5f, ph - 3.0f, ph - 3.0f, (ph - 3.0f) * 0.5f, on ? kInk : kDim, alpha);
+            const float pw = 19.0f, ph = 9.5f, px = right - pw, py = base - 7.0f;
+            rrect(px, py, pw, ph, ph * 0.5f, on ? kAccent : kWhite, on ? alpha : 0.16f * alpha);
+            const float kr = ph - 3.0f;
+            rrect(on ? px + pw - kr - 1.5f : px + 1.5f, py + 1.5f, kr, kr, kr * 0.5f, on ? kInk : kDim, alpha);
             control = pw + 6.0f;
             break;
         }
         case MenuItem::Kind::Choice: {
             const std::string shown =
                 item.value >= 0 && item.value < static_cast<int>(item.options.size()) ? item.options[static_cast<std::size_t>(item.value)] : "";
-            const float tw = measure(shown, 9.0f, true);
-            text(right - tw, base, shown, 9.0f, kText, alpha, true);
-            if (selected) {
-                text(right - tw - 9.0f, base, "\xE2\x80\xB9", 11.0f, kAccent, alpha, true);
-                text(right + 2.0f, base, "\xE2\x80\xBA", 11.0f, kAccent, alpha, true);
-            }
-            control = tw + 16.0f;
+            const float tw = measure(shown, 7.5f, true);
+            text(right - tw, base, shown, 7.5f, kText, alpha, true);
+            control = tw + 8.0f;
             break;
         }
         default: break;
         }
-        text(x + 10.0f, base, fit(item.label, 10.0f, w - 20.0f - control), 10.0f, label_color, alpha, selected);
-        if (!item.detail.empty()) text(x + 10.0f, y + 23.0f, fit(item.detail, 7.5f, w - 20.0f), 7.5f, kDim, alpha);
+        text(x + 8.0f, base, fit(item.label, 8.0f, w - 16.0f - control), 8.0f, label_color, alpha, false);
+        if (!item.detail.empty()) text(x + 8.0f, y + 19.0f, fit(item.detail, 6.5f, w - 16.0f), 6.5f, kDim, alpha);
     }
 
     void draw(const MenuView &v) {
-        fill_all(kBlack, 0.55f);
-        panel();
-        const float x = kPanelX + kPad, w = kPanelW - kPad * 2.0f;
-        text(x, kPanelY + 28.0f, fit(v.title, 13.0f, w), 13.0f, kText, 1.0f, true);
-        if (!v.subtitle.empty()) text(x, kPanelY + 40.0f, fit(v.subtitle, 8.5f, w), 8.5f, kDim);
-
-        // Rows, scrolled so that the selected one is in view.
-        const float top = kPanelY + 50.0f, bottom = kPanelY + kPanelH - (v.hint.empty() ? 12.0f : 24.0f);
-        const float room = bottom - top;
+        fill_all(kBlack, 0.35f);
+        // Row positions first: the panel is as tall as they are.
         std::vector<float> offsets(v.items.size() + 1, 0.0f);
         for (std::size_t i = 0; i < v.items.size(); ++i) offsets[i + 1] = offsets[i] + row_height(v.items[i]);
+        const float footer = v.hint.empty() ? 8.0f : kFooterH;
+        const float content = std::min(offsets.back(), kMaxH - kHeaderH - footer);
+        const float h = kHeaderH + content + footer;
+        panel(h);
+
+        const float x = kPanelX + kPad, w = kPanelW - kPad * 2.0f;
+        text(x, kPanelY + 17.0f, fit(v.title, 10.5f, w), 10.5f, kText, 1.0f, true);
+        if (!v.subtitle.empty()) text(x, kPanelY + 26.0f, fit(v.subtitle, 6.6f, w), 6.6f, kDim);
+
+        // Rows, scrolled so that the selected one is in view.
+        const float top = kPanelY + kHeaderH;
         float scroll = 0.0f;
         if (v.selected >= 0 && v.selected < static_cast<int>(v.items.size())) {
             const auto s = static_cast<std::size_t>(v.selected);
-            if (offsets[s + 1] > room) scroll = offsets[s + 1] - room;
+            if (offsets[s + 1] > content) scroll = offsets[s + 1] - content;
             // A heading right above the selection stays with it.
             if (s > 0 && v.items[s - 1].kind == MenuItem::Kind::Heading && offsets[s - 1] < scroll) scroll = offsets[s - 1];
         }
         for (std::size_t i = 0; i < v.items.size(); ++i) {
             const float y = top + offsets[i] - scroll;
-            if (y < top - 0.5f || y + row_height(v.items[i]) > bottom + 0.5f) continue;
+            if (y < top - 0.5f || y + row_height(v.items[i]) > top + content + 0.5f) continue;
             row(x, y, w, v.items[i], static_cast<int>(i) == v.selected);
         }
-        if (offsets.back() > room) { // more rows than room: a thin scroll bar
-            const float track = room, thumb = std::max(12.0f, track * room / offsets.back());
-            const float at = scroll / std::max(offsets.back() - room, 1.0f) * (track - thumb);
-            rrect(kPanelX + kPanelW - 7.0f, top + at, 2.0f, thumb, 1.0f, kWhite, 0.3f);
+        if (offsets.back() > content) { // more rows than room: a thin scroll bar
+            const float thumb = std::max(10.0f, content * content / offsets.back());
+            const float at = scroll / std::max(offsets.back() - content, 1.0f) * (content - thumb);
+            rrect(kPanelX + kPanelW - 5.0f, top + at, 1.6f, thumb, 0.8f, kWhite, 0.3f);
         }
         if (!v.hint.empty()) {
-            const float size = 7.5f;
-            text(kPanelX + (kPanelW - measure(v.hint, size)) * 0.5f, kPanelY + kPanelH - 9.0f, fit(v.hint, size, w), size, kDim, 0.9f);
+            const float size = 6.2f;
+            const float hy = kPanelY + h - 7.5f;
+            rrect(x, hy - 9.5f, w, 0.5f, 0.25f, kWhite, 0.07f); // hairline above the hint
+            text(x + (w - measure(v.hint, size)) * 0.5f, hy, fit(v.hint, size, w), size, kDim, 0.85f);
         }
     }
 };

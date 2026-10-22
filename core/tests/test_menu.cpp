@@ -139,9 +139,28 @@ int main() {
     // MHF_MENU_DUMP=<file>: also writes the picture (raw premultiplied RGBA, 1920x1088) to look at it.
     if (const char *dump = std::getenv("MHF_MENU_DUMP")) {
         std::vector<std::uint32_t> big;
-        MenuView v = sample();
-        v.hint = "Arrows: move and change   Enter: select   Esc: resume";
+        // The rows of the game's menu, to see how it looks.
+        MenuView v;
+        v.title = "Paused";
         v.subtitle = "Freedom Unite";
+        v.hint = "Arrows move  |  Enter select  |  Esc back";
+        const auto row = [](MenuItem::Kind kind, int id, const char *label, int value) {
+            MenuItem item;
+            item.kind = kind;
+            item.id = id;
+            item.label = label;
+            item.value = value;
+            return item;
+        };
+        v.items = {row(MenuItem::Kind::Button, 1, "Resume", 0),     row(MenuItem::Kind::Heading, 0, "SOUND", 0),
+                   row(MenuItem::Kind::Slider, 2, "Music", 80),     row(MenuItem::Kind::Slider, 3, "Sound effects", 90),
+                   row(MenuItem::Kind::Heading, 0, "VIDEO", 0),     row(MenuItem::Kind::Toggle, 4, "Fullscreen", 1),
+                   row(MenuItem::Kind::Toggle, 5, "Smooth textures", 0), row(MenuItem::Kind::Info, 0, "4x, 60 fps (set in launcher)", 0),
+                   row(MenuItem::Kind::Button, 6, "Quit the game", 0)};
+        v.items.back().danger = true;
+        menu.set(v);
+        menu.press(Key::Down); // on the music slider
+        v = menu.view();
         renderer.render(v, 4, big);
         if (std::FILE *f = std::fopen(dump, "wb")) {
             std::fwrite(big.data(), 4, big.size(), f);
