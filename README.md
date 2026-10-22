@@ -89,6 +89,20 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
 | [Launcher, controllers, Steam Deck](docs/07-launcher-ux.md) | [Multiplayer](docs/08-multiplayer.md) |
 | [Roadmap](docs/10-roadmap.md) | |
 
+## Special thanks
+
+- **[theguyser](https://github.com/theguyser)**, author of [pokke](https://github.com/theguyser/pokke) (a port of the Japanese
+  release of the same game): the PSP save-data cryptography that lets MHForever read and write saves in the PSP and PPSSPP
+  format comes from his project, shared with his permission, along with his time and advice.
+- **[PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp)**, the static recompiler framework this project is built on.
+- **[PPSSPP](https://github.com/hrydgard/ppsspp)**, for the executable decryption and the ATRAC decoders used here, and as the
+  reference for how the PSP behaves.
+- **[tclamb/mhp2g-decomp](https://github.com/tclamb/mhp2g-decomp)**, the matching decompilation of *Monster Hunter Portable 2nd G*,
+  whose documented formats and names helped a great deal.
+- Everyone who tested the releases and reported problems on GitHub, Reddit and Discord.
+
+The full list of third-party code and its licenses is in `THIRD_PARTY.md`.
+
 ## License
 
 GPL-3.0-or-later (see `LICENSE`). Third-party components keep their own licenses (see `THIRD_PARTY.md`).
