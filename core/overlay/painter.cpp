@@ -158,6 +158,45 @@ float Painter::measure(const std::string &text, float size, bool bold, float tra
     return w / scale_ + (bold ? 0.4f : 0.0f) + tracking * static_cast<float>(glyphs);
 }
 
+void Painter::image(float x, float y, float size, const std::uint32_t *source, int source_size) {
+    const int dest = std::max(1, static_cast<int>(std::lround(size * scale_)));
+    const int x0 = static_cast<int>(std::lround(x * scale_)), y0 = static_cast<int>(std::lround(y * scale_));
+    const float ratio = static_cast<float>(source_size) / static_cast<float>(dest);
+    for (int dy = 0; dy < dest; ++dy) {
+        const int py = y0 + dy;
+        if (py < 0 || py >= height_) continue;
+        const int sy0 = static_cast<int>(static_cast<float>(dy) * ratio);
+        const int sy1 = std::max(sy0 + 1, static_cast<int>(static_cast<float>(dy + 1) * ratio));
+        for (int dx = 0; dx < dest; ++dx) {
+            const int pxx = x0 + dx;
+            if (pxx < 0 || pxx >= width_) continue;
+            const int sx0 = static_cast<int>(static_cast<float>(dx) * ratio);
+            const int sx1 = std::max(sx0 + 1, static_cast<int>(static_cast<float>(dx + 1) * ratio));
+            std::uint32_t sum[4] = {};
+            int count = 0;
+            for (int sy = sy0; sy < std::min(sy1, source_size); ++sy) {
+                for (int sx = sx0; sx < std::min(sx1, source_size); ++sx) {
+                    const std::uint32_t p = source[sy * source_size + sx];
+                    for (int c = 0; c < 4; ++c) sum[c] += (p >> (8 * c)) & 0xFFu;
+                    ++count;
+                }
+            }
+            if (count == 0) continue;
+            const std::uint32_t a = sum[3] / static_cast<std::uint32_t>(count);
+            if (a == 0) continue;
+            // Premultiplied source: dst = src + dst * (1 - a).
+            std::uint32_t &d = (*px_)[static_cast<std::size_t>(py) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(pxx)];
+            const std::uint32_t inv = 255u - a;
+            std::uint32_t out = 0;
+            for (int c = 0; c < 4; ++c) {
+                const std::uint32_t v = sum[c] / static_cast<std::uint32_t>(count) + (((d >> (8 * c)) & 0xFFu) * inv + 127u) / 255u;
+                out |= std::min(v, 255u) << (8 * c);
+            }
+            d = out;
+        }
+    }
+}
+
 void Painter::rect(float x, float y, float w, float h, Color c, float alpha) {
     const int x0 = std::max(0, static_cast<int>(std::lround(x * scale_))), x1 = std::min(width_, static_cast<int>(std::lround((x + w) * scale_)));
     const int y0 = std::max(0, static_cast<int>(std::lround(y * scale_))), y1 = std::min(height_, static_cast<int>(std::lround((y + h) * scale_)));

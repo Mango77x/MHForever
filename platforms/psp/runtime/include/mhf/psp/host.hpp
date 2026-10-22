@@ -61,6 +61,9 @@ void set_gpu_backend_factory(Runtime &rt, std::function<std::unique_ptr<gpu::Bac
 [[nodiscard]] bool gpu_backend_active(Runtime &rt);
 // Stops display-list processing and destroys the backend (before its window goes away).
 void stop_gpu_backend(Runtime &rt);
+// Wakes the drawing thread if it is asleep waiting for work: call it after changing something the backend looks at when
+// it decides when to wake up (the in-game menu asking for a continuous redraw).
+void wake_gpu_backend(Runtime &rt);
 
 // Duration of one PSP video frame (59.94 Hz) in microseconds.
 inline constexpr std::uint64_t kVblankPeriodUs = 16683u;

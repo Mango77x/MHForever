@@ -39,7 +39,6 @@ struct MenuTab {
 };
 
 struct MenuView {
-    std::string title;    // shown small at the top left (the game's name)
     std::vector<MenuTab> tabs;
     int tab = 0;          // the tab shown
     int selected = 0;     // row of that tab

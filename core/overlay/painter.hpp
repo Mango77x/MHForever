@@ -55,6 +55,9 @@ public:
     // Draws `text` with its baseline at logical (x, baseline); returns the logical width.
     float text(float x, float baseline, const std::string &str, float size, Color c, float alpha = 1.0f, bool bold = false,
                float tracking = 0.0f);
+    // A square image (premultiplied RGBA, `source_size` pixels a side) drawn `size` logical units wide at (x, y). Shrinking
+    // averages the source pixels each destination pixel covers, so it stays smooth at any scale.
+    void image(float x, float y, float size, const std::uint32_t *source, int source_size);
     // A line of `thickness` logical units: an axis-aligned filled rectangle without rounding.
     void rect(float x, float y, float w, float h, Color c, float alpha);
     // Shortens `str` with an ellipsis to fit `max_width`.

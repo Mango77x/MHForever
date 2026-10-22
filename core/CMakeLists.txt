@@ -14,7 +14,7 @@ target_include_directories(mhf_net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 mhf_target_warnings(mhf_net)
 
 # Overlays drawn over a game: text and shapes (Painter) and the in-game menu (docs/07-launcher-ux.md section 3c).
-add_library(mhf_overlay STATIC overlay/painter.cpp overlay/menu.cpp)
+add_library(mhf_overlay STATIC overlay/painter.cpp overlay/menu.cpp overlay/icon.cpp)
 target_include_directories(mhf_overlay PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(mhf_overlay PRIVATE mhf_stb_truetype)
 mhf_target_warnings(mhf_overlay)

@@ -1,5 +1,6 @@
 #include "overlay/menu.hpp"
 
+#include "overlay/icon.hpp"
 #include "overlay/painter.hpp"
 
 #include <algorithm>
@@ -382,20 +383,8 @@ struct MenuRenderer::Impl : Painter {
         if (backdrop) fill_all(kBlack, 0.45f);
         const Placed p = place(v);
 
-        // ---- top bar: the game on the left (shortened to the room the tabs leave), the tabs in the middle, what
-        // Escape does on the right
-        if (!v.title.empty() && !p.tab_x.empty()) {
-            const float room = p.tab_x.front() - kMargin - 24.0f;
-            std::string name = upper(v.title);
-            if (measure(name, 6.6f, true, 1.0f) > room) {
-                while (!name.empty() && measure(name + "...", 6.6f, true, 1.0f) > room) {
-                    name.pop_back();
-                    while (!name.empty() && (static_cast<unsigned char>(name.back()) & 0xC0) == 0x80) name.pop_back();
-                }
-                name += "...";
-            }
-            if (room > 36.0f && name != "...") text(kMargin, kBarY, name, 6.6f, kDim, 0.9f, true, 1.0f);
-        }
+        // ---- top bar: the project's icon on the left, the tabs in the middle, what Escape does on the right
+        image(kMargin, kBarY - 13.0f, 16.0f, kIcon, kIconSize);
         if (!v.corner.empty()) {
             const float cw = measure(upper(v.corner), 6.4f, false, 0.9f);
             text(kW - kMargin - cw, kBarY, upper(v.corner), 6.4f, kDim, 0.8f, false, 0.9f);

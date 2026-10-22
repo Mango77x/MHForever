@@ -415,4 +415,10 @@ bool gpu_backend_active(Runtime &rt) { return ge(rt).backend_active.load(); }
 
 void stop_gpu_backend(Runtime &rt) { hle::ge_shutdown(rt); }
 
+void wake_gpu_backend(Runtime &rt) {
+    auto &s = ge(rt);
+    { std::lock_guard lock(s.mutex); } // the thread decides to sleep while holding it: this cannot slip in between
+    s.wake.notify_all();
+}
+
 } // namespace mhf::psp

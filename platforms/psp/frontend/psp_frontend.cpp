@@ -261,15 +261,9 @@ overlay::MenuItem menu_item(overlay::MenuItem::Kind kind, int id, std::string la
     return item;
 }
 
-std::string menu_game_name(const std::string &title) {
-    const std::string prefix = "MHForever - ";
-    return title.compare(0, prefix.size(), prefix) == 0 ? title.substr(prefix.size()) : title;
-}
-
 overlay::MenuView menu_main(const Frontend::Impl &impl) {
     using Kind = overlay::MenuItem::Kind;
     overlay::MenuView v;
-    v.title = menu_game_name(impl.title);
     v.corner = "Esc  Resume";
     v.hint = "Arrows or mouse  |  Enter select  |  Q E tabs  |  Esc resume";
 
@@ -297,10 +291,9 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
     return v;
 }
 
-overlay::MenuView menu_confirm_quit(const Frontend::Impl &impl) {
+overlay::MenuView menu_confirm_quit() {
     using Kind = overlay::MenuItem::Kind;
     overlay::MenuView v;
-    v.title = menu_game_name(impl.title);
     v.corner = "Esc  Back";
     v.hint = "Enter select  |  Esc back";
     overlay::MenuItem yes = menu_item(Kind::Button, kQuitYes, "Quit without saving");
@@ -325,7 +318,7 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         case kResume: return false;
         case kQuit:
             impl.menu_confirming_quit = true;
-            impl.menu.set(menu_confirm_quit(impl));
+            impl.menu.set(menu_confirm_quit());
             return true;
         case kQuitNo:
             impl.menu_confirming_quit = false;
@@ -418,6 +411,8 @@ void run_menu(Frontend::Impl &impl, Runtime &rt) {
         std::lock_guard lock(impl.overlay.mutex);
         impl.overlay.continuous = impl.gpu_state == 1;
     }
+    // The drawing thread may be asleep with nothing to wait for: it has to see the menu to start drawing it.
+    if (impl.gpu_state == 1) wake_gpu_backend(rt);
     (void)impl.host.take_key_events();
     impl.host.set_mouse_events(true);
     impl.host.show_cursor(true);

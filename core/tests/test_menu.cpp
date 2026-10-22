@@ -26,7 +26,6 @@ MenuItem item(MenuItem::Kind kind, int id, const char *label, int value = 0) {
 
 MenuView sample() {
     MenuView v;
-    v.title = "Freedom Unite";
     v.corner = "Esc  Resume";
     v.hint = "Arrows move  |  Enter select  |  Q E tabs  |  Esc resume";
 
@@ -181,22 +180,17 @@ int main() {
         MHF_CHECK(m.drag_slider(-1, 0.5f).kind == Kind::None);
     }
 
-    // The game's name is shortened to the room the tabs leave, whatever its length.
+    // The project's icon is drawn at the top left, and the same place stays clear without it.
     {
-        MenuView v = sample();
-        v.title = "A game with an extremely long name that cannot possibly fit next to the tabs of this menu";
-        MenuRenderer long_name(MHF_FONT_DIR);
+        MenuRenderer icon_renderer(MHF_FONT_DIR);
         std::vector<std::uint32_t> big;
-        MHF_CHECK(long_name.render(v, 4, big, false));
-        // Between the right end of the name's room and the first tab nothing is drawn (the strip at the bar's height).
+        MHF_CHECK(icon_renderer.render(sample(), 4, big, false));
         const int w = MenuRenderer::width(4);
-        const MenuLayout lay = long_name.layout(v);
-        const int gap_from = static_cast<int>((lay.tabs[0].x + 12.0f - 20.0f) * 4.0f), gap_to = static_cast<int>((lay.tabs[0].x + 12.0f - 2.0f) * 4.0f);
-        bool clear = true;
-        for (int y = 8 * 4; y < 30 * 4; ++y) {
-            for (int x = gap_from; x < gap_to; ++x) clear = clear && (big[static_cast<std::size_t>(y) * static_cast<std::size_t>(w) + static_cast<std::size_t>(x)] >> 24u) == 0;
+        bool any = false;
+        for (int y = 15 * 4; y < 31 * 4; ++y) {
+            for (int x = 26 * 4; x < 42 * 4; ++x) any = any || (big[static_cast<std::size_t>(y) * static_cast<std::size_t>(w) + static_cast<std::size_t>(x)] >> 24u) != 0;
         }
-        MHF_CHECK(clear);
+        MHF_CHECK(any);
     }
 
     // Nothing to navigate: no crash.
@@ -222,9 +216,7 @@ int main() {
     if (const char *dump = std::getenv("MHF_MENU_DUMP")) {
         std::vector<std::uint32_t> big;
         Menu look;
-        MenuView shown_view = sample();
-        shown_view.title = "Monster Hunter Freedom Unite";
-        look.set(shown_view);
+        look.set(sample());
         look.press(Key::NextTab);
         look.press(Key::NextTab); // the Video tab
         look.press(Key::Down);
