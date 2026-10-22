@@ -12,6 +12,7 @@
 
 #include "hle.hpp"
 #include "param_sfo.hpp"
+#include "save_crypto/save_crypto.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -53,6 +54,7 @@ constexpr std::uint32_t kFocus = 0x5C8;
 constexpr std::uint32_t kMsFree = 0x5D0;
 constexpr std::uint32_t kMsData = 0x5D4;
 constexpr std::uint32_t kUtilityData = 0x5D8;
+constexpr std::uint32_t kKey = 0x5DC;             // u8[16]: the game's save key (a real system encrypts with it)
 constexpr std::uint32_t kIdList = 0x5F4;
 constexpr std::uint32_t kFileList = 0x5F8;
 constexpr std::uint32_t kSizeInfo = 0x5FC;
@@ -69,6 +71,7 @@ enum Focus : std::uint32_t {
     kFocusLastData = 6, kFocusFirstEmpty = 7, kFocusLastEmpty = 8,
 };
 
+constexpr std::uint32_t kLoadBroken = 0x80110306u;
 constexpr std::uint32_t kLoadNoData = 0x80110307u;
 constexpr std::uint32_t kLoadNoFile = 0x80110309u;
 constexpr std::uint32_t kSaveParam = 0x80110388u;
@@ -329,13 +332,38 @@ struct Request {
         return total + 0x1000u; // PARAM.SFO
     }
 
+    // A save made by a PSP or by PPSSPP keeps its data file encrypted with the game's key (its PARAM.SFO says how). Nothing
+    // when the save is plain (ours); otherwise the data decrypted, or an empty value when the game's key does not prove
+    // itself against the hash the PARAM.SFO keeps, as a real system refuses a file that is not the game's own.
+    std::optional<std::optional<std::vector<std::uint8_t>>> decrypt_if_encrypted(const std::vector<std::uint8_t> &sfo,
+                                                                                const std::vector<std::uint8_t> &data,
+                                                                                const std::string &file) const {
+        namespace sc = pokke::save_crypto;
+        const auto flags = sc::params_flags(sfo);
+        if (!flags || *flags == 0) return std::nullopt;
+        const int mode = sc::mode_from_params(*flags);
+        sc::Block key{};
+        if (u32(0) >= kKey + 16) { // the request is big enough to carry the key
+            for (std::uint32_t i = 0; i < 16; ++i) key[i] = mem.load8(p + kKey + i);
+        }
+        if (sc::file_hash(data, key, mode) != sc::stored_file_hash(sfo, file)) {
+            std::fprintf(stderr, "[hle] savedata: %s is encrypted (mode %d) and does not match this game's key: another game's or region's save, or a damaged file\n", file.c_str(), mode);
+            return std::optional<std::vector<std::uint8_t>>{};
+        }
+        auto plain = sc::decrypt(data, key, mode);
+        if (!plain) return std::optional<std::vector<std::uint8_t>>{};
+        std::fprintf(stderr, "[hle] savedata: decrypted %s (mode %d, %zu bytes)\n", file.c_str(), mode, plain->size());
+        return std::optional<std::vector<std::uint8_t>>{std::move(*plain)};
+    }
+
     // ---- operations
 
     std::uint32_t load(const fs::path &dir, bool multi_call) const {
         const std::uint32_t no_data = multi_call ? kMcNoData : kLoadNoData;
         const std::uint32_t no_file = multi_call ? kMcNoFile : kLoadNoFile;
         if (!exists(dir)) return no_data;
-        if (const auto sfo = read_host(dir / "PARAM.SFO")) {
+        const auto sfo = read_host(dir / "PARAM.SFO");
+        if (sfo) {
             for (const auto &e : parse_sfo(*sfo)) {
                 if (e.key == "TITLE") store_string(rt, p + kSfoTitle, e.text, 0x80);
                 else if (e.key == "SAVEDATA_TITLE") store_string(rt, p + kSfoSavedataTitle, e.text, 0x80);
@@ -345,8 +373,14 @@ struct Request {
         }
         const std::string file = file_name();
         if (file.empty()) return 0;
-        const auto data = read_host(dir / file);
+        auto data = read_host(dir / file);
         if (!data) return no_file;
+        if (sfo) {
+            if (const auto plain = decrypt_if_encrypted(*sfo, *data, file)) {
+                if (!plain->has_value()) return kLoadBroken; // not this game's key, or a damaged file
+                data = std::move(**plain);
+            }
+        }
         const std::uint32_t buffer = u32(kDataBuf), capacity = u32(kDataBufSize);
         const auto n = static_cast<std::uint32_t>(std::min<std::size_t>(data->size(), capacity));
         if (buffer != 0 && n != 0) mem.copy_in(buffer, std::span(data->data(), n));

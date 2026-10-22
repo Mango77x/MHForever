@@ -25,7 +25,7 @@ add_library(mhf_psp_runtime STATIC
     ../gpu/ge.cpp
 )
 target_include_directories(mhf_psp_runtime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../gpu)
-target_link_libraries(mhf_psp_runtime PUBLIC psprecomp_core mhf_psp_tools PRIVATE mhf_stb_truetype at3_standalone)
+target_link_libraries(mhf_psp_runtime PUBLIC psprecomp_core mhf_psp_tools PRIVATE mhf_stb_truetype at3_standalone mhf_save_crypto)
 mhf_target_warnings(mhf_psp_runtime)
 if(WIN32)
     target_link_libraries(mhf_psp_runtime PRIVATE winmm dbghelp) # timeBeginPeriod; the sampling profiler (profiler.cpp)
