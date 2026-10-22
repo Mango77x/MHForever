@@ -51,6 +51,7 @@ export type LauncherEvent =
   | { type: 'launch'; phase: 'checking' | 'starting' | 'running' }
   | { type: 'exited'; code: number; seconds: number }
   | { type: 'launchFailed'; message: string }
+  | { type: 'menu'; open: boolean } // the game asked for the in-game menu / the menu was closed
   | { type: 'state'; state: State };
 
 type Native = {
@@ -63,6 +64,8 @@ type Native = {
   mhf_play(id: string): Promise<{ started: boolean }>;
   mhf_copyText(text: string): Promise<boolean>;
   mhf_exportIdentity(): Promise<{ saved: boolean }>;
+  mhf_menuResume(): Promise<boolean>; // in-game menu: back to the game
+  mhf_menuQuit(): Promise<boolean>; // in-game menu: end the game
 };
 
 const listeners = new Set<(e: LauncherEvent) => void>();
@@ -129,6 +132,8 @@ function simulated(): Native {
     },
     async mhf_copyText(text) { try { await navigator.clipboard.writeText(text); } catch { /* not allowed here */ } return true; },
     async mhf_exportIdentity() { return { saved: true }; },
+    async mhf_menuResume() { emit({ type: 'menu', open: false }); return true; },
+    async mhf_menuQuit() { emit({ type: 'menu', open: false }); return true; },
   };
 }
 

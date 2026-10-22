@@ -70,6 +70,28 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
 - Still to do: launcher-managed updates (signed), language selection, icon, Steam Deck packaging
   (AppImage/Flatpak), moving the per-user folder, moving saves there.
 
+## 3c. One application: the launcher inside the game (decided 2026-10-22)
+
+For the player the launcher and the game are one application: **Play** hides the launcher and the game takes its
+place; **Escape** (or the controller's guide button) opens the launcher's own interface over the game, adapted to what is
+needed while playing: friends, the room and invites, sound, video information, resume and quit. They stay two
+programs (the launcher is a web view, the game an OpenGL window; a web page cannot be laid over a GL window with
+transparency on both Windows and Linux), joined by a **local link**:
+
+- `core/link`: the launcher listens on `127.0.0.1` (a port the system picks) and gives the game `MHF_LINK=<port>:<token>`
+  in its environment; the game connects and proves it knows the token. Lines of text in both directions
+  (`core/link/protocol.hpp` lists them: `menu <x> <y> <w> <h> <fullscreen>`, `set music|sfx <0..100>`, `resume`, `quit`).
+- The game, on Escape with no system dialog open: stops its host loop (the program's clock does not count the pause),
+  sends the window's position, and keeps the window and the link alive until the launcher answers.
+- The launcher puts its window, borderless and in front, exactly over the game's window and shows the in-game screen
+  (`launcher/ui/src/InGameMenu.tsx`); `resume` hides it again. Changes to the volumes reach the running game at once.
+  Closing the launcher, or its crash, resumes the game.
+- The link is also what online play will use: the launcher owns the identity and the connection to friends
+  (`08-multiplayer.md` §1.1), the game only talks to the launcher on this machine.
+- Not done yet: the frozen game picture (blurred) behind the menu, video settings that change while playing
+  (resolution and frame rate still apply at the next start), not pausing when a room is open, and checking the
+  hand-over on the Steam Deck's game mode.
+
 ## 4. Bundled toolchain (only for model B; not needed with model A)
 
 | Option | Approx. size | Pros | Cons |

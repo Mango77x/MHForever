@@ -343,3 +343,12 @@ button { -webkit-tap-highlight-color: transparent; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 .reduce-motion *, .reduce-motion *::before, .reduce-motion *::after { animation: none !important; transition: none !important; }
+
+/* ---------- In-game menu: the launcher over the paused game window ---------- */
+.ingame { position: absolute; inset: 0; display: flex; justify-content: flex-start; background: rgba(8, 9, 13, 0.55); z-index: 5; overflow-y: auto; }
+.ingame-panel { width: min(520px, 100%); min-height: 100%; box-sizing: border-box; padding: 36px 32px; display: flex; flex-direction: column; gap: 18px; background: linear-gradient(90deg, rgba(11, 12, 16, 0.92), rgba(11, 12, 16, 0.78)); border-right: 1px solid var(--line); }
+.ingame-panel > * { flex-shrink: 0; }
+.ingame-head { display: flex; flex-direction: column; gap: 4px; }
+.ingame-head h2 { margin: 0; font-family: var(--display); font-size: 34px; letter-spacing: -0.02em; }
+.ingame-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; }
+.ingame-foot .muted { flex: 1 1 100%; font-size: 13px; }

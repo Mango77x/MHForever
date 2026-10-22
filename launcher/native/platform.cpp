@@ -176,6 +176,58 @@ void show_error(const std::string &title, const std::string &message) {
     MessageBoxW(nullptr, widen(message).c_str(), widen(title).c_str(), MB_OK | MB_ICONERROR);
 }
 
+namespace {
+// How the window looked before cover_window, to give it back.
+struct Covered {
+    bool active = false;
+    LONG_PTR style = 0;
+    RECT rect{};
+    bool maximized = false;
+} g_covered;
+bool g_show_maximized = false; // the window was maximized before it was covered: show it that way next time
+} // namespace
+
+void hide_window(void *window) {
+    if (window != nullptr) ShowWindow(static_cast<HWND>(window), SW_HIDE);
+}
+
+void show_window(void *window) {
+    HWND hwnd = static_cast<HWND>(window);
+    if (hwnd == nullptr) return;
+    ShowWindow(hwnd, g_show_maximized ? SW_SHOWMAXIMIZED : IsIconic(hwnd) ? SW_RESTORE : SW_SHOW);
+    g_show_maximized = false;
+    SetForegroundWindow(hwnd);
+}
+
+void cover_window(void *window, int x, int y, int width, int height) {
+    HWND hwnd = static_cast<HWND>(window);
+    if (hwnd == nullptr) return;
+    if (!g_covered.active) {
+        g_covered.active = true;
+        g_covered.style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        g_covered.maximized = IsZoomed(hwnd) != FALSE;
+        if (g_covered.maximized) ShowWindow(hwnd, SW_RESTORE);
+        GetWindowRect(hwnd, &g_covered.rect);
+        SetWindowLongPtrW(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+    }
+    SetWindowPos(hwnd, HWND_TOPMOST, x, y, width, height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    SetForegroundWindow(hwnd);
+}
+
+void uncover_window(void *window) {
+    HWND hwnd = static_cast<HWND>(window);
+    if (hwnd == nullptr || !g_covered.active) return;
+    g_covered.active = false;
+    ShowWindow(hwnd, SW_HIDE);
+    SetWindowLongPtrW(hwnd, GWL_STYLE, g_covered.style);
+    const RECT &r = g_covered.rect;
+    SetWindowPos(hwnd, HWND_NOTOPMOST, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                 SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+    g_show_maximized = g_covered.maximized;
+}
+
+void set_environment(const char *name, const std::string &value) { SetEnvironmentVariableW(widen(name).c_str(), widen(value).c_str()); }
+
 std::optional<Process> Process::start(const fs::path &program, const std::vector<std::string> &args, const fs::path &cwd,
                                       const fs::path &log_file, std::string &error) {
     std::wstring cmd = quote(program.wstring());
@@ -297,6 +349,43 @@ void random_bytes(std::uint8_t *out, std::size_t size) {
 void style_window(void *window) {
     if (window != nullptr) gtk_window_set_default_icon_name("applications-games");
 }
+
+namespace {
+bool g_covered = false;
+}
+
+void hide_window(void *window) {
+    if (window != nullptr) gtk_widget_hide(GTK_WIDGET(window));
+}
+
+void show_window(void *window) {
+    if (window == nullptr) return;
+    gtk_widget_show(GTK_WIDGET(window));
+    gtk_window_present(GTK_WINDOW(window));
+}
+
+void cover_window(void *window, int x, int y, int width, int height) {
+    if (window == nullptr) return;
+    GtkWindow *w = GTK_WINDOW(window);
+    g_covered = true;
+    gtk_window_set_decorated(w, FALSE);
+    gtk_window_set_keep_above(w, TRUE);
+    gtk_window_move(w, x, y);
+    gtk_window_resize(w, width, height);
+    gtk_widget_show(GTK_WIDGET(w));
+    gtk_window_present(w);
+}
+
+void uncover_window(void *window) {
+    if (window == nullptr || !g_covered) return;
+    g_covered = false;
+    GtkWindow *w = GTK_WINDOW(window);
+    gtk_widget_hide(GTK_WIDGET(w));
+    gtk_window_set_keep_above(w, FALSE);
+    gtk_window_set_decorated(w, TRUE);
+}
+
+void set_environment(const char *name, const std::string &value) { setenv(name, value.c_str(), 1); }
 
 void show_error(const std::string &title, const std::string &message) {
     std::fprintf(stderr, "%s: %s\n", title.c_str(), message.c_str());

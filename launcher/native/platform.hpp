@@ -27,6 +27,18 @@ void random_bytes(std::uint8_t *out, std::size_t size);
 void style_window(void *window);
 void show_error(const std::string &title, const std::string &message);
 
+// The launcher's window while a game runs (docs/07-launcher-ux.md section 3c). Call from the window's own thread.
+// hide_window: out of sight (the game has the screen); show_window: back as a normal window, in front.
+// cover_window: a borderless window exactly over a screen rectangle (the game's), in front of everything, taking the
+// keyboard focus; uncover_window ends it and hides the window again, putting its frame back for the next show_window.
+void hide_window(void *window);
+void show_window(void *window);
+void cover_window(void *window, int x, int y, int width, int height);
+void uncover_window(void *window);
+
+// Sets an environment variable of this process, which programs started afterwards inherit.
+void set_environment(const char *name, const std::string &value);
+
 class Process {
 public:
     // Starts `program` with `args` in `cwd`; stdout and stderr go to `log_file`. No console window on Windows.
