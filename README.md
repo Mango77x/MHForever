@@ -27,6 +27,11 @@ The project website explains what MHForever is, shows which games are supported,
 release. It is built from its own repository,
 [MHForever-site](https://github.com/Mango77x/MHForever-site). The downloads, the code and the issues live here.
 
+## Community
+
+Questions, bug reports, suggestions and release news: **https://discord.gg/6xrxY2buDf**. Bring your own copy of the game; there is
+no piracy talk there. Bugs can also be reported as [issues](https://github.com/Mango77x/MHForever/issues).
+
 ## Supported games
 
 | Game | Original platform | Release | Status |
