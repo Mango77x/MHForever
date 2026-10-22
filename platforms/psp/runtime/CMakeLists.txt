@@ -19,6 +19,7 @@ add_library(mhf_psp_runtime STATIC
     src/interpreter.cpp
     src/interpreter_vfpu.cpp
     src/kernel.cpp
+    src/profiler.cpp
     src/runtime.cpp
     src/sysmem.cpp
     ../gpu/ge.cpp
@@ -27,7 +28,7 @@ target_include_directories(mhf_psp_runtime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/in
 target_link_libraries(mhf_psp_runtime PUBLIC psprecomp_core mhf_psp_tools PRIVATE mhf_stb_truetype at3_standalone)
 mhf_target_warnings(mhf_psp_runtime)
 if(WIN32)
-    target_link_libraries(mhf_psp_runtime PRIVATE winmm) # timeBeginPeriod
+    target_link_libraries(mhf_psp_runtime PRIVATE winmm dbghelp) # timeBeginPeriod; the sampling profiler (profiler.cpp)
 endif()
 
 # mhf_psp_copy_fonts(<target>): puts the free fonts used by sceLibFont next to the executable, in fonts/.

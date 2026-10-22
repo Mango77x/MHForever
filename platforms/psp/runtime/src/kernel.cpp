@@ -1,4 +1,5 @@
 #include "kernel.hpp"
+#include "hle.hpp"
 
 #include "psprecomp/common.hpp"
 
@@ -564,6 +565,7 @@ std::uint64_t Kernel::next_interrupt_time() const {
 }
 
 int Kernel::run_scheduler() {
+    hle::profiler_register_thread("game");
     scheduler_fiber_ = Fiber::from_current_thread();
     while (!exit_code_) {
         if (host_poll) {

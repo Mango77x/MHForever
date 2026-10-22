@@ -82,6 +82,10 @@ struct GeDetail {
 };
 GeDetail &ge_detail();
 
+// Sampling profiler (MHF_PROFILE=1, Windows): the calling thread is looked at from now on and the functions it spends its
+// time in are printed every 20 seconds. No effect when the variable is not set.
+void profiler_register_thread(const char *name);
+
 // Queues a flip to the GPU backend, in order with the display lists (no-op without a backend).
 // Stops the GE worker thread (at runtime shutdown).
 void ge_shutdown(Runtime &rt);

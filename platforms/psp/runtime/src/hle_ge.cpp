@@ -136,6 +136,7 @@ struct GeState {
                 backend_active = true;
             }
         }
+        hle::profiler_register_thread("drawing");
         std::unique_lock lock(mutex);
         // Waits for work, but not past the moment the backend wants to be called (a second picture for a flip).
         const auto wait_for_work = [&] {
