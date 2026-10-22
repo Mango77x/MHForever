@@ -251,6 +251,7 @@ void run_launcher_menu(Frontend::Impl &impl, Runtime &rt) {
     }
     rt.skip_time(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started).count()));
+    impl.host.raise(); // the launcher's window went away: the game takes the keyboard back
     impl.last_audio_us = rt.now_us();
     impl.audio_owed = 0.0;
     impl.audio_primed = false; // the device ran dry: fill the cushion again

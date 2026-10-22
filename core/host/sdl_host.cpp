@@ -176,6 +176,10 @@ void SdlHost::toggle_fullscreen() {
     SDL_SetWindowFullscreen(impl_->window, !full);
 }
 
+void SdlHost::raise() {
+    if (impl_->window != nullptr) SDL_RaiseWindow(impl_->window);
+}
+
 SdlHost::WindowRect SdlHost::window_rect() const {
     WindowRect r;
     if (impl_->window == nullptr) return r;

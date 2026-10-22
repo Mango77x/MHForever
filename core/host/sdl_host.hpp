@@ -70,6 +70,8 @@ public:
         bool fullscreen{};
     };
     [[nodiscard]] WindowRect window_rect() const;
+    // Brings the window to the front and gives it the keyboard focus.
+    void raise();
 
     // Queues interleaved stereo 16-bit samples for playback. Drops audio rather than growing the queue unbounded.
     void queue_audio(const std::int16_t *stereo, std::size_t frames);
