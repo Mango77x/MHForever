@@ -1701,10 +1701,9 @@ float GlBackend::phase_at(std::chrono::steady_clock::time_point when) const {
     const double interval = std::chrono::duration<double>(pacing_.interval).count();
     const double step = std::chrono::duration<double>(pacing_.step).count();
     if (interval <= 0.0 || step <= 0.0) return 1.0f;
-    // On time (within a quarter of a step of its slot), a picture sits exactly at its slot, so steady motion moves in
-    // equal steps despite the jitter of the wake-up; a late one shows where things are at the moment it is drawn.
-    const double slots = elapsed / step;
-    if (std::fabs(slots - std::round(slots)) < 0.25) elapsed = std::round(slots) * step;
+    // A picture always sits exactly on the slot nearest to the moment it is drawn: steady motion moves in whole shares
+    // of a flip's move, also when a busy GE made it late (it is shown at its slot instead of being dropped).
+    elapsed = std::round(elapsed / step) * step;
     return static_cast<float>(std::clamp((elapsed + step) / interval, 0.0, 1.0));
 }
 
