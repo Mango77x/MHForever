@@ -12,6 +12,7 @@
 #include <bcrypt.h>
 #include <commdlg.h>
 #include <dwmapi.h>
+#include <shobjidl.h>
 #else
 #include <fcntl.h>
 #include <gtk/gtk.h>
@@ -116,6 +117,34 @@ std::optional<fs::path> open_file(void *parent, const std::string &title, const 
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
     if (!GetOpenFileNameW(&ofn)) return std::nullopt;
     return fs::path(file);
+}
+
+std::optional<fs::path> open_folder(void *parent, const std::string &title) {
+    // The UI thread already runs COM (the web view needs it); this only makes sure.
+    const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    IFileOpenDialog *dialog = nullptr;
+    std::optional<fs::path> result;
+    if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) {
+        DWORD options = 0;
+        dialog->GetOptions(&options);
+        dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+        const std::wstring wtitle = widen(title);
+        dialog->SetTitle(wtitle.c_str());
+        if (SUCCEEDED(dialog->Show(static_cast<HWND>(parent)))) {
+            IShellItem *item = nullptr;
+            if (SUCCEEDED(dialog->GetResult(&item))) {
+                PWSTR path = nullptr;
+                if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+                    result = fs::path(path);
+                    CoTaskMemFree(path);
+                }
+                item->Release();
+            }
+        }
+        dialog->Release();
+    }
+    if (SUCCEEDED(com)) CoUninitialize();
+    return result;
 }
 
 std::optional<fs::path> save_file(void *parent, const std::string &title, const std::string &default_name) {
@@ -253,6 +282,21 @@ std::optional<fs::path> open_file(void *parent, const std::string &title, const 
     gtk_file_filter_set_name(all, "All files");
     gtk_file_filter_add_pattern(all, "*");
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), all);
+    std::optional<fs::path> result;
+    if (gtk_native_dialog_run(GTK_NATIVE_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+        char *name = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+        if (name != nullptr) {
+            result = fs::path(name);
+            g_free(name);
+        }
+    }
+    g_object_unref(dialog);
+    return result;
+}
+
+std::optional<fs::path> open_folder(void *parent, const std::string &title) {
+    GtkFileChooserNative *dialog = gtk_file_chooser_native_new(title.c_str(), parent ? GTK_WINDOW(parent) : nullptr,
+                                                               GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, "_Choose", "_Cancel");
     std::optional<fs::path> result;
     if (gtk_native_dialog_run(GTK_NATIVE_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
         char *name = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));

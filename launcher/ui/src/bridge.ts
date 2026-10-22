@@ -44,6 +44,19 @@ export interface State {
   executable: { path: string; found: boolean };
 }
 
+export interface SaveScan {
+  picked: boolean; // false when the player cancelled the folder chooser (or there is no game yet: see `error`)
+  error?: string;
+  note?: string; // why nothing was found
+  found?: { folder: string; title: string; exists: boolean }[];
+}
+
+export interface SaveImportResult {
+  imported: number;
+  backup: string; // where the replaced saves were kept ('' when none was)
+  error: string;
+}
+
 export type LauncherEvent =
   | { type: 'verify'; phase: 'reading' | 'hashing' | 'preparing' | 'copying'; progress: number; file: string }
   | { type: 'verified'; game: Game }
@@ -63,6 +76,8 @@ type Native = {
   mhf_play(id: string): Promise<{ started: boolean }>;
   mhf_copyText(text: string): Promise<boolean>;
   mhf_exportIdentity(): Promise<{ saved: boolean }>;
+  mhf_scanSaves(gameId: string): Promise<SaveScan>; // asks for a folder, looks for the saves of that game in it
+  mhf_importSaves(): Promise<SaveImportResult>; // imports what the last scan found
 };
 
 const listeners = new Set<(e: LauncherEvent) => void>();
@@ -129,6 +144,8 @@ function simulated(): Native {
     },
     async mhf_copyText(text) { try { await navigator.clipboard.writeText(text); } catch { /* not allowed here */ } return true; },
     async mhf_exportIdentity() { return { saved: true }; },
+    async mhf_scanSaves() { return { picked: true, found: [{ folder: 'ULES01213', title: 'Game Data', exists: true }], note: '' }; },
+    async mhf_importSaves() { return { imported: 1, backup: 'C:\\Users\\Hunter\\Documents\\MHForever\\saves\\ULES01213\\backups\\20261022-170000', error: '' }; },
   };
 }
 

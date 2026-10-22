@@ -90,6 +90,32 @@ public:
     // there into the memory stick of `disc_id` once per source folder, never overwriting and never deleting the old files.
     void import_legacy_saves(const std::string &disc_id);
 
+    // Importing saves made by a PSP or by PPSSPP (the data files are encrypted; the game decrypts them when it loads
+    // them, see docs/05-runtime-hle.md section 5d). `scan_saves` looks in `source` (a memory stick folder, its
+    // PSP/SAVEDATA folder, or a save folder itself) for the saves of `disc_id`; saves of another version of the game are
+    // only mentioned in `note`, as their key differs and the game could not read them.
+    struct SaveCandidate {
+        std::string folder; // e.g. ULES01213
+        std::filesystem::path path;
+        std::string title;
+        bool exists = false; // the player already has a save with that folder name
+    };
+    struct SaveScan {
+        std::vector<SaveCandidate> found;
+        std::string note; // why nothing was found, when it can be said
+    };
+    SaveScan scan_saves(const std::string &disc_id, const std::filesystem::path &source) const;
+    // Copies the chosen saves into the memory stick of `disc_id`. A save the player already has with the same folder name
+    // is moved to <saves>/<disc id>/backups/<date and time>/ first, never deleted. Nothing is left half done.
+    struct SaveImport {
+        int imported = 0;
+        std::filesystem::path backup; // where the replaced saves went (empty when none was)
+        std::string error;
+    };
+    SaveImport import_saves(const std::string &disc_id, const std::vector<SaveCandidate> &chosen);
+    // The disc id of the player's copy of `game_id` (empty when there is none).
+    std::string disc_id_for(const std::string &game_id);
+
 private:
     void load();
     void save();

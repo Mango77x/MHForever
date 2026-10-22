@@ -145,6 +145,54 @@ void on_remove_game(const char *id, const Json &args) {
     reply(id, g_app.launcher->state());
 }
 
+// Saves found in a folder the player chose, waiting for the player to confirm the import.
+struct PendingSaves {
+    std::string disc_id;
+    std::vector<Launcher::SaveCandidate> found;
+} g_pending_saves;
+
+void on_scan_saves(const char *id, const Json &args) {
+    Json r;
+    r["picked"] = false;
+    g_pending_saves = {};
+    const std::string disc = args.as_array().empty() ? std::string() : g_app.launcher->disc_id_for(args.as_array()[0].as_string());
+    if (disc.empty()) {
+        r["error"] = "Add your copy of the game first.";
+        reply(id, r);
+        return;
+    }
+    const auto folder = platform::open_folder(native_window(), "Choose the folder that holds your saves (PSP/SAVEDATA, or PPSSPP's memory stick folder)");
+    if (!folder) {
+        reply(id, r);
+        return;
+    }
+    const auto scan = g_app.launcher->scan_saves(disc, *folder);
+    r["picked"] = true;
+    r["note"] = scan.note;
+    Json::Array found;
+    for (const auto &c : scan.found) {
+        Json j;
+        j["folder"] = c.folder;
+        j["title"] = c.title;
+        j["exists"] = c.exists;
+        found.push_back(j);
+    }
+    r["found"] = Json(found);
+    g_pending_saves = {disc, scan.found};
+    reply(id, r);
+}
+
+void on_import_saves(const char *id, const Json &) {
+    Json r;
+    const auto pending = std::move(g_pending_saves);
+    g_pending_saves = {};
+    const auto result = g_app.launcher->import_saves(pending.disc_id, pending.found);
+    r["imported"] = result.imported;
+    r["backup"] = result.backup.empty() ? std::string() : platform::to_utf8(result.backup);
+    r["error"] = result.error;
+    reply(id, r);
+}
+
 void on_pick_executable(const char *id, const Json &) {
     if (const auto file = platform::open_file(native_window(), "Locate the decrypted executable (developer build)",
                                               "Executables", {"*.BIN", "*.bin", "*.elf", "*.prx"})) {
@@ -341,6 +389,8 @@ int main(int argc, char **argv) {
     bind("mhf_addGame", on_add_game);
     bind("mhf_removeGame", on_remove_game);
     bind("mhf_pickExecutable", on_pick_executable);
+    bind("mhf_scanSaves", on_scan_saves);
+    bind("mhf_importSaves", on_import_saves);
     bind("mhf_play", on_play);
     bind("mhf_copyText", on_copy_text);
     bind("mhf_exportIdentity", on_export_identity);

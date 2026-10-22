@@ -192,6 +192,88 @@ int main() {
         CHECK(!r.game && !r.error.empty());
     }
 
+    // Importing saves made by a PSP or PPSSPP: found by the disc id, other versions only mentioned, nothing of the
+    // player's own save ever lost.
+    {
+        const auto sfo_with = [](const std::string &key, const std::string &value) {
+            std::vector<std::uint8_t> v(0x80, 0);
+            v[1] = 'P'; v[2] = 'S'; v[3] = 'F';
+            v[4] = 1;
+            v[8] = 0x24;  // key table
+            v[12] = 0x40; // data table
+            v[16] = 1;    // one entry
+            v[22] = 0x04; v[23] = 0x02; // utf-8 text
+            v[24] = static_cast<std::uint8_t>(value.size() + 1);
+            v[28] = 0x30;
+            std::copy(key.begin(), key.end(), v.begin() + 0x24);
+            std::copy(value.begin(), value.end(), v.begin() + 0x40);
+            return std::string(v.begin(), v.end());
+        };
+        const auto put = [](const fs::path &file, const std::string &content) {
+            fs::create_directories(file.parent_path());
+            std::ofstream(file, std::ios::binary) << content;
+        };
+        const auto read = [](const fs::path &file) {
+            std::ifstream in(file, std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(in), {});
+        };
+        const fs::path base = dir / "saveimport";
+        fs::remove_all(base);
+        const fs::path stick = base / "from" / "PSP" / "SAVEDATA";
+        put(stick / "ULES01213" / "PARAM.SFO", sfo_with("SAVEDATA_TITLE", "Game Data"));
+        put(stick / "ULES01213" / "MHP2NDG.BIN", "encrypted data of the new save");
+        put(stick / "ULES01213" / "ICON0.PNG", "icon");
+        put(stick / "ULES01213" / "Thumbs.db", "junk");
+        put(stick / "ULUS10391" / "PARAM.SFO", sfo_with("TITLE", "Monster Hunter Freedom Unite"));
+        put(stick / "NPJH12345" / "PARAM.SFO", sfo_with("TITLE", "Another Game"));
+        put(stick / "NOSFO" / "MHP2NDG.BIN", "no PARAM.SFO here");
+
+        Launcher l(base / "app", base / "data", base / "saves");
+        // The memory stick folder, its PSP/SAVEDATA folder and the save folder itself all lead to the save.
+        for (const fs::path &source : {base / "from", stick, stick / "ULES01213"}) {
+            const auto scan = l.scan_saves("ULES01213", source);
+            CHECK(scan.found.size() == 1 && scan.found[0].folder == "ULES01213" && scan.found[0].title == "Game Data");
+            CHECK(scan.note.empty() && !scan.found[0].exists);
+        }
+        // Only another version in the folder: nothing to import, and the player is told why.
+        fs::create_directories(base / "us" / "PSP" / "SAVEDATA");
+        fs::copy(stick / "ULUS10391", base / "us" / "PSP" / "SAVEDATA" / "ULUS10391", fs::copy_options::recursive);
+        const auto us = l.scan_saves("ULES01213", base / "us");
+        CHECK(us.found.empty() && us.note.find("ULUS10391") != std::string::npos);
+        fs::create_directories(base / "empty");
+        const auto nothing = l.scan_saves("ULES01213", base / "empty");
+        CHECK(nothing.found.empty() && nothing.note.find("ULES01213") != std::string::npos);
+
+        // The first import: the files arrive (not the junk), nothing is left in the staging folder.
+        const auto found = l.scan_saves("ULES01213", base / "from").found;
+        auto done = l.import_saves("ULES01213", found);
+        const fs::path mine = base / "saves" / "ULES01213" / "PSP" / "SAVEDATA" / "ULES01213";
+        CHECK(done.error.empty() && done.imported == 1 && done.backup.empty());
+        CHECK(read(mine / "MHP2NDG.BIN") == "encrypted data of the new save" && fs::exists(mine / "ICON0.PNG"));
+        CHECK(!fs::exists(mine / "Thumbs.db") && !fs::exists(base / "saves" / "ULES01213" / ".import"));
+        CHECK(l.scan_saves("ULES01213", base / "from").found[0].exists);
+
+        // The second one replaces it, and the old one is kept, not deleted.
+        put(mine / "MHP2NDG.BIN", "the player's own save");
+        done = l.import_saves("ULES01213", found);
+        CHECK(done.error.empty() && done.imported == 1 && !done.backup.empty());
+        CHECK(read(mine / "MHP2NDG.BIN") == "encrypted data of the new save");
+        CHECK(read(done.backup / "ULES01213" / "MHP2NDG.BIN") == "the player's own save");
+
+        // A folder name that tries to leave the saves folder, or a folder without PARAM.SFO, is ignored.
+        Launcher::SaveCandidate bad;
+        bad.folder = "..";
+        bad.path = stick / "ULES01213";
+        Launcher::SaveCandidate nosfo;
+        nosfo.folder = "NOSFO";
+        nosfo.path = stick / "NOSFO";
+        done = l.import_saves("ULES01213", {bad, nosfo});
+        CHECK(done.imported == 0 && done.error.empty() && !fs::exists(base / "saves" / "ULES01213" / "PSP" / "SAVEDATA" / "NOSFO"));
+
+        // The disc id of the player's copy is looked up by game id (none added in this test launcher).
+        CHECK(l.disc_id_for("mhfu").empty());
+    }
+
     // A failed write must never destroy the saved state. Putting a directory where save() wants its temporary file makes
     // the write fail the same way a full disk does.
     {

@@ -18,6 +18,8 @@ std::filesystem::path executable_dir();
 std::optional<std::filesystem::path> open_file(void *parent, const std::string &title, const std::string &filter_name,
                                                const std::vector<std::string> &patterns);
 std::optional<std::filesystem::path> save_file(void *parent, const std::string &title, const std::string &default_name);
+// A folder chooser, modal to `parent`. Nothing when cancelled.
+std::optional<std::filesystem::path> open_folder(void *parent, const std::string &title);
 
 bool copy_to_clipboard(void *parent, const std::string &utf8);
 

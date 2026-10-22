@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import type { Settings, State } from './bridge';
+import { api, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
 import { CopyIcon } from './icons';
 import { frameRates, resolutions } from './format';
 
@@ -44,6 +44,77 @@ function Volume({ id, label, value, onCommit }: { id: string; label: string; val
         <output htmlFor={id}>{v}</output>
       </div>
     </div>
+  );
+}
+
+// Bringing in saves made by a PSP or PPSSPP: choose the folder, see what was found, confirm.
+function ImportSaves({ gameId }: { gameId: string | undefined }) {
+  const [scan, setScan] = useState<SaveScan | null>(null);
+  const [done, setDone] = useState<SaveImportResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const choose = async () => {
+    if (!gameId || busy) return;
+    setBusy(true);
+    setDone(null);
+    try {
+      const r = await api.mhf_scanSaves(gameId);
+      if (r.picked || r.error) setScan(r);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const apply = async () => {
+    setBusy(true);
+    try {
+      setDone(await api.mhf_importSaves());
+      setScan(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const found = scan?.found ?? [];
+  const replaces = found.some((f) => f.exists);
+  return (
+    <>
+      <div className="srow">
+        <div className="slabel">
+          <b>Import saves</b>
+          <span>Bring your Freedom Unite saves from a PSP memory stick or from PPSSPP. Choose the folder that holds them (the PSP/SAVEDATA folder, or PPSSPP's memory stick folder). Only saves of your own version of the game can be used.</span>
+        </div>
+        <button className="ghost mid" onClick={choose} disabled={!gameId || busy}>Choose folder…</button>
+      </div>
+      {scan && (
+        <div className="srow" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+          {scan.error && <span className="muted">{scan.error}</span>}
+          {found.length === 0 && !scan.error && <span className="muted">{scan.note}</span>}
+          {found.map((f) => (
+            <div key={f.folder} className="slabel">
+              <b>{f.title || 'Game data'} <span style={{ opacity: 0.6 }}>({f.folder})</span></b>
+              <span>{f.exists ? 'Replaces the save you have now. Yours is kept in a backup folder.' : 'A new save.'}</span>
+            </div>
+          ))}
+          {found.length > 0 && (
+            <div className="row-wrap" style={{ gap: 10 }}>
+              <button className={replaces ? 'ghost mid danger' : 'ghost mid'} onClick={apply} disabled={busy}>
+                {found.length === 1 ? 'Import this save' : `Import ${found.length} saves`}
+              </button>
+              <button className="ghost mid" onClick={() => setScan(null)} disabled={busy}>Cancel</button>
+            </div>
+          )}
+        </div>
+      )}
+      {done && (
+        <div className="srow">
+          <div className="slabel">
+            <b>{done.error ? 'The import did not finish' : done.imported === 1 ? 'Save imported' : `${done.imported} saves imported`}</b>
+            <span>
+              {done.error || 'Press Play and load it from the game.'}
+              {done.backup && ` Your previous save is kept in ${done.backup}.`}
+            </span>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -130,6 +201,11 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
             <button className="copy" onClick={onCopyCode} aria-label="Copy friend code"><CopyIcon /> Copy</button>
           </div>
         </div>
+      </motion.div>
+
+      <motion.div className="glass section" {...rise(0.21)}>
+        <h3>Saves</h3>
+        <ImportSaves gameId={game?.supported ? game.id : undefined} />
       </motion.div>
 
       <motion.div className="glass section" {...rise(0.24)}>

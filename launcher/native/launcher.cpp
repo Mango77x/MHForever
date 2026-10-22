@@ -8,9 +8,14 @@
 #include "platform.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
+#include <ctime>
 #include <fstream>
+#include <iterator>
+#include <optional>
+#include <set>
 #include <sstream>
 
 namespace mhf::launcher {
@@ -101,6 +106,155 @@ void Launcher::import_legacy_saves(const std::string &disc_id) {
     fs::copy(old, stick, fs::copy_options::recursive | fs::copy_options::skip_existing, ec);
     if (ec) return; // try again next time; nothing was overwritten
     std::ofstream(marker, std::ios::app) << source << '\n';
+}
+
+namespace {
+
+std::string upper_ascii(std::string s) {
+    for (char &c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return s;
+}
+
+// A PSP game id: four letters and five digits (ULES01213).
+bool looks_like_game_id(const std::string &name) {
+    if (name.size() < 9) return false;
+    for (int i = 0; i < 4; ++i) {
+        if (!std::isalpha(static_cast<unsigned char>(name[static_cast<std::size_t>(i)]))) return false;
+    }
+    for (int i = 4; i < 9; ++i) {
+        if (!std::isdigit(static_cast<unsigned char>(name[static_cast<std::size_t>(i)]))) return false;
+    }
+    return true;
+}
+
+std::optional<psp::ParamSfo> read_save_sfo(const fs::path &dir) {
+    std::ifstream in(dir / "PARAM.SFO", std::ios::binary);
+    if (!in) return std::nullopt;
+    const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    return psp::ParamSfo::parse(bytes);
+}
+
+} // namespace
+
+Launcher::SaveScan Launcher::scan_saves(const std::string &disc_id, const fs::path &source) const {
+    SaveScan scan;
+    std::error_code ec;
+    const fs::path mine = install::game_saves_dir(saves_dir_, disc_id) / "PSP" / "SAVEDATA";
+    const std::string wanted = upper_ascii(disc_id);
+    std::set<std::string> seen, other_versions;
+    const auto consider = [&](const fs::path &dir) {
+        const auto sfo = read_save_sfo(dir);
+        if (!sfo) return;
+        const std::string name = platform::to_utf8(dir.filename());
+        const std::string upper = upper_ascii(name);
+        if (upper.compare(0, wanted.size(), wanted) == 0) {
+            if (!seen.insert(upper).second) return;
+            SaveCandidate c;
+            c.folder = name;
+            c.path = dir;
+            c.title = sfo->string("SAVEDATA_TITLE");
+            c.exists = fs::is_directory(mine / name, ec);
+            scan.found.push_back(std::move(c));
+        } else if (looks_like_game_id(upper) && upper_ascii(sfo->string("TITLE")).find("MONSTER HUNTER") != std::string::npos) {
+            other_versions.insert(upper.substr(0, 9));
+        }
+    };
+    consider(source);
+    const fs::path roots[] = {source, source / "PSP" / "SAVEDATA", source / "SAVEDATA", source / "memstick" / "PSP" / "SAVEDATA"};
+    for (const fs::path &root : roots) {
+        if (!fs::is_directory(root, ec)) continue;
+        for (fs::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+            if (it->is_directory(ec)) consider(it->path());
+        }
+    }
+    if (scan.found.empty()) {
+        if (!other_versions.empty()) {
+            std::string ids;
+            for (const auto &id : other_versions) ids += (ids.empty() ? "" : ", ") + id;
+            scan.note = "Found a save of another version of the game (" + ids + "). Only saves of your own version (" + disc_id +
+                        ") can be imported for now: each version encrypts its saves with a different key.";
+        } else {
+            scan.note = "No " + disc_id + " save found there. Choose the folder that holds your saves: the PSP/SAVEDATA folder of the "
+                        "memory stick, or PPSSPP's memory stick folder.";
+        }
+    }
+    return scan;
+}
+
+Launcher::SaveImport Launcher::import_saves(const std::string &disc_id, const std::vector<SaveCandidate> &chosen) {
+    SaveImport result;
+    std::error_code ec;
+    const fs::path game_dir = install::game_saves_dir(saves_dir_, disc_id);
+    const fs::path stick = game_dir / "PSP" / "SAVEDATA";
+    const fs::path staging = game_dir / ".import";
+    fs::create_directories(stick, ec);
+    if (ec) {
+        result.error = "Cannot create the saves folder: " + ec.message();
+        return result;
+    }
+    const auto stamp = [] {
+        const std::time_t now = std::time(nullptr);
+        std::tm tm{};
+#if defined(_WIN32)
+        localtime_s(&tm, &now);
+#else
+        localtime_r(&now, &tm);
+#endif
+        char text[32];
+        std::strftime(text, sizeof text, "%Y%m%d-%H%M%S", &tm);
+        return std::string(text);
+    };
+    for (const SaveCandidate &c : chosen) {
+        const fs::path source = c.path;
+        const std::string name = platform::to_utf8(fs::path(c.folder).filename());
+        if (name.empty() || name == "." || name == ".." || !fs::is_regular_file(source / "PARAM.SFO", ec)) continue;
+        // Copied next to the real place first (outside SAVEDATA, where the game would list it), then moved in.
+        const fs::path staged = staging / name;
+        fs::remove_all(staged, ec);
+        fs::create_directories(staged, ec);
+        for (fs::directory_iterator it(source, ec), end; !ec && it != end; it.increment(ec)) {
+            const std::string file = platform::to_utf8(it->path().filename());
+            if (!it->is_regular_file(ec) || file == "Thumbs.db" || file == "desktop.ini") continue;
+            fs::copy_file(it->path(), staged / it->path().filename(), fs::copy_options::overwrite_existing, ec);
+            if (ec) break;
+        }
+        if (ec) {
+            result.error = "Could not copy " + name + ": " + ec.message();
+            fs::remove_all(staged, ec);
+            return result;
+        }
+        const fs::path target = stick / name;
+        fs::path kept;
+        if (fs::exists(target, ec)) {
+            if (result.backup.empty()) result.backup = game_dir / "backups" / stamp();
+            fs::create_directories(result.backup, ec);
+            kept = result.backup / name;
+            fs::rename(target, kept, ec);
+            if (ec) {
+                result.error = "Could not keep a backup of your current save: " + ec.message();
+                fs::remove_all(staged, ec);
+                return result;
+            }
+        }
+        fs::rename(staged, target, ec);
+        if (ec) {
+            result.error = "Could not put the save in place: " + ec.message();
+            if (!kept.empty()) fs::rename(kept, target, ec); // give the player's own save back
+            return result;
+        }
+        ++result.imported;
+    }
+    fs::remove_all(staging, ec);
+    return result;
+}
+
+std::string Launcher::disc_id_for(const std::string &game_id) {
+    std::lock_guard lock(mutex_);
+    for (const auto &g : data_["games"].as_array()) {
+        const CatalogEntry *e = entry_for(g["discId"].as_string());
+        if (e != nullptr && game_id == e->game) return e->disc_id;
+    }
+    return {};
 }
 
 void Launcher::load() {
