@@ -645,8 +645,9 @@ private:
     // What an in-between picture costs the drawing thread (MHF_INTERP_LOG=1): calculating the vertices, uploading them,
     // setting the state of each batch, and the draw calls.
     struct PictureCost {
-        std::uint64_t pictures{}, batches{}, vertices{};
+        std::uint64_t pictures{}, batches{}, vertices{}, shows{};
         double calc_us{}, upload_us{}, state_us{}, draw_us{};
+        double show_us{}, swap_us{}; // putting a picture on the window, and the buffer swap inside it (waits for the GPU)
     } cost_;
     std::chrono::steady_clock::time_point last_flip_{};
     std::uint64_t shown_{1};                // pictures put on screen
@@ -1269,6 +1270,7 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
 
 // Puts a picture on the window: letterboxed to the PSP's 480:272, with the dialog overlay on top.
 void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
+    const auto show_start = std::chrono::steady_clock::now();
     int window_w = 0, window_h = 0;
     SDL_GetWindowSizeInPixels(window_, &window_w, &window_h);
     gl_.BindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1305,7 +1307,12 @@ void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
         draw_overlay();
     }
     dump_window(window_w, window_h);
+    const auto swap_start = std::chrono::steady_clock::now();
     SDL_GL_SwapWindow(window_);
+    const auto swap_end = std::chrono::steady_clock::now();
+    cost_.swap_us += std::chrono::duration<double, std::micro>(swap_end - swap_start).count();
+    cost_.show_us += std::chrono::duration<double, std::micro>(swap_end - show_start).count();
+    ++cost_.shows;
     ++shown_;
 }
 
@@ -1849,6 +1856,11 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
                      static_cast<unsigned long long>(stats_.skipped_first), static_cast<unsigned long long>(stats_.skipped_copy),
                      static_cast<unsigned long long>(stats_.skipped_timing), static_cast<unsigned long long>(stats_.skipped_shape),
                      static_cast<unsigned long long>(stats_.skipped_ui), static_cast<unsigned long long>(stats_.late));
+        if (cost_.shows > 0) {
+            const double s = static_cast<double>(cost_.shows);
+            std::fprintf(stderr, "[interp] each picture put on the window: %.2f ms in total, %.2f ms of it in the buffer swap\n",
+                         cost_.show_us / s / 1000.0, cost_.swap_us / s / 1000.0);
+        }
         if (cost_.pictures > 0) {
             const double n = static_cast<double>(cost_.pictures);
             std::fprintf(stderr,
