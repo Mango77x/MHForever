@@ -24,7 +24,9 @@ everyone who works on it. If a change would break one of them, open an issue ins
    (`launcher/native/install/`). That module accepts only the executables listed in `games/*/regions/*/region.toml`
    (size and SHA-1), refuses any result that does not match the recorded SHA-1, and is used only by the installer. Its decryption comes from
    PPSSPP's PRX decrypter and libkirk (`third_party/ppsspp_prx/`, GPL-compatible, see `THIRD_PARTY.md`). Do not add
-   any other DRM-related code, and never commit its inputs or outputs.
+   any other DRM-related code, and never commit its inputs or outputs. The one other exception is the save-data module
+   (`third_party/pokke_save_crypto`, used by the savedata HLE): it reads and writes the player's own saves in the PSP's
+   format and nothing else. The game's save key is never in the repository: it comes from the running game.
 4. Trademarks: the names and logos of the games and their publishers are not used as the name of the product,
    the repository, the executables, the icons or the UI. Descriptive compatibility statements in plain text are fine
    ("works with your copy of ...").

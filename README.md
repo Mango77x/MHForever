@@ -46,7 +46,7 @@ Only the first row works today. The others are plans, not promises: they are lis
 | **Online play** | Not available yet. **Multiplayer over the internet is being designed and built**, so you can hunt with friends without a PSP. |
 | **Platforms** | Windows (64-bit). Linux and Steam Deck are planned. |
 | **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard defaults included. |
-| **Saves** | Kept in `Documents\MHForever\saves`, one folder per game; settings in `%APPDATA%\MHForever`. Updating never loses them. Saves from a real PSP are not supported yet. |
+| **Saves** | Kept in `Documents\MHForever\saves`, one folder per game; settings in `%APPDATA%\MHForever`. Updating never loses them. Saves use the PSP format: import them from a PSP or PPSSPP in Settings (your own version of the game), or copy MHForever's into PPSSPP. |
 | **Resolution** | Up to several times the original 480x272, with an optional smoother texture filter. |
 | **Other games and regions** | The US and Japanese releases of Freedom Unite, and other games of the series, are planned. |
 | **Latest release** | [![Latest release](https://img.shields.io/github/v/release/Mango77x/MHForever?label=version)](https://github.com/Mango77x/MHForever/releases/latest) [![Release date](https://img.shields.io/github/release-date/Mango77x/MHForever?label=published)](https://github.com/Mango77x/MHForever/releases/latest) See the [Releases](../../releases) page. |
