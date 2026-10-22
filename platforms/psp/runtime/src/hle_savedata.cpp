@@ -1,8 +1,10 @@
 // sceUtility savedata: the work behind sceUtilitySavedataInitStart, without a dialog.
 //
 // Saves live in plain folders on the host, "<memstick>/PSP/SAVEDATA/<gameName><saveName>/", with the game's data file
-// stored as the game handed it over (the real system encrypts it; we do not, and never decrypt anything), a
-// PARAM.SFO with the titles shown in lists, and the icon/picture/sound files the game provides.
+// written the way a PSP writes it (encrypted with the game's own key, which the game passes in the request, and the hashes
+// in PARAM.SFO; third_party/pokke_save_crypto) so a save can be copied to PPSSPP and back, a PARAM.SFO with the titles
+// shown in lists, and the icon/picture/sound files the game provides. A save in plain form (older versions, or
+// MHF_SAVE_ENCRYPTION=0) still loads.
 //
 // Where the real system would show a list for the player to pick from, a slot is chosen from the game's list and its
 // focus hint (most recent save for loads, first empty slot for new saves) and written back to saveName, so the game
@@ -19,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <random>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -169,6 +172,8 @@ struct SfoEntry {
     std::string text;
     std::uint32_t value{};
     std::uint32_t max_length{};
+    bool is_binary{};                // SAVEDATA_PARAMS and SAVEDATA_FILE_LIST: raw bytes (format 0x0004)
+    std::vector<std::uint8_t> bytes;
 };
 
 void put16(std::vector<std::uint8_t> &v, std::size_t at, std::uint32_t x) {
@@ -193,6 +198,7 @@ std::vector<std::uint8_t> build_sfo(std::vector<SfoEntry> entries) {
     std::size_t data_size = 0;
     for (auto &e : entries) {
         if (e.is_int) e.max_length = 4;
+        else if (e.is_binary) e.max_length = std::max<std::uint32_t>(e.max_length, static_cast<std::uint32_t>(e.bytes.size()));
         else e.max_length = std::max<std::uint32_t>(e.max_length, static_cast<std::uint32_t>(e.text.size() + 1u));
         e.max_length = (e.max_length + 3u) & ~3u;
         data_size += e.max_length;
@@ -208,13 +214,14 @@ std::vector<std::uint8_t> build_sfo(std::vector<SfoEntry> entries) {
         const auto &e = entries[i];
         const std::size_t h = 20u + 16u * i;
         put16(out, h, static_cast<std::uint32_t>(key_at));
-        put16(out, h + 2, e.is_int ? 0x0404u : 0x0204u);
-        put32(out, h + 4, e.is_int ? 4u : static_cast<std::uint32_t>(e.text.size() + 1u));
+        put16(out, h + 2, e.is_int ? 0x0404u : e.is_binary ? 0x0004u : 0x0204u);
+        put32(out, h + 4, e.is_int ? 4u : e.is_binary ? static_cast<std::uint32_t>(e.bytes.size()) : static_cast<std::uint32_t>(e.text.size() + 1u));
         put32(out, h + 8, e.max_length);
         put32(out, h + 12, static_cast<std::uint32_t>(data_at));
         std::copy(e.key.begin(), e.key.end(), out.begin() + static_cast<std::ptrdiff_t>(key_table + key_at));
         key_at += e.key.size() + 1u;
         if (e.is_int) put32(out, data_table + data_at, e.value);
+        else if (e.is_binary) std::copy(e.bytes.begin(), e.bytes.end(), out.begin() + static_cast<std::ptrdiff_t>(data_table + data_at));
         else std::copy(e.text.begin(), e.text.end(), out.begin() + static_cast<std::ptrdiff_t>(data_table + data_at));
         data_at += e.max_length;
     }
@@ -232,7 +239,7 @@ std::vector<SfoEntry> parse_sfo(const std::vector<std::uint8_t> &v) {
         while (k < v.size() && v[k] != 0) e.key.push_back(static_cast<char>(v[k++]));
         const std::uint32_t fmt = get16(v, h + 2), length = get32(v, h + 4);
         const std::size_t at = data_table + get32(v, h + 12);
-        if (at + length > v.size()) continue;
+        if (at + length > v.size() || fmt == 0x0004u) continue; // raw bytes are not text
         if (fmt == 0x0404u) {
             e.is_int = true;
             e.value = get32(v, at);
@@ -242,6 +249,23 @@ std::vector<SfoEntry> parse_sfo(const std::vector<std::uint8_t> &v) {
         out.push_back(std::move(e));
     }
     return out;
+}
+
+// Saves are written the way a PSP writes them (the data file encrypted with the game's key, the hashes in PARAM.SFO), so
+// they can be copied to PPSSPP and back. MHF_SAVE_ENCRYPTION=0 writes them plain instead (the load side reads both).
+bool encryption_enabled() {
+    static const bool on = [] {
+        const char *v = std::getenv("MHF_SAVE_ENCRYPTION");
+        return v == nullptr || std::string(v) != "0";
+    }();
+    return on;
+}
+
+pokke::save_crypto::Block random_block() {
+    std::random_device device;
+    pokke::save_crypto::Block b{};
+    for (auto &byte : b) byte = static_cast<std::uint8_t>(device());
+    return b;
 }
 
 // ---------------------------------------------------------------- one request
@@ -356,6 +380,43 @@ struct Request {
         return std::optional<std::vector<std::uint8_t>>{std::move(*plain)};
     }
 
+    // The game's 16-byte save key from the request; nothing when the request is too small to carry one or it is all zero.
+    std::optional<pokke::save_crypto::Block> game_key() const {
+        if (u32(0) < kKey + 16) return std::nullopt;
+        pokke::save_crypto::Block key{};
+        bool any = false;
+        for (std::uint32_t i = 0; i < 16; ++i) {
+            key[i] = mem.load8(p + kKey + i);
+            any = any || key[i] != 0;
+        }
+        return any ? std::optional<pokke::save_crypto::Block>(key) : std::nullopt;
+    }
+
+    // Before a save replaces a folder's data file: one earlier generation is kept in <SAVEDATA>/.previous/<folder>/ (a
+    // name no game's list matches), so a save that turns out wrong can be put back by hand.
+    void keep_previous(const fs::path &dir, const std::string &file) const {
+        std::error_code ec;
+        if (file.empty() || !fs::is_regular_file(dir / file, ec)) return;
+        const fs::path keep = root() / ".previous" / dir.filename();
+        fs::create_directories(keep, ec);
+        fs::copy_file(dir / file, keep / file, fs::copy_options::overwrite_existing, ec);
+        fs::copy_file(dir / "PARAM.SFO", keep / "PARAM.SFO", fs::copy_options::overwrite_existing, ec);
+    }
+
+    // A plain data file written into a folder whose PARAM.SFO still says "encrypted" would no longer match its hash:
+    // the PARAM.SFO is rewritten without the encryption fields.
+    void strip_encryption(const fs::path &dir) const {
+        const auto bytes = read_host(dir / "PARAM.SFO");
+        if (!bytes) return;
+        const auto flags = pokke::save_crypto::params_flags(*bytes);
+        if (!flags || *flags == 0) return;
+        std::vector<SfoEntry> keep;
+        for (auto &e : parse_sfo(*bytes)) {
+            if (e.key != "SAVEDATA_PARAMS" && e.key != "SAVEDATA_FILE_LIST") keep.push_back(std::move(e));
+        }
+        write_host(dir / "PARAM.SFO", build_sfo(std::move(keep)));
+    }
+
     // ---- operations
 
     std::uint32_t load(const fs::path &dir, bool multi_call) const {
@@ -392,10 +453,32 @@ struct Request {
         std::error_code ec;
         fs::create_directories(dir, ec);
         if (ec) return multi_call ? kMcAccess : kSaveAccess;
-        if (const std::string file = file_name(); !file.empty()) {
+        namespace sc = pokke::save_crypto;
+        const std::string file = file_name();
+        bool encrypted = false;
+        sc::Block file_hash{};
+        if (!file.empty()) {
             const std::uint32_t buffer = u32(kDataBuf), size = u32(kDataSize);
             if (buffer == 0 && size != 0) return multi_call ? kMcAccess : kSaveParam;
-            if (!write_host(dir / file, read_guest(rt, buffer, size))) return multi_call ? kMcAccess : kSaveAccess;
+            std::vector<std::uint8_t> bytes = read_guest(rt, buffer, size);
+            // A whole save in one call (the way the game saves) is encrypted like a PSP does. It is checked before it is
+            // written: if it does not read back as it went in, the save is written plain instead, never lost.
+            if (!multi_call && write_sfo && encryption_enabled()) {
+                if (const auto key = game_key()) {
+                    const auto sealed = sc::encrypt(bytes, *key, 5, random_block());
+                    const auto back = sc::decrypt(sealed.bytes, *key, 5);
+                    if (back && *back == bytes && sc::file_hash(sealed.bytes, *key, 5) == sealed.hash) {
+                        bytes = sealed.bytes;
+                        file_hash = sealed.hash;
+                        encrypted = true;
+                    } else {
+                        std::fprintf(stderr, "[hle] savedata: encryption did not read back; %s is written plain\n", file.c_str());
+                    }
+                }
+            }
+            keep_previous(dir, file);
+            if (!write_host(dir / file, bytes)) return multi_call ? kMcAccess : kSaveAccess;
+            if (!encrypted) strip_encryption(dir);
         }
         const struct { std::uint32_t field; const char *name; } extras[] = {
             {kIcon0, "ICON0.PNG"}, {kIcon1, "ICON1.PMF"}, {kPic1, "PIC1.PNG"}, {kSnd0, "SND0.AT3"}};
@@ -413,7 +496,20 @@ struct Request {
                 {"SAVEDATA_TITLE", false, str(kSfoSavedataTitle, 0x80), 0, 0x80},
                 {"TITLE", false, str(kSfoTitle, 0x80), 0, 0x80},
             };
-            if (!write_host(dir / "PARAM.SFO", build_sfo(std::move(sfo)))) return multi_call ? kMcAccess : kSaveAccess;
+            if (encrypted) {
+                SfoEntry list{"SAVEDATA_FILE_LIST", false, {}, 0, 0xC60};
+                list.is_binary = true;
+                list.bytes.assign(0xC60, 0);
+                std::copy_n(file.begin(), std::min<std::size_t>(file.size(), 13), list.bytes.begin());
+                SfoEntry params{"SAVEDATA_PARAMS", false, {}, 0, 128};
+                params.is_binary = true;
+                params.bytes.assign(128, 0);
+                sfo.push_back(std::move(list));
+                sfo.push_back(std::move(params));
+            }
+            auto sfo_bytes = build_sfo(std::move(sfo));
+            if (encrypted && !sc::sign_param_sfo(sfo_bytes, file, file_hash, 5)) return multi_call ? kMcAccess : kSaveAccess;
+            if (!write_host(dir / "PARAM.SFO", sfo_bytes)) return multi_call ? kMcAccess : kSaveAccess;
         }
         return 0;
     }

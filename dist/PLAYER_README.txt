@@ -29,6 +29,9 @@ How to play
 4. Press Play.
 
 Your saves are stored in Documents\MHForever\saves (one folder per game), so updating MHForever never loses them.
+They use the same format as the PSP and PPSSPP: you can bring your own saves from a PSP memory stick or from
+PPSSPP with Settings > Saves > Choose folder (saves of your own version of the game only; the one you have now is
+kept in a backup folder), and you can copy MHForever's saves into PPSSPP's memory stick folder.
 If you played an older version, the "memstick" folder next to its MHForever.exe is copied there
 the first time you press Play (copy it next to the new MHForever.exe if you unzipped a new folder).
 Prepared game data, your settings and your library are stored in %APPDATA%\MHForever. Removing

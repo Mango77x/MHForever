@@ -84,9 +84,8 @@ path normalization that cannot escape the device root; asynchronous calls comple
 - `disc0:/PSP_GAME/...` → read directly from the player's ISO through the ISO9660 reader.
 - Sector reads (`umd0:` / LBA): use the LBA manifest built when indexing.
 - `ms0:/PSP/SAVEDATA/<GAMEID><SLOT>/` → the user data folder (`07-launcher-ux.md` §7).
-- PSP saves are usually encrypted by `sceUtility` (SAVEDATA with `SECURE_FILEID`) `[VERIFY for FU]`. Option: store saves
-  unencrypted in our own format (no console requires it). Importing PSP/PPSSPP saves would be a later extra and needs the same
-  legal care as decryption.
+- PSP saves are encrypted by `sceUtility` with the game's own key; we read and write that format (§5d), so saves
+  are interchangeable with PPSSPP.
 
 ## 5. Overlay manager
 
@@ -176,9 +175,26 @@ means "none" (the folder is the game name alone). Where the system would show a 
 from the game's list and focus hint (newest existing save for loads, first empty slot for new saves) and written back to
 `saveName`. Parameter offsets were checked with `offsetof()` against the pspsdk header (structure size 0x600).
 
-Saves are **not encrypted**: the original system encrypts the data file with the game's key; we never implement that
-(nor decryption, see `CONTRIBUTING.md`). Consequently saves from real hardware cannot be imported as they are; whether and how
-to support that is an open question. `homebrew/savetest` covers the round trips.
+**Save encryption (2026-10-22).** The original system encrypts the data file with a 16-byte key that the game passes in the
+request (offset 0x5DC of `SceUtilitySavedataParam`; one key per version of the game: the European and American releases
+differ), and keeps AES-CMAC hashes of it in `PARAM.SFO` (`SAVEDATA_FILE_LIST` for the file, `SAVEDATA_PARAMS` for the rest).
+`third_party/pokke_save_crypto` (pokke's, MIT, with its author's permission) implements the scheme (modes 1, 3 and 5; the
+console-bound 2, 4 and 6 need a PSP's fuse keys and are not supported).
+- **Loading**: if the `PARAM.SFO` marks the data file as encrypted, the game's key must prove itself against the stored
+  hash (otherwise `0x80110306`, "data broken": another version's save, or a damaged file), then the data is decrypted.
+  Verified against a European save made by PPSSPP: the hash comes out of the key the game passes.
+- **Saving**: a whole save in one call (how the game saves) is encrypted in mode 5 with the game's key, read back and
+  checked before it is written (if it does not read back, it is written plain), and `PARAM.SFO` gets the hashes. The
+  previous generation of the data file and `PARAM.SFO` is kept in `<SAVEDATA>/.previous/<folder>/`. A plain file written into
+  a folder that was encrypted clears the encryption fields of its `PARAM.SFO`.
+- `MHF_SAVE_ENCRYPTION=0` writes plain saves; `MHF_SAVEDATA_LOG=1` prints the request words around the key.
+- The launcher imports saves (Settings, Saves) by copying folders; it never needs the key.
+- Not supported: the console-bound modes, saves of another version of the game (their key differs and is only known to
+  that version's executable; a European executable cannot read an American save), and writing a save a real PSP accepts
+  (the one PARAM.SFO hash that needs a console's fuse keys is filled with `0x01` bytes, as PC tools do; PPSSPP accepts it).
+
+`platforms/psp/tests/test_hle_savedata.cpp` covers the round trips on a Runtime without a program, and
+`homebrew/savetest` the game-side calls.
 
 ## 5e. Fonts (`hle_font.cpp`)
 

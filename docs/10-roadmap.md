@@ -69,7 +69,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
       output device was fed 0.2 % too little, `psp_frontend.cpp`) and flicker of item icons, text and textures at 60 fps and
       above (2D sprites are paired strictly, `05` §6). Fixed in 0.2.2: that pairing ignored the alternating draw buffer, so
       the 2D HUD did not interpolate and the Linux interpolation test failed.
-      Known: 180 fps not sustained in the heaviest areas, real PSP saves not importable.
+      Known: 180 fps not sustained in the heaviest areas, saves are in the PSP format (import from a PSP or PPSSPP in Settings; usable in PPSSPP).
 **Acceptance**: complete 3 quests and save/load without failures; stable framerate matching the original.
 
 ## Phase 4 — Launcher and packaging
