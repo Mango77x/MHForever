@@ -20,6 +20,7 @@ LICENSES = {
     "licenses/at3_standalone-LICENSE.txt": ROOT / "third_party/at3_standalone/LICENSE",
     "licenses/psprecomp-LICENSE.txt": ROOT / "third_party/psprecomp/LICENSE",
     "licenses/ppsspp_prx-NOTICE.md": ROOT / "third_party/ppsspp_prx/NOTICE.md",
+    "licenses/pokke_save_crypto-LICENSE.txt": ROOT / "third_party/pokke_save_crypto/LICENSE",
 }
 
 
