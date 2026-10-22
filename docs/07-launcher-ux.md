@@ -100,8 +100,12 @@ mode, where no second window can be shown.
   and tested but nothing uses it yet. Friends, rooms and invites will: the launcher owns the identity and the
   connections (`08-multiplayer.md` §1.1), the game's menu shows their state (an Online tab) and sends actions (invite,
   join) over it.
-- Not done yet: changes made in the menu are not saved to the launcher's settings; mouse input; a "don't pause" mode
-  for when a room is open; the Online tab.
+- The mouse works too: the cursor is shown while the menu is up; hovering a row selects it, a click picks a tab, presses a
+  button, flips a toggle or steps a choice (left half back, right half forward), a click or drag on a slider's track sets
+  its value, and the wheel changes the value under the pointer or else the tab. Positions come from
+  `MenuRenderer::layout`, the same ones the menu is drawn at.
+- Not done yet: changes made in the menu are not saved to the launcher's settings; a "don't pause" mode for when a room is
+  open; the Online tab.
 
 ## 4. Bundled toolchain (only for model B; not needed with model A)
 

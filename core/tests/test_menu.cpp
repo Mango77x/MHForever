@@ -3,6 +3,7 @@
 #include "check.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
@@ -127,6 +128,77 @@ int main() {
     menu.set(fewer);
     MHF_CHECK(menu.view().tab == 2 && selected_id(menu) == kScale);
 
+    // The mouse: positions come from the renderer's layout, and every action matches what the keys do.
+    {
+        MenuRenderer layouter(MHF_FONT_DIR);
+        Menu m;
+        m.set(sample());
+        MenuLayout lay = layouter.layout(m.view());
+        MHF_CHECK(lay.tabs.size() == 3 && lay.rows.size() == 2);
+        MHF_CHECK(lay.tabs[0].x + lay.tabs[0].w < lay.tabs[1].x && lay.tabs[1].x + lay.tabs[1].w < lay.tabs[2].x); // apart
+
+        // A tab is picked by clicking it.
+        auto h = lay.hit(lay.tabs[2].x + 5.0f, lay.tabs[2].y + 5.0f);
+        MHF_CHECK(h.kind == MenuLayout::Hit::Kind::Tab && h.index == 2);
+        m.click_tab(h.index);
+        MHF_CHECK(m.view().tab == 2 && !m.view().tabs_focused);
+        lay = layouter.layout(m.view());
+
+        // Over a row it is selected; a disabled row cannot be; a toggle flips and a choice steps by the side clicked.
+        h = lay.hit(lay.rows[2].x + 10.0f, lay.rows[2].y + 5.0f);
+        MHF_CHECK(h.kind == MenuLayout::Hit::Kind::Row && h.index == 2 && !h.on_bar);
+        m.hover_row(h.index);
+        MHF_CHECK(selected_id(m) == kFullscreen);
+        e = m.click_row(2, h.along, false);
+        MHF_CHECK(e.kind == Kind::Changed && e.id == kFullscreen && e.value == 0);
+        MHF_CHECK(m.click_row(0, 0.9f, false).kind == Kind::None); // 4x is the last option already
+        MHF_CHECK(m.click_row(0, 0.1f, false).value == 2);
+        m.hover_row(3);
+        MHF_CHECK(selected_id(m) != kNotNow);
+
+        // A slider: its track is hit separately, a click or a drag sets the value from the position (to a step), the
+        // wheel over it moves it, and the wheel elsewhere changes tab.
+        m.click_tab(1);
+        lay = layouter.layout(m.view());
+        MHF_CHECK(lay.rows[0].w == 0 && lay.rows[1].w > 0 && lay.bars[1].w > 0); // the heading cannot be picked
+        h = lay.hit(lay.bars[1].x + lay.bars[1].w * 0.5f, lay.rows[1].y + 3.0f);
+        MHF_CHECK(h.kind == MenuLayout::Hit::Kind::Row && h.index == 1 && h.on_bar && std::fabs(h.along - 0.5f) < 0.02f);
+        MHF_CHECK(m.click_row(1, h.along, false).kind == Kind::None); // off the track a click does not set it
+        e = m.click_row(1, 0.8f, true);
+        MHF_CHECK(e.kind == Kind::Changed && e.id == kMusic && e.value == 80);
+        MHF_CHECK(m.drag_slider(1, 0.123f).value == 10); // snapped to the step of 5
+        MHF_CHECK(m.drag_slider(1, 1.5f).value == 100);  // and kept in range
+        MHF_CHECK(m.drag_slider(1, -1.0f).value == 0);
+        MHF_CHECK(m.scroll(1, 1).value == 5);
+        MHF_CHECK(m.view().tab == 1);
+        MHF_CHECK(m.scroll(1, -1).kind == Kind::None && m.view().tab == 0); // up: the previous tab
+        m.scroll(-1, -1);
+        MHF_CHECK(m.view().tab == 1);
+
+        // Out of range is ignored.
+        m.hover_row(99);
+        MHF_CHECK(m.click_row(99, 0.5f, false).kind == Kind::None);
+        MHF_CHECK(m.drag_slider(-1, 0.5f).kind == Kind::None);
+    }
+
+    // The game's name is shortened to the room the tabs leave, whatever its length.
+    {
+        MenuView v = sample();
+        v.title = "A game with an extremely long name that cannot possibly fit next to the tabs of this menu";
+        MenuRenderer long_name(MHF_FONT_DIR);
+        std::vector<std::uint32_t> big;
+        MHF_CHECK(long_name.render(v, 4, big, false));
+        // Between the right end of the name's room and the first tab nothing is drawn (the strip at the bar's height).
+        const int w = MenuRenderer::width(4);
+        const MenuLayout lay = long_name.layout(v);
+        const int gap_from = static_cast<int>((lay.tabs[0].x + 12.0f - 20.0f) * 4.0f), gap_to = static_cast<int>((lay.tabs[0].x + 12.0f - 2.0f) * 4.0f);
+        bool clear = true;
+        for (int y = 8 * 4; y < 30 * 4; ++y) {
+            for (int x = gap_from; x < gap_to; ++x) clear = clear && (big[static_cast<std::size_t>(y) * static_cast<std::size_t>(w) + static_cast<std::size_t>(x)] >> 24u) == 0;
+        }
+        MHF_CHECK(clear);
+    }
+
     // Nothing to navigate: no crash.
     Menu empty;
     empty.set(MenuView{});
@@ -150,7 +222,9 @@ int main() {
     if (const char *dump = std::getenv("MHF_MENU_DUMP")) {
         std::vector<std::uint32_t> big;
         Menu look;
-        look.set(sample());
+        MenuView shown_view = sample();
+        shown_view.title = "Monster Hunter Freedom Unite";
+        look.set(shown_view);
         look.press(Key::NextTab);
         look.press(Key::NextTab); // the Video tab
         look.press(Key::Down);

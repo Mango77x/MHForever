@@ -27,6 +27,13 @@ struct KeyEvent {
     std::string text; // Kind::Text: UTF-8
 };
 
+// The mouse over the window's drawing area, for menus drawn by the game. Positions are fractions of the window (0..1).
+struct MouseEvent {
+    enum class Kind { Move, Down, Up, Wheel } kind = Kind::Move;
+    float x{}, y{};
+    int wheel{}; // Wheel: +1 up, -1 down
+};
+
 struct HostOptions {
     const char *title = "MH-Forever";
     int width = 480;   // emulated screen size
@@ -57,6 +64,11 @@ public:
 
     // Key events since the last call (collected by poll()).
     [[nodiscard]] std::vector<KeyEvent> take_key_events();
+    // Mouse events since the last call, collected by poll() only while set_mouse_events(true) (left button and wheel).
+    [[nodiscard]] std::vector<MouseEvent> take_mouse_events();
+    void set_mouse_events(bool on);
+    // Shows or hides the mouse cursor over the window.
+    void show_cursor(bool show);
     // Text entry (IME, typed characters). While it is on, the keyboard no longer acts as a gamepad.
     void set_text_input(bool on);
 

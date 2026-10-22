@@ -54,6 +54,25 @@ struct MenuView {
     }
 };
 
+// Where everything is on the 480x272 canvas, for the mouse (MenuRenderer::layout).
+struct MenuLayout {
+    struct Rect {
+        float x = 0, y = 0, w = 0, h = 0;
+        [[nodiscard]] bool contains(float px, float py) const { return w > 0 && px >= x && px < x + w && py >= y && py < y + h; }
+    };
+    std::vector<Rect> tabs;
+    std::vector<Rect> rows;  // one per row of the shown tab; empty (w = 0) when scrolled out of view
+    std::vector<Rect> bars;  // the track of a slider row (empty for the other rows)
+
+    struct Hit {
+        enum class Kind { None, Tab, Row } kind = Kind::None;
+        int index = 0;
+        bool on_bar = false; // a slider's track is under the pointer
+        float along = 0;     // across the slider track (on_bar) or across the row: 0..1
+    };
+    [[nodiscard]] Hit hit(float x, float y) const;
+};
+
 class Menu {
 public:
     enum class Key { Up, Down, Left, Right, Accept, Back, PrevTab, NextTab };
@@ -72,7 +91,16 @@ public:
     // Applies a key; returns what the owner has to know about.
     Event press(Key key);
 
+    // The mouse. `row` and `tab` are indexes into the shown tab / the tabs; `along` is where across the row (0..1) or,
+    // for a slider, across its track.
+    void hover_row(int row);                  // the pointer is over a row: it becomes the selected one
+    void click_tab(int tab);
+    Event click_row(int row, float along, bool on_bar); // a button is activated, a toggle flips, a choice steps by side, a slider jumps
+    Event drag_slider(int row, float along);  // the button is held on a slider's track
+    Event scroll(int direction, int row);     // the wheel (+1 = up): over a slider row it raises/lowers the value, elsewhere it changes the tab
+
 private:
+    Event set_value(MenuItem &item, int value);
     [[nodiscard]] static bool selectable(const MenuItem &item);
     [[nodiscard]] std::vector<MenuItem> &items();
     [[nodiscard]] int first_selectable() const;
@@ -92,6 +120,9 @@ public:
 
     // `scale` times the 480x272 canvas. Returns false when no font could be loaded.
     bool render(const MenuView &view, int scale, std::vector<std::uint32_t> &pixels, bool backdrop = true);
+
+    // Where the tabs and rows of `view` are (the same positions render() draws at).
+    [[nodiscard]] MenuLayout layout(const MenuView &view) const;
 
     [[nodiscard]] static int width(int scale) { return 480 * scale; }
     [[nodiscard]] static int height(int scale) { return 272 * scale; }

@@ -2052,7 +2052,7 @@ void GlBackend::draw_blurred_background(int window_w, int window_h) {
     gl_.Uniform2f(blur_uv_off_, off_x, off_y);
     gl_.Uniform2f(blur_uv_scale_, scale_x, scale_y);
     gl_.Uniform2f(blur_dir_, 0.0f, 0.0f);
-    gl_.Uniform1f(blur_dim_, 0.42f);
+    gl_.Uniform1f(blur_dim_, 0.55f);
     gl_.ActiveTexture(GL_TEXTURE0);
     gl_.BindTexture(GL_TEXTURE_2D, blur_texture_[0]);
     set_texture_params(true, true, true);

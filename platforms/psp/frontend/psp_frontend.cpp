@@ -43,6 +43,7 @@ struct Frontend::Impl {
     std::optional<overlay::MenuView> menu_pending;        // for the worker (guarded by dialog_mutex)
     std::atomic<bool> menu_open{false};
     bool menu_confirming_quit{};
+    std::unique_ptr<overlay::MenuRenderer> menu_layouter; // the mouse needs to know where everything is drawn
     bool menu_requested{};
     bool guide_down{};
     int music_volume{100}, sfx_volume{100};
@@ -270,7 +271,7 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
     overlay::MenuView v;
     v.title = menu_game_name(impl.title);
     v.corner = "Esc  Resume";
-    v.hint = "Arrows move  |  Enter select  |  Q E tabs  |  Esc resume";
+    v.hint = "Arrows or mouse  |  Enter select  |  Q E tabs  |  Esc resume";
 
     overlay::MenuTab game{"Game", {menu_item(Kind::Button, kResume, "Resume"), menu_item(Kind::Button, kQuit, "Quit the game")}};
     game.items[1].danger = true;
@@ -309,9 +310,8 @@ overlay::MenuView menu_confirm_quit(const Frontend::Impl &impl) {
     return v;
 }
 
-// One press of a menu key. False once the menu should close.
-bool menu_press(Frontend::Impl &impl, Runtime &rt, overlay::Menu::Key key) {
-    const overlay::Menu::Event e = impl.menu.press(key);
+// What the menu reported (a key, a click, a drag). False once the menu should close.
+bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &e) {
     switch (e.kind) {
     case overlay::Menu::Event::Kind::Back:
         if (impl.menu_confirming_quit) {
@@ -357,6 +357,19 @@ bool menu_press(Frontend::Impl &impl, Runtime &rt, overlay::Menu::Key key) {
     case overlay::Menu::Event::Kind::None: break;
     }
     return true;
+}
+
+bool menu_press(Frontend::Impl &impl, Runtime &rt, overlay::Menu::Key key) { return menu_handle(impl, rt, impl.menu.press(key)); }
+
+// A position over the window (fractions) as a point of the menu's 480x272 canvas, which sits letterboxed in the window.
+void menu_point(const host::SdlHost::WindowRect &window, float nx, float ny, float &x, float &y) {
+    const float picture = 480.0f / 272.0f;
+    const float aspect = window.height > 0 ? static_cast<float>(window.width) / static_cast<float>(window.height) : picture;
+    float fw = 1.0f, fh = 1.0f;
+    if (aspect > picture) fw = picture / aspect;
+    else fh = aspect / picture;
+    x = (nx - (1.0f - fw) * 0.5f) / fw * 480.0f;
+    y = (ny - (1.0f - fh) * 0.5f) / fh * 272.0f;
 }
 
 // The menu's keys from a gamepad: presses, with the repeat of a held direction.
@@ -406,6 +419,13 @@ void run_menu(Frontend::Impl &impl, Runtime &rt) {
         impl.overlay.continuous = impl.gpu_state == 1;
     }
     (void)impl.host.take_key_events();
+    impl.host.set_mouse_events(true);
+    impl.host.show_cursor(true);
+    if (!impl.menu_layouter) impl.menu_layouter = std::make_unique<overlay::MenuRenderer>(impl.font_directory);
+    overlay::MenuLayout layout;
+    std::uint64_t layout_version = ~0ull;
+    int dragging = -1; // the slider row a held button is moving
+    int pointer_row = -1;
     std::uint64_t shown_version = ~0ull;
     MenuPad pad_state;
     pad_state.accept = pad_state.back = pad_state.prev = pad_state.next = true; // what is held now must not act in the menu
@@ -439,6 +459,43 @@ void run_menu(Frontend::Impl &impl, Runtime &rt) {
                 break;
             }
         }
+        // The mouse: hover selects, a click acts, a held button drags a slider, the wheel changes a value or the tab.
+        const auto mouse = impl.host.take_mouse_events();
+        if (open && !mouse.empty()) {
+            if (impl.menu.view().version != layout_version) {
+                layout = impl.menu_layouter->layout(impl.menu.view());
+                layout_version = impl.menu.view().version;
+            }
+            const host::SdlHost::WindowRect window = impl.host.window_rect();
+            for (const auto &m : mouse) {
+                float x = 0.0f, y = 0.0f;
+                menu_point(window, m.x, m.y, x, y);
+                using Hit = overlay::MenuLayout::Hit;
+                const Hit hit = layout.hit(x, y);
+                if (m.kind == host::MouseEvent::Kind::Move) {
+                    pointer_row = hit.kind == Hit::Kind::Row ? hit.index : -1;
+                    if (dragging >= 0 && dragging < static_cast<int>(layout.bars.size())) {
+                        const auto &bar = layout.bars[static_cast<std::size_t>(dragging)];
+                        if (bar.w > 0) open = menu_handle(impl, rt, impl.menu.drag_slider(dragging, (x - bar.x) / bar.w)) && open;
+                    } else if (hit.kind == Hit::Kind::Row) {
+                        impl.menu.hover_row(hit.index);
+                    }
+                } else if (m.kind == host::MouseEvent::Kind::Down) {
+                    if (hit.kind == Hit::Kind::Tab) {
+                        impl.menu.click_tab(hit.index);
+                    } else if (hit.kind == Hit::Kind::Row) {
+                        open = menu_handle(impl, rt, impl.menu.click_row(hit.index, hit.along, hit.on_bar)) && open;
+                        if (hit.on_bar) dragging = hit.index;
+                    }
+                } else if (m.kind == host::MouseEvent::Kind::Up) {
+                    dragging = -1;
+                } else if (m.kind == host::MouseEvent::Kind::Wheel) {
+                    open = menu_handle(impl, rt, impl.menu.scroll(m.wheel, pointer_row)) && open;
+                }
+                if (!open) break;
+            }
+            layout_version = ~0ull; // the rows may have moved
+        }
         if (open && impl.menu.view().version != shown_version) {
             shown_version = impl.menu.view().version;
             if (impl.gpu_state == 1) {
@@ -458,6 +515,7 @@ void run_menu(Frontend::Impl &impl, Runtime &rt) {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(8));
     }
+    impl.host.set_mouse_events(false);
     impl.menu_open = false;
     {
         std::lock_guard lock(impl.overlay.mutex);

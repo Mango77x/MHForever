@@ -18,6 +18,8 @@ struct SdlHost::Impl {
     HostOptions options;
     int audio_rate{44100};
     std::vector<KeyEvent> keys;
+    std::vector<MouseEvent> mouse;
+    bool mouse_events = false;
     bool text_input{};
     bool initialized{};
 };
@@ -100,9 +102,33 @@ bool SdlHost::open(const HostOptions &options) {
     return true;
 }
 
+std::vector<MouseEvent> SdlHost::take_mouse_events() {
+    std::vector<MouseEvent> out;
+    out.swap(impl_->mouse);
+    return out;
+}
+
+void SdlHost::show_cursor(bool show) {
+    if (show) SDL_ShowCursor();
+    else SDL_HideCursor();
+}
+
+void SdlHost::set_mouse_events(bool on) {
+    impl_->mouse_events = on;
+    impl_->mouse.clear();
+}
+
 bool SdlHost::poll() {
     SDL_Event e;
     bool keep_running = true;
+    const auto push_mouse = [this](MouseEvent::Kind kind, float x, float y, int wheel) {
+        if (!impl_->mouse_events || impl_->window == nullptr) return;
+        int w = 0, h = 0;
+        SDL_GetWindowSize(impl_->window, &w, &h);
+        if (w <= 0 || h <= 0) return;
+        if (impl_->mouse.size() > 256) impl_->mouse.erase(impl_->mouse.begin());
+        impl_->mouse.push_back({kind, x / static_cast<float>(w), y / static_cast<float>(h), wheel});
+    };
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
         case SDL_EVENT_QUIT: keep_running = false; break;
@@ -132,6 +158,18 @@ bool SdlHost::poll() {
             default: break;
             }
             if (impl_->keys.size() > 256) impl_->keys.erase(impl_->keys.begin());
+            break;
+        case SDL_EVENT_MOUSE_MOTION:
+            push_mouse(MouseEvent::Kind::Move, e.motion.x, e.motion.y, 0);
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+            if (e.button.button == SDL_BUTTON_LEFT) {
+                push_mouse(e.type == SDL_EVENT_MOUSE_BUTTON_DOWN ? MouseEvent::Kind::Down : MouseEvent::Kind::Up, e.button.x, e.button.y, 0);
+            }
+            break;
+        case SDL_EVENT_MOUSE_WHEEL:
+            if (e.wheel.y != 0.0f) push_mouse(MouseEvent::Kind::Wheel, e.wheel.mouse_x, e.wheel.mouse_y, e.wheel.y > 0.0f ? 1 : -1);
             break;
         case SDL_EVENT_TEXT_INPUT:
             if (impl_->text_input && e.text.text != nullptr) impl_->keys.push_back({KeyEvent::Kind::Text, e.text.text});
