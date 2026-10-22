@@ -8,10 +8,6 @@
 #include <functional>
 #include <memory>
 
-namespace mhf::link {
-class Connection;
-}
-
 namespace mhf::psp {
 
 class Frontend {
@@ -25,11 +21,6 @@ public:
     // bilinear texture enhancement and `target_fps` the output rate: multiples of the game's 30 fps up to 180, made with in-between pictures.
     bool open(const char *title, bool hidden = false, int scale = 2, bool gpu = true, int render_scale = 4,
               bool fullscreen = false, bool smooth_textures = false, int target_fps = 30);
-
-    // Connects the window to the launcher that started the game (docs/07-launcher-ux.md §3c): Escape (or the guide
-    // button) pauses the game and asks the launcher for its in-game menu; the launcher's commands change the volumes,
-    // resume or end the game. Without it Escape does nothing outside dialogs.
-    void attach_launcher(std::unique_ptr<link::Connection> launcher);
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
     void attach(Runtime &rt, std::function<void()> extra = {});

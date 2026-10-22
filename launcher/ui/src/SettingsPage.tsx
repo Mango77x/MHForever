@@ -24,7 +24,7 @@ function Toggle({ on, onToggle, label }: { on: boolean; onToggle: () => void; la
   return <button className={'tog' + (on ? ' on' : '')} onClick={onToggle} role="switch" aria-checked={on} aria-label={label} />;
 }
 
-export function Volume({ id, label, value, onCommit }: { id: string; label: string; value: number; onCommit: (v: number) => void }) {
+function Volume({ id, label, value, onCommit }: { id: string; label: string; value: number; onCommit: (v: number) => void }) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   return (

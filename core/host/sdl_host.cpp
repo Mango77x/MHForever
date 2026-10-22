@@ -114,7 +114,9 @@ bool SdlHost::poll() {
             switch (e.key.key) {
             case SDLK_RETURN:
             case SDLK_KP_ENTER: impl_->keys.push_back({KeyEvent::Kind::Enter, {}}); break;
-            case SDLK_ESCAPE: impl_->keys.push_back({KeyEvent::Kind::Escape, {}}); break;
+            case SDLK_ESCAPE:
+                if (!e.key.repeat) impl_->keys.push_back({KeyEvent::Kind::Escape, {}});
+                break;
             case SDLK_BACKSPACE: impl_->keys.push_back({KeyEvent::Kind::Backspace, {}}); break;
             case SDLK_LEFT: impl_->keys.push_back({KeyEvent::Kind::Left, {}}); break;
             case SDLK_RIGHT: impl_->keys.push_back({KeyEvent::Kind::Right, {}}); break;

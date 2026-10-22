@@ -5,9 +5,6 @@
 #include "launcher.hpp"
 #include "platform.hpp"
 
-#include "link/link.hpp"
-#include "link/protocol.hpp"
-
 #include "webview/webview.h"
 
 #include <atomic>
@@ -15,9 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
-#include <functional>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -54,28 +49,6 @@ struct App {
                 webview_eval(w, s->c_str());
             },
             payload);
-    }
-    // Runs `work` on the UI thread (window changes must happen there).
-    void on_ui(std::function<void()> work) {
-        auto *payload = new std::function<void()>(std::move(work));
-        webview_dispatch(
-            view,
-            [](webview_t, void *arg) {
-                std::unique_ptr<std::function<void()>> f(static_cast<std::function<void()> *>(arg));
-                (*f)();
-            },
-            payload);
-    }
-    // The running game, once it has connected over the local link (docs/07-launcher-ux.md section 3c).
-    std::shared_ptr<mhf::link::Connection> game;
-    std::mutex game_mutex;
-    std::shared_ptr<mhf::link::Connection> current_game() {
-        std::lock_guard lock(game_mutex);
-        return game;
-    }
-    void set_game(std::shared_ptr<mhf::link::Connection> connection) {
-        std::lock_guard lock(game_mutex);
-        game = std::move(connection);
     }
     void emit(const Json &event) { eval("window.__mhfEvent(" + event.dump() + ")"); }
     void emit_state() {
@@ -116,63 +89,7 @@ void on_get_state(const char *id, const Json &) { reply(id, g_app.launcher->stat
 
 void on_set_settings(const char *id, const Json &args) {
     g_app.launcher->set_settings(args.as_array().empty() ? Json() : args.as_array()[0]);
-    const Json state = g_app.launcher->state();
-    // Changed from the in-game menu: what can change while playing reaches the running game at once.
-    if (const auto game = g_app.current_game()) {
-        using mhf::link::protocol::Command;
-        const Json &settings = state["settings"];
-        game->send(mhf::link::protocol::format_command({Command::Kind::SetMusic, static_cast<int>(settings["musicVolume"].as_number())}));
-        game->send(mhf::link::protocol::format_command({Command::Kind::SetSfx, static_cast<int>(settings["sfxVolume"].as_number())}));
-    }
-    reply(id, state);
-}
-
-// The in-game menu is over the game: the player is done with it, or wants the game to end.
-void close_menu() {
-    platform::uncover_window(native_window());
-    Json e;
-    e["type"] = "menu";
-    e["open"] = false;
-    g_app.emit(e);
-}
-
-void on_menu_resume(const char *id, const Json &) {
-    if (const auto game = g_app.current_game()) game->send(mhf::link::protocol::format_command({mhf::link::protocol::Command::Kind::Resume, 0}));
-    close_menu();
-    reply(id, Json(true));
-}
-
-void on_menu_quit(const char *id, const Json &) {
-    if (const auto game = g_app.current_game()) game->send(mhf::link::protocol::format_command({mhf::link::protocol::Command::Kind::Quit, 0}));
-    close_menu();
-    reply(id, Json(true));
-}
-
-// While the game runs: waits for it to connect, hides the launcher window, and opens the menu over the game window
-// whenever the game asks for it.
-void serve_game(mhf::link::Server &server, const std::atomic<bool> &over) {
-    std::unique_ptr<mhf::link::Connection> connection;
-    while (!over && !(connection = server.accept(200))) {
-    }
-    if (!connection) return;
-    std::shared_ptr<mhf::link::Connection> game = std::move(connection);
-    g_app.set_game(game);
-    g_app.on_ui([] { platform::hide_window(native_window()); });
-    while (!over && game->open()) {
-        const auto line = game->receive(200);
-        if (!line) continue;
-        if (const auto where = mhf::link::protocol::parse_menu(*line)) {
-            const auto rect = *where;
-            g_app.on_ui([rect] {
-                platform::cover_window(native_window(), rect.x, rect.y, rect.width, rect.height);
-                Json e;
-                e["type"] = "menu";
-                e["open"] = true;
-                g_app.emit(e);
-            });
-        }
-    }
-    g_app.set_game(nullptr);
+    reply(id, g_app.launcher->state());
 }
 
 void on_set_pseudonym(const char *id, const Json &args) {
@@ -293,22 +210,8 @@ void on_play(const char *id, const Json &args) {
         if (!plan.error.empty()) return fail(plan.error);
         std::this_thread::sleep_for(std::chrono::milliseconds(350)); // let the step animate
         std::string error;
-        // The game connects back to us over the local link: that is how its Escape key opens the launcher's menu.
-        auto server = mhf::link::Server::start();
-        if (server) platform::set_environment(mhf::link::kEnvironment, server->address());
         auto process = platform::Process::start(plan.program, plan.args, plan.cwd, plan.log, error);
         if (!process) return fail(error);
-        std::atomic<bool> game_over{false};
-        std::thread session;
-        if (server) session = std::thread([&] { serve_game(*server, game_over); });
-        const auto finish_session = [&] {
-            game_over = true;
-            if (session.joinable()) session.join();
-            g_app.on_ui([] {
-                platform::uncover_window(native_window());
-                platform::show_window(native_window());
-            });
-        };
         phase("starting");
         const auto started = std::chrono::steady_clock::now();
         bool running = false;
@@ -324,7 +227,6 @@ void on_play(const char *id, const Json &args) {
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        finish_session();
         const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - started).count();
         if (code != 0 && seconds < 10) {
             return fail("The game closed right away (code " + std::to_string(code) + "). Its log is in " +
@@ -440,8 +342,6 @@ int main(int argc, char **argv) {
     bind("mhf_removeGame", on_remove_game);
     bind("mhf_pickExecutable", on_pick_executable);
     bind("mhf_play", on_play);
-    bind("mhf_menuResume", on_menu_resume);
-    bind("mhf_menuQuit", on_menu_quit);
     bind("mhf_copyText", on_copy_text);
     bind("mhf_exportIdentity", on_export_identity);
 

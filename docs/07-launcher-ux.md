@@ -70,27 +70,27 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
 - Still to do: launcher-managed updates (signed), language selection, icon, Steam Deck packaging
   (AppImage/Flatpak), moving the per-user folder, moving saves there.
 
-## 3c. One application: the launcher inside the game (decided 2026-10-22)
+## 3c. The in-game menu (decided 2026-10-22)
 
-For the player the launcher and the game are one application: **Play** hides the launcher and the game takes its
-place; **Escape** (or the controller's guide button) opens the launcher's own interface over the game, adapted to what is
-needed while playing: friends, the room and invites, sound, video information, resume and quit. They stay two
-programs (the launcher is a web view, the game an OpenGL window; a web page cannot be laid over a GL window with
-transparency on both Windows and Linux), joined by a **local link**:
+**Escape** (or the controller's guide button) pauses the game and opens a menu drawn *inside the game window*: resume,
+sound, video, online, quit. It is not a second window and not the launcher: the launcher stays what it is, the
+screen where you add games, set them up and press Play. A first attempt that stretched the launcher's own window over
+the game was dropped on purpose: laying one window over another (focus, fullscreen, resizing, closing the game while
+it is up) is fragile on Windows and impossible on the Steam Deck's game mode, where no second window can be shown.
 
-- `core/link`: the launcher listens on `127.0.0.1` (a port the system picks) and gives the game `MHF_LINK=<port>:<token>`
-  in its environment; the game connects and proves it knows the token. Lines of text in both directions
-  (`core/link/protocol.hpp` lists them: `menu <x> <y> <w> <h> <fullscreen>`, `set music|sfx <0..100>`, `resume`, `quit`).
-- The game, on Escape with no system dialog open: stops its host loop (the program's clock does not count the pause),
-  sends the window's position, and keeps the window and the link alive until the launcher answers.
-- The launcher puts its window, borderless and in front, exactly over the game's window and shows the in-game screen
-  (`launcher/ui/src/InGameMenu.tsx`); `resume` hides it again. Changes to the volumes reach the running game at once.
-  Closing the launcher, or its crash, resumes the game.
-- The link is also what online play will use: the launcher owns the identity and the connection to friends
-  (`08-multiplayer.md` §1.1), the game only talks to the launcher on this machine.
-- Not done yet: the frozen game picture (blurred) behind the menu, video settings that change while playing
-  (resolution and frame rate still apply at the next start), not pausing when a room is open, and checking the
-  hand-over on the Steam Deck's game mode.
+- `core/overlay`: `Painter` (rounded shapes and anti-aliased text in the launcher's colours, CPU, console-independent),
+  `Menu` (rows: button, slider, toggle, choice; keyboard and controller navigation) and `MenuRenderer`. The system
+  dialogs (`DialogOverlay`) draw with the same `Painter`.
+- The frontend (`platforms/psp/frontend`) owns what the menu does: it pauses the program (the host keeps the window
+  alive; the program's clock does not count the time), lets the GL backend redraw the last picture with the menu over
+  it as often as the display refreshes, and applies changes at once (volumes, fullscreen, smooth textures). A dialog
+  open in the game takes Escape first (it cancels the dialog).
+- Resolution and frame rate still apply at the next start; the menu shows them.
+- `core/link` (the local link between the game and the launcher: loopback, per-launch token, lines of text) is built
+  and tested but nothing uses it yet. Friends, rooms and invites will: the launcher owns the identity and the
+  connections (`08-multiplayer.md` §1.1), the game's menu shows their state and sends actions (invite, join) over it.
+- Not done yet: changes made in the menu are not saved to the launcher's settings; mouse input; a "don't pause" mode
+  for when a room is open; the friends and room pages.
 
 ## 4. Bundled toolchain (only for model B; not needed with model A)
 

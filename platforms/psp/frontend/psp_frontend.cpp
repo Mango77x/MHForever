@@ -3,8 +3,7 @@
 #include "dialog_overlay.hpp"
 #include "gl_backend.hpp"
 #include "host/sdl_host.hpp"
-#include "link/link.hpp"
-#include "link/protocol.hpp"
+#include "overlay/menu.hpp"
 #include "mhf/psp/dialog.hpp"
 #include "mhf/psp/host.hpp"
 
@@ -38,11 +37,17 @@ struct Frontend::Impl {
         std::uint64_t polls{}, empty{}, lost_us{}, longest_gap_us{}, dropped{}, min_queued{~0ull}, sum_queued{};
         std::uint64_t last_print_us{};
     } audio_stats;
-    // The launcher that started the game, if any: its in-game menu opens over the window while the game is paused.
-    std::unique_ptr<link::Connection> launcher;
+    // The in-game menu (docs/07-launcher-ux.md section 3c): Escape (or the guide button) pauses the game and opens it.
+    overlay::Menu menu;
+    std::unique_ptr<overlay::MenuRenderer> menu_renderer; // worker thread (GL path) or the emulation thread (software)
+    std::optional<overlay::MenuView> menu_pending;        // for the worker (guarded by dialog_mutex)
+    std::atomic<bool> menu_open{false};
+    bool menu_confirming_quit{};
     bool menu_requested{};
     bool guide_down{};
     int music_volume{100}, sfx_volume{100};
+    std::string title;
+    LiveSettings live; // what the menu changes while the game runs
     bool open{};
     bool gpu{};
     int render_scale{4};
@@ -67,12 +72,33 @@ struct Frontend::Impl {
     void dialog_worker() {
         for (;;) {
             DialogView view;
+            std::optional<overlay::MenuView> menu_view;
             {
                 std::unique_lock lock(dialog_mutex);
-                dialog_cv.wait(lock, [&] { return dialog_stop || dialog_pending.has_value(); });
+                dialog_cv.wait(lock, [&] { return dialog_stop || dialog_pending.has_value() || menu_pending.has_value(); });
                 if (dialog_stop) return;
-                view = std::move(*dialog_pending);
-                dialog_pending.reset();
+                if (menu_pending) { // the menu first: the game is paused behind it
+                    menu_view = std::move(menu_pending);
+                    menu_pending.reset();
+                } else {
+                    view = std::move(*dialog_pending);
+                    dialog_pending.reset();
+                }
+            }
+            if (menu_view) {
+                if (!menu_renderer) menu_renderer = std::make_unique<overlay::MenuRenderer>(font_directory);
+                constexpr int kMenuScale = 4;
+                std::vector<std::uint32_t> pixels;
+                menu_renderer->render(*menu_view, kMenuScale, pixels);
+                std::lock_guard lock(overlay.mutex);
+                if (menu_open) { // the menu may have been closed while this was drawn
+                    overlay.pixels = std::move(pixels);
+                    overlay.width = overlay::MenuRenderer::width(kMenuScale);
+                    overlay.height = overlay::MenuRenderer::height(kMenuScale);
+                    if (!overlay.visible) overlay.visible = true;
+                    ++overlay.generation;
+                }
+                continue;
             }
             if (!dialogs) dialogs = std::make_unique<DialogOverlay>(font_directory);
             const bool visible = view.kind != DialogView::Kind::None;
@@ -122,6 +148,7 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
     impl_->render_scale = render_scale;
     impl_->smooth_textures = smooth_textures;
     impl_->target_fps = target_fps;
+    impl_->title = title;
     impl_->open = impl_->host.open(o);
     if (impl_->open && fullscreen && !hidden) impl_->host.toggle_fullscreen();
     return impl_->open;
@@ -187,7 +214,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
     for (const auto &k : impl.host.take_key_events()) {
         using K = host::KeyEvent::Kind;
         if (!open) {
-            if (k.kind == K::Escape && impl.launcher) impl.menu_requested = true;
+            if (k.kind == K::Escape) impl.menu_requested = true;
             continue;
         }
         switch (k.kind) {
@@ -217,45 +244,211 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
     impl.dialog_cv.notify_one();
 }
 
-// Applies what the launcher said. False once the game should go on (menu closed or game ended).
-bool apply_launcher_command(Frontend::Impl &impl, Runtime &rt, const link::protocol::Command &command) {
-    using Kind = link::protocol::Command::Kind;
-    switch (command.kind) {
-    case Kind::SetMusic: impl.music_volume = command.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); return true;
-    case Kind::SetSfx: impl.sfx_volume = command.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); return true;
-    case Kind::Resume: return false;
-    case Kind::Quit: rt.exit_program_from_host(0); return false;
+enum MenuId { kResume = 1, kMusic, kSfx, kFullscreen, kSmooth, kQuit, kQuitYes, kQuitNo };
+
+overlay::MenuItem menu_item(overlay::MenuItem::Kind kind, int id, std::string label, int value = 0) {
+    overlay::MenuItem item;
+    item.kind = kind;
+    item.id = id;
+    item.label = std::move(label);
+    item.value = value;
+    return item;
+}
+
+overlay::MenuView menu_main(const Frontend::Impl &impl) {
+    using Kind = overlay::MenuItem::Kind;
+    overlay::MenuView v;
+    v.title = "Paused";
+    v.subtitle = impl.title;
+    v.hint = "Arrows: move and change   Enter: select   Esc: resume";
+    v.items.push_back(menu_item(Kind::Button, kResume, "Resume"));
+    v.items.push_back(menu_item(Kind::Heading, 0, "SOUND"));
+    v.items.push_back(menu_item(Kind::Slider, kMusic, "Music", impl.music_volume));
+    v.items.push_back(menu_item(Kind::Slider, kSfx, "Sound effects", impl.sfx_volume));
+    v.items.push_back(menu_item(Kind::Heading, 0, "VIDEO"));
+    v.items.push_back(menu_item(Kind::Toggle, kFullscreen, "Fullscreen", impl.host.window_rect().fullscreen ? 1 : 0));
+    v.items.push_back(menu_item(Kind::Toggle, kSmooth, "Smooth textures", impl.live.smooth_textures ? 1 : 0));
+    v.items.push_back(menu_item(Kind::Info, 0, std::to_string(impl.render_scale) + "x resolution, " +
+                                                   std::to_string(impl.target_fps) + " fps (set in the launcher)"));
+    v.items.push_back(menu_item(Kind::Heading, 0, "ONLINE"));
+    v.items.push_back(menu_item(Kind::Info, 0, "Friends, rooms and invites arrive"));
+    v.items.push_back(menu_item(Kind::Info, 0, "with online play."));
+    overlay::MenuItem quit = menu_item(Kind::Button, kQuit, "Quit the game");
+    quit.danger = true;
+    v.items.push_back(quit);
+    return v;
+}
+
+overlay::MenuView menu_confirm_quit() {
+    using Kind = overlay::MenuItem::Kind;
+    overlay::MenuView v;
+    v.title = "Quit the game?";
+    v.subtitle = "Progress since your last save is lost.";
+    v.hint = "Enter: select   Esc: back";
+    v.items.push_back(menu_item(Kind::Button, kQuitNo, "Keep playing"));
+    overlay::MenuItem yes = menu_item(Kind::Button, kQuitYes, "Quit without saving");
+    yes.danger = true;
+    v.items.push_back(yes);
+    return v;
+}
+
+// One press of a menu key. False once the menu should close.
+bool menu_press(Frontend::Impl &impl, Runtime &rt, overlay::Menu::Key key) {
+    const overlay::Menu::Event e = impl.menu.press(key);
+    switch (e.kind) {
+    case overlay::Menu::Event::Kind::Back:
+        if (impl.menu_confirming_quit) {
+            impl.menu_confirming_quit = false;
+            impl.menu.set(menu_main(impl));
+            return true;
+        }
+        return false;
+    case overlay::Menu::Event::Kind::Activated:
+        if (e.id == kResume || e.id == kQuitNo) {
+            if (e.id == kQuitNo) {
+                impl.menu_confirming_quit = false;
+                impl.menu.set(menu_main(impl));
+                return true;
+            }
+            return false;
+        }
+        if (e.id == kQuit) {
+            impl.menu_confirming_quit = true;
+            impl.menu.set(menu_confirm_quit());
+        }
+        if (e.id == kQuitYes) {
+            rt.exit_program_from_host(0);
+            return false;
+        }
+        return true;
+    case overlay::Menu::Event::Kind::Changed:
+        switch (e.id) {
+        case kMusic: impl.music_volume = e.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); break;
+        case kSfx: impl.sfx_volume = e.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); break;
+        case kFullscreen: impl.host.toggle_fullscreen(); break;
+        case kSmooth: impl.live.smooth_textures = e.value != 0; break;
+        default: break;
+        }
+        return true;
+    case overlay::Menu::Event::Kind::None: break;
     }
     return true;
 }
 
-// The launcher's menu is open over the window: the game is paused (the host keeps the window and the link alive) until
-// the launcher resumes it, ends it, or goes away. The program's clock does not count the pause.
-void run_launcher_menu(Frontend::Impl &impl, Runtime &rt) {
+// The menu's keys from a gamepad: presses, with the repeat of a held direction.
+struct MenuPad {
+    bool up{}, down{}, left{}, right{}, accept{}, back{}, guide{};
+    std::uint64_t repeat_at_ms[4]{};
+};
+
+void menu_pad_keys(MenuPad &state, const host::GamepadState &g, std::uint64_t now_ms, std::vector<overlay::Menu::Key> &out) {
+    using Key = overlay::Menu::Key;
+    const bool dir[4] = {g.up || g.left_y < -0.6f, g.down || g.left_y > 0.6f, g.left || g.left_x < -0.6f, g.right || g.left_x > 0.6f};
+    bool *held[4] = {&state.up, &state.down, &state.left, &state.right};
+    const Key keys[4] = {Key::Up, Key::Down, Key::Left, Key::Right};
+    for (int i = 0; i < 4; ++i) {
+        if (dir[i] && !*held[i]) {
+            out.push_back(keys[i]);
+            state.repeat_at_ms[i] = now_ms + 350;
+        } else if (dir[i] && now_ms >= state.repeat_at_ms[i]) {
+            out.push_back(keys[i]);
+            state.repeat_at_ms[i] = now_ms + 70;
+        }
+        *held[i] = dir[i];
+    }
+    if (g.south && !state.accept) out.push_back(Key::Accept);
+    if ((g.east || g.start || g.guide) && !state.back) out.push_back(Key::Back);
+    state.accept = g.south;
+    state.back = g.east || g.start || g.guide;
+}
+
+// The in-game menu is open: the game is paused (the window stays alive, the program's clock does not count the time)
+// until the player resumes or quits. The menu is drawn as an overlay over the last picture.
+void run_menu(Frontend::Impl &impl, Runtime &rt) {
+    using Key = overlay::Menu::Key;
     const auto started = std::chrono::steady_clock::now();
     set_controller_state(rt, ControllerState{}); // nothing stays pressed while the menu is up
-    const host::SdlHost::WindowRect w = impl.host.window_rect();
-    impl.launcher->send(link::protocol::format_menu({w.x, w.y, w.width, w.height, w.fullscreen}));
-    bool paused = true;
-    while (paused && impl.launcher->open()) {
+    if (impl.font_directory.empty()) impl.font_directory = rt.options().font_directory;
+    if (!impl.dialog_thread.joinable() && impl.gpu_state == 1) impl.dialog_thread = std::thread([&impl] { impl.dialog_worker(); });
+    impl.menu_confirming_quit = false;
+    impl.menu.set(menu_main(impl));
+    impl.menu_open = true;
+    {
+        std::lock_guard lock(impl.overlay.mutex);
+        impl.overlay.continuous = impl.gpu_state == 1;
+    }
+    (void)impl.host.take_key_events();
+    std::uint64_t shown_version = ~0ull;
+    MenuPad pad_state;
+    pad_state.accept = pad_state.back = true; // the press that opened the menu must not also act in it
+    pad_state.guide = true;
+    bool open = true;
+    while (open) {
         if (!impl.host.poll()) {
             rt.exit_program_from_host(0);
             break;
         }
-        (void)impl.host.take_key_events(); // keys belong to the menu now
-        auto line = impl.launcher->receive(8);
-        while (line && paused) {
-            if (const auto command = link::protocol::parse_command(*line)) paused = apply_launcher_command(impl, rt, *command);
-            if (paused) line = impl.launcher->receive(0);
+        std::vector<Key> keys;
+        for (const auto &k : impl.host.take_key_events()) {
+            using K = host::KeyEvent::Kind;
+            switch (k.kind) {
+            case K::Up: keys.push_back(Key::Up); break;
+            case K::Down: keys.push_back(Key::Down); break;
+            case K::Left: keys.push_back(Key::Left); break;
+            case K::Right: keys.push_back(Key::Right); break;
+            case K::Enter: keys.push_back(Key::Accept); break;
+            case K::Escape:
+            case K::Backspace: keys.push_back(Key::Back); break;
+            case K::Text: break;
+            }
         }
+        const auto since = std::chrono::steady_clock::now() - started;
+        menu_pad_keys(pad_state, impl.host.input(), static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(since).count()), keys);
+        for (const Key key : keys) {
+            if (!menu_press(impl, rt, key)) {
+                open = false;
+                break;
+            }
+        }
+        if (open && impl.menu.view().version != shown_version) {
+            shown_version = impl.menu.view().version;
+            if (impl.gpu_state == 1) {
+                {
+                    std::lock_guard lock(impl.dialog_mutex);
+                    impl.menu_pending = impl.menu.view();
+                }
+                impl.dialog_cv.notify_one();
+            } else {
+                if (!impl.menu_renderer) impl.menu_renderer = std::make_unique<overlay::MenuRenderer>(impl.font_directory);
+                std::vector<std::uint32_t> pixels;
+                impl.menu_renderer->render(impl.menu.view(), 1, pixels);
+                copy_frame(rt, impl.frame);
+                blend_over(impl.frame, pixels);
+                impl.host.present(impl.frame.data(), 480, 272, 480);
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+    }
+    impl.menu_open = false;
+    {
+        std::lock_guard lock(impl.overlay.mutex);
+        impl.overlay.continuous = false;
+        impl.overlay.visible = false;
+        impl.overlay.pixels.clear();
+        impl.overlay.width = 0;
+        ++impl.overlay.generation;
+    }
+    {
+        std::lock_guard lock(impl.dialog_mutex);
+        impl.menu_pending.reset();
     }
     rt.skip_time(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started).count()));
-    impl.host.raise(); // the launcher's window went away: the game takes the keyboard back
     impl.last_audio_us = rt.now_us();
     impl.audio_owed = 0.0;
     impl.audio_primed = false; // the device ran dry: fill the cushion again
     impl.menu_requested = false;
+    impl.guide_down = true; // the guide button that closed the menu is still down: it must not reopen it
 }
 
 ControllerState map_input(const host::GamepadState &g) {
@@ -287,21 +480,18 @@ ControllerState map_input(const host::GamepadState &g) {
 
 } // namespace
 
-void Frontend::attach_launcher(std::unique_ptr<link::Connection> launcher) {
-    impl_->launcher = std::move(launcher);
-    impl_->host.set_text_input(false);
-}
-
 void Frontend::attach(Runtime &rt, std::function<void()> extra) {
     Impl *impl = impl_.get();
     Runtime *runtime = &rt;
     impl->runtime = runtime;
     impl->music_volume = rt.options().music_volume;
     impl->sfx_volume = rt.options().sfx_volume;
+    impl->live.smooth_textures = impl->smooth_textures;
     if (impl->gpu && impl->open) {
         set_gpu_backend_factory(rt, [impl, runtime]() -> std::unique_ptr<gpu::Backend> {
             auto backend = make_gl_backend(static_cast<SDL_Window *>(impl->host.window_handle()), impl->render_scale,
-                                           runtime->memory(), impl->smooth_textures, &impl->overlay, impl->target_fps);
+                                           runtime->memory(), impl->smooth_textures, &impl->overlay, impl->target_fps,
+                                           &impl->live);
             if (!backend) std::fprintf(stderr, "[frontend] no OpenGL 3.3: using the software renderer\n");
             impl->gpu_state = backend ? 1 : 2;
             return backend;
@@ -318,16 +508,10 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
             const host::GamepadState pad = impl->host.input();
             set_controller_state(*runtime, map_input(pad));
             update_dialogs(*impl, *runtime);
-            if (impl->launcher) {
-                if (pad.guide && !impl->guide_down) impl->menu_requested = true;
-                impl->guide_down = pad.guide;
-                // Commands that arrive while playing (settings changed from elsewhere) apply at once.
-                while (const auto line = impl->launcher->receive(0)) {
-                    if (const auto command = link::protocol::parse_command(*line)) apply_launcher_command(*impl, *runtime, *command);
-                }
-                if (impl->menu_requested && current_dialog(*runtime).kind == DialogView::Kind::None) run_launcher_menu(*impl, *runtime);
-                impl->menu_requested = false;
-            }
+            if (pad.guide && !impl->guide_down) impl->menu_requested = true;
+            impl->guide_down = pad.guide;
+            if (impl->menu_requested && current_dialog(*runtime).kind == DialogView::Kind::None) run_menu(*impl, *runtime);
+            impl->menu_requested = false;
             const std::uint64_t now = runtime->now_us();
             const std::uint64_t vblank = now / kVblankPeriodUs;
             if (vblank != impl->last_vblank && impl->gpu_state == 2) {

@@ -9,6 +9,7 @@
 
 #include "psprecomp/guest_memory.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -25,15 +26,24 @@ struct OverlayImage {
     std::vector<std::uint32_t> pixels;
     int width = 0, height = 0;
     bool visible = false;
+    // The game is paused behind the image (the in-game menu): nothing flips any more, so the backend keeps drawing the
+    // last picture with the image over it, as often as the display refreshes.
+    bool continuous = false;
     std::uint64_t generation = 0;
+};
+
+// What the player can change while the game runs (read by the GE thread).
+struct LiveSettings {
+    std::atomic<bool> smooth_textures{false};
 };
 
 // Creates the context on the calling thread. Returns nullptr (after logging why) when OpenGL 3.3 is unavailable.
 // `scale` is the internal resolution multiplier (1 = the original 480x272). `smooth_textures` (enhancement) forces
 // bilinear filtering on 3D textures. `target_fps` (enhancement) is the output rate: a whole multiple of the game's 30 fps up to 180 (rounded), with
 // in-between pictures drawn for every flip; 30 shows the game as it is.
+// `live` (optional) is read every draw and starts with the caller's value; without it `smooth_textures` is fixed.
 std::unique_ptr<gpu::Backend> make_gl_backend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory,
                                               bool smooth_textures = false, OverlayImage *overlay = nullptr,
-                                              int target_fps = 30);
+                                              int target_fps = 30, LiveSettings *live = nullptr);
 
 } // namespace mhf::psp

@@ -380,9 +380,11 @@ std::uint8_t to_byte(float v) { return static_cast<std::uint8_t>(std::clamp(v, 0
 class GlBackend final : public gpu::Backend {
 public:
     GlBackend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory, bool smooth_textures,
-              OverlayImage *overlay, int factor)
-        : window_(window), scale_(std::max(1, scale)), memory_(memory), smooth_textures_(smooth_textures),
-          overlay_(overlay), factor_(std::clamp(factor, 1, 6)), interpolate_(factor > 1) {}
+              OverlayImage *overlay, int factor, LiveSettings *live)
+        : window_(window), scale_(std::max(1, scale)), memory_(memory), live_(live != nullptr ? live : &own_live_),
+          overlay_(overlay), factor_(std::clamp(factor, 1, 6)), interpolate_(factor > 1) {
+        if (live == nullptr) own_live_.smooth_textures = smooth_textures;
+    }
 
     ~GlBackend() override {
         if (context_ != nullptr) SDL_GL_DestroyContext(context_);
@@ -442,6 +444,10 @@ public:
 
     [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> next_wakeup() const override {
         if (pacing_.active) return pacing_.next_due;
+        if (overlay_ != nullptr) { // an overlay over a paused game: redraw it every refresh
+            std::lock_guard lock(overlay_->mutex);
+            if (overlay_->continuous) return last_show_ + std::chrono::milliseconds(16);
+        }
         return std::nullopt;
     }
     void tick() override;
@@ -566,8 +572,12 @@ private:
     SDL_GLContext context_{};
     int scale_;
     psprecomp::GuestMemory &memory_;
-    bool smooth_textures_ = false;
+    LiveSettings own_live_;
+    LiveSettings *live_;
     OverlayImage *overlay_ = nullptr;
+    GLuint last_texture_{}; // the picture shown last, kept on screen while the game is paused behind an overlay
+    float last_uv_[2] = {1.0f, 1.0f};
+    std::chrono::steady_clock::time_point last_show_{};
     GLuint overlay_program_{}, overlay_texture_{};
     GLint overlay_tex_{}, overlay_alpha_{}, overlay_uv_max_{};
     std::uint64_t overlay_generation_{~0ull};
@@ -996,7 +1006,7 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
         gl_.ActiveTexture(GL_TEXTURE0);
         gl_.BindTexture(GL_TEXTURE_2D, setup.texture);
         // Enhancement (off by default): bilinear filtering for 3D textures; 2D (through-mode) art stays as drawn.
-        const bool linear = (R(kTexFilter) & 0x100u) != 0 || (smooth_textures_ && !through);
+        const bool linear = (R(kTexFilter) & 0x100u) != 0 || (live_->smooth_textures.load(std::memory_order_relaxed) && !through);
         set_texture_params(linear, (R(kTexWrap) & 1u) != 0, (R(kTexWrap) & 0x100u) != 0);
     }
 
@@ -1280,6 +1290,10 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
 // Puts a picture on the window: letterboxed to the PSP's 480:272, with the dialog overlay on top.
 void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
     const auto show_start = std::chrono::steady_clock::now();
+    last_texture_ = texture;
+    last_uv_[0] = uv_max_x;
+    last_uv_[1] = uv_max_y;
+    last_show_ = show_start;
     int window_w = 0, window_h = 0;
     SDL_GetWindowSizeInPixels(window_, &window_w, &window_h);
     gl_.BindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1726,7 +1740,10 @@ void GlBackend::show_between(float phase) {
 // Called by the GE worker when the next picture is due (and it has no display list to run). Draws the picture for
 // this moment, however late it is, and asks to be called again one step later; the flip's own picture closes it.
 void GlBackend::tick() {
-    if (!pacing_.active) return;
+    if (!pacing_.active) {
+        show(last_texture_, last_uv_[0], last_uv_[1]); // the game is paused behind an overlay: draw it again
+        return;
+    }
     const auto now = std::chrono::steady_clock::now();
     const float phase = phase_at(now);
     if (phase >= 0.999f) {
@@ -1963,11 +1980,12 @@ void GlBackend::dump_window(int w, int h) {
 } // namespace
 
 std::unique_ptr<gpu::Backend> make_gl_backend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory,
-                                              bool smooth_textures, OverlayImage *overlay, int target_fps) {
+                                              bool smooth_textures, OverlayImage *overlay, int target_fps,
+                                              LiveSettings *live) {
     if (const char *v = std::getenv("MHF_FPS")) target_fps = std::atoi(v); // testing aid
     // The game flips at 30 fps: the output rate is a whole multiple of it, from 1x (as the game) to 6x (180 fps).
     const int factor = std::clamp((target_fps + 15) / 30, 1, 6);
-    auto backend = std::make_unique<GlBackend>(window, scale, memory, smooth_textures, overlay, factor);
+    auto backend = std::make_unique<GlBackend>(window, scale, memory, smooth_textures, overlay, factor, live);
     if (!backend->init()) return nullptr;
     return backend;
 }

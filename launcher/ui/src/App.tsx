@@ -7,7 +7,6 @@ import logoUrl from '../../../assets/branding/icon-128.png';
 import { Home } from './Home';
 import { Library } from './Library';
 import { SettingsPage } from './SettingsPage';
-import { InGameMenu } from './InGameMenu';
 import { clock, hours } from './format';
 import { startNavigation } from './gamepad';
 
@@ -71,7 +70,6 @@ export default function App() {
   const [launch, setLaunch] = useState<Launch | null>(null);
   const [now, setNow] = useState(Date.now());
   const [padMode, setPadMode] = useState(false);
-  const [inGame, setInGame] = useState(false); // the game is paused under the launcher's in-game menu
   const toastTimer = useRef<number>(0);
 
   const say = useCallback((text: string) => {
@@ -95,7 +93,6 @@ export default function App() {
         setLaunch((l) => (l ? { ...l, phase: 'exited', seconds: e.seconds } : l));
         window.setTimeout(() => setLaunch(null), 2600);
         break;
-      case 'menu': setInGame(e.open); break;
       case 'launchFailed': setLaunch((l) => ({ phase: 'failed', startedAt: l?.startedAt ?? Date.now(), message: e.message })); break;
     }
   }), []);
@@ -109,8 +106,7 @@ export default function App() {
   // B / Escape closes the topmost layer.
   useEffect(() => {
     const back = () => {
-      if (inGame) api.mhf_menuResume();
-      else if (verify && (verify.phase === 'done' || verify.phase === 'failed')) setVerify(null);
+      if (verify && (verify.phase === 'done' || verify.phase === 'failed')) setVerify(null);
       else if (launch && (launch.phase === 'failed' || launch.phase === 'exited')) setLaunch(null);
       else if (profileOpen) setProfileOpen(false);
       else if (friendsOpen) setFriendsOpen(false);
@@ -118,7 +114,7 @@ export default function App() {
     };
     window.addEventListener('mhf-back', back);
     return () => window.removeEventListener('mhf-back', back);
-  }, [inGame, verify, launch, profileOpen, friendsOpen, screen]);
+  }, [verify, launch, profileOpen, friendsOpen, screen]);
 
   if (!state) return <div className="app"><div className="aurora" /></div>;
 
@@ -146,27 +142,6 @@ export default function App() {
   ];
   const activeNav = friendsOpen ? 'friends' : screen;
   const launchStep = launch ? { checking: 0, starting: 1, running: 3, exited: 3, failed: 0 }[launch.phase] : 0;
-
-  if (inGame) {
-    return (
-      <MotionConfig reducedMotion="user">
-        <div className={'app' + (padMode ? ' pad-mode' : '')}>
-          <div className="aurora" />
-          <InGameMenu
-            state={state}
-            onChange={setSettings}
-            onResume={() => api.mhf_menuResume()}
-            onQuit={() => api.mhf_menuQuit()}
-            onCopyCode={copyCode}
-          />
-          <Toast text={toast} />
-          {padMode && (
-            <div className="pad-hint" aria-hidden="true"><span><kbd>A</kbd>Select</span><span><kbd>B</kbd>Resume</span></div>
-          )}
-        </div>
-      </MotionConfig>
-    );
-  }
 
   return (
     <MotionConfig reducedMotion="user">

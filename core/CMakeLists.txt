@@ -13,6 +13,12 @@ add_library(mhf_net STATIC
 target_include_directories(mhf_net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 mhf_target_warnings(mhf_net)
 
+# Overlays drawn over a game: text and shapes (Painter) and the in-game menu (docs/07-launcher-ux.md section 3c).
+add_library(mhf_overlay STATIC overlay/painter.cpp overlay/menu.cpp)
+target_include_directories(mhf_overlay PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(mhf_overlay PRIVATE mhf_stb_truetype)
+mhf_target_warnings(mhf_overlay)
+
 # The local link between the game program and the launcher (docs/07-launcher-ux.md section 3c).
 add_library(mhf_link STATIC link/link.cpp link/protocol.cpp)
 target_include_directories(mhf_link PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -27,6 +33,13 @@ if(MHF_BUILD_TESTS)
     target_link_libraries(test_link PRIVATE mhf_link)
     mhf_target_warnings(test_link)
     add_test(NAME link_local COMMAND test_link)
+
+    add_executable(test_menu tests/test_menu.cpp)
+    target_include_directories(test_menu PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+    target_compile_definitions(test_menu PRIVATE MHF_FONT_DIR="${PROJECT_SOURCE_DIR}/third_party/fonts/liberation-sans")
+    target_link_libraries(test_menu PRIVATE mhf_overlay)
+    mhf_target_warnings(test_menu)
+    add_test(NAME overlay_menu COMMAND test_menu)
 
     add_executable(test_link_protocol tests/test_link_protocol.cpp)
     target_include_directories(test_link_protocol PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
