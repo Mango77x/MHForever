@@ -48,9 +48,12 @@ public:
         std::uint32_t pc{};
         bool ended{};
         bool stalled{};
+        bool yielded{}; // stopped early because `should_yield` said so; run again from `pc` to go on
     };
-    // Executes commands from `pc` until END or until `stall` (0 = none) is reached.
-    ListResult run(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event);
+    // Executes commands from `pc` until END or until `stall` (0 = none) is reached. With `should_yield`, it is asked
+    // every few hundred commands whether to stop for now (between two commands, so nothing is left half done).
+    ListResult run(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event,
+                   const std::function<bool()> &should_yield = {});
 
     // Statistics for logs and tests.
     struct Stats {
@@ -85,7 +88,8 @@ public:
     [[nodiscard]] std::uint64_t camera_generation() const noexcept { return camera_generation_; }
 
 private:
-    ListResult run_commands(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event);
+    ListResult run_commands(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event,
+                            const std::function<bool()> &should_yield);
     void execute(std::uint32_t word, std::uint32_t pc);
     void draw_primitive(std::uint32_t data);
     void draw_bezier_or_spline(std::uint32_t cmd, std::uint32_t data);

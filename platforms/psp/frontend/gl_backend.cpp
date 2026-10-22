@@ -1740,7 +1740,8 @@ void GlBackend::tick() {
     const auto final_due = pacing_.start + pacing_.interval - pacing_.step;
     const double slots = std::chrono::duration<double>(now - pacing_.start).count() /
                          std::chrono::duration<double>(pacing_.step).count();
-    const auto next_slot = pacing_.start + pacing_.step * static_cast<long long>(std::floor(slots + 0.5) + 1.0);
+    const std::chrono::steady_clock::time_point next_slot =
+        pacing_.start + pacing_.step * static_cast<std::chrono::steady_clock::rep>(std::floor(slots + 0.5) + 1.0);
     pacing_.next_due = std::min(std::max(next_slot, now), final_due);
 }
 
