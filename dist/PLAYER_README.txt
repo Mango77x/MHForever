@@ -16,6 +16,8 @@ What you need
 * A controller is optional. Gamepads work out of the box (tested with a PS5 DualSense).
   Keyboard: arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle,
   Q/E = L/R, Enter = Start, Backspace = Select.
+  Escape (or the controller's guide button) pauses the game and opens a menu: volume, resolution, frame rate,
+  fullscreen and quit. It works with the keyboard, a controller or the mouse.
 
 
 How to play

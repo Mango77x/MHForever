@@ -111,6 +111,8 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 Done: internal resolution (`--scale`, launcher setting), bilinear texture option, right stick as D-pad camera, fullscreen toggle.
 Done too: 60 to 180 fps by frame interpolation (`--fps`, launcher setting; `05-runtime-hle.md` §6, v0.2.0).
+Done too: an in-game menu on Escape (pause, blurred full-screen backdrop, tabs, mouse, controller) that changes the volumes,
+internal resolution (1x to 10x), frame rate, fullscreen and texture smoothing while playing (`07-launcher-ux.md` §3c).
 Pending: widescreen, analog camera hook, per-controller icons, vsync, and in-between pictures made on a thread of their own:
 the GE runs the game's display lists (about 10 ms per frame in heavy scenes) on the same thread, which caps 180 fps at
 about 150 there (measured with `MHF_PROFILE=1`, 0.2.3). See `06-mhfu-module.md` §9.
