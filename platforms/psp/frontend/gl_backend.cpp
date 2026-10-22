@@ -19,7 +19,10 @@
 #include <chrono>
 #include <deque>
 #include <optional>
+#include <future>
 #include <set>
+#include <span>
+#include <thread>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -310,12 +313,18 @@ struct GpuVertex {
 using DrawKey = std::array<std::uint32_t, kStateRegs.size() + 2>;
 
 // The value of a state register as it was when `key` was captured (kStateRegs plus the alpha mask).
+// Where each register sits in a DrawKey (-1: not a draw-state register).
+constexpr std::array<int, 256> kKeyIndex = [] {
+    std::array<int, 256> index{};
+    index.fill(-1);
+    for (std::size_t i = 0; i < kStateRegs.size(); ++i) index[kStateRegs[i] & 0xFFu] = static_cast<int>(i);
+    return index;
+}();
+
 std::uint32_t key_reg(const DrawKey &key, std::uint32_t reg) {
     if (reg == kMaskAlpha) return key[kStateRegs.size() + 1];
-    for (std::size_t i = 0; i < kStateRegs.size(); ++i) {
-        if (kStateRegs[i] == reg) return key[i];
-    }
-    return 0; // not a draw-state register: nothing here reads one
+    const int i = kKeyIndex[reg & 0xFFu];
+    return i >= 0 ? key[static_cast<std::size_t>(i)] : 0; // not a draw-state register: nothing here reads one
 }
 
 // Everything needed to set up OpenGL for a batch of primitives: the registers plus what was resolved from guest
@@ -356,13 +365,6 @@ struct TapeEntry {
     DrawSetup setup;
     std::vector<GpuVertex> vertices;
     std::vector<Origin> origins; // one per vertex
-};
-
-// A picture waiting for its moment on screen: `phase` 1 is the flip itself, below that a picture between the
-// previous flip (0) and this one.
-struct Picture {
-    float phase{1};
-    std::chrono::steady_clock::time_point due;
 };
 
 // A copy of a finished picture (the last two are kept).
@@ -439,7 +441,7 @@ public:
     void present(std::uint32_t address, std::uint32_t stride, std::uint32_t pixel_format) override;
 
     [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> next_wakeup() const override {
-        if (!pictures_.empty()) return pictures_.front().due;
+        if (pacing_.active) return pacing_.next_due;
         return std::nullopt;
     }
     void tick() override;
@@ -494,6 +496,11 @@ private:
     // Frame interpolation: the camera of the vertices being drawn (an index into cameras_), and where each recorded
     // vertex came from.
     std::uint16_t camera_for(const gpu::Ge &ge) {
+        if (camera_ != kNoCamera && camera_generation_ == ge.camera_generation()) return camera_; // nothing was written
+        camera_generation_ = ge.camera_generation();
+        return find_camera(ge);
+    }
+    std::uint16_t find_camera(const gpu::Ge &ge) {
         Camera c;
         std::copy(ge.view_matrix().m.begin(), ge.view_matrix().m.end(), c.view.begin());
         std::copy(ge.proj_matrix().m.begin(), ge.proj_matrix().m.end(), c.proj.begin());
@@ -523,7 +530,7 @@ private:
         o.sprite = sprite;
         batch_origins_.push_back(o);
     }
-    void place_again(const TapeEntry &entry, const std::vector<Camera> &cameras, std::vector<GpuVertex> &vertices,
+    void place_again(const TapeEntry &entry, const std::vector<Camera> &cameras, std::span<GpuVertex> vertices,
                      float t) const;
 
     void apply_state(const gpu::Ge &ge);
@@ -532,7 +539,9 @@ private:
     void show(GLuint texture, float uv_max_x, float uv_max_y);
     void finish_flip();
     bool present_interpolated(RenderTarget &shown, const float uv_max[2]);
-    void show_picture(const Picture &picture);
+    [[nodiscard]] float phase_at(std::chrono::steady_clock::time_point when) const;
+    void show_between(float phase);
+    void show_final();
     void flush_pictures();
     void ensure_slot(Slot &slot, GLsizei w, GLsizei h);
     void render_between(const RenderTarget &shown, const std::vector<TapeEntry> &now,
@@ -601,9 +610,14 @@ private:
     std::vector<Camera> cameras_;           // cameras used since the last flip (Origin::camera indexes them)
     std::vector<Camera> previous_cameras_;  // the last flip's
     std::uint16_t camera_{kNoCamera};       // the last one found
+    std::uint64_t camera_generation_{};     // Ge::camera_generation() when it was found
     std::unordered_map<std::uint32_t, std::uint32_t> draw_uses_; // drawing commands per vertex address since the flip
     std::uint32_t draw_use_{};              // of the current drawing command: tells repeated draws of a model apart
-    std::unordered_map<std::uint64_t, const float *> points_before_; // scratch: the previous flip's points by key
+    struct PointSlot {
+        std::uint64_t key{};
+        const float *position{};
+    };
+    std::vector<PointSlot> point_table_; // scratch: the previous flip's points by key (open addressing, reused)
     std::set<std::uint32_t> touched_;       // render targets written by something other than batches (copies)
     bool previous_valid_ = false;
     Slot slots_[2];
@@ -611,7 +625,8 @@ private:
     RenderTarget scratch_;                  // where in-between pictures are drawn
     // The flip being shown: what later pictures are made from.
     struct {
-        std::vector<TapeEntry> now, before;
+        const std::vector<TapeEntry> *now{}; // this flip's batches: previous_ once the flip has been recorded
+        std::vector<TapeEntry> before;
         std::vector<Camera> cameras;        // of `now`
         std::vector<Camera> cameras_before; // the camera of `before` each one continues (or the same one)
         std::vector<int> partner;           // per batch of `now`: the 2D batch of `before` it continues, or -1
@@ -619,9 +634,30 @@ private:
         int before_slot{};
         GLuint final_texture{};
         float uv_max[2]{1, 1};
-        std::chrono::steady_clock::duration slack{};
     } flip_;
-    std::deque<Picture> pictures_;
+    // The flip being shown, in time: in-between pictures go out as often as the drawing thread can, at most one per
+    // step (the chosen rate), each one placed where things are at the moment it is drawn; there is no fixed slot a
+    // late picture could miss, so the output rate is free between the game's 30 and the chosen one.
+    struct {
+        bool active{};
+        std::chrono::steady_clock::time_point start{}, next_due{};
+        std::chrono::steady_clock::duration interval{}, step{};
+    } pacing_;
+    std::uint64_t log_shown_{};                       // shown_ at the last log line
+    std::chrono::steady_clock::time_point log_time_{}; // and when
+    // In-between pictures are built in one buffer, uploaded once, and drawn batch by batch from ranges of it.
+    std::vector<GpuVertex> staging_;
+    struct Range {
+        std::size_t first{}, count{};
+    };
+    std::vector<Range> ranges_;
+    // What an in-between picture costs the drawing thread (MHF_INTERP_LOG=1): calculating the vertices, uploading them,
+    // setting the state of each batch, and the draw calls.
+    struct PictureCost {
+        std::uint64_t pictures{}, batches{}, vertices{}, shows{};
+        double calc_us{}, upload_us{}, state_us{}, draw_us{};
+        double show_us{}, swap_us{}; // putting a picture on the window, and the buffer swap inside it (waits for the GPU)
+    } cost_;
     std::chrono::steady_clock::time_point last_flip_{};
     std::uint64_t shown_{1};                // pictures put on screen
     struct {
@@ -1243,6 +1279,7 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
 
 // Puts a picture on the window: letterboxed to the PSP's 480:272, with the dialog overlay on top.
 void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
+    const auto show_start = std::chrono::steady_clock::now();
     int window_w = 0, window_h = 0;
     SDL_GetWindowSizeInPixels(window_, &window_w, &window_h);
     gl_.BindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1279,7 +1316,12 @@ void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
         draw_overlay();
     }
     dump_window(window_w, window_h);
+    const auto swap_start = std::chrono::steady_clock::now();
     SDL_GL_SwapWindow(window_);
+    const auto swap_end = std::chrono::steady_clock::now();
+    cost_.swap_us += std::chrono::duration<double, std::micro>(swap_end - swap_start).count();
+    cost_.show_us += std::chrono::duration<double, std::micro>(swap_end - show_start).count();
+    ++cost_.shows;
     ++shown_;
 }
 
@@ -1387,7 +1429,7 @@ Move classify_triangle(const GpuVertex *before, const GpuVertex *now) {
 }
 
 // `out` holds this flip's vertices; moves each triangle back toward `before` by (1 - t) when it slid rigidly.
-void blend_vertices(const std::vector<GpuVertex> &before, std::vector<GpuVertex> &out, float t) {
+void blend_vertices(const std::vector<GpuVertex> &before, std::span<GpuVertex> out, float t) {
     for (std::size_t i = 0; i + 2 < out.size(); i += 3) {
         if (classify_triangle(&before[i], &out[i]) != Move::Blend) continue;
         for (std::size_t k = 0; k < 3; ++k) {
@@ -1524,7 +1566,7 @@ bool place(const float world[3], const float *was, const Camera &camera, float t
 // Moves a recorded 3D batch to phase `t` between the previous flip and this one, with `cameras` the cameras at that
 // phase. Each triangle is placed again as a whole, or left where it was drawn when one of its points cannot be (no
 // camera, behind the camera).
-void GlBackend::place_again(const TapeEntry &entry, const std::vector<Camera> &cameras, std::vector<GpuVertex> &vertices,
+void GlBackend::place_again(const TapeEntry &entry, const std::vector<Camera> &cameras, std::span<GpuVertex> vertices,
                             float t) const {
     if (entry.origins.size() != vertices.size()) return;
     for (std::size_t i = 0; i + 2 < vertices.size(); i += 3) {
@@ -1583,60 +1625,128 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
 
     std::vector<Camera> cameras(flip_.cameras.size());
     for (std::size_t i = 0; i < cameras.size(); ++i) cameras[i] = between(flip_.cameras_before[i], flip_.cameras[i], t);
-    std::vector<GpuVertex> vertices;
+    using Clock = std::chrono::steady_clock;
+    const auto us = [](Clock::time_point from, Clock::time_point to) {
+        return std::chrono::duration<double, std::micro>(to - from).count();
+    };
+    // All the vertices of the picture first (one upload), then the batches draw from ranges of them.
+    const auto t_calc = Clock::now();
+    staging_.clear();
+    ranges_.assign(now.size(), Range{});
     for (std::size_t i = 0; i < now.size(); ++i) {
         const TapeEntry &entry = now[i];
-        vertices = entry.vertices;
-        if (entry.setup.through) {
-            const int partner = i < flip_.partner.size() ? flip_.partner[i] : -1;
-            if (partner >= 0 && !clearing(entry.setup)) {
-                blend_vertices(before_batches[static_cast<std::size_t>(partner)].vertices, vertices, t);
-            }
-        } else {
-            place_again(entry, cameras, vertices, t);
-        }
-        emit_state(entry.setup, scratch_);
-        draw_vertices(vertices);
+        ranges_[i] = Range{staging_.size(), entry.vertices.size()};
+        staging_.insert(staging_.end(), entry.vertices.begin(), entry.vertices.end());
     }
+    // Placing the vertices again reads shared data only and writes disjoint ranges of the staging buffer, so big
+    // pictures are split between a few threads (the drawing thread takes the first share).
+    const auto place_batches = [&](std::size_t from, std::size_t to) {
+        for (std::size_t i = from; i < to; ++i) {
+            const TapeEntry &entry = now[i];
+            const std::span<GpuVertex> vertices(staging_.data() + ranges_[i].first, ranges_[i].count);
+            if (entry.setup.through) {
+                const int partner = i < flip_.partner.size() ? flip_.partner[i] : -1;
+                if (partner >= 0 && !clearing(entry.setup)) {
+                    blend_vertices(before_batches[static_cast<std::size_t>(partner)].vertices, vertices, t);
+                }
+            } else {
+                place_again(entry, cameras, vertices, t);
+            }
+        }
+    };
+    const unsigned cores = std::thread::hardware_concurrency();
+    const std::size_t threads = staging_.size() >= 12000 && cores >= 3 ? std::min<std::size_t>(4, cores - 1) : 1;
+    if (threads <= 1) {
+        place_batches(0, now.size());
+    } else {
+        std::vector<std::future<void>> helpers;
+        const std::size_t share = staging_.size() / threads + 1;
+        std::size_t from = 0, end_of_first = 0;
+        for (std::size_t k = 0; k < threads && from < now.size(); ++k) {
+            std::size_t to = from, taken = 0;
+            while (to < now.size() && (taken < share || k + 1 == threads)) taken += ranges_[to++].count;
+            if (k == 0) end_of_first = to;
+            else helpers.push_back(std::async(std::launch::async, place_batches, from, to));
+            from = to;
+        }
+        place_batches(0, end_of_first);
+        for (auto &helper : helpers) helper.get();
+    }
+    const auto t_upload = Clock::now();
+    gl_.BindBuffer(GL_ARRAY_BUFFER, vbo_);
+    gl_.BufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(staging_.size() * sizeof(GpuVertex)), staging_.data(),
+                   GL_STREAM_DRAW);
+    cost_.calc_us += us(t_calc, t_upload);
+    cost_.upload_us += us(t_upload, Clock::now());
+    for (std::size_t i = 0; i < now.size(); ++i) {
+        if (ranges_[i].count == 0) continue;
+        const auto t_state = Clock::now();
+        emit_state(now[i].setup, scratch_);
+        const auto t_draw = Clock::now();
+        gl_.DrawArrays(GL_TRIANGLES, static_cast<GLint>(ranges_[i].first), static_cast<GLsizei>(ranges_[i].count));
+        cost_.state_us += us(t_state, t_draw);
+        cost_.draw_us += us(t_draw, Clock::now());
+    }
+    ++cost_.pictures;
+    cost_.batches += now.size();
+    cost_.vertices += staging_.size();
     have_state_ = false;
 }
 
-void GlBackend::show_picture(const Picture &picture) {
-    if (picture.phase >= 1.0f) {
-        show(flip_.final_texture, flip_.uv_max[0], flip_.uv_max[1]);
-        return;
-    }
+// Where the shown picture is between the previous flip (0) and this one (1) at `when`. Pictures run one step behind
+// the game: the first one, drawn as the flip arrives, is already one step in, and the flip's own picture is due one
+// step before the next flip is.
+float GlBackend::phase_at(std::chrono::steady_clock::time_point when) const {
+    double elapsed = std::chrono::duration<double>(when - pacing_.start).count();
+    const double interval = std::chrono::duration<double>(pacing_.interval).count();
+    const double step = std::chrono::duration<double>(pacing_.step).count();
+    if (interval <= 0.0 || step <= 0.0) return 1.0f;
+    // On time (within a quarter of a step of its slot), a picture sits exactly at its slot, so steady motion moves in
+    // equal steps despite the jitter of the wake-up; a late one shows where things are at the moment it is drawn.
+    const double slots = elapsed / step;
+    if (std::fabs(slots - std::round(slots)) < 0.25) elapsed = std::round(slots) * step;
+    return static_cast<float>(std::clamp((elapsed + step) / interval, 0.0, 1.0));
+}
+
+void GlBackend::show_final() {
+    pacing_.active = false;
+    show(flip_.final_texture, flip_.uv_max[0], flip_.uv_max[1]);
+}
+
+void GlBackend::show_between(float phase) {
     RenderTarget shown;
     shown.address = flip_.address;
     shown.width = flip_.width;
     shown.height = flip_.height;
     shown.stride = flip_.stride;
     shown.format = flip_.format;
-    render_between(shown, flip_.now, flip_.before, slots_[flip_.before_slot], picture.phase);
+    render_between(shown, *flip_.now, flip_.before, slots_[flip_.before_slot], phase);
     show(scratch_.color, flip_.uv_max[0], flip_.uv_max[1]);
 }
 
-// Called by the GE worker when the next picture is due.
+// Called by the GE worker when the next picture is due (and it has no display list to run). Draws the picture for
+// this moment, however late it is, and asks to be called again one step later; the flip's own picture closes it.
 void GlBackend::tick() {
-    while (!pictures_.empty()) {
-        const Picture picture = pictures_.front();
-        pictures_.pop_front();
-        // Behind schedule (the GE had other work): in-between pictures that are already late are dropped.
-        if (picture.phase < 1.0f && std::chrono::steady_clock::now() - picture.due > flip_.slack) {
-            ++stats_.late;
-            continue;
-        }
-        show_picture(picture);
+    if (!pacing_.active) return;
+    const auto now = std::chrono::steady_clock::now();
+    const float phase = phase_at(now);
+    if (phase >= 0.999f) {
+        show_final();
         return;
     }
+    show_between(phase);
+    // The next one at the next slot (anchored to the flip, so waking up a little late does not add up), at once if that
+    // slot has already passed, and never after the moment the flip's own picture is due.
+    const auto final_due = pacing_.start + pacing_.interval - pacing_.step;
+    const double slots = std::chrono::duration<double>(now - pacing_.start).count() /
+                         std::chrono::duration<double>(pacing_.step).count();
+    const std::chrono::steady_clock::time_point next_slot =
+        pacing_.start + pacing_.step * static_cast<std::chrono::steady_clock::rep>(std::floor(slots + 0.5) + 1.0);
+    pacing_.next_due = std::min(std::max(next_slot, now), final_due);
 }
 
 void GlBackend::flush_pictures() {
-    while (!pictures_.empty()) {
-        const Picture picture = pictures_.front();
-        pictures_.pop_front();
-        if (picture.phase >= 1.0f) show_picture(picture);
-    }
+    if (pacing_.active) show_final(); // the next flip came before this one was fully shown
 }
 
 // Schedules the in-between pictures, the first one due at once, ending with the flip's own picture. Returns false
@@ -1683,7 +1793,6 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
         ++stats_.skipped_ui; // lists, menus and dialogs: sprites appear, vanish or jump
     } else {
         flip_.partner = std::move(partner);
-        flip_.now = mine;
         flip_.before = std::move(previous_);
         flip_.cameras = cameras_;
         flip_.cameras_before.clear();
@@ -1692,24 +1801,47 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
             flip_.cameras_before.push_back(before != nullptr ? *before : c);
         }
         // Where each point of this flip was in the previous one (objects that move on their own).
-        points_before_.clear();
+        std::size_t points = 0;
+        for (const TapeEntry &e : flip_.before) points += e.origins.size() * 2;
+        std::size_t capacity = 1024;
+        while (capacity < points * 2) capacity <<= 1;
+        point_table_.assign(capacity, PointSlot{});
+        const std::size_t mask = capacity - 1;
+        const auto slot_of = [mask](std::uint64_t key) {
+            return static_cast<std::size_t>((key * 0x9E3779B97F4A7C15ull) >> 20u) & mask;
+        };
+        const auto insert_point = [&](std::uint64_t key, const float *position) {
+            for (std::size_t i = slot_of(key);; i = (i + 1) & mask) {
+                if (point_table_[i].key == 0) {
+                    point_table_[i] = PointSlot{key, position};
+                    return;
+                }
+                if (point_table_[i].key == key) return;
+            }
+        };
+        const auto find_point = [&](std::uint64_t key) -> const float * {
+            for (std::size_t i = slot_of(key);; i = (i + 1) & mask) {
+                if (point_table_[i].key == key) return point_table_[i].position;
+                if (point_table_[i].key == 0) return nullptr;
+            }
+        };
         for (const TapeEntry &e : flip_.before) {
             for (const Origin &o : e.origins) {
-                if (o.x_key != 0) points_before_.try_emplace(o.x_key, o.x_world);
-                if (o.y_key != 0 && o.y_key != o.x_key) points_before_.try_emplace(o.y_key, o.y_world);
+                if (o.x_key != 0) insert_point(o.x_key, o.x_world);
+                if (o.y_key != 0 && o.y_key != o.x_key) insert_point(o.y_key, o.y_world);
             }
         }
-        for (TapeEntry &e : flip_.now) {
+        for (TapeEntry &e : mine) {
             for (Origin &o : e.origins) {
                 if (o.x_key != 0) {
-                    const auto it = points_before_.find(o.x_key);
-                    o.x_moved = it != points_before_.end();
-                    if (o.x_moved) std::copy(it->second, it->second + 3, o.x_before);
+                    const float *was = find_point(o.x_key);
+                    o.x_moved = was != nullptr;
+                    if (o.x_moved) std::copy(was, was + 3, o.x_before);
                 }
                 if (o.y_key != 0) {
-                    const auto it = points_before_.find(o.y_key);
-                    o.y_moved = it != points_before_.end();
-                    if (o.y_moved) std::copy(it->second, it->second + 3, o.y_before);
+                    const float *was = find_point(o.y_key);
+                    o.y_moved = was != nullptr;
+                    if (o.y_moved) std::copy(was, was + 3, o.y_before);
                 }
             }
         }
@@ -1722,20 +1854,16 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
         flip_.final_texture = slots_[fill_slot_].texture;
         flip_.uv_max[0] = uv_max[0];
         flip_.uv_max[1] = uv_max[1];
-        const auto step = std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval / factor_);
-        flip_.slack = step;
-        // Pictures at phases 1/k .. (k-1)/k, then the flip (phase 1); the first one goes out right now.
-        for (int j = 2; j <= factor_; ++j) {
-            Picture p;
-            p.phase = static_cast<float>(j) / static_cast<float>(factor_);
-            p.due = now + step * (j - 1);
-            pictures_.push_back(p);
-        }
-        pictures_.push_front(Picture{1.0f / static_cast<float>(factor_), now});
+        pacing_.active = true;
+        pacing_.start = now;
+        pacing_.interval = interval;
+        pacing_.step = std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval / factor_);
+        pacing_.next_due = now; // the first in-between picture goes out at once
         ++stats_.interpolated;
         done = true;
     }
     previous_ = std::move(mine);
+    if (done) flip_.now = &previous_; // the pictures of this flip draw from it, and the next flip pairs against it
     previous_cameras_ = cameras_;
     previous_valid_ = !copied && !self_sampled && !previous_.empty();
     fill_slot_ = 1 - fill_slot_;
@@ -1745,11 +1873,32 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
                 stats_.skipped_first + stats_.skipped_ui) % 120 == 0) {
         std::fprintf(stderr,
                      "[interp] x%d: interpolated %llu, skipped: first %llu, copy %llu, timing %llu, shape %llu, "
-                     "menus %llu; pictures dropped late %llu\n",
+                     "menus %llu; pictures on screen %.0f per second\n",
                      factor_, static_cast<unsigned long long>(stats_.interpolated),
                      static_cast<unsigned long long>(stats_.skipped_first), static_cast<unsigned long long>(stats_.skipped_copy),
                      static_cast<unsigned long long>(stats_.skipped_timing), static_cast<unsigned long long>(stats_.skipped_shape),
-                     static_cast<unsigned long long>(stats_.skipped_ui), static_cast<unsigned long long>(stats_.late));
+                     static_cast<unsigned long long>(stats_.skipped_ui),
+                     log_time_ == std::chrono::steady_clock::time_point{}
+                         ? 0.0
+                         : static_cast<double>(shown_ - log_shown_) /
+                               std::chrono::duration<double>(now - log_time_).count());
+        log_shown_ = shown_;
+        log_time_ = now;
+        if (cost_.shows > 0) {
+            const double s = static_cast<double>(cost_.shows);
+            std::fprintf(stderr, "[interp] each picture put on the window: %.2f ms in total, %.2f ms of it in the buffer swap\n",
+                         cost_.show_us / s / 1000.0, cost_.swap_us / s / 1000.0);
+        }
+        if (cost_.pictures > 0) {
+            const double n = static_cast<double>(cost_.pictures);
+            std::fprintf(stderr,
+                         "[interp] per in-between picture: calc %.2f ms, upload %.2f ms, state %.2f ms, draw calls %.2f ms "
+                         "(%.0f batches, %.0f vertices)\n",
+                         cost_.calc_us / n / 1000.0, cost_.upload_us / n / 1000.0, cost_.state_us / n / 1000.0,
+                         cost_.draw_us / n / 1000.0, static_cast<double>(cost_.batches) / n,
+                         static_cast<double>(cost_.vertices) / n);
+            cost_ = {};
+        }
     }
     return done;
 }

@@ -55,6 +55,9 @@ public:
     // Statistics for logs and tests.
     struct Stats {
         std::uint64_t commands{}, primitives{}, vertices{}, pixels{}, transfers{};
+        // Host time inside drawing commands: decoding and transforming vertices, and the rest (assembling primitives,
+        // clipping, handing triangles to the backend).
+        std::uint64_t transform_ns{}, assemble_ns{};
     };
     [[nodiscard]] const Stats &stats() const noexcept { return stats_; }
     [[nodiscard]] std::uint32_t reg(std::uint32_t cmd) const noexcept { return regs_[cmd & 0xFF]; }
@@ -78,6 +81,8 @@ public:
     // The current camera, for backends that place vertices again (frame interpolation).
     [[nodiscard]] const Matrix43 &view_matrix() const noexcept { return view_; }
     [[nodiscard]] const Matrix44 &proj_matrix() const noexcept { return proj_; }
+    // Incremented whenever the view or projection matrix, the viewport or the screen offset is written.
+    [[nodiscard]] std::uint64_t camera_generation() const noexcept { return camera_generation_; }
 
 private:
     ListResult run_commands(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event);
@@ -99,7 +104,7 @@ private:
     void light(const float world_pos[3], const float world_normal[3], Vertex &out, const DecodedVertex &in) const;
 
     // Rasterizer.
-    void draw_triangle(Vertex a, Vertex b, Vertex c);
+    void draw_triangle(const Vertex &a, const Vertex &b, const Vertex &c);
     void draw_triangle_screen(const Vertex &a, const Vertex &b, const Vertex &c);
     void draw_sprite(const Vertex &a, const Vertex &b);
     void draw_line(const Vertex &a, const Vertex &b);
@@ -119,6 +124,7 @@ private:
 
     Backend *backend_{};
     std::uint64_t clut_generation_{};
+    std::uint64_t camera_generation_{};
 
     // Direct access to guest RAM and EDRAM for the hot paths (vertices, texels, pixels): no bounds exceptions, an
     // address outside both reads 0 and ignores writes, like the open bus of the real GE would at worst.

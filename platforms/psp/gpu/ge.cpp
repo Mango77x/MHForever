@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -201,9 +202,9 @@ void Ge::execute(std::uint32_t word, std::uint32_t) {
     case kWorldMatrixNumber: world_i_ = data & 15u; return;
     case kWorldMatrixData: if (world_i_ < 12) world_.m[world_i_++] = float24(data); return;
     case kViewMatrixNumber: view_i_ = data & 15u; return;
-    case kViewMatrixData: if (view_i_ < 12) view_.m[view_i_++] = float24(data); return;
+    case kViewMatrixData: if (view_i_ < 12) view_.m[view_i_++] = float24(data); ++camera_generation_; return;
     case kProjMatrixNumber: proj_i_ = data & 15u; return;
-    case kProjMatrixData: if (proj_i_ < 16) proj_.m[proj_i_++] = float24(data); return;
+    case kProjMatrixData: if (proj_i_ < 16) proj_.m[proj_i_++] = float24(data); ++camera_generation_; return;
     case kTgenMatrixNumber: texgen_i_ = data & 15u; return;
     case kTgenMatrixData: if (texgen_i_ < 12) texgen_.m[texgen_i_++] = float24(data); return;
     case kBoneMatrixNumber: bone_i_ = data & 0x7Fu; return;
@@ -217,6 +218,7 @@ void Ge::execute(std::uint32_t word, std::uint32_t) {
     case kTransferStart: block_transfer(data); return;
     default:
         if (cmd >= kMorphWeight0 && cmd < kMorphWeight0 + 8) morph_[cmd - kMorphWeight0] = float24(data);
+        if ((cmd >= kViewportXScale && cmd <= kViewportZCenter) || cmd == kOffsetX || cmd == kOffsetY) ++camera_generation_;
         regs_[cmd] = data;
         return;
     }
@@ -521,6 +523,9 @@ void Ge::draw_primitive(std::uint32_t data) {
     stats_.vertices += count;
 
     if (backend_ != nullptr) backend_->draw_started(vaddr);
+    // Timing the drawing commands costs a clock read each; only when the interpolation log is on.
+    static const bool timed = std::getenv("MHF_INTERP_LOG") != nullptr;
+    const auto t_start = timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     std::vector<Vertex> verts;
     verts.reserve(count);
     std::uint32_t max_index = 0;
@@ -533,6 +538,7 @@ void Ge::draw_primitive(std::uint32_t data) {
         verts.push_back(transform(decode_vertex(vaddr + index * vsize)));
         verts.back().source = vaddr + index * vsize;
     }
+    const auto t_vertices = timed ? std::chrono::steady_clock::now() : t_start;
     // The vertex (or index) pointer advances past what was consumed.
     if (index_format == 0) regs_[kVaddr] = vaddr + count * vsize;
     else regs_[kIaddr] = iaddr + count * (index_format == 1 ? 1u : index_format == 2 ? 2u : 4u);
@@ -572,6 +578,12 @@ void Ge::draw_primitive(std::uint32_t data) {
     default:
         break;
     }
+    if (!timed) return;
+    const auto t_end = std::chrono::steady_clock::now();
+    stats_.transform_ns += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(t_vertices - t_start).count());
+    stats_.assemble_ns += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_vertices).count());
 }
 
 void Ge::draw_bezier_or_spline(std::uint32_t cmd, std::uint32_t) {
@@ -585,30 +597,32 @@ void Ge::draw_bezier_or_spline(std::uint32_t cmd, std::uint32_t) {
 // Like the PSP: a triangle is clipped only against the near plane (clip-space z = -w); any other vertex must land
 // inside the GE's 4096x4096 screen coordinate space (before the screen offset), or the whole triangle is dropped.
 // Games rely on this culling: the alternative (clipping at w ~ 0) produces huge stretched triangles.
-void Ge::draw_triangle(Vertex a, Vertex b, Vertex c) {
-    const Vertex in[3] = {a, b, c};
+void Ge::draw_triangle(const Vertex &a, const Vertex &b, const Vertex &c) {
+    const Vertex *const in[3] = {&a, &b, &c};
     const float offset_x = static_cast<float>(regs_[kOffsetX] & 0xFFFFu) / 16.0f;
     const float offset_y = static_cast<float>(regs_[kOffsetY] & 0xFFFFu) / 16.0f;
     bool any_clipped = false;
-    for (const Vertex &v : in) {
+    Vertex screen[3]; // each vertex is taken to the screen once: for the guard band test and, unclipped, for drawing
+    for (int i = 0; i < 3; ++i) {
+        const Vertex &v = *in[i];
         const bool inside = v.z > -v.w && v.w > 0.0f;
         if (!inside) {
             any_clipped = true;
             continue;
         }
-        const Vertex s = to_screen(v);
-        const float sx = s.x + offset_x, sy = s.y + offset_y;
+        screen[i] = to_screen(v);
+        const float sx = screen[i].x + offset_x, sy = screen[i].y + offset_y;
         if (!(sx >= 0.0f && sx < 4096.0f && sy >= 0.0f && sy < 4096.0f)) return; // outside the guard band
     }
     if (!any_clipped) {
-        draw_triangle_screen(to_screen(a), to_screen(b), to_screen(c));
+        draw_triangle_screen(screen[0], screen[1], screen[2]);
         return;
     }
     Vertex out[4];
     int n = 0;
     for (int i = 0; i < 3; ++i) {
-        const Vertex &p = in[i];
-        const Vertex &q = in[(i + 1) % 3];
+        const Vertex &p = *in[i];
+        const Vertex &q = *in[(i + 1) % 3];
         const float dp = p.z + p.w, dq = q.z + q.w; // signed distance to the near plane
         const bool pin = dp > 0.0f && p.w > 0.0f, qin = dq > 0.0f && q.w > 0.0f;
         if (pin) out[n++] = p;

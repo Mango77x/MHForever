@@ -136,6 +136,7 @@ struct GeState {
                 backend_active = true;
             }
         }
+        hle::profiler_register_thread("drawing");
         std::unique_lock lock(mutex);
         // Waits for work, but not past the moment the backend wants to be called (a second picture for a flip).
         const auto wait_for_work = [&] {
@@ -154,6 +155,9 @@ struct GeState {
             return id == stalled_id && l.pc == stalled_pc && l.stall == stalled_stall;
         };
         while (!stop) {
+            hle::ge_thread_cpu_us().store(hle::thread_cpu_us(), std::memory_order_relaxed);
+            hle::ge_detail().transform_us.store(renderer().stats().transform_ns / 1000u, std::memory_order_relaxed);
+            hle::ge_detail().assemble_us.store(renderer().stats().assemble_ns / 1000u, std::memory_order_relaxed);
             if (backend) {
                 const auto due = backend->next_wakeup();
                 // Pictures the backend adds on its own (frame interpolation) only take time the game's drawing does

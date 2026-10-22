@@ -5,6 +5,12 @@
 #include <cstdio>
 #include "kernel.hpp"
 
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <time.h>
+#endif
+
 #include "mhf/psp/host.hpp"
 
 #include <unordered_map>
@@ -63,6 +69,24 @@ void DisplaySetFrameBuf(Runtime &rt, Context &ctx) {
     if (p.last_report == 0) p.last_report = now;
     if (now - p.last_report >= 5'000'000u) {
         const double seconds = static_cast<double>(now - p.last_report) / 1e6;
+        // CPU time of the game's thread (every guest thread is a fiber on it) and of the drawing thread, as a share of one
+        // core: whichever is near 100 % is what limits the speed.
+        static std::uint64_t last_game_cpu = 0, last_ge_cpu = 0;
+        const std::uint64_t game_cpu = thread_cpu_us(), ge_cpu = ge_thread_cpu_us().load(std::memory_order_relaxed);
+        std::fprintf(stderr, "[perf] cpu: game thread %.0f%%, drawing thread %.0f%% of one core\n",
+                     100.0 * static_cast<double>(game_cpu - last_game_cpu) / (seconds * 1e6),
+                     100.0 * static_cast<double>(ge_cpu - last_ge_cpu) / (seconds * 1e6));
+        last_game_cpu = game_cpu;
+        last_ge_cpu = ge_cpu;
+        static std::uint64_t last_transform = 0, last_assemble = 0;
+        const std::uint64_t transform = ge_detail().transform_us.load(std::memory_order_relaxed);
+        const std::uint64_t assemble = ge_detail().assemble_us.load(std::memory_order_relaxed);
+        const double per_frame = p.frames ? 1000.0 * static_cast<double>(p.frames) : 1.0;
+        std::fprintf(stderr, "[perf] display lists per frame: vertices %.1f ms, primitives and drawing %.1f ms\n",
+                     static_cast<double>(transform - last_transform) / per_frame * 1000.0 / 1000.0,
+                     static_cast<double>(assemble - last_assemble) / per_frame * 1000.0 / 1000.0);
+        last_transform = transform;
+        last_assemble = assemble;
         std::fprintf(stderr, "[perf] %.1f fps, display lists %.0f%% of the time (%.1f ms per frame)\n",
                      static_cast<double>(p.frames) / seconds, 100.0 * static_cast<double>(p.ge_us) / (seconds * 1e6),
                      p.frames ? static_cast<double>(p.ge_us) / 1000.0 / static_cast<double>(p.frames) : 0.0);
@@ -233,6 +257,31 @@ std::span<const HleFunction> display_functions() { return kFunctions; }
 PerfCounters &perf() {
     static PerfCounters counters;
     return counters;
+}
+
+std::uint64_t thread_cpu_us() {
+#if defined(_WIN32)
+    FILETIME created, exited, kernel, user;
+    if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user)) return 0;
+    const auto to_100ns = [](const FILETIME &f) {
+        return (static_cast<std::uint64_t>(f.dwHighDateTime) << 32u) | f.dwLowDateTime;
+    };
+    return (to_100ns(kernel) + to_100ns(user)) / 10u;
+#else
+    timespec ts{};
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts) != 0) return 0;
+    return static_cast<std::uint64_t>(ts.tv_sec) * 1'000'000u + static_cast<std::uint64_t>(ts.tv_nsec) / 1000u;
+#endif
+}
+
+GeDetail &ge_detail() {
+    static GeDetail detail;
+    return detail;
+}
+
+std::atomic<std::uint64_t> &ge_thread_cpu_us() {
+    static std::atomic<std::uint64_t> value{0};
+    return value;
 }
 
 } // namespace hle

@@ -268,9 +268,14 @@ one ubershader (texture functions, fog, alpha test, depth range) and fixed-funct
   turned too much (cuts), batches without a partner, flips whose render target was copied into or sampled while
   being drawn, flips at an already fast pace (< 22 ms) or after a stall (> 150 ms), and the first flip after any of
   those. The in-between pictures are made only while the GE has no display list to run (`Backend::next_wakeup`/`tick`,
-  honoured by the GE worker), so a heavy scene shows fewer of them instead of slowing the game down; late ones are
-  dropped (counted in the log). A flip appears (k-1)/k of a frame late: 17 ms at 60 fps, up to 28 ms at 180.
-  `MHF_FPS=<n>` overrides the option, `MHF_INTERP_LOG=1` prints how often each case happens.
+  honoured by the GE worker), so a heavy scene shows fewer of them instead of slowing the game down. Their pace is free:
+  a picture goes out at the next slot of 1/k of the flip interval or, if the GE was busy, as soon as it is free, and it
+  shows things where they are at the moment it is drawn (on time, within a quarter of a slot, it sits exactly on its
+  slot so steady motion moves in equal steps). Nothing is dropped for being late, so the rate is not stuck at steps
+  such as 150 or 120 when the GE is busy at the same point of every frame. A flip appears (k-1)/k of a frame late:
+  17 ms at 60 fps, up to 28 ms at 180. `MHF_FPS=<n>` overrides the option, `MHF_INTERP_LOG=1` prints how often each
+  case happens, the pictures put on screen per second and what a picture costs; `MHF_PROFILE=1` (Windows) samples
+  where the game's thread and the drawing thread spend their time.
   `homebrew_motiontest_interpolation` checks 60, 90, 120 and 180 fps: about k pictures per flip, equal steps for shapes
   moving a fixed step per frame, and a static shape that stays put (needs pspdev; not run in the last change).
   Limits: the cost of an in-between picture grows with the geometry of the scene, so 180 fps is not sustained in the
