@@ -55,6 +55,9 @@ public:
     // Statistics for logs and tests.
     struct Stats {
         std::uint64_t commands{}, primitives{}, vertices{}, pixels{}, transfers{};
+        // Host time inside drawing commands: decoding and transforming vertices, and the rest (assembling primitives,
+        // clipping, handing triangles to the backend).
+        std::uint64_t transform_ns{}, assemble_ns{};
     };
     [[nodiscard]] const Stats &stats() const noexcept { return stats_; }
     [[nodiscard]] std::uint32_t reg(std::uint32_t cmd) const noexcept { return regs_[cmd & 0xFF]; }

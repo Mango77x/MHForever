@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -522,6 +523,7 @@ void Ge::draw_primitive(std::uint32_t data) {
     stats_.vertices += count;
 
     if (backend_ != nullptr) backend_->draw_started(vaddr);
+    const auto t_start = std::chrono::steady_clock::now();
     std::vector<Vertex> verts;
     verts.reserve(count);
     std::uint32_t max_index = 0;
@@ -534,6 +536,7 @@ void Ge::draw_primitive(std::uint32_t data) {
         verts.push_back(transform(decode_vertex(vaddr + index * vsize)));
         verts.back().source = vaddr + index * vsize;
     }
+    const auto t_vertices = std::chrono::steady_clock::now();
     // The vertex (or index) pointer advances past what was consumed.
     if (index_format == 0) regs_[kVaddr] = vaddr + count * vsize;
     else regs_[kIaddr] = iaddr + count * (index_format == 1 ? 1u : index_format == 2 ? 2u : 4u);
@@ -573,6 +576,11 @@ void Ge::draw_primitive(std::uint32_t data) {
     default:
         break;
     }
+    const auto t_end = std::chrono::steady_clock::now();
+    stats_.transform_ns += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(t_vertices - t_start).count());
+    stats_.assemble_ns += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_vertices).count());
 }
 
 void Ge::draw_bezier_or_spline(std::uint32_t cmd, std::uint32_t) {

@@ -76,6 +76,11 @@ PerfCounters &perf();
 std::uint64_t thread_cpu_us();
 // Published by the GE worker thread every time around its loop, read when the "[perf]" line is printed.
 std::atomic<std::uint64_t> &ge_thread_cpu_us();
+// Where the display lists spend their time (Ge::Stats), published by the GE worker next to the CPU time.
+struct GeDetail {
+    std::atomic<std::uint64_t> transform_us{}, assemble_us{};
+};
+GeDetail &ge_detail();
 
 // Queues a flip to the GPU backend, in order with the display lists (no-op without a backend).
 // Stops the GE worker thread (at runtime shutdown).

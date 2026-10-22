@@ -155,6 +155,8 @@ struct GeState {
         };
         while (!stop) {
             hle::ge_thread_cpu_us().store(hle::thread_cpu_us(), std::memory_order_relaxed);
+            hle::ge_detail().transform_us.store(renderer().stats().transform_ns / 1000u, std::memory_order_relaxed);
+            hle::ge_detail().assemble_us.store(renderer().stats().assemble_ns / 1000u, std::memory_order_relaxed);
             if (backend) {
                 const auto due = backend->next_wakeup();
                 // Pictures the backend adds on its own (frame interpolation) only take time the game's drawing does
