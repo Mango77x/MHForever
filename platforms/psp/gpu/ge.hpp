@@ -78,6 +78,8 @@ public:
     // The current camera, for backends that place vertices again (frame interpolation).
     [[nodiscard]] const Matrix43 &view_matrix() const noexcept { return view_; }
     [[nodiscard]] const Matrix44 &proj_matrix() const noexcept { return proj_; }
+    // Incremented whenever the view or projection matrix, the viewport or the screen offset is written.
+    [[nodiscard]] std::uint64_t camera_generation() const noexcept { return camera_generation_; }
 
 private:
     ListResult run_commands(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event);
@@ -119,6 +121,7 @@ private:
 
     Backend *backend_{};
     std::uint64_t clut_generation_{};
+    std::uint64_t camera_generation_{};
 
     // Direct access to guest RAM and EDRAM for the hot paths (vertices, texels, pixels): no bounds exceptions, an
     // address outside both reads 0 and ignores writes, like the open bus of the real GE would at worst.

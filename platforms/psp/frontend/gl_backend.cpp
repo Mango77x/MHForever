@@ -19,8 +19,10 @@
 #include <chrono>
 #include <deque>
 #include <optional>
+#include <future>
 #include <set>
 #include <span>
+#include <thread>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -495,6 +497,11 @@ private:
     // Frame interpolation: the camera of the vertices being drawn (an index into cameras_), and where each recorded
     // vertex came from.
     std::uint16_t camera_for(const gpu::Ge &ge) {
+        if (camera_ != kNoCamera && camera_generation_ == ge.camera_generation()) return camera_; // nothing was written
+        camera_generation_ = ge.camera_generation();
+        return find_camera(ge);
+    }
+    std::uint16_t find_camera(const gpu::Ge &ge) {
         Camera c;
         std::copy(ge.view_matrix().m.begin(), ge.view_matrix().m.end(), c.view.begin());
         std::copy(ge.proj_matrix().m.begin(), ge.proj_matrix().m.end(), c.proj.begin());
@@ -602,9 +609,14 @@ private:
     std::vector<Camera> cameras_;           // cameras used since the last flip (Origin::camera indexes them)
     std::vector<Camera> previous_cameras_;  // the last flip's
     std::uint16_t camera_{kNoCamera};       // the last one found
+    std::uint64_t camera_generation_{};     // Ge::camera_generation() when it was found
     std::unordered_map<std::uint32_t, std::uint32_t> draw_uses_; // drawing commands per vertex address since the flip
     std::uint32_t draw_use_{};              // of the current drawing command: tells repeated draws of a model apart
-    std::unordered_map<std::uint64_t, const float *> points_before_; // scratch: the previous flip's points by key
+    struct PointSlot {
+        std::uint64_t key{};
+        const float *position{};
+    };
+    std::vector<PointSlot> point_table_; // scratch: the previous flip's points by key (open addressing, reused)
     std::set<std::uint32_t> touched_;       // render targets written by something other than batches (copies)
     bool previous_valid_ = false;
     Slot slots_[2];
@@ -612,7 +624,8 @@ private:
     RenderTarget scratch_;                  // where in-between pictures are drawn
     // The flip being shown: what later pictures are made from.
     struct {
-        std::vector<TapeEntry> now, before;
+        const std::vector<TapeEntry> *now{}; // this flip's batches: previous_ once the flip has been recorded
+        std::vector<TapeEntry> before;
         std::vector<Camera> cameras;        // of `now`
         std::vector<Camera> cameras_before; // the camera of `before` each one continues (or the same one)
         std::vector<int> partner;           // per batch of `now`: the 2D batch of `before` it continues, or -1
@@ -1606,18 +1619,42 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
     ranges_.assign(now.size(), Range{});
     for (std::size_t i = 0; i < now.size(); ++i) {
         const TapeEntry &entry = now[i];
-        const std::size_t first = staging_.size();
+        ranges_[i] = Range{staging_.size(), entry.vertices.size()};
         staging_.insert(staging_.end(), entry.vertices.begin(), entry.vertices.end());
-        ranges_[i] = Range{first, entry.vertices.size()};
-        const std::span<GpuVertex> vertices(staging_.data() + first, entry.vertices.size());
-        if (entry.setup.through) {
-            const int partner = i < flip_.partner.size() ? flip_.partner[i] : -1;
-            if (partner >= 0 && !clearing(entry.setup)) {
-                blend_vertices(before_batches[static_cast<std::size_t>(partner)].vertices, vertices, t);
+    }
+    // Placing the vertices again reads shared data only and writes disjoint ranges of the staging buffer, so big
+    // pictures are split between a few threads (the drawing thread takes the first share).
+    const auto place_batches = [&](std::size_t from, std::size_t to) {
+        for (std::size_t i = from; i < to; ++i) {
+            const TapeEntry &entry = now[i];
+            const std::span<GpuVertex> vertices(staging_.data() + ranges_[i].first, ranges_[i].count);
+            if (entry.setup.through) {
+                const int partner = i < flip_.partner.size() ? flip_.partner[i] : -1;
+                if (partner >= 0 && !clearing(entry.setup)) {
+                    blend_vertices(before_batches[static_cast<std::size_t>(partner)].vertices, vertices, t);
+                }
+            } else {
+                place_again(entry, cameras, vertices, t);
             }
-        } else {
-            place_again(entry, cameras, vertices, t);
         }
+    };
+    const unsigned cores = std::thread::hardware_concurrency();
+    const std::size_t threads = staging_.size() >= 12000 && cores >= 3 ? std::min<std::size_t>(4, cores - 1) : 1;
+    if (threads <= 1) {
+        place_batches(0, now.size());
+    } else {
+        std::vector<std::future<void>> helpers;
+        const std::size_t share = staging_.size() / threads + 1;
+        std::size_t from = 0, end_of_first = 0;
+        for (std::size_t k = 0; k < threads && from < now.size(); ++k) {
+            std::size_t to = from, taken = 0;
+            while (to < now.size() && (taken < share || k + 1 == threads)) taken += ranges_[to++].count;
+            if (k == 0) end_of_first = to;
+            else helpers.push_back(std::async(std::launch::async, place_batches, from, to));
+            from = to;
+        }
+        place_batches(0, end_of_first);
+        for (auto &helper : helpers) helper.get();
     }
     const auto t_upload = Clock::now();
     gl_.BindBuffer(GL_ARRAY_BUFFER, vbo_);
@@ -1651,7 +1688,7 @@ void GlBackend::show_picture(const Picture &picture) {
     shown.height = flip_.height;
     shown.stride = flip_.stride;
     shown.format = flip_.format;
-    render_between(shown, flip_.now, flip_.before, slots_[flip_.before_slot], picture.phase);
+    render_between(shown, *flip_.now, flip_.before, slots_[flip_.before_slot], picture.phase);
     show(scratch_.color, flip_.uv_max[0], flip_.uv_max[1]);
 }
 
@@ -1722,7 +1759,6 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
         ++stats_.skipped_ui; // lists, menus and dialogs: sprites appear, vanish or jump
     } else {
         flip_.partner = std::move(partner);
-        flip_.now = mine;
         flip_.before = std::move(previous_);
         flip_.cameras = cameras_;
         flip_.cameras_before.clear();
@@ -1731,24 +1767,47 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
             flip_.cameras_before.push_back(before != nullptr ? *before : c);
         }
         // Where each point of this flip was in the previous one (objects that move on their own).
-        points_before_.clear();
+        std::size_t points = 0;
+        for (const TapeEntry &e : flip_.before) points += e.origins.size() * 2;
+        std::size_t capacity = 1024;
+        while (capacity < points * 2) capacity <<= 1;
+        point_table_.assign(capacity, PointSlot{});
+        const std::size_t mask = capacity - 1;
+        const auto slot_of = [mask](std::uint64_t key) {
+            return static_cast<std::size_t>((key * 0x9E3779B97F4A7C15ull) >> 20u) & mask;
+        };
+        const auto insert_point = [&](std::uint64_t key, const float *position) {
+            for (std::size_t i = slot_of(key);; i = (i + 1) & mask) {
+                if (point_table_[i].key == 0) {
+                    point_table_[i] = PointSlot{key, position};
+                    return;
+                }
+                if (point_table_[i].key == key) return;
+            }
+        };
+        const auto find_point = [&](std::uint64_t key) -> const float * {
+            for (std::size_t i = slot_of(key);; i = (i + 1) & mask) {
+                if (point_table_[i].key == key) return point_table_[i].position;
+                if (point_table_[i].key == 0) return nullptr;
+            }
+        };
         for (const TapeEntry &e : flip_.before) {
             for (const Origin &o : e.origins) {
-                if (o.x_key != 0) points_before_.try_emplace(o.x_key, o.x_world);
-                if (o.y_key != 0 && o.y_key != o.x_key) points_before_.try_emplace(o.y_key, o.y_world);
+                if (o.x_key != 0) insert_point(o.x_key, o.x_world);
+                if (o.y_key != 0 && o.y_key != o.x_key) insert_point(o.y_key, o.y_world);
             }
         }
-        for (TapeEntry &e : flip_.now) {
+        for (TapeEntry &e : mine) {
             for (Origin &o : e.origins) {
                 if (o.x_key != 0) {
-                    const auto it = points_before_.find(o.x_key);
-                    o.x_moved = it != points_before_.end();
-                    if (o.x_moved) std::copy(it->second, it->second + 3, o.x_before);
+                    const float *was = find_point(o.x_key);
+                    o.x_moved = was != nullptr;
+                    if (o.x_moved) std::copy(was, was + 3, o.x_before);
                 }
                 if (o.y_key != 0) {
-                    const auto it = points_before_.find(o.y_key);
-                    o.y_moved = it != points_before_.end();
-                    if (o.y_moved) std::copy(it->second, it->second + 3, o.y_before);
+                    const float *was = find_point(o.y_key);
+                    o.y_moved = was != nullptr;
+                    if (o.y_moved) std::copy(was, was + 3, o.y_before);
                 }
             }
         }
@@ -1775,6 +1834,7 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
         done = true;
     }
     previous_ = std::move(mine);
+    if (done) flip_.now = &previous_; // the pictures of this flip draw from it, and the next flip pairs against it
     previous_cameras_ = cameras_;
     previous_valid_ = !copied && !self_sampled && !previous_.empty();
     fill_slot_ = 1 - fill_slot_;

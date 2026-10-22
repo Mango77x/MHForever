@@ -201,9 +201,9 @@ void Ge::execute(std::uint32_t word, std::uint32_t) {
     case kWorldMatrixNumber: world_i_ = data & 15u; return;
     case kWorldMatrixData: if (world_i_ < 12) world_.m[world_i_++] = float24(data); return;
     case kViewMatrixNumber: view_i_ = data & 15u; return;
-    case kViewMatrixData: if (view_i_ < 12) view_.m[view_i_++] = float24(data); return;
+    case kViewMatrixData: if (view_i_ < 12) view_.m[view_i_++] = float24(data); ++camera_generation_; return;
     case kProjMatrixNumber: proj_i_ = data & 15u; return;
-    case kProjMatrixData: if (proj_i_ < 16) proj_.m[proj_i_++] = float24(data); return;
+    case kProjMatrixData: if (proj_i_ < 16) proj_.m[proj_i_++] = float24(data); ++camera_generation_; return;
     case kTgenMatrixNumber: texgen_i_ = data & 15u; return;
     case kTgenMatrixData: if (texgen_i_ < 12) texgen_.m[texgen_i_++] = float24(data); return;
     case kBoneMatrixNumber: bone_i_ = data & 0x7Fu; return;
@@ -217,6 +217,7 @@ void Ge::execute(std::uint32_t word, std::uint32_t) {
     case kTransferStart: block_transfer(data); return;
     default:
         if (cmd >= kMorphWeight0 && cmd < kMorphWeight0 + 8) morph_[cmd - kMorphWeight0] = float24(data);
+        if ((cmd >= kViewportXScale && cmd <= kViewportZCenter) || cmd == kOffsetX || cmd == kOffsetY) ++camera_generation_;
         regs_[cmd] = data;
         return;
     }
