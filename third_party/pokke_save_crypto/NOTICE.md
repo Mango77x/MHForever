@@ -1,7 +1,7 @@
 # pokke save-data cryptography
 
 `save_crypto/` is the PSP save-data encryption (the firmware's `sceChnnlsv` scheme: AES-128 and AES-CMAC with the
-PSP's fixed key slots) written by the **pokke** project (https://github.com/theguyser/pokke, MIT, "Copyright (c) 2026
+PSP's fixed key slots) written by the **pokke** project (by theguyser; MIT, "Copyright (c) 2026
 pokke contributors"), taken from `profiles/mhp2g/host/save_crypto/` unmodified, with the permission of its author. The
 full license text is in `LICENSE` (pokke's: it also carries the PSPRecomp and Yakumo notices).
 
