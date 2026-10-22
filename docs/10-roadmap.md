@@ -90,9 +90,13 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 ## Phase 5 — Multiplayer
 
-- [ ] Harden HLE boundaries first (`08-multiplayer.md` §4.6: Windows drive-letter path escape in `host_path`, disable
-  `host0:`, GE address bounds, pointer validation, fuzzing).
-- [ ] `sceNetAdhoc*` HLE, virtual ad-hoc layer, adhoctest homebrew.
+- The network layer is shared by every future console (3DS, Switch, PS2, Wii, Wii U): `core/net` offers rooms
+  (packets or inputs mode), each console adds an adapter (`08-multiplayer.md` §1.1).
+- [ ] Harden HLE boundaries first (`08-multiplayer.md` §4.6: disable `host0:` in player builds, GE address bounds,
+  pointer validation, fuzzing). The Windows drive-letter path escape is fixed (`resolve_under_root`).
+- [ ] Room service in `core/net` with a local transport; PSP adapter (`sceNetAdhoc*`), adhoctest homebrew; two
+  instances on one PC through the launcher.
+- [ ] LAN / direct-address rooms.
 - [ ] Serverless P2P : local identity, friend codes, room codes, Mainline DHT, hole punching (libjuice),
   UPnP/PCP, IPv6, relay through group members, pairwise rendezvous for friends (`08-multiplayer.md` §4).
 - [ ] (optional) aemu-compatible backend for PPSSPP interop.

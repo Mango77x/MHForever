@@ -5,6 +5,44 @@
 2–4 friends play quests together as on the PSP, over the internet, without router configuration. P2P whenever possible, relay
 otherwise.
 
+### 1.1 Every platform, one network layer (decided 2026-10-22)
+
+Freedom Unite is the first game, not the only one: later titles may come from the 3DS, Switch, PS2, Wii or Wii U, each
+with its own kind of multiplayer. The friends system and the peer-to-peer layer are written once and shared; each
+console only adds an adapter. Nothing below `core/net` may know which console or game is running (the same rule as
+`core/` in `CLAUDE.md`).
+
+```
+launcher            identity, friends, presence ("playing <game>"), invites, rooms        — shared by every game
+   │
+core/net            discovery, peer links, relay through the group, encryption            — shared by every console
+   │                offers one service: a ROOM of N members with virtual addresses, in one of two modes:
+   │                  · packets:  members exchange datagrams/streams (the game's own netcode)
+   │                  · inputs:   members exchange controller inputs per frame (netplay)
+   ▼
+platforms/<console>/net   adapter: the console's network API ↔ a room
+                          psp: sceNetAdhoc/Adhocctl · 3ds: local wireless · switch: local wireless (LDN) · ps2/wii: LAN
+games/<id>/               data only: max players, compatible builds, mode, expected bandwidth
+```
+
+The multiplayer kinds found on these consoles, and how each maps onto a room:
+
+| Kind | Examples | How | Serverless? |
+|---|---|---|---|
+| Local wireless | PSP ad-hoc, DS/3DS, Switch local | the room is a virtual LAN; the game sees nearby consoles | yes |
+| LAN / system link | PS2 network adapter, Wii U LAN | the same virtual LAN | yes |
+| Official online services | DS/Wii Nintendo WFC, 3DS/Wii U online, PS2 online games | per game: many used the service only for matchmaking and then played peer to peer, which a room can replace; others need a replacement service | depends on the game |
+| Several controllers on one console | Wii, PS2 split screen | no game netcode: inputs are synchronised between PCs (lockstep, later rollback); needs the game to run deterministically | yes, in inputs mode |
+
+Consequences:
+- Identity and friend codes belong to the launcher, not to a game: a friend is a friend in every game, and presence
+  and invites carry the game id.
+- Every room carries `game id + region + build + mode + max players`; mismatched clients are refused with a clear
+  message.
+- The group relay (§4.3) is sized per game from measured traffic; later consoles can send much more than FU.
+- The room service is the only interface between `core/net` and an adapter. Anything PSP-specific that appears in
+  `core/net` while writing the first adapter is in the wrong place.
+
 ## 2. How the game does it
 
 The game uses the PSP's **ad-hoc** stack: `sceNetAdhocctl` for groups/rooms, `sceNetAdhoc` PDP (datagrams) and PTP (streams),
@@ -119,11 +157,14 @@ authentication).
 
 ### 4.7 Implementation order and lessons for when online work starts
 1. Fix the HLE boundary issues above (independent of networking).
-2. ad-hoc HLE (`sceNetAdhoc*`, `sceNetAdhocctl*`, `sceNetAdhocDiscover`) over a local loopback transport, tested with our
-   own homebrew; then two instances on one PC.
-3. core/net: identity, jech/dht, libjuice, UPnP/PCP, encryption; room codes first, then friends (pairwise rendezvous).
-4. Measure FU's traffic (packet sizes/rates on ports 10000 and 20001–20004) to size the group relay.
-5. Test matrix in §6 including Spanish ISPs with CG-NAT (Digi, Másmóvil group, Orange DS-Lite) and mobile hotspot.
+2. The room service in `core/net` (§1.1) with a local transport, and the PSP adapter (`sceNetAdhoc*`, `sceNetAdhocctl*`,
+   `sceNetAdhocDiscover`) on top of it, tested with our own homebrew; then two instances on one PC. The game process
+   reaches the network through the launcher, which owns the identity and the one UDP socket (a local link between the
+   two processes).
+3. LAN / direct-address rooms, to play with a friend early.
+4. core/net: identity, jech/dht, libjuice, UPnP/PCP, encryption; room codes first, then friends (pairwise rendezvous).
+5. Measure FU's traffic (packet sizes/rates on ports 10000 and 20001–20004) to size the group relay.
+6. Test matrix in §6 including Spanish ISPs with CG-NAT (Digi, Másmóvil group, Orange DS-Lite) and mobile hotspot.
 
 ### 4.8 Compatibility with PPSSPP and real PSPs 
 Optional mode, later: speak PPSSPP's adhoc-server protocol plus aemu postoffice to join existing community servers
