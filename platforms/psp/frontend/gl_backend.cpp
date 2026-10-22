@@ -313,12 +313,18 @@ struct GpuVertex {
 using DrawKey = std::array<std::uint32_t, kStateRegs.size() + 2>;
 
 // The value of a state register as it was when `key` was captured (kStateRegs plus the alpha mask).
+// Where each register sits in a DrawKey (-1: not a draw-state register).
+constexpr std::array<int, 256> kKeyIndex = [] {
+    std::array<int, 256> index{};
+    index.fill(-1);
+    for (std::size_t i = 0; i < kStateRegs.size(); ++i) index[kStateRegs[i] & 0xFFu] = static_cast<int>(i);
+    return index;
+}();
+
 std::uint32_t key_reg(const DrawKey &key, std::uint32_t reg) {
     if (reg == kMaskAlpha) return key[kStateRegs.size() + 1];
-    for (std::size_t i = 0; i < kStateRegs.size(); ++i) {
-        if (kStateRegs[i] == reg) return key[i];
-    }
-    return 0; // not a draw-state register: nothing here reads one
+    const int i = kKeyIndex[reg & 0xFFu];
+    return i >= 0 ? key[static_cast<std::size_t>(i)] : 0; // not a draw-state register: nothing here reads one
 }
 
 // Everything needed to set up OpenGL for a batch of primitives: the registers plus what was resolved from guest
@@ -359,13 +365,6 @@ struct TapeEntry {
     DrawSetup setup;
     std::vector<GpuVertex> vertices;
     std::vector<Origin> origins; // one per vertex
-};
-
-// A picture waiting for its moment on screen: `phase` 1 is the flip itself, below that a picture between the
-// previous flip (0) and this one.
-struct Picture {
-    float phase{1};
-    std::chrono::steady_clock::time_point due;
 };
 
 // A copy of a finished picture (the last two are kept).
@@ -442,7 +441,7 @@ public:
     void present(std::uint32_t address, std::uint32_t stride, std::uint32_t pixel_format) override;
 
     [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> next_wakeup() const override {
-        if (!pictures_.empty()) return pictures_.front().due;
+        if (pacing_.active) return pacing_.next_due;
         return std::nullopt;
     }
     void tick() override;
@@ -540,7 +539,9 @@ private:
     void show(GLuint texture, float uv_max_x, float uv_max_y);
     void finish_flip();
     bool present_interpolated(RenderTarget &shown, const float uv_max[2]);
-    void show_picture(const Picture &picture);
+    [[nodiscard]] float phase_at(std::chrono::steady_clock::time_point when) const;
+    void show_between(float phase);
+    void show_final();
     void flush_pictures();
     void ensure_slot(Slot &slot, GLsizei w, GLsizei h);
     void render_between(const RenderTarget &shown, const std::vector<TapeEntry> &now,
@@ -633,9 +634,17 @@ private:
         int before_slot{};
         GLuint final_texture{};
         float uv_max[2]{1, 1};
-        std::chrono::steady_clock::duration slack{};
     } flip_;
-    std::deque<Picture> pictures_;
+    // The flip being shown, in time: in-between pictures go out as often as the drawing thread can, at most one per
+    // step (the chosen rate), each one placed where things are at the moment it is drawn; there is no fixed slot a
+    // late picture could miss, so the output rate is free between the game's 30 and the chosen one.
+    struct {
+        bool active{};
+        std::chrono::steady_clock::time_point start{}, next_due{};
+        std::chrono::steady_clock::duration interval{}, step{};
+    } pacing_;
+    std::uint64_t log_shown_{};                       // shown_ at the last log line
+    std::chrono::steady_clock::time_point log_time_{}; // and when
     // In-between pictures are built in one buffer, uploaded once, and drawn batch by batch from ranges of it.
     std::vector<GpuVertex> staging_;
     struct Range {
@@ -1684,42 +1693,59 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
     have_state_ = false;
 }
 
-void GlBackend::show_picture(const Picture &picture) {
-    if (picture.phase >= 1.0f) {
-        show(flip_.final_texture, flip_.uv_max[0], flip_.uv_max[1]);
-        return;
-    }
+// Where the shown picture is between the previous flip (0) and this one (1) at `when`. Pictures run one step behind
+// the game: the first one, drawn as the flip arrives, is already one step in, and the flip's own picture is due one
+// step before the next flip is.
+float GlBackend::phase_at(std::chrono::steady_clock::time_point when) const {
+    double elapsed = std::chrono::duration<double>(when - pacing_.start).count();
+    const double interval = std::chrono::duration<double>(pacing_.interval).count();
+    const double step = std::chrono::duration<double>(pacing_.step).count();
+    if (interval <= 0.0 || step <= 0.0) return 1.0f;
+    // On time (within a quarter of a step of its slot), a picture sits exactly at its slot, so steady motion moves in
+    // equal steps despite the jitter of the wake-up; a late one shows where things are at the moment it is drawn.
+    const double slots = elapsed / step;
+    if (std::fabs(slots - std::round(slots)) < 0.25) elapsed = std::round(slots) * step;
+    return static_cast<float>(std::clamp((elapsed + step) / interval, 0.0, 1.0));
+}
+
+void GlBackend::show_final() {
+    pacing_.active = false;
+    show(flip_.final_texture, flip_.uv_max[0], flip_.uv_max[1]);
+}
+
+void GlBackend::show_between(float phase) {
     RenderTarget shown;
     shown.address = flip_.address;
     shown.width = flip_.width;
     shown.height = flip_.height;
     shown.stride = flip_.stride;
     shown.format = flip_.format;
-    render_between(shown, *flip_.now, flip_.before, slots_[flip_.before_slot], picture.phase);
+    render_between(shown, *flip_.now, flip_.before, slots_[flip_.before_slot], phase);
     show(scratch_.color, flip_.uv_max[0], flip_.uv_max[1]);
 }
 
-// Called by the GE worker when the next picture is due.
+// Called by the GE worker when the next picture is due (and it has no display list to run). Draws the picture for
+// this moment, however late it is, and asks to be called again one step later; the flip's own picture closes it.
 void GlBackend::tick() {
-    while (!pictures_.empty()) {
-        const Picture picture = pictures_.front();
-        pictures_.pop_front();
-        // Behind schedule (the GE had other work): in-between pictures that are already late are dropped.
-        if (picture.phase < 1.0f && std::chrono::steady_clock::now() - picture.due > flip_.slack) {
-            ++stats_.late;
-            continue;
-        }
-        show_picture(picture);
+    if (!pacing_.active) return;
+    const auto now = std::chrono::steady_clock::now();
+    const float phase = phase_at(now);
+    if (phase >= 0.999f) {
+        show_final();
         return;
     }
+    show_between(phase);
+    // The next one at the next slot (anchored to the flip, so waking up a little late does not add up), at once if that
+    // slot has already passed, and never after the moment the flip's own picture is due.
+    const auto final_due = pacing_.start + pacing_.interval - pacing_.step;
+    const double slots = std::chrono::duration<double>(now - pacing_.start).count() /
+                         std::chrono::duration<double>(pacing_.step).count();
+    const auto next_slot = pacing_.start + pacing_.step * static_cast<long long>(std::floor(slots + 0.5) + 1.0);
+    pacing_.next_due = std::min(std::max(next_slot, now), final_due);
 }
 
 void GlBackend::flush_pictures() {
-    while (!pictures_.empty()) {
-        const Picture picture = pictures_.front();
-        pictures_.pop_front();
-        if (picture.phase >= 1.0f) show_picture(picture);
-    }
+    if (pacing_.active) show_final(); // the next flip came before this one was fully shown
 }
 
 // Schedules the in-between pictures, the first one due at once, ending with the flip's own picture. Returns false
@@ -1827,16 +1853,11 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
         flip_.final_texture = slots_[fill_slot_].texture;
         flip_.uv_max[0] = uv_max[0];
         flip_.uv_max[1] = uv_max[1];
-        const auto step = std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval / factor_);
-        flip_.slack = step;
-        // Pictures at phases 1/k .. (k-1)/k, then the flip (phase 1); the first one goes out right now.
-        for (int j = 2; j <= factor_; ++j) {
-            Picture p;
-            p.phase = static_cast<float>(j) / static_cast<float>(factor_);
-            p.due = now + step * (j - 1);
-            pictures_.push_back(p);
-        }
-        pictures_.push_front(Picture{1.0f / static_cast<float>(factor_), now});
+        pacing_.active = true;
+        pacing_.start = now;
+        pacing_.interval = interval;
+        pacing_.step = std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval / factor_);
+        pacing_.next_due = now; // the first in-between picture goes out at once
         ++stats_.interpolated;
         done = true;
     }
@@ -1851,11 +1872,17 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
                 stats_.skipped_first + stats_.skipped_ui) % 120 == 0) {
         std::fprintf(stderr,
                      "[interp] x%d: interpolated %llu, skipped: first %llu, copy %llu, timing %llu, shape %llu, "
-                     "menus %llu; pictures dropped late %llu\n",
+                     "menus %llu; pictures on screen %.0f per second\n",
                      factor_, static_cast<unsigned long long>(stats_.interpolated),
                      static_cast<unsigned long long>(stats_.skipped_first), static_cast<unsigned long long>(stats_.skipped_copy),
                      static_cast<unsigned long long>(stats_.skipped_timing), static_cast<unsigned long long>(stats_.skipped_shape),
-                     static_cast<unsigned long long>(stats_.skipped_ui), static_cast<unsigned long long>(stats_.late));
+                     static_cast<unsigned long long>(stats_.skipped_ui),
+                     log_time_ == std::chrono::steady_clock::time_point{}
+                         ? 0.0
+                         : static_cast<double>(shown_ - log_shown_) /
+                               std::chrono::duration<double>(now - log_time_).count());
+        log_shown_ = shown_;
+        log_time_ = now;
         if (cost_.shows > 0) {
             const double s = static_cast<double>(cost_.shows);
             std::fprintf(stderr, "[interp] each picture put on the window: %.2f ms in total, %.2f ms of it in the buffer swap\n",

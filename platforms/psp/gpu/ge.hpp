@@ -104,7 +104,7 @@ private:
     void light(const float world_pos[3], const float world_normal[3], Vertex &out, const DecodedVertex &in) const;
 
     // Rasterizer.
-    void draw_triangle(Vertex a, Vertex b, Vertex c);
+    void draw_triangle(const Vertex &a, const Vertex &b, const Vertex &c);
     void draw_triangle_screen(const Vertex &a, const Vertex &b, const Vertex &c);
     void draw_sprite(const Vertex &a, const Vertex &b);
     void draw_line(const Vertex &a, const Vertex &b);
