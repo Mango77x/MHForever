@@ -78,6 +78,7 @@ struct GeState {
     int next_list{1};
     bool stop{};
     std::atomic<int> pending{0}; // lists queued or running
+    std::atomic<int> sync_waiters{0}; // guest threads blocked in sceGeDrawSync/sceGeListSync: the game is waiting
     std::thread worker;
     bool synchronous{};
     bool yielded{}; // worker: the last step stopped early because the backend had a picture due
@@ -111,9 +112,12 @@ struct GeState {
         // in-between pictures are not held back for the whole list; the list goes on from where it stopped.
         std::function<bool()> should_yield;
         if (!synchronous && backend) {
+            // Never while the game waits for the GE (that would slow the game down), nor when the picture would read a
+            // render target the list has started to draw again.
             should_yield = [this] {
+                if (sync_waiters.load(std::memory_order_relaxed) != 0) return false;
                 const auto due = backend->next_wakeup();
-                return due && std::chrono::steady_clock::now() >= *due;
+                return due && std::chrono::steady_clock::now() >= *due && backend->can_pause_for_picture();
             };
         }
         const auto result = renderer().run(
@@ -342,7 +346,9 @@ void GeListSync(Runtime &rt, Context &ctx) {
         return it == s.lists.end() || it->second.done;
     };
     if (arg(ctx, 1) == 0) {
+        ++s.sync_waiters;
         wait_for_ge(rt, finished);
+        --s.sync_waiters;
         ret(ctx, 0);
         return;
     }
@@ -354,7 +360,9 @@ void GeDrawSync(Runtime &rt, Context &ctx) {
     auto &s = ge(rt);
     auto idle = [&] { return s.pending.load() == 0; };
     if (arg(ctx, 0) == 0) {
+        ++s.sync_waiters;
         wait_for_ge(rt, idle);
+        --s.sync_waiters;
         ret(ctx, 0);
         return;
     }
