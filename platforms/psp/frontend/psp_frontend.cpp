@@ -3,10 +3,13 @@
 #include "dialog_overlay.hpp"
 #include "gl_backend.hpp"
 #include "host/sdl_host.hpp"
+#include "link/link.hpp"
+#include "link/protocol.hpp"
 #include "mhf/psp/dialog.hpp"
 #include "mhf/psp/host.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 
@@ -35,6 +38,11 @@ struct Frontend::Impl {
         std::uint64_t polls{}, empty{}, lost_us{}, longest_gap_us{}, dropped{}, min_queued{~0ull}, sum_queued{};
         std::uint64_t last_print_us{};
     } audio_stats;
+    // The launcher that started the game, if any: its in-game menu opens over the window while the game is paused.
+    std::unique_ptr<link::Connection> launcher;
+    bool menu_requested{};
+    bool guide_down{};
+    int music_volume{100}, sfx_volume{100};
     bool open{};
     bool gpu{};
     int render_scale{4};
@@ -177,8 +185,11 @@ void blend_over(std::vector<std::uint32_t> &frame, const std::vector<std::uint32
 void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
     const bool open = current_dialog(rt).kind != DialogView::Kind::None;
     for (const auto &k : impl.host.take_key_events()) {
-        if (!open) continue;
         using K = host::KeyEvent::Kind;
+        if (!open) {
+            if (k.kind == K::Escape && impl.launcher) impl.menu_requested = true;
+            continue;
+        }
         switch (k.kind) {
         case K::Text: dialog_text(rt, k.text); break;
         case K::Enter: dialog_key(rt, DialogKey::Enter); break;
@@ -204,6 +215,46 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
         impl.dialog_pending = view; // only the newest view matters
     }
     impl.dialog_cv.notify_one();
+}
+
+// Applies what the launcher said. False once the game should go on (menu closed or game ended).
+bool apply_launcher_command(Frontend::Impl &impl, Runtime &rt, const link::protocol::Command &command) {
+    using Kind = link::protocol::Command::Kind;
+    switch (command.kind) {
+    case Kind::SetMusic: impl.music_volume = command.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); return true;
+    case Kind::SetSfx: impl.sfx_volume = command.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); return true;
+    case Kind::Resume: return false;
+    case Kind::Quit: rt.exit_program_from_host(0); return false;
+    }
+    return true;
+}
+
+// The launcher's menu is open over the window: the game is paused (the host keeps the window and the link alive) until
+// the launcher resumes it, ends it, or goes away. The program's clock does not count the pause.
+void run_launcher_menu(Frontend::Impl &impl, Runtime &rt) {
+    const auto started = std::chrono::steady_clock::now();
+    set_controller_state(rt, ControllerState{}); // nothing stays pressed while the menu is up
+    const host::SdlHost::WindowRect w = impl.host.window_rect();
+    impl.launcher->send(link::protocol::format_menu({w.x, w.y, w.width, w.height, w.fullscreen}));
+    bool paused = true;
+    while (paused && impl.launcher->open()) {
+        if (!impl.host.poll()) {
+            rt.exit_program_from_host(0);
+            break;
+        }
+        (void)impl.host.take_key_events(); // keys belong to the menu now
+        auto line = impl.launcher->receive(8);
+        while (line && paused) {
+            if (const auto command = link::protocol::parse_command(*line)) paused = apply_launcher_command(impl, rt, *command);
+            if (paused) line = impl.launcher->receive(0);
+        }
+    }
+    rt.skip_time(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started).count()));
+    impl.last_audio_us = rt.now_us();
+    impl.audio_owed = 0.0;
+    impl.audio_primed = false; // the device ran dry: fill the cushion again
+    impl.menu_requested = false;
 }
 
 ControllerState map_input(const host::GamepadState &g) {
@@ -235,10 +286,17 @@ ControllerState map_input(const host::GamepadState &g) {
 
 } // namespace
 
+void Frontend::attach_launcher(std::unique_ptr<link::Connection> launcher) {
+    impl_->launcher = std::move(launcher);
+    impl_->host.set_text_input(false);
+}
+
 void Frontend::attach(Runtime &rt, std::function<void()> extra) {
     Impl *impl = impl_.get();
     Runtime *runtime = &rt;
     impl->runtime = runtime;
+    impl->music_volume = rt.options().music_volume;
+    impl->sfx_volume = rt.options().sfx_volume;
     if (impl->gpu && impl->open) {
         set_gpu_backend_factory(rt, [impl, runtime]() -> std::unique_ptr<gpu::Backend> {
             auto backend = make_gl_backend(static_cast<SDL_Window *>(impl->host.window_handle()), impl->render_scale,
@@ -256,8 +314,19 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
                 runtime->exit_program_from_host(0);
                 return;
             }
-            set_controller_state(*runtime, map_input(impl->host.input()));
+            const host::GamepadState pad = impl->host.input();
+            set_controller_state(*runtime, map_input(pad));
             update_dialogs(*impl, *runtime);
+            if (impl->launcher) {
+                if (pad.guide && !impl->guide_down) impl->menu_requested = true;
+                impl->guide_down = pad.guide;
+                // Commands that arrive while playing (settings changed from elsewhere) apply at once.
+                while (const auto line = impl->launcher->receive(0)) {
+                    if (const auto command = link::protocol::parse_command(*line)) apply_launcher_command(*impl, *runtime, *command);
+                }
+                if (impl->menu_requested && current_dialog(*runtime).kind == DialogView::Kind::None) run_launcher_menu(*impl, *runtime);
+                impl->menu_requested = false;
+            }
             const std::uint64_t now = runtime->now_us();
             const std::uint64_t vblank = now / kVblankPeriodUs;
             if (vblank != impl->last_vblank && impl->gpu_state == 2) {

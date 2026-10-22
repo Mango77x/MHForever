@@ -101,6 +101,8 @@ public:
 
     // Time since boot in microseconds (host monotonic clock).
     [[nodiscard]] std::uint64_t now_us() const;
+    // Moves the start of the clock forward: `us` microseconds of real time never happened for the program.
+    void skip_time(std::uint64_t us) { boot_ += std::chrono::microseconds(us); }
 
     [[nodiscard]] SysMem &sysmem() noexcept { return sysmem_; }
     [[nodiscard]] int next_uid() noexcept { return next_uid_++; }

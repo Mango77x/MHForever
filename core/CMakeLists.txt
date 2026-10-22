@@ -14,7 +14,7 @@ target_include_directories(mhf_net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 mhf_target_warnings(mhf_net)
 
 # The local link between the game program and the launcher (docs/07-launcher-ux.md section 3c).
-add_library(mhf_link STATIC link/link.cpp)
+add_library(mhf_link STATIC link/link.cpp link/protocol.cpp)
 target_include_directories(mhf_link PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 if(WIN32)
     target_link_libraries(mhf_link PUBLIC ws2_32)
@@ -27,6 +27,12 @@ if(MHF_BUILD_TESTS)
     target_link_libraries(test_link PRIVATE mhf_link)
     mhf_target_warnings(test_link)
     add_test(NAME link_local COMMAND test_link)
+
+    add_executable(test_link_protocol tests/test_link_protocol.cpp)
+    target_include_directories(test_link_protocol PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+    target_link_libraries(test_link_protocol PRIVATE mhf_link)
+    mhf_target_warnings(test_link_protocol)
+    add_test(NAME link_protocol COMMAND test_link_protocol)
 
     add_executable(test_local_network tests/test_local_network.cpp)
     target_include_directories(test_local_network PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)

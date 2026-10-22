@@ -176,6 +176,15 @@ void SdlHost::toggle_fullscreen() {
     SDL_SetWindowFullscreen(impl_->window, !full);
 }
 
+SdlHost::WindowRect SdlHost::window_rect() const {
+    WindowRect r;
+    if (impl_->window == nullptr) return r;
+    SDL_GetWindowPosition(impl_->window, &r.x, &r.y);
+    SDL_GetWindowSize(impl_->window, &r.width, &r.height);
+    r.fullscreen = (SDL_GetWindowFlags(impl_->window) & SDL_WINDOW_FULLSCREEN) != 0;
+    return r;
+}
+
 GamepadState SdlHost::input() const {
     GamepadState s;
     static const bool kNoKeys[SDL_SCANCODE_COUNT] = {};

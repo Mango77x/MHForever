@@ -64,6 +64,12 @@ public:
     [[nodiscard]] void *window_handle() const;
     // Toggles borderless fullscreen.
     void toggle_fullscreen();
+    // Where the window's drawing area is on the desktop (screen pixels) and whether it is fullscreen.
+    struct WindowRect {
+        int x{}, y{}, width{}, height{};
+        bool fullscreen{};
+    };
+    [[nodiscard]] WindowRect window_rect() const;
 
     // Queues interleaved stereo 16-bit samples for playback. Drops audio rather than growing the queue unbounded.
     void queue_audio(const std::int16_t *stereo, std::size_t frames);

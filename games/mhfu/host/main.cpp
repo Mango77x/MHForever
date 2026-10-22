@@ -20,8 +20,10 @@
 #include <functional>
 
 #if defined(MHF_HAS_FRONTEND)
+#include "link/link.hpp"
 #include "psp_frontend.hpp"
 #endif
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <string>
@@ -225,6 +227,11 @@ int main(int argc, char **argv) {
 #if defined(MHF_HAS_FRONTEND)
         mhf::psp::Frontend frontend;
         if (window && frontend.open(window_title(options.disc_image).c_str(), false, 2, !software, render_scale, fullscreen, smooth_textures, target_fps)) {
+            // Started by the launcher: Escape opens its menu over the paused game (docs/07-launcher-ux.md section 3c).
+            if (const char *address = std::getenv(mhf::link::kEnvironment)) {
+                if (auto launcher = mhf::link::connect(address)) frontend.attach_launcher(std::move(launcher));
+                else std::fprintf(stderr, "[mhfu] the launcher did not answer on the local link: no in-game menu\n");
+            }
             frontend.attach(runtime, extra);
         } else if (window) {
             // A player asked for a window: never keep running invisibly.

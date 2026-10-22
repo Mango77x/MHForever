@@ -257,6 +257,7 @@ void Runtime::exit_program(int code) {
 
 void Runtime::kernel_host_poll(std::function<void()> poll) { kernel_->host_poll = std::move(poll); }
 std::uint64_t Runtime::now_us() const { return kernel_->now_us(); }
+void Runtime::skip_time(std::uint64_t us) { kernel_->skip_time(us); }
 void Runtime::exit_program_from_host(int code) { kernel_->request_exit(code); }
 
 void Runtime::log_unimplemented(const ImportEntry &import) {

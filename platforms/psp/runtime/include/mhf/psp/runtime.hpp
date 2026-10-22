@@ -141,6 +141,14 @@ public:
     // the host to end the program from that hook.
     void kernel_host_poll(std::function<void()> poll);
     [[nodiscard]] std::uint64_t now_us() const;
+    // Makes the PSP's clock lose `us` microseconds of real time, so that a pause of the host (a menu over the paused
+    // game) is not seen by the program as a long stall.
+    void skip_time(std::uint64_t us);
+    // The player's volume preferences (0..100), changeable while the program runs.
+    void set_volumes(int music, int sfx) noexcept {
+        options_.music_volume = music;
+        options_.sfx_volume = sfx;
+    }
     void exit_program_from_host(int code);
     // Prints the PSP threads and what they wait for to stderr (debugging hangs).
     void dump_threads();
