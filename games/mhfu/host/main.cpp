@@ -160,7 +160,7 @@ int main(int argc, char **argv) {
         else if (a == "--seconds" && i + 1 < argc) seconds = std::stod(argv[++i]);
         else if (a == "--window") window = true;
         else if (a == "--software") software = true;
-        else if (a == "--scale" && i + 1 < argc) render_scale = std::clamp(std::stoi(argv[++i]), 1, 8);
+        else if (a == "--scale" && i + 1 < argc) render_scale = std::clamp(std::stoi(argv[++i]), 1, 10);
         else if (a == "--fullscreen") fullscreen = true;
         else if (a == "--smooth-textures") smooth_textures = true; // enhancement, off by default
         else if (a == "--fps" && i + 1 < argc) target_fps = std::clamp(std::stoi(argv[++i]), 30, 180); // enhancement

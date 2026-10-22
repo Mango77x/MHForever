@@ -99,14 +99,14 @@ int main() {
         CHECK(std::regex_match(code, std::regex("^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$")));
         CHECK(s["pseudonym"].as_string() == "Hunter");
         Json partial;
-        partial["scale"] = 9;
+        partial["scale"] = 11;
         partial["musicVolume"] = -5;
         partial["fullscreen"] = true;
         partial["fps"] = 100; // snaps to a multiple of 30
         l.set_settings(partial);
         l.set_pseudonym("Rathalos\x01Slayer");
         s = l.state();
-        CHECK(s["settings"]["scale"].as_number() == 4);
+        CHECK(s["settings"]["scale"].as_number() == 10);
         CHECK(s["settings"]["musicVolume"].as_number() == 0);
         CHECK(s["settings"]["fullscreen"].as_bool());
         CHECK(s["settings"]["fps"].as_number() == 90);

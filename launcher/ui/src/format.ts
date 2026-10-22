@@ -25,4 +25,5 @@ export function lastPlayed(unix: number | null): string {
 }
 
 export const frameRates = [30, 60, 90, 120, 150, 180];
-export const resolutions = ['480 × 272', '960 × 544', '1440 × 816', '1920 × 1088'];
+// Internal resolutions: whole multiples of the PSP's 480 × 272 (1× to 10×), so 2D art and text stay sharp.
+export const resolutions = Array.from({ length: 10 }, (_, i) => `${480 * (i + 1)} × ${272 * (i + 1)}`);

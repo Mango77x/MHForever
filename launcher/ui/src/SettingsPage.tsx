@@ -68,9 +68,9 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
         <h3>Video</h3>
         <div className="srow">
           <div className="slabel"><b>Internal resolution</b><span>{resolutions[s.scale - 1]}{s.scale === 4 ? ' · recommended' : ''}</span></div>
-          <div className="seg" role="radiogroup" aria-label="Internal resolution">
+          <div className="seg wide" role="radiogroup" aria-label="Internal resolution" style={{ '--n': resolutions.length } as CSSProperties}>
             <span className="pill" style={{ transform: `translateX(${(s.scale - 1) * 100}%)` }} />
-            {[1, 2, 3, 4].map((n) => (
+            {resolutions.map((_, i) => i + 1).map((n) => (
               <button key={n} className={s.scale === n ? 'on' : ''} role="radio" aria-checked={s.scale === n} onClick={() => onChange({ scale: n })}>{n}×</button>
             ))}
           </div>

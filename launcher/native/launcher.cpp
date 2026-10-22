@@ -283,7 +283,7 @@ void Launcher::set_settings(const Json &partial) {
     const auto num = [&](const char *key, double lo, double hi) {
         if (partial[key].is_number()) s[key] = std::clamp(std::round(partial[key].as_number()), lo, hi);
     };
-    num("scale", 1, 4);
+    num("scale", 1, 10); // whole multiples of the PSP's 480x272, as PPSSPP offers
     if (partial["fps"].is_number()) { // whole multiples of the game's 30 fps, 30..180
         s["fps"] = std::clamp(std::round(partial["fps"].as_number() / 30.0), 1.0, 6.0) * 30.0;
     }
