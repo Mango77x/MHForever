@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -677,6 +678,15 @@ std::uint32_t execute_savedata(Runtime &rt, std::uint32_t params, const std::opt
     std::fprintf(stderr, "[hle] savedata %s %s%s file \"%s\" size %u/%u focus %u list [%s] -> %08X\n", mode_name(mode),
                  request.game_name().c_str(), request.save_name().c_str(), request.file_name().c_str(),
                  request.u32(kDataSize), request.u32(kDataBufSize), request.u32(kFocus), list.c_str(), result);
+    // MHF_SAVEDATA_LOG=1: the words of the request that decide how a real system encrypts the data file (the bind and
+    // overwrite flags, and the region that holds the game's 16-byte save key), to support importing saves made by a PSP
+    // or PPSSPP. The key is a constant of the game, the same for every player.
+    static const bool log_keys = std::getenv("MHF_SAVEDATA_LOG") != nullptr;
+    if (log_keys) {
+        std::fprintf(stderr, "[hle] savedata request: bind %08X overwrite %08X, words 5D8..5F4:", request.u32(0x34), request.u32(0x38));
+        for (std::uint32_t at = 0x5D8; at <= 0x5F4; at += 4) std::fprintf(stderr, " %08X", request.u32(at));
+        std::fprintf(stderr, "\n");
+    }
     return result;
 }
 
