@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MHForever VERSION 0.2.2 LANGUAGES CXX)
+project(MHForever VERSION 0.2.3 LANGUAGES CXX)
 
 # Windows executables carry the MHForever icon (a resource file, compiled by the platform resource compiler).
 if(WIN32)

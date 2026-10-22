@@ -83,7 +83,8 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Saves (`<Documents>/MHForever/saves/<DISC_ID>`) and `launcher.json` (`%APPDATA%/MHForever`) kept outside the program folder,
       with a one-time copy from the old layout (0.2.1, 2026-10-22).
 - [ ] Launcher: language selection, signed updates.
-- [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19), v0.2.0 adds frame interpolation (2026-10-21), v0.2.1 fixes audio clicks and keeps saves and settings outside the program folder (2026-10-22), v0.2.2 makes the 2D HUD interpolate again (2026-10-22).
+- [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19), v0.2.0 adds frame interpolation (2026-10-21), v0.2.1 fixes audio clicks and keeps saves and settings outside the program folder (2026-10-22), v0.2.2 makes the 2D HUD interpolate again (2026-10-22), v0.2.3 makes interpolation lighter (about 90 to 150 fps in
+      the village at 180, 2026-10-22).
 - [ ] Windows installer and AppImage (Linux). Deck testing by friends.
 **Acceptance**: a user with no development tools goes from "I have my ISO" to "I'm playing" using only the launcher.
 
@@ -106,7 +107,9 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 Done: internal resolution (`--scale`, launcher setting), bilinear texture option, right stick as D-pad camera, fullscreen toggle.
 Done too: 60 to 180 fps by frame interpolation (`--fps`, launcher setting; `05-runtime-hle.md` §6, v0.2.0).
-Pending: widescreen, analog camera hook, per-controller icons, vsync and a lighter interpolation path for heavy scenes. See `06-mhfu-module.md` §9.
+Pending: widescreen, analog camera hook, per-controller icons, vsync, and in-between pictures made on a thread of their own:
+the GE runs the game's display lists (about 10 ms per frame in heavy scenes) on the same thread, which caps 180 fps at
+about 150 there (measured with `MHF_PROFILE=1`, 0.2.3). See `06-mhfu-module.md` §9.
 
 ## Phase 8 — Next game
 
