@@ -50,10 +50,13 @@ public:
                const Color *bottom = nullptr);
     void fill_all(Color c, float alpha);
 
-    // Width in logical units of `text` at `size` logical pixels.
-    [[nodiscard]] float measure(const std::string &text, float size, bool bold = false) const;
+    // Width in logical units of `text` at `size` logical pixels; `tracking` is extra space after every glyph.
+    [[nodiscard]] float measure(const std::string &text, float size, bool bold = false, float tracking = 0.0f) const;
     // Draws `text` with its baseline at logical (x, baseline); returns the logical width.
-    float text(float x, float baseline, const std::string &str, float size, Color c, float alpha = 1.0f, bool bold = false);
+    float text(float x, float baseline, const std::string &str, float size, Color c, float alpha = 1.0f, bool bold = false,
+               float tracking = 0.0f);
+    // A line of `thickness` logical units: an axis-aligned filled rectangle without rounding.
+    void rect(float x, float y, float w, float h, Color c, float alpha);
     // Shortens `str` with an ellipsis to fit `max_width`.
     [[nodiscard]] std::string fit(const std::string &str, float size, float max_width) const;
     // Greedy word wrap.

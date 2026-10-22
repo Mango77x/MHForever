@@ -89,7 +89,7 @@ struct Frontend::Impl {
                 if (!menu_renderer) menu_renderer = std::make_unique<overlay::MenuRenderer>(font_directory);
                 constexpr int kMenuScale = 4;
                 std::vector<std::uint32_t> pixels;
-                menu_renderer->render(*menu_view, kMenuScale, pixels);
+                menu_renderer->render(*menu_view, kMenuScale, pixels, false);
                 std::lock_guard lock(overlay.mutex);
                 if (menu_open) { // the menu may have been closed while this was drawn
                     overlay.pixels = std::move(pixels);
@@ -226,6 +226,8 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
         case K::Right: dialog_key(rt, DialogKey::Right); break;
         case K::Up: dialog_key(rt, DialogKey::Up); break;
         case K::Down: dialog_key(rt, DialogKey::Down); break;
+        case K::PrevTab:
+        case K::NextTab: break;
         }
     }
     impl.host.set_text_input(dialog_wants_text(rt));
@@ -244,7 +246,10 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
     impl.dialog_cv.notify_one();
 }
 
-enum MenuId { kResume = 1, kMusic, kSfx, kFullscreen, kSmooth, kQuit, kQuitYes, kQuitNo };
+enum MenuId { kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth };
+
+constexpr int kMaxScale = 10;                 // 1x..10x the PSP's 480x272
+constexpr int kFpsChoices[] = {30, 60, 90, 120, 150, 180}; // whole multiples of the game's 30 fps
 
 overlay::MenuItem menu_item(overlay::MenuItem::Kind kind, int id, std::string label, int value = 0) {
     overlay::MenuItem item;
@@ -255,36 +260,52 @@ overlay::MenuItem menu_item(overlay::MenuItem::Kind kind, int id, std::string la
     return item;
 }
 
+std::string menu_game_name(const std::string &title) {
+    const std::string prefix = "MHForever - ";
+    return title.compare(0, prefix.size(), prefix) == 0 ? title.substr(prefix.size()) : title;
+}
+
 overlay::MenuView menu_main(const Frontend::Impl &impl) {
     using Kind = overlay::MenuItem::Kind;
     overlay::MenuView v;
-    v.title = "Paused";
-    v.subtitle = impl.title;
-    v.hint = "Arrows move  |  Enter select  |  Esc back";
-    v.items.push_back(menu_item(Kind::Button, kResume, "Resume"));
-    v.items.push_back(menu_item(Kind::Heading, 0, "SOUND"));
-    v.items.push_back(menu_item(Kind::Slider, kMusic, "Music", impl.music_volume));
-    v.items.push_back(menu_item(Kind::Slider, kSfx, "Sound effects", impl.sfx_volume));
-    v.items.push_back(menu_item(Kind::Heading, 0, "VIDEO"));
-    v.items.push_back(menu_item(Kind::Toggle, kFullscreen, "Fullscreen", impl.host.window_rect().fullscreen ? 1 : 0));
-    v.items.push_back(menu_item(Kind::Toggle, kSmooth, "Smooth textures", impl.live.smooth_textures ? 1 : 0));
-    v.items.push_back(menu_item(Kind::Info, 0, std::to_string(impl.render_scale) + "x, " + std::to_string(impl.target_fps) + " fps (set in launcher)"));
-    overlay::MenuItem quit = menu_item(Kind::Button, kQuit, "Quit the game");
-    quit.danger = true;
-    v.items.push_back(quit);
+    v.title = menu_game_name(impl.title);
+    v.corner = "Esc  Resume";
+    v.hint = "Arrows move  |  Enter select  |  Q E tabs  |  Esc resume";
+
+    overlay::MenuTab game{"Game", {menu_item(Kind::Button, kResume, "Resume"), menu_item(Kind::Button, kQuit, "Quit the game")}};
+    game.items[1].danger = true;
+
+    overlay::MenuTab audio{"Audio", {menu_item(Kind::Heading, 0, "Volume"), menu_item(Kind::Slider, kMusic, "Music", impl.music_volume),
+                                      menu_item(Kind::Slider, kSfx, "Sound effects", impl.sfx_volume)}};
+
+    overlay::MenuItem scale = menu_item(Kind::Choice, kScale, "Internal resolution", impl.render_scale - 1);
+    for (int n = 1; n <= kMaxScale; ++n) scale.options.push_back(std::to_string(n) + "x");
+    scale.detail = std::to_string(480 * impl.render_scale) + " x " + std::to_string(272 * impl.render_scale);
+    overlay::MenuItem fps = menu_item(Kind::Choice, kFps, "Frame rate");
+    int fps_index = 0;
+    for (std::size_t i = 0; i < std::size(kFpsChoices); ++i) {
+        fps.options.push_back(std::to_string(kFpsChoices[i]) + " fps");
+        if (kFpsChoices[i] <= impl.target_fps) fps_index = static_cast<int>(i);
+    }
+    fps.value = fps_index;
+    fps.detail = "The game runs at 30; the rest are in-between pictures.";
+    overlay::MenuTab video{"Video", {menu_item(Kind::Heading, 0, "Picture"), scale, fps, menu_item(Kind::Heading, 0, "Display"),
+                                      menu_item(Kind::Toggle, kFullscreen, "Fullscreen", impl.host.window_rect().fullscreen ? 1 : 0),
+                                      menu_item(Kind::Toggle, kSmooth, "Smooth textures", impl.live.smooth_textures ? 1 : 0)}};
+    v.tabs = {game, audio, video};
     return v;
 }
 
-overlay::MenuView menu_confirm_quit() {
+overlay::MenuView menu_confirm_quit(const Frontend::Impl &impl) {
     using Kind = overlay::MenuItem::Kind;
     overlay::MenuView v;
-    v.title = "Quit the game?";
-    v.subtitle = "Progress since your last save is lost.";
+    v.title = menu_game_name(impl.title);
+    v.corner = "Esc  Back";
     v.hint = "Enter select  |  Esc back";
-    v.items.push_back(menu_item(Kind::Button, kQuitNo, "Keep playing"));
     overlay::MenuItem yes = menu_item(Kind::Button, kQuitYes, "Quit without saving");
     yes.danger = true;
-    v.items.push_back(yes);
+    v.tabs = {overlay::MenuTab{"Quit the game?", {menu_item(Kind::Info, 0, "Progress since your last save is lost."),
+                                                    menu_item(Kind::Button, kQuitNo, "Keep playing"), yes}}};
     return v;
 }
 
@@ -300,29 +321,36 @@ bool menu_press(Frontend::Impl &impl, Runtime &rt, overlay::Menu::Key key) {
         }
         return false;
     case overlay::Menu::Event::Kind::Activated:
-        if (e.id == kResume || e.id == kQuitNo) {
-            if (e.id == kQuitNo) {
-                impl.menu_confirming_quit = false;
-                impl.menu.set(menu_main(impl));
-                return true;
-            }
-            return false;
-        }
-        if (e.id == kQuit) {
+        switch (e.id) {
+        case kResume: return false;
+        case kQuit:
             impl.menu_confirming_quit = true;
-            impl.menu.set(menu_confirm_quit());
-        }
-        if (e.id == kQuitYes) {
+            impl.menu.set(menu_confirm_quit(impl));
+            return true;
+        case kQuitNo:
+            impl.menu_confirming_quit = false;
+            impl.menu.set(menu_main(impl));
+            return true;
+        case kQuitYes:
             rt.exit_program_from_host(0);
             return false;
+        default: return true;
         }
-        return true;
     case overlay::Menu::Event::Kind::Changed:
         switch (e.id) {
         case kMusic: impl.music_volume = e.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); break;
         case kSfx: impl.sfx_volume = e.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); break;
         case kFullscreen: impl.host.toggle_fullscreen(); break;
         case kSmooth: impl.live.smooth_textures = e.value != 0; break;
+        case kScale:
+            impl.render_scale = e.value + 1;
+            impl.live.scale = impl.render_scale; // the drawing thread applies it at the next picture
+            impl.menu.set(menu_main(impl));      // the size shown under the row follows
+            break;
+        case kFps:
+            impl.target_fps = kFpsChoices[std::clamp(e.value, 0, static_cast<int>(std::size(kFpsChoices)) - 1)];
+            impl.live.fps = impl.target_fps;
+            break;
         default: break;
         }
         return true;
@@ -333,7 +361,7 @@ bool menu_press(Frontend::Impl &impl, Runtime &rt, overlay::Menu::Key key) {
 
 // The menu's keys from a gamepad: presses, with the repeat of a held direction.
 struct MenuPad {
-    bool up{}, down{}, left{}, right{}, accept{}, back{}, guide{};
+    bool up{}, down{}, left{}, right{}, accept{}, back{}, prev{}, next{};
     std::uint64_t repeat_at_ms[4]{};
 };
 
@@ -354,8 +382,12 @@ void menu_pad_keys(MenuPad &state, const host::GamepadState &g, std::uint64_t no
     }
     if (g.south && !state.accept) out.push_back(Key::Accept);
     if ((g.east || g.start || g.guide) && !state.back) out.push_back(Key::Back);
+    if (g.left_shoulder && !state.prev) out.push_back(Key::PrevTab);
+    if (g.right_shoulder && !state.next) out.push_back(Key::NextTab);
     state.accept = g.south;
     state.back = g.east || g.start || g.guide;
+    state.prev = g.left_shoulder;
+    state.next = g.right_shoulder;
 }
 
 // The in-game menu is open: the game is paused (the window stays alive, the program's clock does not count the time)
@@ -376,8 +408,7 @@ void run_menu(Frontend::Impl &impl, Runtime &rt) {
     (void)impl.host.take_key_events();
     std::uint64_t shown_version = ~0ull;
     MenuPad pad_state;
-    pad_state.accept = pad_state.back = true; // the press that opened the menu must not also act in it
-    pad_state.guide = true;
+    pad_state.accept = pad_state.back = pad_state.prev = pad_state.next = true; // what is held now must not act in the menu
     bool open = true;
     while (open) {
         if (!impl.host.poll()) {
@@ -395,6 +426,8 @@ void run_menu(Frontend::Impl &impl, Runtime &rt) {
             case K::Enter: keys.push_back(Key::Accept); break;
             case K::Escape:
             case K::Backspace: keys.push_back(Key::Back); break;
+            case K::PrevTab: keys.push_back(Key::PrevTab); break;
+            case K::NextTab: keys.push_back(Key::NextTab); break;
             case K::Text: break;
             }
         }

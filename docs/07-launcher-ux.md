@@ -72,25 +72,36 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
 
 ## 3c. The in-game menu (decided 2026-10-22)
 
-**Escape** (or the controller's guide button) pauses the game and opens a menu drawn *inside the game window*: resume,
-sound, video, online, quit. It is not a second window and not the launcher: the launcher stays what it is, the
-screen where you add games, set them up and press Play. A first attempt that stretched the launcher's own window over
-the game was dropped on purpose: laying one window over another (focus, fullscreen, resizing, closing the game while
-it is up) is fragile on Windows and impossible on the Steam Deck's game mode, where no second window can be shown.
+**Escape** (or the controller's guide button) pauses the game and opens a menu drawn *inside the game window*, across the
+whole screen: the game's last picture, blurred and darkened, fills the window (cropped, never stretched), tabs run
+across the top (Game, Audio, Video) and the rows of the selected tab are centred below. It is not a second window and not
+the launcher: the launcher stays what it is, the screen where you add games, set them up and press Play. A first attempt
+that stretched the launcher's own window over the game was dropped on purpose: laying one window over another (focus,
+fullscreen, resizing, closing the game while it is up) is fragile on Windows and impossible on the Steam Deck's game
+mode, where no second window can be shown.
 
-- `core/overlay`: `Painter` (rounded shapes and anti-aliased text in the launcher's colours, CPU, console-independent),
-  `Menu` (rows: button, slider, toggle, choice; keyboard and controller navigation) and `MenuRenderer`. The system
-  dialogs (`DialogOverlay`) draw with the same `Painter`.
+- Tabs: **Game** (resume, quit with a confirmation), **Audio** (music, sound effects), **Video** (internal resolution
+  1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures). Q / E, Tab, PageUp / PageDown or the controller's
+  shoulder buttons change tab; Up from the first row focuses the tab bar. Arrows or the D-pad / stick move and change,
+  Enter or A selects, Esc or B goes back (and, in the menu's top level, resumes).
+- `core/overlay`: `Painter` (shapes and anti-aliased text with letter spacing, in the launcher's colours, CPU,
+  console-independent), `Menu` (tabs and rows: button, slider, toggle, choice; navigation) and `MenuRenderer`. The
+  system dialogs (`DialogOverlay`) draw with the same `Painter`. The look is flat: thin hairlines, a small accent, square
+  corners.
 - The frontend (`platforms/psp/frontend`) owns what the menu does: it pauses the program (the host keeps the window
-  alive; the program's clock does not count the time), lets the GL backend redraw the last picture with the menu over
-  it as often as the display refreshes, and applies changes at once (volumes, fullscreen, smooth textures). A dialog
-  open in the game takes Escape first (it cancels the dialog).
-- Resolution and frame rate still apply at the next start; the menu shows them.
+  alive; the program's clock does not count the time) and applies changes at once. A dialog open in the game takes
+  Escape first (it cancels the dialog).
+- The GL backend, while the menu is up, redraws the last picture as often as the display refreshes: it shrinks it to a
+  small target, blurs it (three Gaussian passes, wider each time), and draws it over the whole window darkened, with the
+  menu image (letterboxed to 16:9) on top. Changes from the menu reach the drawing thread through `LiveSettings`: the
+  **internal resolution** redraws every render target at the new size when the next picture starts (what was on them is
+  scaled, not lost) and the **frame rate** changes the number of in-between pictures from the next flip.
 - `core/link` (the local link between the game and the launcher: loopback, per-launch token, lines of text) is built
   and tested but nothing uses it yet. Friends, rooms and invites will: the launcher owns the identity and the
-  connections (`08-multiplayer.md` §1.1), the game's menu shows their state and sends actions (invite, join) over it.
+  connections (`08-multiplayer.md` §1.1), the game's menu shows their state (an Online tab) and sends actions (invite,
+  join) over it.
 - Not done yet: changes made in the menu are not saved to the launcher's settings; mouse input; a "don't pause" mode
-  for when a room is open; the friends and room pages.
+  for when a room is open; the Online tab.
 
 ## 4. Bundled toolchain (only for model B; not needed with model A)
 

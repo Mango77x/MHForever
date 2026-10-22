@@ -122,6 +122,13 @@ bool SdlHost::poll() {
             case SDLK_RIGHT: impl_->keys.push_back({KeyEvent::Kind::Right, {}}); break;
             case SDLK_UP: impl_->keys.push_back({KeyEvent::Kind::Up, {}}); break;
             case SDLK_DOWN: impl_->keys.push_back({KeyEvent::Kind::Down, {}}); break;
+            case SDLK_Q:
+            case SDLK_PAGEUP: impl_->keys.push_back({KeyEvent::Kind::PrevTab, {}}); break;
+            case SDLK_E:
+            case SDLK_PAGEDOWN: impl_->keys.push_back({KeyEvent::Kind::NextTab, {}}); break;
+            case SDLK_TAB:
+                impl_->keys.push_back({(e.key.mod & SDL_KMOD_SHIFT) != 0 ? KeyEvent::Kind::PrevTab : KeyEvent::Kind::NextTab, {}});
+                break;
             default: break;
             }
             if (impl_->keys.size() > 256) impl_->keys.erase(impl_->keys.begin());

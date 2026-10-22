@@ -274,6 +274,36 @@ out vec4 o_color;
 void main() { o_color = texture(u_tex, v_uv) * u_alpha; }
 )";
 
+// The blurred background of the in-game menu: a picture drawn into a small target and blurred there. The vertex shader
+// does not flip (the targets are read back the way they were written) and maps the quad onto a part of the texture.
+constexpr const char *kBlurVertex = R"(#version 330 core
+uniform vec2 u_uv_off;
+uniform vec2 u_uv_scale;
+out vec2 v_uv;
+void main() {
+    vec2 p = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1));
+    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+    v_uv = u_uv_off + p * u_uv_scale;
+}
+)";
+
+// Five taps that stand for nine of a Gaussian (the two outer ones sample between texels), darkened by u_dim.
+constexpr const char *kBlurFragment = R"(#version 330 core
+in vec2 v_uv;
+uniform sampler2D u_tex;
+uniform vec2 u_dir;
+uniform float u_dim;
+out vec4 o_color;
+void main() {
+    vec3 c = texture(u_tex, v_uv).rgb * 0.2270270270;
+    c += texture(u_tex, v_uv + u_dir * 1.3846153846).rgb * 0.3162162162;
+    c += texture(u_tex, v_uv - u_dir * 1.3846153846).rgb * 0.3162162162;
+    c += texture(u_tex, v_uv + u_dir * 3.2307692308).rgb * 0.0702702703;
+    c += texture(u_tex, v_uv - u_dir * 3.2307692308).rgb * 0.0702702703;
+    o_color = vec4(c * u_dim, 1.0);
+}
+)";
+
 // ---------------------------------------------------------------- pixel helpers
 
 std::uint32_t expand(std::uint32_t v, int bits) {
@@ -453,6 +483,10 @@ public:
     void tick() override;
 
 private:
+    void apply_live_scale();
+    void apply_live_fps();
+    void build_blur(GLuint source, float uv_max_x, float uv_max_y);
+    void draw_blurred_background(int window_w, int window_h);
     struct RenderTarget {
         std::uint32_t address{}; // VRAM offset
         std::uint32_t stride{};  // pixels per line
@@ -575,6 +609,12 @@ private:
     LiveSettings own_live_;
     LiveSettings *live_;
     OverlayImage *overlay_ = nullptr;
+    // The blurred background of the in-game menu (made once per menu, from the picture the game was paused on).
+    static constexpr GLsizei kBlurW = 320, kBlurH = 180;
+    GLuint blur_program_{}, blur_texture_[2]{}, blur_fbo_[2]{};
+    GLint blur_uv_off_{}, blur_uv_scale_{}, blur_tex_{}, blur_dir_{}, blur_dim_{};
+    GLuint blur_source_{}; // the picture the blur was made from
+    bool blur_ready_ = false;
     GLuint last_texture_{}; // the picture shown last, kept on screen while the game is paused behind an overlay
     float last_uv_[2] = {1.0f, 1.0f};
     std::chrono::steady_clock::time_point last_show_{};
@@ -696,7 +736,13 @@ bool GlBackend::init() {
     draw_program_ = compile(kDrawVertex, kDrawFragment);
     present_program_ = compile(kPresentVertex, kPresentFragment);
     overlay_program_ = compile(kPresentVertex, kOverlayFragment);
-    if (draw_program_ == 0 || present_program_ == 0 || overlay_program_ == 0) return false;
+    blur_program_ = compile(kBlurVertex, kBlurFragment);
+    if (draw_program_ == 0 || present_program_ == 0 || overlay_program_ == 0 || blur_program_ == 0) return false;
+    blur_uv_off_ = uniform(blur_program_, "u_uv_off");
+    blur_uv_scale_ = uniform(blur_program_, "u_uv_scale");
+    blur_tex_ = uniform(blur_program_, "u_tex");
+    blur_dir_ = uniform(blur_program_, "u_dir");
+    blur_dim_ = uniform(blur_program_, "u_dim");
     overlay_tex_ = uniform(overlay_program_, "u_tex");
     overlay_alpha_ = uniform(overlay_program_, "u_alpha");
     overlay_uv_max_ = uniform(overlay_program_, "u_uv_max");
@@ -1251,6 +1297,7 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
     draw_batch();
     have_state_ = false;
     flush_pictures(); // pictures of the previous flip that never got their turn
+    apply_live_scale();
     const std::uint32_t offset = address & 0x001FFFFFu;
     GLuint texture = 0;
     float uv_max[2] = {1, 1};
@@ -1285,6 +1332,7 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
         show(texture, uv_max[0], uv_max[1]);
     }
     finish_flip();
+    apply_live_fps(); // after the flip: the next one is the first recorded for the new rate
 }
 
 // Puts a picture on the window: letterboxed to the PSP's 480:272, with the dialog overlay on top.
@@ -1302,7 +1350,18 @@ void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
     gl_.Viewport(0, 0, window_w, window_h);
     gl_.ClearColor(0, 0, 0, 1);
     gl_.Clear(GL_COLOR_BUFFER_BIT);
-    if (texture != 0 && window_w > 0 && window_h > 0) {
+    bool menu = false;
+    if (overlay_ != nullptr) {
+        std::lock_guard lock(overlay_->mutex);
+        menu = overlay_->continuous;
+    }
+    if (menu && texture != 0 && window_w > 0 && window_h > 0) {
+        // The game is paused behind the menu: the whole window shows its last picture, blurred and darkened.
+        if (!blur_ready_ || blur_source_ != texture) build_blur(texture, uv_max_x, uv_max_y);
+        draw_blurred_background(window_w, window_h);
+        have_state_ = false;
+    } else if (texture != 0 && window_w > 0 && window_h > 0) {
+        blur_ready_ = false;
         int w = window_w, h = window_w * 272 / 480;
         if (h > window_h) {
             h = window_h;
@@ -1742,6 +1801,7 @@ void GlBackend::show_between(float phase) {
 void GlBackend::tick() {
     if (!pacing_.active) {
         show(last_texture_, last_uv_[0], last_uv_[1]); // the game is paused behind an overlay: draw it again
+        have_state_ = false;
         return;
     }
     const auto now = std::chrono::steady_clock::now();
@@ -1917,6 +1977,146 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
         }
     }
     return done;
+}
+
+// Draws `source` small and blurs it a few times, wider each time, into blur_texture_[0].
+void GlBackend::build_blur(GLuint source, float uv_max_x, float uv_max_y) {
+    if (blur_fbo_[0] == 0) {
+        gl_.GenTextures(2, blur_texture_);
+        gl_.GenFramebuffers(2, blur_fbo_);
+        for (int i = 0; i < 2; ++i) {
+            gl_.BindTexture(GL_TEXTURE_2D, blur_texture_[i]);
+            gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kBlurW, kBlurH, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+            set_texture_params(true, true, true);
+            gl_.BindFramebuffer(GL_FRAMEBUFFER, blur_fbo_[i]);
+            gl_.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, blur_texture_[i], 0);
+        }
+    }
+    gl_.Disable(GL_SCISSOR_TEST);
+    gl_.Disable(GL_DEPTH_TEST);
+    gl_.Disable(GL_BLEND);
+    gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    gl_.Viewport(0, 0, kBlurW, kBlurH);
+    gl_.BindVertexArray(empty_vao_);
+    gl_.ActiveTexture(GL_TEXTURE0);
+
+    // The picture itself, shrunk: with the present shader (which flips), so row 0 of the target is the picture's bottom.
+    gl_.BindFramebuffer(GL_FRAMEBUFFER, blur_fbo_[0]);
+    gl_.UseProgram(present_program_);
+    gl_.Uniform1i(present_tex_, 0);
+    gl_.Uniform2f(present_uv_max_, uv_max_x, uv_max_y);
+    gl_.BindTexture(GL_TEXTURE_2D, source);
+    set_texture_params(true, true, true);
+    gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    // Blur: horizontal then vertical, three times, each wider than the last. These passes do not flip.
+    gl_.UseProgram(blur_program_);
+    gl_.Uniform1i(blur_tex_, 0);
+    gl_.Uniform2f(blur_uv_off_, 0.0f, 0.0f);
+    gl_.Uniform2f(blur_uv_scale_, 1.0f, 1.0f);
+    gl_.Uniform1f(blur_dim_, 1.0f);
+    const float widths[3] = {1.0f, 2.0f, 4.0f};
+    for (const float width : widths) {
+        const float steps[2][2] = {{width / kBlurW, 0.0f}, {0.0f, width / kBlurH}};
+        for (const auto &step : steps) {
+            gl_.BindFramebuffer(GL_FRAMEBUFFER, blur_fbo_[1]);
+            gl_.BindTexture(GL_TEXTURE_2D, blur_texture_[0]);
+            gl_.Uniform2f(blur_dir_, step[0], step[1]);
+            gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            std::swap(blur_texture_[0], blur_texture_[1]); // the result is blur_texture_[0] again
+            std::swap(blur_fbo_[0], blur_fbo_[1]);
+        }
+    }
+    blur_source_ = source;
+    blur_ready_ = true;
+    have_state_ = false;
+}
+
+// Fills the window with the blurred picture, cropped (not stretched) to the window's shape, and darkened.
+void GlBackend::draw_blurred_background(int window_w, int window_h) {
+    gl_.BindFramebuffer(GL_FRAMEBUFFER, 0);
+    gl_.Viewport(0, 0, window_w, window_h);
+    gl_.Disable(GL_BLEND);
+    gl_.Disable(GL_DEPTH_TEST);
+    gl_.UseProgram(blur_program_);
+    gl_.Uniform1i(blur_tex_, 0);
+    const float picture = 480.0f / 272.0f, window = static_cast<float>(window_w) / static_cast<float>(window_h);
+    float off_x = 0.0f, off_y = 0.0f, scale_x = 1.0f, scale_y = 1.0f;
+    if (window > picture) { // wider than the picture: crop its top and bottom
+        scale_y = picture / window;
+        off_y = (1.0f - scale_y) * 0.5f;
+    } else {                // taller: crop its sides
+        scale_x = window / picture;
+        off_x = (1.0f - scale_x) * 0.5f;
+    }
+    gl_.Uniform2f(blur_uv_off_, off_x, off_y);
+    gl_.Uniform2f(blur_uv_scale_, scale_x, scale_y);
+    gl_.Uniform2f(blur_dir_, 0.0f, 0.0f);
+    gl_.Uniform1f(blur_dim_, 0.42f);
+    gl_.ActiveTexture(GL_TEXTURE0);
+    gl_.BindTexture(GL_TEXTURE_2D, blur_texture_[0]);
+    set_texture_params(true, true, true);
+    gl_.BindVertexArray(empty_vao_);
+    gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+// The player changed the internal resolution: every render target is drawn again at the new size (what was on it is
+// scaled, so the picture does not flash), and what was made for the old size is dropped.
+void GlBackend::apply_live_scale() {
+    const int wanted = std::clamp(live_->scale.exchange(0), 0, 10);
+    if (wanted == 0 || wanted == scale_) return;
+    have_state_ = false;
+    const int old_scale = scale_;
+    for (auto &entry : targets_) {
+        RenderTarget &rt = entry.second;
+        const GLuint old_fbo = rt.fbo, old_color = rt.color, old_depth = rt.depth;
+        const GLsizei old_w = static_cast<GLsizei>(rt.width) * old_scale, old_h = static_cast<GLsizei>(rt.height) * old_scale;
+        rt.fbo = 0; // allocate() must not copy from the old one at the old size
+        scale_ = wanted;
+        allocate(rt, rt.height);
+        scale_ = old_scale;
+        const GLsizei new_w = static_cast<GLsizei>(rt.width) * wanted, new_h = static_cast<GLsizei>(rt.height) * wanted;
+        gl_.BindFramebuffer(GL_READ_FRAMEBUFFER, old_fbo);
+        gl_.BindFramebuffer(GL_DRAW_FRAMEBUFFER, rt.fbo);
+        gl_.Disable(GL_SCISSOR_TEST);
+        gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        gl_.BlitFramebuffer(0, 0, old_w, old_h, 0, 0, new_w, new_h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+        gl_.DeleteFramebuffers(1, &old_fbo);
+        gl_.DeleteTextures(1, &old_color);
+        gl_.DeleteRenderbuffers(1, &old_depth);
+    }
+    scale_ = wanted;
+    for (Slot &slot : slots_) {
+        if (slot.fbo != 0) {
+            gl_.DeleteFramebuffers(1, &slot.fbo);
+            gl_.DeleteTextures(1, &slot.texture);
+        }
+        slot = Slot{};
+    }
+    if (scratch_.fbo != 0) {
+        gl_.DeleteFramebuffers(1, &scratch_.fbo);
+        gl_.DeleteTextures(1, &scratch_.color);
+        gl_.DeleteRenderbuffers(1, &scratch_.depth);
+    }
+    scratch_ = RenderTarget{};
+    previous_valid_ = false;
+    last_texture_ = 0;
+    blur_ready_ = false;
+    std::fprintf(stderr, "[gl] internal resolution now %dx%d\n", 480 * scale_, 272 * scale_);
+}
+
+// The player changed the frame rate: from the next picture on, the game's flips are followed by the new number of
+// in-between pictures (or by none).
+void GlBackend::apply_live_fps() {
+    const int fps = live_->fps.exchange(0);
+    if (fps <= 0) return;
+    const int factor = std::clamp((fps + 15) / 30, 1, 6);
+    if (factor == factor_) return;
+    factor_ = factor;
+    interpolate_ = factor > 1;
+    previous_valid_ = false;
+    previous_.clear();
+    std::fprintf(stderr, "[gl] frame rate now %d fps\n", factor_ * 30);
 }
 
 void GlBackend::draw_overlay() {

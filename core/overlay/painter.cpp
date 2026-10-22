@@ -151,13 +151,25 @@ float Painter::advance(std::uint32_t cp, float pixel_size) const {
     return static_cast<float>(adv) * scale;
 }
 
-float Painter::measure(const std::string &text, float size, bool bold) const {
+float Painter::measure(const std::string &text, float size, bool bold, float tracking) const {
     float w = 0.0f;
-    for (std::size_t i = 0; i < text.size();) w += advance(next_codepoint(text, i), size * scale_);
-    return w / scale_ + (bold ? 0.4f : 0.0f);
+    int glyphs = 0;
+    for (std::size_t i = 0; i < text.size(); ++glyphs) w += advance(next_codepoint(text, i), size * scale_);
+    return w / scale_ + (bold ? 0.4f : 0.0f) + tracking * static_cast<float>(glyphs);
 }
 
-float Painter::text(float x, float baseline, const std::string &str, float size, Color c, float alpha, bool bold) {
+void Painter::rect(float x, float y, float w, float h, Color c, float alpha) {
+    const int x0 = std::max(0, static_cast<int>(std::lround(x * scale_))), x1 = std::min(width_, static_cast<int>(std::lround((x + w) * scale_)));
+    const int y0 = std::max(0, static_cast<int>(std::lround(y * scale_))), y1 = std::min(height_, static_cast<int>(std::lround((y + h) * scale_)));
+    const std::uint32_t a = byte(std::min(alpha, 1.0f)), r = byte(c.r), g = byte(c.g), b = byte(c.b);
+    for (int py = y0; py < y1; ++py) {
+        std::uint32_t *row = px_->data() + static_cast<std::size_t>(py) * static_cast<std::size_t>(width_);
+        for (int pxx = x0; pxx < x1; ++pxx) blend_px(row[pxx], r, g, b, a);
+    }
+}
+
+float Painter::text(float x, float baseline, const std::string &str, float size, Color c, float alpha, bool bold,
+                    float tracking) {
     if (!font_ok_) return 0.0f;
     const float s = scale_;
     const float pixel_size = size * s;
@@ -175,10 +187,10 @@ float Painter::text(float x, float baseline, const std::string &str, float size,
                     const unsigned char v = g.bitmap[static_cast<std::size_t>(gy * g.w + gx)];
                     if (v != 0) blend(ox + gx, oy + gy, c, alpha * static_cast<float>(v) * (1.0f / 255.0f));
                 }
-            pen += advance(cp, pixel_size);
+            pen += advance(cp, pixel_size) + tracking * s;
         }
     }
-    return measure(str, size, bold);
+    return measure(str, size, bold, tracking);
 }
 
 std::string Painter::fit(const std::string &str, float size, float max_width) const {

@@ -35,6 +35,10 @@ struct OverlayImage {
 // What the player can change while the game runs (read by the GE thread).
 struct LiveSettings {
     std::atomic<bool> smooth_textures{false};
+    // Requests for the drawing thread, taken at the start of the next picture (0 = none): the internal resolution
+    // multiplier (1..10) and the output rate in fps (a multiple of 30 up to 180).
+    std::atomic<int> scale{0};
+    std::atomic<int> fps{0};
 };
 
 // Creates the context on the calling thread. Returns nullptr (after logging why) when OpenGL 3.3 is unavailable.

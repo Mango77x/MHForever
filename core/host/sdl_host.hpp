@@ -23,7 +23,7 @@ struct GamepadState {
 
 // Keyboard input for text and menus (dialogs drawn by the platform), in the order it happened.
 struct KeyEvent {
-    enum class Kind { Text, Enter, Escape, Backspace, Left, Right, Up, Down } kind = Kind::Text;
+    enum class Kind { Text, Enter, Escape, Backspace, Left, Right, Up, Down, PrevTab, NextTab } kind = Kind::Text;
     std::string text; // Kind::Text: UTF-8
 };
 
