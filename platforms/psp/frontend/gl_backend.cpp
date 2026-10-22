@@ -445,13 +445,6 @@ public:
         return std::nullopt;
     }
     void tick() override;
-    [[nodiscard]] bool can_pause_for_picture() const override {
-        for (const std::uint32_t address : flip_.sampled_targets) {
-            const auto it = targets_.find(address);
-            if (it != targets_.end() && it->second.last_draw == frame_) return false; // being drawn again right now
-        }
-        return true;
-    }
 
 private:
     struct RenderTarget {
@@ -637,7 +630,6 @@ private:
         std::vector<Camera> cameras;        // of `now`
         std::vector<Camera> cameras_before; // the camera of `before` each one continues (or the same one)
         std::vector<int> partner;           // per batch of `now`: the 2D batch of `before` it continues, or -1
-        std::vector<std::uint32_t> sampled_targets; // render targets `now` reads as textures (shadows, reflections...)
         std::uint32_t address{}, width{}, height{}, stride{}, format{};
         int before_slot{};
         GLuint final_texture{};
@@ -1852,15 +1844,6 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
                     if (o.y_moved) std::copy(was, was + 3, o.y_before);
                 }
             }
-        }
-        // Render targets this flip reads as textures: a list must not be paused for a picture once it draws them again.
-        flip_.sampled_targets.clear();
-        for (const auto &[address, rt] : targets_) {
-            if (rt.color == 0) continue;
-            const bool sampled = std::any_of(previous_.begin(), previous_.end(), [&](const TapeEntry &e) {
-                return e.setup.texture == rt.color;
-            }) || std::any_of(mine.begin(), mine.end(), [&](const TapeEntry &e) { return e.setup.texture == rt.color; });
-            if (sampled) flip_.sampled_targets.push_back(address);
         }
         flip_.address = shown.address;
         flip_.width = shown.width;

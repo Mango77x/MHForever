@@ -78,10 +78,8 @@ struct GeState {
     int next_list{1};
     bool stop{};
     std::atomic<int> pending{0}; // lists queued or running
-    std::atomic<int> sync_waiters{0}; // guest threads blocked in sceGeDrawSync/sceGeListSync: the game is waiting
     std::thread worker;
     bool synchronous{};
-    bool yielded{}; // worker: the last step stopped early because the backend had a picture due
 
     ~GeState() { shutdown(); }
 
@@ -108,23 +106,9 @@ struct GeState {
         lock.unlock();
         const std::uint64_t started = rt->now_us();
         std::vector<GeEvent> raised;
-        // On the worker, a long list stops for a moment when the backend has a picture due (frame interpolation), so
-        // in-between pictures are not held back for the whole list; the list goes on from where it stopped.
-        std::function<bool()> should_yield;
-        if (!synchronous && backend) {
-            // Never while the game waits for the GE (that would slow the game down), nor when the picture would read a
-            // render target the list has started to draw again.
-            should_yield = [this] {
-                if (sync_waiters.load(std::memory_order_relaxed) != 0) return false;
-                const auto due = backend->next_wakeup();
-                return due && std::chrono::steady_clock::now() >= *due && backend->can_pause_for_picture();
-            };
-        }
-        const auto result = renderer().run(
-            list.pc, list.stall,
-            [&](bool finish, std::uint32_t value) { raised.push_back({list.callback, finish, value, list.pc}); },
-            should_yield);
-        yielded = result.yielded;
+        const auto result = renderer().run(list.pc, list.stall, [&](bool finish, std::uint32_t value) {
+            raised.push_back({list.callback, finish, value, list.pc});
+        });
         hle::perf().ge_us += rt->now_us() - started;
         lock.lock();
         auto &stored = lists[id];
@@ -178,8 +162,7 @@ struct GeState {
                 const auto due = backend->next_wakeup();
                 // Pictures the backend adds on its own (frame interpolation) only take time the game's drawing does
                 // not need: a busy scene shows fewer of them instead of slowing the game down.
-                if (due && std::chrono::steady_clock::now() >= *due && (idle() || yielded)) {
-                    yielded = false;
+                if (due && std::chrono::steady_clock::now() >= *due && idle()) {
                     lock.unlock();
                     backend->tick();
                     lock.lock();
@@ -346,9 +329,7 @@ void GeListSync(Runtime &rt, Context &ctx) {
         return it == s.lists.end() || it->second.done;
     };
     if (arg(ctx, 1) == 0) {
-        ++s.sync_waiters;
         wait_for_ge(rt, finished);
-        --s.sync_waiters;
         ret(ctx, 0);
         return;
     }
@@ -360,9 +341,7 @@ void GeDrawSync(Runtime &rt, Context &ctx) {
     auto &s = ge(rt);
     auto idle = [&] { return s.pending.load() == 0; };
     if (arg(ctx, 0) == 0) {
-        ++s.sync_waiters;
         wait_for_ge(rt, idle);
-        --s.sync_waiters;
         ret(ctx, 0);
         return;
     }

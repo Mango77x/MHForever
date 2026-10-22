@@ -23,9 +23,6 @@ public:
     // Screen-space vertices: x, y in framebuffer pixels, z in 0..65535, w = 1/w for perspective correction (1 in
     // through mode), u, v normalized (through mode: texels), colors 0..255, fog 0..1.
     virtual void triangle(const Ge &ge, const Vertex &a, const Vertex &b, const Vertex &c) = 0;
-    // Whether a display list may be paused now to show a picture the backend made on its own (frame interpolation):
-    // not when that picture would read something the paused list has started to draw again.
-    [[nodiscard]] virtual bool can_pause_for_picture() const { return true; }
     // A drawing command starts, with its vertex address (called even when nothing of it reaches the screen).
     virtual void draw_started(std::uint32_t vertex_address) { (void)vertex_address; }
     // Axis-aligned rectangle between two corners; color, depth and fog come from `b`.

@@ -133,21 +133,18 @@ Ge::Ge(psprecomp::GuestMemory &memory) {
 
 // ---------------------------------------------------------------- display lists
 
-Ge::ListResult Ge::run(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event,
-                       const std::function<bool()> &should_yield) {
-    const ListResult result = run_commands(pc, stall, on_event, should_yield);
+Ge::ListResult Ge::run(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event) {
+    const ListResult result = run_commands(pc, stall, on_event);
     if (backend_ != nullptr) backend_->flush();
     return result;
 }
 
-Ge::ListResult Ge::run_commands(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event,
-                                const std::function<bool()> &should_yield) {
+Ge::ListResult Ge::run_commands(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event) {
     constexpr std::uint64_t kMaxCommands = 20'000'000u;
     for (std::uint64_t n = 0; n < kMaxCommands; ++n) {
         if (stall != 0 && (pc & 0x0FFFFFFFu) == (stall & 0x0FFFFFFFu)) {
             return {pc, false, true};
         }
-        if ((n & 255u) == 255u && should_yield && should_yield()) return {pc, false, false, true};
         const std::uint32_t word = rd32(pc);
         const std::uint32_t cmd = word >> 24u;
         const std::uint32_t data = word & 0x00FFFFFFu;
