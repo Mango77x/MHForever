@@ -4,6 +4,7 @@
 
 #include "mhf/psp/runtime.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -70,6 +71,11 @@ struct PerfCounters {
     std::uint64_t last_report{};  // host time of the last report
 };
 PerfCounters &perf();
+
+// CPU time used so far by the calling thread, in microseconds (0 where the system cannot tell).
+std::uint64_t thread_cpu_us();
+// Published by the GE worker thread every time around its loop, read when the "[perf]" line is printed.
+std::atomic<std::uint64_t> &ge_thread_cpu_us();
 
 // Queues a flip to the GPU backend, in order with the display lists (no-op without a backend).
 // Stops the GE worker thread (at runtime shutdown).

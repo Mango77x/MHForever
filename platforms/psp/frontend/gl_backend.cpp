@@ -20,6 +20,7 @@
 #include <deque>
 #include <optional>
 #include <set>
+#include <span>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -523,7 +524,7 @@ private:
         o.sprite = sprite;
         batch_origins_.push_back(o);
     }
-    void place_again(const TapeEntry &entry, const std::vector<Camera> &cameras, std::vector<GpuVertex> &vertices,
+    void place_again(const TapeEntry &entry, const std::vector<Camera> &cameras, std::span<GpuVertex> vertices,
                      float t) const;
 
     void apply_state(const gpu::Ge &ge);
@@ -622,6 +623,18 @@ private:
         std::chrono::steady_clock::duration slack{};
     } flip_;
     std::deque<Picture> pictures_;
+    // In-between pictures are built in one buffer, uploaded once, and drawn batch by batch from ranges of it.
+    std::vector<GpuVertex> staging_;
+    struct Range {
+        std::size_t first{}, count{};
+    };
+    std::vector<Range> ranges_;
+    // What an in-between picture costs the drawing thread (MHF_INTERP_LOG=1): calculating the vertices, uploading them,
+    // setting the state of each batch, and the draw calls.
+    struct PictureCost {
+        std::uint64_t pictures{}, batches{}, vertices{};
+        double calc_us{}, upload_us{}, state_us{}, draw_us{};
+    } cost_;
     std::chrono::steady_clock::time_point last_flip_{};
     std::uint64_t shown_{1};                // pictures put on screen
     struct {
@@ -1387,7 +1400,7 @@ Move classify_triangle(const GpuVertex *before, const GpuVertex *now) {
 }
 
 // `out` holds this flip's vertices; moves each triangle back toward `before` by (1 - t) when it slid rigidly.
-void blend_vertices(const std::vector<GpuVertex> &before, std::vector<GpuVertex> &out, float t) {
+void blend_vertices(const std::vector<GpuVertex> &before, std::span<GpuVertex> out, float t) {
     for (std::size_t i = 0; i + 2 < out.size(); i += 3) {
         if (classify_triangle(&before[i], &out[i]) != Move::Blend) continue;
         for (std::size_t k = 0; k < 3; ++k) {
@@ -1524,7 +1537,7 @@ bool place(const float world[3], const float *was, const Camera &camera, float t
 // Moves a recorded 3D batch to phase `t` between the previous flip and this one, with `cameras` the cameras at that
 // phase. Each triangle is placed again as a whole, or left where it was drawn when one of its points cannot be (no
 // camera, behind the camera).
-void GlBackend::place_again(const TapeEntry &entry, const std::vector<Camera> &cameras, std::vector<GpuVertex> &vertices,
+void GlBackend::place_again(const TapeEntry &entry, const std::vector<Camera> &cameras, std::span<GpuVertex> vertices,
                             float t) const {
     if (entry.origins.size() != vertices.size()) return;
     for (std::size_t i = 0; i + 2 < vertices.size(); i += 3) {
@@ -1583,10 +1596,20 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
 
     std::vector<Camera> cameras(flip_.cameras.size());
     for (std::size_t i = 0; i < cameras.size(); ++i) cameras[i] = between(flip_.cameras_before[i], flip_.cameras[i], t);
-    std::vector<GpuVertex> vertices;
+    using Clock = std::chrono::steady_clock;
+    const auto us = [](Clock::time_point from, Clock::time_point to) {
+        return std::chrono::duration<double, std::micro>(to - from).count();
+    };
+    // All the vertices of the picture first (one upload), then the batches draw from ranges of them.
+    const auto t_calc = Clock::now();
+    staging_.clear();
+    ranges_.assign(now.size(), Range{});
     for (std::size_t i = 0; i < now.size(); ++i) {
         const TapeEntry &entry = now[i];
-        vertices = entry.vertices;
+        const std::size_t first = staging_.size();
+        staging_.insert(staging_.end(), entry.vertices.begin(), entry.vertices.end());
+        ranges_[i] = Range{first, entry.vertices.size()};
+        const std::span<GpuVertex> vertices(staging_.data() + first, entry.vertices.size());
         if (entry.setup.through) {
             const int partner = i < flip_.partner.size() ? flip_.partner[i] : -1;
             if (partner >= 0 && !clearing(entry.setup)) {
@@ -1595,9 +1618,25 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
         } else {
             place_again(entry, cameras, vertices, t);
         }
-        emit_state(entry.setup, scratch_);
-        draw_vertices(vertices);
     }
+    const auto t_upload = Clock::now();
+    gl_.BindBuffer(GL_ARRAY_BUFFER, vbo_);
+    gl_.BufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(staging_.size() * sizeof(GpuVertex)), staging_.data(),
+                   GL_STREAM_DRAW);
+    cost_.calc_us += us(t_calc, t_upload);
+    cost_.upload_us += us(t_upload, Clock::now());
+    for (std::size_t i = 0; i < now.size(); ++i) {
+        if (ranges_[i].count == 0) continue;
+        const auto t_state = Clock::now();
+        emit_state(now[i].setup, scratch_);
+        const auto t_draw = Clock::now();
+        gl_.DrawArrays(GL_TRIANGLES, static_cast<GLint>(ranges_[i].first), static_cast<GLsizei>(ranges_[i].count));
+        cost_.state_us += us(t_state, t_draw);
+        cost_.draw_us += us(t_draw, Clock::now());
+    }
+    ++cost_.pictures;
+    cost_.batches += now.size();
+    cost_.vertices += staging_.size();
     have_state_ = false;
 }
 
@@ -1750,6 +1789,16 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
                      static_cast<unsigned long long>(stats_.skipped_first), static_cast<unsigned long long>(stats_.skipped_copy),
                      static_cast<unsigned long long>(stats_.skipped_timing), static_cast<unsigned long long>(stats_.skipped_shape),
                      static_cast<unsigned long long>(stats_.skipped_ui), static_cast<unsigned long long>(stats_.late));
+        if (cost_.pictures > 0) {
+            const double n = static_cast<double>(cost_.pictures);
+            std::fprintf(stderr,
+                         "[interp] per in-between picture: calc %.2f ms, upload %.2f ms, state %.2f ms, draw calls %.2f ms "
+                         "(%.0f batches, %.0f vertices)\n",
+                         cost_.calc_us / n / 1000.0, cost_.upload_us / n / 1000.0, cost_.state_us / n / 1000.0,
+                         cost_.draw_us / n / 1000.0, static_cast<double>(cost_.batches) / n,
+                         static_cast<double>(cost_.vertices) / n);
+            cost_ = {};
+        }
     }
     return done;
 }

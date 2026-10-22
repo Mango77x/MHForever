@@ -154,6 +154,7 @@ struct GeState {
             return id == stalled_id && l.pc == stalled_pc && l.stall == stalled_stall;
         };
         while (!stop) {
+            hle::ge_thread_cpu_us().store(hle::thread_cpu_us(), std::memory_order_relaxed);
             if (backend) {
                 const auto due = backend->next_wakeup();
                 // Pictures the backend adds on its own (frame interpolation) only take time the game's drawing does
