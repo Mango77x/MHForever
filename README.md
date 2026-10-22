@@ -91,7 +91,7 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
 
 ## Special thanks
 
-- **[theguyser](https://github.com/theguyser)**, author of [pokke](https://github.com/theguyser/pokke) (a port of the Japanese
+- **[theguyser](https://github.com/theguyser)**, author of pokke (a port of the Japanese
   release of the same game): the PSP save-data cryptography that lets MHForever read and write saves in the PSP and PPSSPP
   format comes from his project, shared with his permission, along with his time and advice.
 - **[PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp)**, the static recompiler framework this project is built on.
