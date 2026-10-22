@@ -56,6 +56,6 @@ The release zip is assembled from programs built elsewhere; game data never goes
 2. Build `mhfu.exe` from the generated code (see above) in a Release configuration.
 3. Package them with the free fonts and the licenses:
    ```sh
-   python scripts/package_release.py --version 0.3.0 --launcher <MHForever.exe> --game <mhfu.exe> --fonts <the fonts folder next to mhfu.exe>
+   python scripts/package_release.py --version 0.4.0 --launcher <MHForever.exe> --game <mhfu.exe> --fonts <the fonts folder next to mhfu.exe>
    ```
    This writes `MHForever-<version>-windows-x64.zip` and its `.sha256`. The text shown to players is `dist/PLAYER_README.txt`.
