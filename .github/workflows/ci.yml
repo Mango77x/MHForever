@@ -7,6 +7,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch makes the older run pointless: cancel it instead of queueing behind it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   content-guard:
     runs-on: ubuntu-latest
@@ -46,10 +51,20 @@ jobs:
           sudo tar xzf pspdev.tar.gz -C /opt
           rm pspdev.tar.gz
           echo "PSPDEV=/opt/pspdev" >> "$GITHUB_ENV"
+      - name: Compiler cache (Linux)
+        if: runner.os == 'Linux'
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: build-${{ matrix.preset }}
+          max-size: 1G
       - name: Set up MSVC environment (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
-      - name: Configure
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: cmake --preset ${{ matrix.preset }} -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
         run: cmake --preset ${{ matrix.preset }}
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
@@ -78,8 +93,14 @@ jobs:
           sudo tar xzf pspdev.tar.gz -C /opt
           rm pspdev.tar.gz
           echo "PSPDEV=/opt/pspdev" >> "$GITHUB_ENV"
+      # Everything is compiled with ASan/UBSan here (about 25 minutes from scratch); the cache keeps what did not change.
+      - name: Compiler cache
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: sanitizers
+          max-size: 2G
       - name: Configure
-        run: cmake --preset linux-clang-asan
+        run: cmake --preset linux-clang-asan -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
         run: cmake --build --preset linux-clang-asan
       - name: Test
