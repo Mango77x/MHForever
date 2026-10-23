@@ -86,7 +86,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19), v0.2.0 adds frame interpolation (2026-10-21), v0.2.1 fixes audio clicks and keeps saves and settings outside the program folder (2026-10-22), v0.2.2 makes the 2D HUD interpolate again (2026-10-22), v0.2.3 makes interpolation lighter (about 90 to 150 fps in
       the village at 180, 2026-10-22), v0.3.0 adds the in-game menu on Escape with live video and audio settings and
       internal resolution up to 10x (2026-10-22), v0.4.0 uses the PSP save format: saves can be imported from a PSP or PPSSPP
-      and copied back (2026-10-22).
+      and copied back (2026-10-22), v0.4.1 is the first release with a Linux tarball next to the Windows zip (2026-10-23).
 - [x] Linux release (2026-10-22): portable `MHForever-<version>-linux-x64.tar.gz` from
       `scripts/package_release.py --platform linux` (programs, fonts, licenses, `dist/PLAYER_README_LINUX.txt`), embedded
       application icon, and a `cmake --install` layout with the desktop entry and the icon. CI builds and packages the layout

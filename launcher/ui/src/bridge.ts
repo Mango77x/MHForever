@@ -96,7 +96,7 @@ export const isNative = typeof w.mhf_getState === 'function';
 function simulated(): Native {
   const emit = (e: LauncherEvent) => setTimeout(() => (window as unknown as { __mhfEvent: (e: LauncherEvent) => void }).__mhfEvent(e), 0);
   const state: State = {
-    version: '0.4.0-dev',
+    version: '0.4.1-dev',
     platform: 'browser',
     pseudonym: 'Hunter',
     friendCode: 'K7Q2-M9XA-4RTD-8PLE',
