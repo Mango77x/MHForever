@@ -173,6 +173,19 @@ int main(int argc, char **argv) {
         CHECK(saved["start"].as_string() == "Enter");
         CHECK(!saved.has("jump"));
 
+        // The online server: an address is kept, anything else is refused.
+        CHECK(state["settings"]["adhocServer"].as_string().empty());
+        for (const char *bad : {"has space", "a/b", ":27312", "host:", "host:0", "host:70000", "host:12x", "ho$t"}) {
+            Json bad_edit;
+            bad_edit["adhocServer"] = bad;
+            l.set_settings(bad_edit);
+            CHECK(l.state()["settings"]["adhocServer"].as_string().empty());
+        }
+        Json server_edit;
+        server_edit["adhocServer"] = "relay.example.org:27400";
+        l.set_settings(server_edit);
+        CHECK(l.state()["settings"]["adhocServer"].as_string() == "relay.example.org:27400");
+
         // Controller bindings: defaults, a change with several sources, an unbound button, and input the launcher ignores.
         CHECK(state["settings"]["pad"]["south"].as_string() == "south");
         CHECK(state["settings"]["pad"]["left_shoulder"].as_string() == "left_shoulder+left_trigger");

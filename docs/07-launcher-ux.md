@@ -170,6 +170,11 @@ mode, where no second window can be shown.
   name while the menu waits for one (`SdlHost::set_capture`). The game writes every change to the file the launcher gave it
   (`--controls-file`, `game_controls.txt` in the data folder) and the launcher folds it into `launcher.json` when it starts,
   before a launch and when the game ends, so a change made while playing is kept.
+- Online play (experimental, off by default): **Settings → Online play** takes the address of a PSP ad hoc server
+  (`settings.adhocServer`, "host" or "host:port", checked on write). When it is not empty the launcher passes
+  `--adhoc-server` and `--adhoc-mac` (a locally administered MAC made from the identity, the same on every launch; the
+  name is the one in `--name`); empty keeps the game offline and nothing is contacted. The page says the server sees the name
+  and the game. No list of servers is built in yet (`08-multiplayer.md` section 1.2: PPSSPP and the operators are asked first).
 - Several local pads: player 1 only (the PSP is single-player). Local multiplayer on one machine = several instances: out of scope v1.
 
 ## 6. Steam Deck / Linux

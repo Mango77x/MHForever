@@ -30,6 +30,8 @@ export interface Settings {
   // Which controller button stands for which pad button: SDL gamepad names joined with '+', '' when unbound; `stick` is
   // 'left', 'right' or ''.
   pad: Record<string, string>;
+  // The PSP ad hoc server used for online play, "host" or "host:port"; '' keeps the game offline.
+  adhocServer: string;
 }
 
 export interface Stats {
@@ -122,7 +124,7 @@ function simulated(): Native {
     friendCode: 'K7Q2-M9XA-4RTD-8PLE',
     settings: {
       scale: 4, fullscreen: false, smoothTextures: false, fps: 30, copyImage: false, musicVolume: 80, sfxVolume: 90,
-      keys: { ...defaultKeys }, pad: { ...defaultPad },
+      keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '',
     },
     keyDefaults: defaultKeys,
     padDefaults: defaultPad,
