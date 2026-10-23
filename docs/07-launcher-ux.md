@@ -142,7 +142,7 @@ mode, where no second window can be shown.
 ## 6. Steam Deck / Linux
 
 - Native Linux x86-64 build (do not rely on Proton): built and tested on Ubuntu in CI, and packaged for players.
-- Distribution: the portable `MHForever-<version>-linux-x86_64.tar.gz` made by `scripts/package_release.py` is the first
+- Distribution: the portable `MHForever-<version>-linux-x64.tar.gz` made by `scripts/package_release.py` is the first
   supported form; `cmake --install` adds the desktop entry and the icon. **AppImage** next; Flatpak later (check Flathub
   content policies). The launcher needs WebKitGTK 4.1 and GTK 3 at runtime, both present on current desktops.
 - Deck resolution 1280×800 (16:10); PSP 480×272 (~16:9). Integer scaling (×2 = 960×544) or fitted with a filter, crop option, and

@@ -10,7 +10,7 @@ core program never drift apart; pass --version only to override it.
 The archive contains our programs, the free fonts, the project and third-party licenses and a player README. It never
 contains game data: the script refuses disc images, executables other than the two programs, and anything it does not know.
 
-Windows produces MHForever-<version>-windows-x64.zip; Linux produces MHForever-<version>-linux-x86_64.tar.gz.
+Windows produces MHForever-<version>-windows-x64.zip; Linux produces MHForever-<version>-linux-x64.tar.gz.
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ LICENSES = {
 # Platform -> (launcher name, game name, player README, archive suffix).
 PLATFORMS = {
     "windows": ("MHForever.exe", "mhfu.exe", "dist/PLAYER_README.txt", "windows-x64"),
-    "linux": ("MHForever", "mhfu", "dist/PLAYER_README_LINUX.txt", "linux-x86_64"),
+    "linux": ("MHForever", "mhfu", "dist/PLAYER_README_LINUX.txt", "linux-x64"),
 }
 
 

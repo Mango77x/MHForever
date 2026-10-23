@@ -93,6 +93,6 @@ The archives are assembled from programs built elsewhere; game data never goes i
    python scripts/package_release.py --platform linux \
        --launcher <MHForever> --game <mhfu> --fonts <the fonts folder next to mhfu>
    ```
-   This writes `MHForever-<version>-linux-x86_64.tar.gz` and its `.sha256`; the execute permission of both programs is
+   This writes `MHForever-<version>-linux-x64.tar.gz` and its `.sha256`; the execute permission of both programs is
    kept. The text shown to players is `dist/PLAYER_README_LINUX.txt`. As on Windows, the version comes from
    `CMakeLists.txt`.

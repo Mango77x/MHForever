@@ -87,7 +87,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
       the village at 180, 2026-10-22), v0.3.0 adds the in-game menu on Escape with live video and audio settings and
       internal resolution up to 10x (2026-10-22), v0.4.0 uses the PSP save format: saves can be imported from a PSP or PPSSPP
       and copied back (2026-10-22).
-- [x] Linux release (2026-10-22): portable `MHForever-<version>-linux-x86_64.tar.gz` from
+- [x] Linux release (2026-10-22): portable `MHForever-<version>-linux-x64.tar.gz` from
       `scripts/package_release.py --platform linux` (programs, fonts, licenses, `dist/PLAYER_README_LINUX.txt`), embedded
       application icon, and a `cmake --install` layout with the desktop entry and the icon. CI builds and packages the layout
       on Ubuntu.
