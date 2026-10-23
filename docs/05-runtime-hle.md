@@ -162,7 +162,29 @@ amber accent, Liberation Sans) and feeds keys/text back with `dialog_key()`/`dia
   letterboxed game with a 150 ms fade-in (1920x1088 image); the software path blends it into the 480x272 frame.
 - `RuntimeOptions::interactive_dialogs` is on only in a window (`--auto-dialogs` turns it off); headless runs and tests
   keep the old automatic answers ("yes" / OK / "back", the default text, the game's own slot).
-- Network configuration (`sceUtilityNetconf*`) still reports success at once (online play, `08`).
+- Network configuration (`sceUtilityNetconf*`): a request to join an ad hoc group waits for the control library to be in it and
+  reports failure after 15 s (or at once without a server); the other requests report success at once (§5i).
+
+## 5i. Ad hoc networking (`hle_net.cpp`, `hle_net_sockets.cpp`, `adhocctl.*`, `adhoc_sockets.*`, `adhoc_link_aemu.*`)
+
+Online play for the PSP's ad hoc mode over the PSP community's ad hoc servers (`08-multiplayer.md` §1.2). Off unless a server is
+set (`--adhoc-server host[:port]` or `MHF_ADHOC_SERVER`): nothing is contacted before the game first uses the ad hoc libraries.
+`MHF_TRACE_ADHOC=1` logs the calls. `--adhoc-nick` and `--adhoc-mac` set the name and the virtual MAC other players see
+(a MAC made from the nickname when not given).
+
+- `sceNet`, `sceWlanDrv`, `sceNetApctl`, `sceNetInet`: a console with no internet; the MAC calls answer with the virtual MAC.
+- `sceNetAdhocctl` (init, term, handlers, scan, scan info, peer list, disconnect) is `Adhocctl`, a state machine with no guest
+  and no network in it (tested with a fake server). Handlers are called from the kernel's poller through
+  `call_from_interrupt`. `AemuLink` talks to the server (the vendored aemu client, TCP 27312) on a thread of its own.
+- `sceNetAdhocDiscover` is a stub that finds nobody, as in PPSSPP.
+- Sockets (`Sockets`) use the relay of the same server (the next port up, 27313): PDP datagrams (up to 10 KiB) and PTP
+  streams. Logging a socket in to the relay and pairing a PTP connection take time, so they run on short-lived threads and
+  the calls say "would block" meanwhile; the HLE waits the way the PSP's calls do (the guest thread sleeps in 1 ms steps, the
+  others keep running) until the call's own timeout. Ports go on the wire plus 10000, as in PPSSPP, so both meet.
+- The game does not use GameMode or Matching; it joins its group through the network configuration dialog.
+- Tests: `psp_adhocctl` (no network); `psp_adhocctl_server` (two players against a real server, including datagrams and a
+  stream) runs when `MHF_ADHOC_TEST_SERVER` names one, for example the reference server of aemu_postoffice built from
+  source. The aemu client allows one session to be created at a time, so the test starts its players one after the other.
 
 ## 5d. Savedata (`hle_savedata.cpp`)
 

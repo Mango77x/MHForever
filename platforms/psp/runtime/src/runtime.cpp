@@ -74,6 +74,7 @@ Runtime::Runtime(RuntimeOptions options)
     add_hle(hle::utility_functions());
     add_hle(hle::font_functions());
     add_hle(hle::net_functions());
+    add_hle(hle::net_socket_functions());
 }
 
 Runtime::~Runtime() {

@@ -26,8 +26,10 @@ constexpr auto kPollInterval = std::chrono::milliseconds(5);
 constexpr auto kPingInterval = std::chrono::seconds(2); // the server drops a client silent for 30 s
 constexpr auto kRetryInterval = std::chrono::seconds(4);
 
-// IPv4 address of `host`, network order. False when it does not resolve.
-bool resolve_ipv4(const std::string &host, std::uint32_t &address) {
+
+} // namespace
+
+bool AemuLink::resolve_ipv4(const std::string &host, std::uint32_t &address) {
 #if defined(_WIN32)
     WSADATA data;
     WSAStartup(MAKEWORD(2, 2), &data);
@@ -41,8 +43,6 @@ bool resolve_ipv4(const std::string &host, std::uint32_t &address) {
     freeaddrinfo(found);
     return true;
 }
-
-} // namespace
 
 bool AemuLink::split_address(const std::string &address, std::string &host, std::uint16_t &port) {
     if (address.empty()) return false;

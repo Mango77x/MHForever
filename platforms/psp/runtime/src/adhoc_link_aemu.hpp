@@ -35,6 +35,9 @@ public:
     std::vector<LinkEvent> take_events() override;
     [[nodiscard]] bool online() const override { return online_; }
 
+    // IPv4 address of `host` (a name or a dotted address), network order. False when it does not resolve.
+    static bool resolve_ipv4(const std::string &host, std::uint32_t &address);
+
     // "host" or "host:port" split into its parts. False for an empty or malformed address.
     static bool split_address(const std::string &address, std::string &host, std::uint16_t &port);
 

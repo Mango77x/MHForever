@@ -2,6 +2,7 @@
 
 add_library(mhf_psp_runtime STATIC
     src/adhoc_link_aemu.cpp
+    src/adhoc_sockets.cpp
     src/adhocctl.cpp
     src/fiber.cpp
     src/frame_dump.cpp
@@ -16,6 +17,7 @@ add_library(mhf_psp_runtime STATIC
     src/hle_savedata.cpp
     src/hle_misc.cpp
     src/hle_net.cpp
+    src/hle_net_sockets.cpp
     src/hle_sysmem.cpp
     src/hle_system.cpp
     src/hle_thread.cpp
