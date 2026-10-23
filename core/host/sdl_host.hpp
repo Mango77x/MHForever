@@ -4,6 +4,8 @@
 // SDL knows, which includes everything Steam Input exposes), and a stereo audio stream (docs/07-launcher-ux.md).
 // Console-independent: platforms map GamepadState to their own buttons.
 
+#include "host/keymap.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -53,6 +55,10 @@ public:
 
     // Opens the window and audio. Returns false (and logs why) when SDL cannot start.
     bool open(const HostOptions &options);
+
+    // Which physical key stands for which button of the emulated pad. The defaults are KeyBindings{}; the launcher
+    // passes the player's choices, see docs/07-launcher-ux.md section 5.
+    void set_keymap(const KeyBindings &bindings);
 
     // Processes pending events. Returns false once the user asked to close the window.
     bool poll();

@@ -1,5 +1,7 @@
 #include "host/sdl_host.hpp"
 
+#include "host/keymap_sdl.hpp"
+
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -22,6 +24,7 @@ struct SdlHost::Impl {
     bool mouse_events = false;
     bool text_input{};
     bool initialized{};
+    KeyScancodes bindings = resolve_keymap(KeyBindings{});
 };
 
 SdlHost::SdlHost() : impl_(std::make_unique<Impl>()) {}
@@ -106,6 +109,14 @@ std::vector<MouseEvent> SdlHost::take_mouse_events() {
     std::vector<MouseEvent> out;
     out.swap(impl_->mouse);
     return out;
+}
+
+void SdlHost::set_keymap(const KeyBindings &bindings) {
+    std::vector<std::string> unknown;
+    impl_->bindings = resolve_keymap(bindings, &unknown);
+    for (const std::string &code : unknown) {
+        std::fprintf(stderr, "[host] unknown key \"%s\": using the default for that button\n", code.c_str());
+    }
 }
 
 void SdlHost::show_cursor(bool show) {
@@ -240,22 +251,22 @@ GamepadState SdlHost::input() const {
     GamepadState s;
     static const bool kNoKeys[SDL_SCANCODE_COUNT] = {};
     // While text is being typed, letters are text, not buttons.
-    const bool *keys = impl_->text_input ? kNoKeys : SDL_GetKeyboardState(nullptr);
-    // Keyboard defaults (remappable later, docs/07-launcher-ux.md).
-    s.south = keys[SDL_SCANCODE_K];
-    s.east = keys[SDL_SCANCODE_L];
-    s.west = keys[SDL_SCANCODE_J];
-    s.north = keys[SDL_SCANCODE_I];
-    s.left_shoulder = keys[SDL_SCANCODE_Q];
-    s.right_shoulder = keys[SDL_SCANCODE_E];
-    s.start = keys[SDL_SCANCODE_RETURN];
-    s.select = keys[SDL_SCANCODE_BACKSPACE];
-    s.up = keys[SDL_SCANCODE_UP];
-    s.down = keys[SDL_SCANCODE_DOWN];
-    s.left = keys[SDL_SCANCODE_LEFT];
-    s.right = keys[SDL_SCANCODE_RIGHT];
-    s.left_x = (keys[SDL_SCANCODE_D] ? 1.0f : 0.0f) - (keys[SDL_SCANCODE_A] ? 1.0f : 0.0f);
-    s.left_y = (keys[SDL_SCANCODE_S] ? 1.0f : 0.0f) - (keys[SDL_SCANCODE_W] ? 1.0f : 0.0f);
+    const bool *down = impl_->text_input ? kNoKeys : SDL_GetKeyboardState(nullptr);
+    const KeyScancodes &k = impl_->bindings; // the player's bindings (docs/07-launcher-ux.md section 5)
+    s.south = down[k.south];
+    s.east = down[k.east];
+    s.west = down[k.west];
+    s.north = down[k.north];
+    s.left_shoulder = down[k.left_shoulder];
+    s.right_shoulder = down[k.right_shoulder];
+    s.start = down[k.start];
+    s.select = down[k.select];
+    s.up = down[k.up];
+    s.down = down[k.down];
+    s.left = down[k.left];
+    s.right = down[k.right];
+    s.left_x = (down[k.stick_right] ? 1.0f : 0.0f) - (down[k.stick_left] ? 1.0f : 0.0f);
+    s.left_y = (down[k.stick_down] ? 1.0f : 0.0f) - (down[k.stick_up] ? 1.0f : 0.0f);
     for (auto *g : impl_->gamepads) {
         s.south |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_SOUTH);
         s.east |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_EAST);
