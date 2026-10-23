@@ -75,12 +75,19 @@ function activate() {
 }
 
 let started = false;
+let paused = false;
+
+// While the player is recording a key in Settings, neither the keyboard nor a pad may move the focus around.
+export function setNavigationPaused(value: boolean) {
+  paused = value;
+}
 
 export function startNavigation(onPadUsed: (used: boolean) => void) {
   if (started) return;
   started = true;
 
   window.addEventListener('keydown', (e) => {
+    if (paused) return;
     const target = e.target as HTMLElement;
     const typing = target instanceof HTMLInputElement && target.type === 'text';
     const map: Record<string, Dir> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
@@ -101,6 +108,11 @@ export function startNavigation(onPadUsed: (used: boolean) => void) {
     if (repeat && now - since > 380) { held.set(key, now - 380 + 110); action(); }
   };
   const loop = (now: number) => {
+    if (paused) {
+      held.clear();
+      requestAnimationFrame(loop);
+      return;
+    }
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     for (const pad of pads) {
       if (!pad || !pad.connected) continue;
