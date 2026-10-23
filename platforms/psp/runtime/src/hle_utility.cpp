@@ -7,6 +7,7 @@
 // dialog answers at once, like a player who accepts.
 
 #include "hle.hpp"
+#include "adhocctl.hpp"
 #include "mhf/psp/dialog.hpp"
 #include "mhf/psp/host.hpp"
 
@@ -606,14 +607,52 @@ void SavedataShutdownStart(Runtime &, Context &ctx) {
 
 // ---------------------------------------------------------------- network configuration (no UI: always "connected")
 
+// SceUtilityNetconfParam: the common header (0x30 bytes), then the action and a pointer to {groupName[8], timeout}.
+constexpr std::uint32_t kNetconfAction = 0x30, kNetconfData = 0x34;
+constexpr std::uint32_t kNetconfConnectAdhoc = 2, kNetconfCreateAdhoc = 4, kNetconfJoinAdhoc = 5;
+constexpr std::uint32_t kDialogResultAbort = 1;
+constexpr std::uint64_t kNetconfAdhocTimeoutUs = 15'000'000; // as long as the ad hoc servers wait for a client to join
+bool g_netconf_adhoc = false;
+std::uint64_t g_netconf_started = 0;
+
 void NetconfInitStart(Runtime &rt, Context &ctx) {
     g_netconf.params = arg(ctx, 0);
     rt.memory().store32(g_netconf.params + kResultOffset, 0);
     g_netconf.status = kInit;
+    g_netconf_adhoc = false;
+    const std::uint32_t action = rt.memory().load32(g_netconf.params + kNetconfAction);
+    if (action == kNetconfConnectAdhoc || action == kNetconfCreateAdhoc || action == kNetconfJoinAdhoc) {
+        // Joining a group of the ad hoc network: the dialog stays until the library is in it (or gives up).
+        const std::uint32_t data = rt.memory().load32(g_netconf.params + kNetconfData);
+        adhoc::GroupName group{};
+        for (std::uint32_t i = 0; data != 0 && i < group.size(); ++i) group[i] = static_cast<char>(rt.memory().load8(data + i));
+        auto &library = net_adhocctl(rt);
+        g_netconf_adhoc = true;
+        g_netconf_started = rt.now_us();
+        net_trace("network configuration: join an ad hoc group");
+        if (!library.initialized() || !library.online() || library.connect(group) != 0) {
+            // No ad hoc library, no server to reach, or already in a group: the dialog reports failure at its first update.
+            g_netconf_started = 0;
+        }
+    }
     ret(ctx, 0);
 }
-void NetconfUpdate(Runtime &, Context &ctx) {
-    if (g_netconf.status == kRunning || g_netconf.status == kInit) g_netconf.status = kFinished;
+void NetconfUpdate(Runtime &rt, Context &ctx) {
+    if (g_netconf.status == kRunning || g_netconf.status == kInit) {
+        if (!g_netconf_adhoc) {
+            g_netconf.status = kFinished;
+        } else {
+            auto &library = net_adhocctl(rt);
+            if (library.state() == adhoc::State::Connected) {
+                net_trace("network configuration: connected");
+                g_netconf.status = kFinished;
+            } else if (g_netconf_started == 0 || rt.now_us() - g_netconf_started > kNetconfAdhocTimeoutUs) {
+                net_trace("network configuration: could not connect");
+                rt.memory().store32(g_netconf.params + kResultOffset, kDialogResultAbort);
+                g_netconf.status = kFinished;
+            }
+        }
+    }
     ret(ctx, 0);
 }
 void NetconfGetStatus(Runtime &, Context &ctx) { ret(ctx, get_status(g_netconf)); }

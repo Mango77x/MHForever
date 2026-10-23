@@ -1,6 +1,8 @@
 # PSP runtime: kernel, scheduler and HLE modules for recompiled programs (docs/05-runtime-hle.md).
 
 add_library(mhf_psp_runtime STATIC
+    src/adhoc_link_aemu.cpp
+    src/adhocctl.cpp
     src/fiber.cpp
     src/frame_dump.cpp
     src/hle_display.cpp
@@ -13,6 +15,7 @@ add_library(mhf_psp_runtime STATIC
     src/hle_sas.cpp
     src/hle_savedata.cpp
     src/hle_misc.cpp
+    src/hle_net.cpp
     src/hle_sysmem.cpp
     src/hle_system.cpp
     src/hle_thread.cpp
@@ -25,7 +28,7 @@ add_library(mhf_psp_runtime STATIC
     ../gpu/ge.cpp
 )
 target_include_directories(mhf_psp_runtime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../gpu)
-target_link_libraries(mhf_psp_runtime PUBLIC psprecomp_core mhf_psp_tools PRIVATE mhf_stb_truetype at3_standalone mhf_save_crypto)
+target_link_libraries(mhf_psp_runtime PUBLIC psprecomp_core mhf_psp_tools PRIVATE mhf_stb_truetype at3_standalone mhf_save_crypto mhf_aemu_postoffice)
 mhf_target_warnings(mhf_psp_runtime)
 if(WIN32)
     target_link_libraries(mhf_psp_runtime PRIVATE winmm dbghelp) # timeBeginPeriod; the sampling profiler (profiler.cpp)

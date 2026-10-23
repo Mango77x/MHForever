@@ -49,6 +49,19 @@ if(MHF_BUILD_TESTS)
     mhf_target_warnings(test_hle_io)
     add_test(NAME psp_hle_io COMMAND test_hle_io)
 
+    add_executable(test_adhocctl tests/test_adhocctl.cpp)
+    target_include_directories(test_adhocctl PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src)
+    target_link_libraries(test_adhocctl PRIVATE mhf_psp_runtime)
+    mhf_target_warnings(test_adhocctl)
+    add_test(NAME psp_adhocctl COMMAND test_adhocctl)
+
+    # Against a real ad hoc server; skipped unless MHF_ADHOC_TEST_SERVER names one.
+    add_executable(test_adhocctl_server tests/test_adhocctl_server.cpp)
+    target_include_directories(test_adhocctl_server PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src)
+    target_link_libraries(test_adhocctl_server PRIVATE mhf_psp_runtime)
+    mhf_target_warnings(test_adhocctl_server)
+    add_test(NAME psp_adhocctl_server COMMAND test_adhocctl_server)
+
     add_executable(test_save_crypto tests/test_save_crypto.cpp)
     target_include_directories(test_save_crypto PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
     target_link_libraries(test_save_crypto PRIVATE mhf_save_crypto)

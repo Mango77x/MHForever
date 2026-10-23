@@ -15,6 +15,7 @@
 #include <functional>
 #include <memory>
 #include <span>
+#include <array>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -74,6 +75,12 @@ struct RuntimeOptions {
     // "host0:" is a debugging device: empty (the default) keeps it closed, so a game never reaches the host's files
     // outside the memory stick and the disc (docs/08-multiplayer.md section 4.6). Only developer tools set it.
     std::filesystem::path host_root;
+    // Online play (docs/08-multiplayer.md section 1.2): the PSP ad hoc server the game's ad hoc library talks to, as "host" or
+    // "host:port" (port 27312). Empty keeps the game offline: nothing is contacted.
+    std::string adhoc_server;
+    std::string adhoc_nickname = "Hunter";   // the name other players see
+    std::string adhoc_product_code;          // ULES01213: servers group players by game
+    std::array<std::uint8_t, 6> adhoc_mac{}; // this console's virtual MAC; all zeros: made from the nickname
     // Folder with the free fonts served by sceLibFont (third_party/fonts, copied next to the executable).
     std::filesystem::path font_directory = "fonts";
     // Text the on-screen keyboard starts with when the game's field is empty (e.g. the hunter's name, from the

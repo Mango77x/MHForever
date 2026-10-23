@@ -12,6 +12,10 @@
 #include <span>
 #include <string>
 
+namespace mhf::psp::adhoc {
+class Adhocctl;
+}
+
 namespace mhf::psp::hle {
 
 // Arguments 0..7 live in $a0-$a3, $t0-$t3; further ones on the caller's stack.
@@ -43,6 +47,13 @@ void set_working_directory(Runtime &rt, const std::string &psp_path);
 void io_release(Runtime &rt);
 void display_release(Runtime &rt);
 void ge_release(Runtime &rt);
+void net_release(Runtime &rt);
+
+// The ad hoc control library of this runtime (hle_net.cpp), for the network configuration dialog. Using it starts talking to
+// the ad hoc server, when one is configured.
+[[nodiscard]] adhoc::Adhocctl &net_adhocctl(Runtime &rt);
+// Writes a line to stderr when MHF_TRACE_ADHOC=1 (hle_net.cpp).
+void net_trace(const char *line);
 
 // Runs one sceUtility savedata request (hle_savedata.cpp) and stores its result in the parameter block.
 // `chosen` is the slot the player picked in the list dialog (list modes); without it the request's own selection
@@ -105,5 +116,6 @@ std::span<const HleFunction> sas_functions();      // sceSasCore (voice mixer)
 std::span<const HleFunction> utility_functions();  // sceUtility dialogs
 std::span<const HleFunction> atrac_functions();    // sceAtrac3plus (music decoding)
 std::span<const HleFunction> font_functions();     // sceLibFont (free fonts)
+std::span<const HleFunction> net_functions();      // sceNet, sceNetAdhoc, sceNetAdhocctl, sceWlanDrv (ad hoc play)
 
 } // namespace mhf::psp::hle
