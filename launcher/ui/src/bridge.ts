@@ -25,6 +25,8 @@ export interface Settings {
   copyImage: boolean; // keep a copy of the disc image in MHForever's own folder
   musicVolume: number; // 0..100
   sfxVolume: number; // 0..100
+  // Which physical key stands for which pad button: UI Events codes ("KeyK", "ArrowLeft"...), '' when unbound.
+  keys: Record<string, string>;
 }
 
 export interface Stats {
@@ -39,6 +41,7 @@ export interface State {
   pseudonym: string;
   friendCode: string;
   settings: Settings;
+  keyDefaults: Record<string, string>; // what "Restore defaults" puts back (Settings → Controls)
   games: Game[];
   stats: Stats;
   executable: { path: string; found: boolean };
@@ -95,12 +98,22 @@ export const isNative = typeof w.mhf_getState === 'function';
 
 function simulated(): Native {
   const emit = (e: LauncherEvent) => setTimeout(() => (window as unknown as { __mhfEvent: (e: LauncherEvent) => void }).__mhfEvent(e), 0);
+  const defaultKeys: Record<string, string> = {
+    south: 'KeyK', east: 'KeyL', west: 'KeyJ', north: 'KeyI',
+    left_shoulder: 'KeyQ', right_shoulder: 'KeyE', start: 'Enter', select: 'Backspace',
+    up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
+    stick_up: 'KeyW', stick_down: 'KeyS', stick_left: 'KeyA', stick_right: 'KeyD',
+  };
   const state: State = {
     version: '0.4.1-dev',
     platform: 'browser',
     pseudonym: 'Hunter',
     friendCode: 'K7Q2-M9XA-4RTD-8PLE',
-    settings: { scale: 4, fullscreen: false, smoothTextures: false, fps: 30, copyImage: false, musicVolume: 80, sfxVolume: 90 },
+    settings: {
+      scale: 4, fullscreen: false, smoothTextures: false, fps: 30, copyImage: false, musicVolume: 80, sfxVolume: 90,
+      keys: { ...defaultKeys },
+    },
+    keyDefaults: defaultKeys,
     games: [],
     stats: { secondsPlayed: 0, sessions: 0, lastPlayed: null },
     executable: { path: '', found: true },

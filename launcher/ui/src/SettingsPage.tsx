@@ -1,8 +1,10 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
 import { api, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
 import { CopyIcon } from './icons';
 import { frameRates, resolutions } from './format';
+import { setNavigationPaused } from './gamepad';
+import { keyGroups, keyLabel, reservedKeys } from './keys';
 
 const rise = (delay: number) => ({
   initial: { opacity: 0, y: 18, filter: 'blur(6px)' },
@@ -118,6 +120,95 @@ function ImportSaves({ gameId }: { gameId: string | undefined }) {
   );
 }
 
+// Keyboard bindings: click a key and press the one you want. Two buttons can never share a key (the other one takes
+// the key this one had), Backspace leaves a button without a key, Esc cancels (docs/07-launcher-ux.md section 5).
+function Controls({ keys, defaults, onChange }: {
+  keys: Record<string, string>;
+  defaults: Record<string, string>;
+  onChange: (s: Partial<Settings>) => void;
+}) {
+  const [capturing, setCapturing] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
+  const latest = useRef({ keys, onChange });
+  latest.current = { keys, onChange };
+
+  useEffect(() => {
+    if (!capturing) return;
+    setNavigationPaused(true); // the keys being recorded must not move the launcher around
+    const record = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.repeat) return;
+      const action = capturing;
+      if (e.code === 'Escape') {
+        setCapturing(null);
+        return;
+      }
+      if (reservedKeys[e.code]) {
+        setNotice(`${keyLabel(e.code)} is kept by the game: ${reservedKeys[e.code]} Press another key, or Esc to cancel.`);
+        return;
+      }
+      setNotice('');
+      const next = { ...latest.current.keys };
+      const previous = next[action] ?? '';
+      if (e.code !== 'Backspace' && e.code !== 'Delete') {
+        for (const [other, value] of Object.entries(next)) {
+          if (other !== action && value === e.code) next[other] = previous;
+        }
+        next[action] = e.code;
+      } else {
+        next[action] = '';
+      }
+      latest.current.onChange({ keys: next });
+      setCapturing(null);
+    };
+    window.addEventListener('keydown', record, true);
+    return () => {
+      window.removeEventListener('keydown', record, true);
+      setNavigationPaused(false);
+    };
+  }, [capturing]);
+
+  return (
+    <>
+      <div className="srow">
+        <div className="slabel">
+          <b>Keyboard</b>
+          <span>Click a key and press the one you want. Backspace removes it, Esc cancels. Controllers are unchanged.</span>
+        </div>
+        <button className="ghost mid" onClick={() => { setNotice(''); onChange({ keys: { ...defaults } }); }}>Restore defaults</button>
+      </div>
+      {notice && (
+        <div className="srow">
+          <span className="slabel" style={{ color: 'var(--warn)', fontSize: 13 }}>{notice}</span>
+        </div>
+      )}
+      {keyGroups.map((group) => (
+        <div className="srow" key={group.title}>
+          <div className="slabel"><b>{group.title}</b></div>
+          <div className="row-wrap" style={{ gap: 8 }}>
+            {group.actions.map((action) => {
+              const code = keys[action.id] ?? '';
+              const listening = capturing === action.id;
+              return (
+                <button
+                  key={action.id}
+                  className={'keycap' + (listening ? ' listening' : '') + (code ? '' : ' unset')}
+                  aria-label={`${action.label}: ${listening ? 'press a key' : keyLabel(code)}`}
+                  onClick={() => { setNotice(''); setCapturing(listening ? null : action.id); }}
+                >
+                  <span className="keycap-name">{action.label}</span>
+                  <span className="keycap-key">{listening ? 'Press a key…' : keyLabel(code)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
 export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChangeCopy, onRemoveCopy, onLocateExecutable }: Props) {
   const s = state.settings;
   const [name, setName] = useState(state.pseudonym);
@@ -132,7 +223,7 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
     <section className="settings">
       <motion.div className="page-title" {...rise(0)}>
         <h2>Settings</h2>
-        <p>Saved automatically. Video and audio changes apply the next time the game starts.</p>
+        <p>Saved automatically. Video, audio and keyboard changes apply the next time the game starts.</p>
       </motion.div>
 
       <motion.div className="glass section" {...rise(0.06)}>
@@ -163,6 +254,11 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
           <div className="slabel"><b>Smooth texture filtering</b><span>Optional enhancement: softens pixelated textures. Off is faithful to the original.</span></div>
           <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
         </div>
+      </motion.div>
+
+      <motion.div className="glass section" {...rise(0.08)}>
+        <h3>Controls</h3>
+        <Controls keys={s.keys ?? {}} defaults={state.keyDefaults ?? {}} onChange={onChange} />
       </motion.div>
 
       <motion.div className="glass section" {...rise(0.1)}>

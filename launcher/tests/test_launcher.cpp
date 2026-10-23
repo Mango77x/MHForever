@@ -151,6 +151,28 @@ int main(int argc, char **argv) {
         back["fps"] = 90;
         l.set_settings(back);
         CHECK(s["pseudonym"].as_string() == "RathalosSlayer");
+
+        // Keyboard bindings: defaults, a change, a button left without a key, and input the launcher ignores.
+        s = l.state();
+        CHECK(s["settings"]["keys"]["south"].as_string() == "KeyK");
+        CHECK(s["settings"]["keys"]["stick_up"].as_string() == "KeyW");
+        Json keys;
+        keys["south"] = "KeyZ";
+        keys["select"] = "";                  // deliberately unbound
+        keys["jump"] = "KeyP";                // not a button of the pad
+        keys["north"] = std::string(40, 'X'); // not a key code
+        keys["start"] = 5;                    // not a string
+        Json edited;
+        edited["keys"] = keys;
+        l.set_settings(edited);
+        const Json state = l.state(); // a copy: the members of a temporary would not outlive this line
+        const Json &saved = state["settings"]["keys"];
+        CHECK(saved["south"].as_string() == "KeyZ");
+        CHECK(saved["select"].as_string().empty());
+        CHECK(saved["north"].as_string() == "KeyI");
+        CHECK(saved["start"].as_string() == "Enter");
+        CHECK(!saved.has("jump"));
+
         auto plan = l.plan_launch("mhfu");
         CHECK(!plan.error.empty()); // no game files here
     }
@@ -159,6 +181,9 @@ int main(int argc, char **argv) {
         CHECK(again.state()["friendCode"].as_string() == code);
         CHECK(again.state()["settings"]["fullscreen"].as_bool());
         CHECK(again.state()["settings"]["fps"].as_number() == 90);
+        CHECK(again.state()["settings"]["keys"]["south"].as_string() == "KeyZ");
+        CHECK(again.state()["settings"]["keys"]["select"].as_string().empty());
+        CHECK(again.state()["settings"]["keys"]["east"].as_string() == "KeyL");
     }
 
     // launcher.json lives in the data folder; one left next to the executable by an older version is copied there once.

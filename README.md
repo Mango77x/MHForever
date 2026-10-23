@@ -50,7 +50,7 @@ Only the first row works today. The others are plans, not promises: they are lis
 | **Frame rate** | **30 fps** as on the original console, or **60 to 180 fps** (any multiple of 30) with frame interpolation, chosen in the launcher Settings. Experimental: heavy scenes may not hold the top rates. |
 | **Online play** | Not available yet. **Multiplayer over the internet is being designed and built**, so you can hunt with friends without a PSP. |
 | **Platforms** | Windows (64-bit) and Linux (64-bit). Steam Deck notes are in the documentation; the maintainers have no Deck to test on. |
-| **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard defaults included. |
+| **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard bindings are changed in the launcher Settings. |
 | **Saves** | Kept in `Documents\MHForever\saves` on Windows and `~/.local/share/MHForever/saves` on Linux, one folder per game; settings in `%APPDATA%\MHForever` or `$XDG_DATA_HOME/MHForever`. Updating never loses them. Saves use the PSP format: import them from a PSP or PPSSPP in Settings (your own version of the game), or copy MHForever's into PPSSPP. |
 | **Resolution** | Up to several times the original 480x272, with an optional smoother texture filter. |
 | **Other games and regions** | The US and Japanese releases of Freedom Unite, and other games of the series, are planned. |
@@ -73,7 +73,7 @@ image you provide.
 Your saves live in `Documents\MHForever\saves` on Windows and `~/.local/share/MHForever/saves` on Linux (one folder per game), outside the program folder, so updating never loses them. Any controller recognized by SDL should work (tested with a PS5 DualSense); there are keyboard defaults too.
 
 **Keyboard:** arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle, Q/E = L/R, Enter = Start,
-Backspace = Select.
+Backspace = Select. Change any of them in **Settings → Controls**.
 
 ## What this is
 

@@ -135,8 +135,18 @@ mode, where no second window can be shown.
   - L/R → LB/RB (LT/RT configurable too).
   - START, SELECT → Menu/View.
   - **Right stick → D-pad** (FU's "claw" camera) with configurable deadzone and repeat. Level 1 is implemented; level 2 (analog camera hook) is an enhancement.
-- Keyboard and mouse: sensible defaults; the mouse drives the camera once the analog hook exists.
-- Full remapping per game, per-controller profiles, deadzones, sensitivity; rumble optional (the PSP has none).
+- Keyboard: every button of the pad answers to a physical key, and the player changes them in the launcher
+  (**Settings → Controls**), not by editing a file; the mouse drives the camera once the analog hook exists.
+  - A binding is a UI Events code (`KeyK`, `ArrowLeft`, `Space`...): it names the key's position, not the character
+    printed on it, so WASD stays where a player expects it on AZERTY or QWERTZ.
+  - The bindings live in `launcher.json` under `settings.keys` (16 actions) and the launcher passes them to the game with
+    `--keymap "south=KeyK,east=KeyL,..."`; `core/host/keymap.*` turns them into SDL scancodes. An unknown code falls back
+    to that button's default and is logged; an empty value is a button with no key at all.
+  - Defaults: K/L/J/I face buttons, Q/E L/R, Enter Start, Backspace Select, arrows D-pad, WASD analog stick.
+    In the launcher, Backspace or Delete removes a binding and a key already in use is swapped with the other button.
+  - Two keys belong to the game and cannot be assigned: **Escape** (in-game menu) and **F11** (fullscreen).
+- Controllers: the pad's own buttons keep the physical mapping above; per-controller profiles, deadzones, sensitivity and
+  remapping the pad's buttons are pending; rumble optional (the PSP has none).
 - Several local pads: player 1 only (the PSP is single-player). Local multiplayer on one machine = several instances: out of scope v1.
 
 ## 6. Steam Deck / Linux

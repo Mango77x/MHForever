@@ -190,7 +190,7 @@ if(MHF_BUILD_TESTS)
                                  native/install/executable_preparation.cpp native/install/installer.cpp
                                  native/install/prx_decryptor.cpp ${_icon_cpp})
     target_include_directories(test_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
-    target_link_libraries(test_launcher PRIVATE mhf_psp_tools mhf_webview mhf_prx)
+    target_link_libraries(test_launcher PRIVATE mhf_core mhf_psp_tools mhf_webview mhf_prx)
     if(WIN32)
         target_link_libraries(test_launcher PRIVATE comdlg32 dwmapi bcrypt shell32 ole32) # platform.cpp, data_dir.cpp
     endif()

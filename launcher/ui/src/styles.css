@@ -139,6 +139,21 @@ button { -webkit-tap-highlight-color: transparent; }
   background: rgba(255, 236, 210, 0.06); border: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--ink);
   white-space: nowrap;
 }
+
+/* Keyboard bindings (Settings → Controls): the button of a pad and the key it answers to. */
+.keycap {
+  display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 92px;
+  padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 236, 210, 0.04);
+  color: var(--ink); cursor: pointer; text-align: left;
+  transition: background 0.25s, border-color 0.25s, transform 0.3s var(--spring);
+}
+.keycap:hover { border-color: var(--line-2); background: rgba(255, 236, 210, 0.08); }
+.keycap:active { transform: scale(0.97); }
+.keycap-name { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--mute); }
+.keycap-key { font-size: 14px; font-weight: 700; white-space: nowrap; }
+.keycap.unset .keycap-key { color: var(--mute); font-weight: 600; }
+.keycap.listening { border-color: var(--accent); background: rgba(242, 165, 65, 0.12); }
+.keycap.listening .keycap-key { color: var(--accent); }
 .chip.warn { color: var(--warn); border-color: rgba(242, 193, 78, 0.35); }
 .soon {
   display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px;

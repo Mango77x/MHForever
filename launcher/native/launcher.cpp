@@ -1,6 +1,7 @@
 #include "launcher.hpp"
 
 #include "hash.hpp"
+#include "host/keymap.hpp"
 #include "install/data_dir.hpp"
 #include "install/installer.hpp"
 #include "iso9660.hpp"
@@ -71,7 +72,33 @@ Json default_settings() {
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
     s["musicVolume"] = 100;
     s["sfxVolume"] = 100;
+    // Keyboard bindings (docs/07-launcher-ux.md section 5). Values are UI Events codes, so they name the key's
+    // position rather than the character printed on it, and they are the same on every keyboard layout.
+    const host::KeyBindings defaults;
+    Json keys;
+    for (const std::string_view action : host::kKeyActions) {
+        if (const std::string *key = host::key_binding(defaults, action)) keys[std::string(action)] = *key;
+    }
+    s["keys"] = keys;
     return s;
+}
+
+// The bindings a launcher.json holds; actions it does not mention keep their default.
+host::KeyBindings key_bindings_from(const Json &keys) {
+    host::KeyBindings bindings;
+    for (const std::string_view action : host::kKeyActions) {
+        const Json &value = keys[action];
+        if (!value.is_string()) continue;
+        if (std::string *slot = host::key_binding(bindings, action)) *slot = value.as_string();
+    }
+    return bindings;
+}
+
+// An empty string is a button the player left without a key; anything else must look like a UI Events code.
+bool valid_key_code(const std::string &code) {
+    if (code.size() > 24) return false;
+    return std::all_of(code.begin(), code.end(),
+                       [](char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0; });
 }
 
 } // namespace
@@ -404,6 +431,7 @@ Json Launcher::state() {
     s["pseudonym"] = data_["pseudonym"];
     s["friendCode"] = friend_code();
     s["settings"] = data_["settings"];
+    s["keyDefaults"] = default_settings()["keys"]; // what "Restore defaults" puts back
     s["stats"] = data_["stats"];
     Json games(Json::Array{});
     const CatalogEntry *playable = nullptr;
@@ -445,6 +473,17 @@ void Launcher::set_settings(const Json &partial) {
     num("sfxVolume", 0, 100);
     for (const char *key : {"fullscreen", "smoothTextures", "copyImage"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
+    }
+    if (partial["keys"].is_object()) {
+        Json &keys = s["keys"];
+        for (const auto &[action, value] : partial["keys"].as_object()) {
+            const bool known = std::any_of(host::kKeyActions.begin(), host::kKeyActions.end(),
+                                           [&](std::string_view name) { return action == name; });
+            if (!known || !value.is_string()) continue;
+            const std::string code = value.as_string();
+            if (!valid_key_code(code)) continue;
+            keys[action] = code;
+        }
     }
     save();
 }
@@ -639,6 +678,9 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back("--fps");
         plan.args.push_back(num("fps"));
     }
+    // Always sent, so the game cannot fall back to defaults that differ from what the launcher shows.
+    plan.args.push_back("--keymap");
+    plan.args.push_back(host::format_keymap(key_bindings_from(s["keys"])));
     fs::create_directories(stick, ec);
     return plan;
 }
