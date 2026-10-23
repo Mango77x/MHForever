@@ -74,10 +74,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           cp build/linux-clang/core/mhf /tmp/mhfu
-          python3 scripts/package_release.py --platform linux --version 0.0.0-ci \
+          python3 scripts/package_release.py --platform linux \
             --launcher build/linux-clang/launcher/MHForever --game /tmp/mhfu \
             --fonts third_party/fonts/liberation-sans --out /tmp/mhf-release
-          tar tzf /tmp/mhf-release/MHForever-0.0.0-ci-linux-x86_64.tar.gz
+          # The archive, the core program and CMakeLists.txt must agree on the version.
+          version=$(build/linux-clang/core/mhf --version)
+          test -f "/tmp/mhf-release/MHForever-${version}-linux-x86_64.tar.gz"
+          tar tzf "/tmp/mhf-release/MHForever-${version}-linux-x86_64.tar.gz"
 
   # AddressSanitizer + UndefinedBehaviorSanitizer over the whole test suite.
   sanitizers:

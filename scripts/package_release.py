@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Assemble a release archive from binaries built elsewhere.
 
-  package_release.py --version 0.5.0 --launcher <MHForever[.exe]> --game <mhfu[.exe]> --fonts <fonts dir>
-                     [--platform windows|linux] [--out <dir>]
+  package_release.py --launcher <MHForever[.exe]> --game <mhfu[.exe]> --fonts <fonts dir>
+                     [--platform windows|linux] [--version <version>] [--out <dir>]
+
+The version defaults to the one in `project(MHForever VERSION ...)` (CMakeLists.txt), so archives, the launcher and the
+core program never drift apart; pass --version only to override it.
 
 The archive contains our programs, the free fonts, the project and third-party licenses and a player README. It never
 contains game data: the script refuses disc images, executables other than the two programs, and anything it does not know.
@@ -36,6 +39,15 @@ PLATFORMS = {
     "windows": ("MHForever.exe", "mhfu.exe", "dist/PLAYER_README.txt", "windows-x64"),
     "linux": ("MHForever", "mhfu", "dist/PLAYER_README_LINUX.txt", "linux-x86_64"),
 }
+
+
+def project_version() -> str:
+    """The single source of truth for the version: `project(MHForever VERSION x.y.z)` in CMakeLists.txt."""
+    text = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+    match = re.search(r"^project\(\s*MHForever\s+VERSION\s+([0-9][0-9.]*)\b", text, re.MULTILINE)
+    if match is None:
+        raise SystemExit("error: cannot read project(MHForever VERSION ...) from CMakeLists.txt")
+    return match.group(1)
 
 
 def check_inputs(args, launcher_name: str, game_name: str) -> dict[str, pathlib.Path] | None:
@@ -89,7 +101,8 @@ def write_tarball(path: pathlib.Path, folder: str, readme: str, files: dict[str,
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--version", required=True)
+    ap.add_argument("--version", default=None,
+                    help="release version (default: the version in CMakeLists.txt)")
     ap.add_argument("--launcher", required=True, type=pathlib.Path)
     ap.add_argument("--game", required=True, type=pathlib.Path)
     ap.add_argument("--fonts", required=True, type=pathlib.Path)
@@ -97,6 +110,8 @@ def main() -> int:
                     help="target platform of the programs (default: windows)")
     ap.add_argument("--out", type=pathlib.Path, default=pathlib.Path("."))
     args = ap.parse_args()
+    if args.version is None:
+        args.version = project_version()
     if not re.fullmatch(r"\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?", args.version):
         print("error: --version must look like 0.1.0", file=sys.stderr)
         return 2

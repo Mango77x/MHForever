@@ -77,9 +77,12 @@ The archives are assembled from programs built elsewhere; game data never goes i
 2. Build `mhfu.exe` from the generated code (see above) in a Release configuration.
 3. Package them with the free fonts and the licenses:
    ```sh
-   python scripts/package_release.py --version 0.4.0 --launcher <MHForever.exe> --game <mhfu.exe> --fonts <the fonts folder next to mhfu.exe>
+   python scripts/package_release.py --launcher <MHForever.exe> --game <mhfu.exe> --fonts <the fonts folder next to mhfu.exe>
    ```
    This writes `MHForever-<version>-windows-x64.zip` and its `.sha256`. The text shown to players is `dist/PLAYER_README.txt`.
+   `--version` is optional: it defaults to `project(MHForever VERSION ...)` in `CMakeLists.txt`, which is the only place
+   the version is written, so the archive, the launcher and `mhf --version` always agree. Bump it there (and only there)
+   when preparing a release; pass `--version` only for a one-off archive.
 
 ### Linux
 
@@ -87,8 +90,9 @@ The archives are assembled from programs built elsewhere; game data never goes i
 2. Build `mhfu` from the generated code (see above) in a Release configuration.
 3. Package the programs, the free fonts and the licenses:
    ```sh
-   python scripts/package_release.py --platform linux --version 0.4.0 \
+   python scripts/package_release.py --platform linux \
        --launcher <MHForever> --game <mhfu> --fonts <the fonts folder next to mhfu>
    ```
    This writes `MHForever-<version>-linux-x86_64.tar.gz` and its `.sha256`; the execute permission of both programs is
-   kept. The text shown to players is `dist/PLAYER_README_LINUX.txt`.
+   kept. The text shown to players is `dist/PLAYER_README_LINUX.txt`. As on Windows, the version comes from
+   `CMakeLists.txt`.
