@@ -9,6 +9,8 @@ contains game data: the script refuses disc images, executables other than the t
 
 Windows produces MHForever-<version>-windows-x64.zip; Linux produces MHForever-<version>-linux-x86_64.tar.gz.
 """
+from __future__ import annotations
+
 import argparse
 import hashlib
 import io
