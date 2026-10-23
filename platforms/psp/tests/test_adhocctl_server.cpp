@@ -98,6 +98,18 @@ int main() {
     MHF_CHECK(!alice.library.peers().empty() && alice.library.peers()[0].nickname == "Bob");
     MHF_CHECK(!alice.library.peers().empty() && alice.library.peers()[0].mac == (Mac{0x02, 0x4D, 0x48, 0x46, 0x00, 2}));
 
+    // Doing nothing keeps the connection: the server drops a client that is silent for 30 s, so the pings must be doing their job.
+    if (std::getenv("MHF_ADHOC_TEST_KEEPALIVE") != nullptr) {
+        const auto idle_end = Clock::now() + std::chrono::seconds(45);
+        while (Clock::now() < idle_end) {
+            alice.events_seen += alice.library.poll().size();
+            bob.events_seen += bob.library.poll().size();
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        MHF_CHECK(alice.library.state() == State::Connected && alice.library.online());
+        MHF_CHECK(bob.library.state() == State::Connected && bob.library.online());
+    }
+
     // Bob leaves; Alice notices.
     MHF_CHECK(bob.library.disconnect() == 0);
     MHF_CHECK(alice.wait([&] { return alice.library.peers().empty(); }));

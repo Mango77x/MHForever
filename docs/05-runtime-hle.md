@@ -185,6 +185,9 @@ set (`--adhoc-server host[:port]` or `MHF_ADHOC_SERVER`): nothing is contacted b
 - Tests: `psp_adhocctl` (no network); `psp_adhocctl_server` (two players against a real server, including datagrams and a
   stream) runs when `MHF_ADHOC_TEST_SERVER` names one, for example the reference server of aemu_postoffice built from
   source. The aemu client allows one session to be created at a time, so the test starts its players one after the other.
+  With `MHF_ADHOC_TEST_KEEPALIVE=1` it also stays idle for 45 s to prove the pings keep the connection. Note for a reference
+  server run in WSL2: libstdc++'s `high_resolution_clock` is the wall clock, which WSL2 steps when it syncs with Windows, and the
+  server then drops every client at once; build it with `steady_clock` for local tests.
 
 ## 5i. Movies (`hle_mpeg.cpp`, `media/`)
 
