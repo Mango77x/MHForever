@@ -49,9 +49,9 @@ Only the first row works today. The others are plans, not promises: they are lis
 | **Playable game** | **Monster Hunter Freedom Unite** (PSP), European release (`ULES01213`, v1.01). It is the only game for now. |
 | **Frame rate** | **30 fps** as on the original console, or **60 to 180 fps** (any multiple of 30) with frame interpolation, chosen in the launcher Settings. Experimental: heavy scenes may not hold the top rates. |
 | **Online play** | Not available yet. **Multiplayer over the internet is being designed and built**, so you can hunt with friends without a PSP. |
-| **Platforms** | Windows (64-bit). Linux and Steam Deck are planned. |
+| **Platforms** | Windows (64-bit) and Linux (64-bit, including the Steam Deck). |
 | **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard defaults included. |
-| **Saves** | Kept in `Documents\MHForever\saves`, one folder per game; settings in `%APPDATA%\MHForever`. Updating never loses them. Saves use the PSP format: import them from a PSP or PPSSPP in Settings (your own version of the game), or copy MHForever's into PPSSPP. |
+| **Saves** | Kept in `Documents\MHForever\saves` on Windows and `~/.local/share/MHForever/saves` on Linux, one folder per game; settings in `%APPDATA%\MHForever` or `$XDG_DATA_HOME/MHForever`. Updating never loses them. Saves use the PSP format: import them from a PSP or PPSSPP in Settings (your own version of the game), or copy MHForever's into PPSSPP. |
 | **Resolution** | Up to several times the original 480x272, with an optional smoother texture filter. |
 | **Other games and regions** | The US and Japanese releases of Freedom Unite, and other games of the series, are planned. |
 | **Latest release** | [![Latest release](https://img.shields.io/github/v/release/Mango77x/MHForever?label=version)](https://github.com/Mango77x/MHForever/releases/latest) [![Release date](https://img.shields.io/github/release-date/Mango77x/MHForever?label=published)](https://github.com/Mango77x/MHForever/releases/latest) See the [Releases](../../releases) page. |
@@ -60,15 +60,17 @@ It is early software: according to the maintainer's testing, single player can b
 
 ## How it works for a player
 
-1. Download MHForever from the [Releases](../../releases) page and unzip it anywhere.
-2. Open `MHForever.exe` and add **your own** `.iso` of Freedom Unite (a plain, uncompressed image of your UMD).
+1. Download MHForever from the [Releases](../../releases) page and unzip it anywhere. On Linux the launcher needs
+   WebKitGTK 4.1 and GTK 3 (see [BUILDING.md](BUILDING.md#running-on-linux)).
+2. Open `MHForever.exe` on Windows or `MHForever` on Linux, and add **your own** `.iso` of Freedom Unite (a plain,
+   uncompressed image of your UMD).
 3. The launcher checks your copy and prepares everything it needs from it on your PC. You can also let it keep a copy
    of your image in its own folder.
 4. Press **Play**.
 
 The game's assets (graphics, audio, text, data) are never included in MHForever or sent anywhere: they are read from the
 image you provide.
-Your saves live in `Documents\MHForever\saves` (one folder per game), outside the program folder, so updating never loses them. Any controller recognized by SDL should work (tested with a PS5 DualSense); there are keyboard defaults too.
+Your saves live in `Documents\MHForever\saves` on Windows and `~/.local/share/MHForever/saves` on Linux (one folder per game), outside the program folder, so updating never loses them. Any controller recognized by SDL should work (tested with a PS5 DualSense); there are keyboard defaults too.
 
 **Keyboard:** arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle, Q/E = L/R, Enter = Start,
 Backspace = Select.
@@ -76,8 +78,8 @@ Backspace = Select.
 ## What this is
 
 MHForever is not an emulator. The game's program is **statically recompiled** into native PC code, and the console's
-system services are re-implemented. The result is a normal Windows program that runs the game directly, with a modern
-launcher around it. That is what makes things like higher resolutions, any controller and, later, online play practical.
+system services are re-implemented. The result is a normal desktop program (Windows or Linux) that runs the game
+directly, with a modern launcher around it. That is what makes things like higher resolutions, any controller and, later, online play practical.
 
 Developed with AI assistance.
 

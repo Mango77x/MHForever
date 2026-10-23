@@ -15,6 +15,25 @@ The PSP test programs in `homebrew/` are built and run as tests when the [pspdev
 toolchain is installed (`PSPDEV` environment variable or `/opt/pspdev`). The SDL3 window/input/audio host is fetched and
 built automatically (`-DMHF_WITH_SDL=OFF` to skip it).
 
+## Running on Linux
+
+The release tarball is a portable folder: extract it and run `./MHForever`. The launcher needs WebKitGTK 4.1 and GTK 3 at
+runtime (the build packages above are enough if you build from source on the same machine). A typical Debian/Ubuntu system
+needs:
+
+```sh
+sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0 libasound2t64 libgl1
+```
+
+On Fedora use `webkit2gtk4.1 gtk3 alsa-lib mesa-libGL`, and on Arch `webkit2gtk-4.1 gtk3 alsa-lib mesa`. X11 and Wayland
+are both supported; the game needs a driver with OpenGL 3.3. SDL3 itself is linked into the programs.
+
+To install a local build for the current user (launcher, game when it was built, fonts, desktop entry and icon):
+
+```sh
+cmake --install build/linux-clang --prefix ~/.local
+```
+
 ## Developer build of Freedom Unite (local only)
 
 This uses your own copy of the game and never produces anything that may be committed or shared
@@ -47,9 +66,11 @@ git config core.hooksPath .githooks
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the rules every change must follow.
 
-## Making a release (Windows)
+## Making a release
 
-The release zip is assembled from programs built elsewhere; game data never goes into it.
+The archives are assembled from programs built elsewhere; game data never goes into them.
+
+### Windows
 
 1. Build the launcher on Windows (`cmake --preset windows-msvc`, then `cmake --build --preset windows-msvc`). The C/C++
    runtime is linked statically, so the launcher runs on a clean Windows install.
@@ -59,3 +80,15 @@ The release zip is assembled from programs built elsewhere; game data never goes
    python scripts/package_release.py --version 0.4.0 --launcher <MHForever.exe> --game <mhfu.exe> --fonts <the fonts folder next to mhfu.exe>
    ```
    This writes `MHForever-<version>-windows-x64.zip` and its `.sha256`. The text shown to players is `dist/PLAYER_README.txt`.
+
+### Linux
+
+1. Build the launcher (`cmake --preset linux-clang`, then `cmake --build --preset linux-clang`).
+2. Build `mhfu` from the generated code (see above) in a Release configuration.
+3. Package the programs, the free fonts and the licenses:
+   ```sh
+   python scripts/package_release.py --platform linux --version 0.4.0 \
+       --launcher <MHForever> --game <mhfu> --fonts <the fonts folder next to mhfu>
+   ```
+   This writes `MHForever-<version>-linux-x86_64.tar.gz` and its `.sha256`; the execute permission of both programs is
+   kept. The text shown to players is `dist/PLAYER_README_LINUX.txt`.

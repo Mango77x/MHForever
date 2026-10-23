@@ -65,9 +65,16 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
     with progress. Nothing partial is left behind on failure. Removing a game deletes only what the installer stored.
   - `MHForever --install <image.iso> [--in-place | --copy]` runs the same setup without the window (Windows borrows the
     parent console).
-- **Release packaging (2026-10-19)**: `scripts/package_release.py` assembles the Windows zip (launcher, game program, free fonts,
-  licenses and `dist/PLAYER_README.txt`) and refuses anything that looks like game data. 0.1.0, 0.2.0, 0.2.1, 0.2.2, 0.2.3, 0.3.0 and 0.4.0 were published this way.
-- Still to do: launcher-managed updates (signed), language selection, icon, Steam Deck packaging
+- **Release packaging (2026-10-19, Linux 2026-10-22)**: `scripts/package_release.py` assembles the Windows zip and the Linux
+  tarball (launcher, game program, free fonts, licenses and the platform's player README) and refuses anything that looks
+  like game data. Windows archives keep `dist/PLAYER_README.txt`; Linux archives use `dist/PLAYER_README_LINUX.txt` and
+  keep the execute permission of both programs. 0.1.0, 0.2.0, 0.2.1, 0.2.2, 0.2.3, 0.3.0 and 0.4.0 were published as Windows
+  zips this way.
+- **Linux integration**: `cmake --install build/linux-clang --prefix ~/.local` installs the launcher and the game (when it
+  was built) in `bin/`, the fonts next to them, and `packaging/linux/MHForever.desktop` plus the icon in the desktop's
+  folders. The launcher embeds the icon and sets its application name, so the task bar and alt-tab show MHForever even
+  when the archive is run without installing it.
+- Still to do: launcher-managed updates (signed), language selection, Steam Deck packaging
   (AppImage/Flatpak), moving the per-user folder, moving saves there.
 
 ## 3c. The in-game menu (decided 2026-10-22)
@@ -134,8 +141,10 @@ mode, where no second window can be shown.
 
 ## 6. Steam Deck / Linux
 
-- Native Linux x86-64 build (do not rely on Proton).
-- Distribution: **AppImage** first; Flatpak later (check Flathub content policies).
+- Native Linux x86-64 build (do not rely on Proton): built and tested on Ubuntu in CI, and packaged for players.
+- Distribution: the portable `MHForever-<version>-linux-x86_64.tar.gz` made by `scripts/package_release.py` is the first
+  supported form; `cmake --install` adds the desktop entry and the icon. **AppImage** next; Flatpak later (check Flathub
+  content policies). The launcher needs WebKitGTK 4.1 and GTK 3 at runtime, both present on current desktops.
 - Deck resolution 1280×800 (16:10); PSP 480×272 (~16:9). Integer scaling (×2 = 960×544) or fitted with a filter, crop option, and
   widescreen as an enhancement.
 - Test: suspend/resume, Game Mode input, performance and battery.
@@ -147,5 +156,5 @@ mode, where no second window can be shown.
 - Windows: `%APPDATA%/MHForever/`. Linux: `$XDG_DATA_HOME/MHForever/` (`~/.local/share/MHForever`).
 - Today the per-user folder holds `games/<DISC_ID>/executable.elf` (and `image.iso` when a copy is kept) and `launcher.json`
   (settings, library, identity). `game.log` stays next to the launcher (§3b); the saves are in
-  `<Documents>/MHForever/saves/<DISC_ID>`.
+  `<Documents>/MHForever/saves/<DISC_ID>` on Windows and `$XDG_DATA_HOME/MHForever/saves/<DISC_ID>` on Linux.
 - Target: `saves/`, `logs/` and `config.toml` there too, and an option to move the folder.
