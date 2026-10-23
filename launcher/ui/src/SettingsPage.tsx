@@ -356,6 +356,12 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
   const s = state.settings;
   const [name, setName] = useState(state.pseudonym);
   useEffect(() => setName(state.pseudonym), [state.pseudonym]);
+  const [server, setServer] = useState(state.settings.adhocServer ?? '');
+  useEffect(() => setServer(state.settings.adhocServer ?? ''), [state.settings.adhocServer]);
+  const commitServer = () => {
+    if (server !== (state.settings.adhocServer ?? '')) onChange({ adhocServer: server });
+    else setServer(state.settings.adhocServer ?? '');
+  };
   const commitName = () => {
     const clean = name.trim().slice(0, 16);
     if (clean && clean !== state.pseudonym) onPseudonym(clean);
@@ -439,6 +445,31 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
             <span className="code">{state.friendCode}</span>
             <button className="copy" onClick={onCopyCode} aria-label="Copy friend code"><CopyIcon /> Copy</button>
           </div>
+        </div>
+      </motion.div>
+
+      <motion.div className="glass section" {...rise(0.2)}>
+        <h3>Online play (experimental)</h3>
+        <div className="srow">
+          <label htmlFor="adhoc-server" className="slabel">
+            <b>Ad hoc server</b>
+            <span>
+              The PSP ad hoc server the game plays through, as <code>host</code> or <code>host:port</code>, the same kind PPSSPP uses.
+              Players on the same server and group meet in the game's own lobby. Leave it empty to stay offline: nothing is contacted.
+              The server sees your name and your game, and may show them publicly.
+            </span>
+          </label>
+          <input
+            id="adhoc-server"
+            className="text-input"
+            value={server}
+            placeholder="Offline"
+            spellCheck={false}
+            onChange={(e) => setServer(e.target.value.trim())}
+            onBlur={commitServer}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            style={{ width: 280 }}
+          />
         </div>
       </motion.div>
 

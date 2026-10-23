@@ -88,6 +88,7 @@ Json default_settings() {
         if (const std::string *source = host::pad_binding(pad_defaults, action)) pad[std::string(action)] = *source;
     }
     s["pad"] = pad;
+    s["adhocServer"] = ""; // PSP ad hoc server for online play ("host" or "host:port"); empty: offline
     return s;
 }
 
@@ -111,6 +112,23 @@ host::PadBindings pad_bindings_from(const Json &pad) {
         if (std::string *slot = host::pad_binding(bindings, action)) *slot = value.as_string();
     }
     return bindings;
+}
+
+// "host" or "host:port": letters, digits, dots, dashes and underscores, and a port from 1 to 65535. Empty is "offline".
+bool valid_server(const std::string &text) {
+    if (text.empty()) return true;
+    if (text.size() > 253) return false;
+    const std::size_t colon = text.find(':');
+    const std::string host = text.substr(0, colon);
+    if (host.empty()) return false;
+    if (!std::all_of(host.begin(), host.end(), [](char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '.' || c == '-' || c == '_'; })) {
+        return false;
+    }
+    if (colon == std::string::npos) return true;
+    const std::string port = text.substr(colon + 1);
+    if (port.empty() || port.size() > 5 || !std::all_of(port.begin(), port.end(), [](char c) { return c >= '0' && c <= '9'; })) return false;
+    const int value = std::stoi(port);
+    return value >= 1 && value <= 65535;
 }
 
 // An empty string is a pad button the player left without a source; otherwise every part must be a known one. The stick
@@ -543,6 +561,7 @@ void Launcher::set_settings(const Json &partial) {
     for (const char *key : {"fullscreen", "smoothTextures", "copyImage"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
+    if (partial["adhocServer"].is_string() && valid_server(partial["adhocServer"].as_string())) s["adhocServer"] = partial["adhocServer"];
     if (partial["keys"].is_object()) {
         Json &keys = s["keys"];
         for (const auto &[action, value] : partial["keys"].as_object()) {
@@ -763,6 +782,20 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
     plan.args.push_back(host::format_padmap(pad_bindings_from(s["pad"])));
     plan.args.push_back("--controls-file"); // where the game writes what the player changes in its menu
     plan.args.push_back(platform::to_utf8(controls_file()));
+    if (const std::string server = s["adhocServer"].as_string(); !server.empty()) {
+        // Online play: the server, and a virtual MAC that is the same on every launch (a locally administered address made
+        // from the identity, which never leaves this computer).
+        Sha256 sha;
+        const std::string material = "mhf-adhoc-mac" + data_["identitySeed"].as_string();
+        sha.update(material.data(), material.size());
+        const auto digest = sha.finish();
+        char mac[18];
+        std::snprintf(mac, sizeof mac, "02:%02X:%02X:%02X:%02X:%02X", digest[0], digest[1], digest[2], digest[3], digest[4]);
+        plan.args.push_back("--adhoc-server");
+        plan.args.push_back(server);
+        plan.args.push_back("--adhoc-mac");
+        plan.args.push_back(mac);
+    }
     fs::create_directories(stick, ec);
     return plan;
 }
