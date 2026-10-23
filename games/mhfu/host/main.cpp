@@ -6,6 +6,7 @@
 //             [--smooth-textures] [--fps 30..180] [--music-volume 0-100] [--sfx-volume 0-100]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
 //             [--controls-file <path>]
+//             [--adhoc-server host[:port]] [--adhoc-nick <name>] [--adhoc-mac AA:BB:CC:DD:EE:FF]
 // The executable supplies the initial data sections. The launcher's installer prepares it from the player's own disc image
 // (launcher/native/install/); developer builds can also point --exe at a file that matches region.toml's dev_executable.
 
@@ -20,6 +21,7 @@
 #include "host/padmap.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <filesystem>
 #include <functional>
@@ -102,6 +104,33 @@ void on_overlay_prepare(Runtime &rt, Context &ctx) {
     }
 }
 
+// The disc's product code ("ULES01213") from its PARAM.SFO, which ad hoc servers use to group the players of one game.
+std::string disc_product_code(const std::filesystem::path &disc_image) {
+    try {
+        mhf::psp::IsoImage image(disc_image);
+        if (const auto entry = image.find("/PSP_GAME/PARAM.SFO")) {
+            if (const auto sfo = mhf::psp::ParamSfo::parse(image.read_file(*entry, 0, entry->size))) return sfo->string("DISC_ID");
+        }
+    } catch (const std::exception &) {
+    }
+    return {};
+}
+
+// "AA:BB:CC:DD:EE:FF" (or with '-') as bytes. False for anything else.
+bool parse_mac(const std::string &text, std::array<std::uint8_t, 6> &mac) {
+    unsigned v[6];
+    char sep[5];
+    if (std::sscanf(text.c_str(), "%2x%c%2x%c%2x%c%2x%c%2x%c%2x", &v[0], &sep[0], &v[1], &sep[1], &v[2], &sep[2], &v[3], &sep[3], &v[4],
+                    &sep[4], &v[5]) != 11) {
+        return false;
+    }
+    for (const char c : sep) {
+        if (c != ':' && c != '-') return false;
+    }
+    for (int i = 0; i < 6; ++i) mac[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(v[i]);
+    return true;
+}
+
 // "MHForever - <the disc's own title>": the window names the game that is running. The title comes from the disc image's
 // PARAM.SFO (upper-case titles are shown in title case); without a readable image the window is just "MHForever".
 std::string window_title(const std::filesystem::path &disc_image) {
@@ -155,6 +184,7 @@ int main(int argc, char **argv) {
     mhf::host::KeyBindings keyboard; // --keymap: the launcher's keyboard bindings
     mhf::host::PadBindings controller; // --padmap: the launcher's controller bindings
     std::string controls_file;         // --controls-file: where the in-game menu writes the bindings the player changes
+    std::string adhoc_nick;            // --adhoc-nick: the name other players see online (default: --name)
     std::vector<ScriptedPress> script;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -178,6 +208,11 @@ int main(int argc, char **argv) {
         else if (a == "--keymap" && i + 1 < argc) keyboard = mhf::host::parse_keymap(argv[++i]);
         else if (a == "--padmap" && i + 1 < argc) controller = mhf::host::parse_padmap(argv[++i]);
         else if (a == "--controls-file" && i + 1 < argc) controls_file = argv[++i];
+        else if (a == "--adhoc-server" && i + 1 < argc) options.adhoc_server = argv[++i]; // online play: an ad hoc server (PPSSPP's)
+        else if (a == "--adhoc-nick" && i + 1 < argc) adhoc_nick = argv[++i];
+        else if (a == "--adhoc-mac" && i + 1 < argc) {
+            if (!parse_mac(argv[++i], options.adhoc_mac)) std::fprintf(stderr, "[mhfu] --adhoc-mac: not a MAC address, ignored\n");
+        }
         else if (a == "--input" && i + 1 < argc) script = parse_input_script(argv[++i]);
         else if (a == "--name" && i + 1 < argc) options.osk_default_text = argv[++i]; // text typed into keyboards
         else if (a == "--auto-dialogs") auto_dialogs = true; // system dialogs answer at once even in a window
@@ -193,6 +228,11 @@ int main(int argc, char **argv) {
     }
     // In a window the player answers the system dialogs (messages, keyboard, save/load) on screen.
     options.interactive_dialogs = window && !auto_dialogs;
+    if (options.adhoc_server.empty()) {
+        if (const char *server = std::getenv("MHF_ADHOC_SERVER")) options.adhoc_server = server; // until the launcher sets it
+    }
+    options.adhoc_nickname = adhoc_nick.empty() ? options.osk_default_text : adhoc_nick;
+    if (!options.adhoc_server.empty()) options.adhoc_product_code = disc_product_code(options.disc_image);
     try {
         Runtime runtime{options};
         runtime.load_elf(exe);
