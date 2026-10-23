@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=MHForever
-GenericName=Monster Hunter recompilation
-Comment=Play Monster Hunter Freedom Unite natively
+GenericName=Native PC port launcher
+Comment=Play your own copy of Freedom Unite natively
 Exec=MHForever
 Icon=mhforever
 Terminal=false
 StartupWMClass=MHForever
 Categories=Game;
-Keywords=monster hunter;psp;recompilation;
+Keywords=recompilation;
