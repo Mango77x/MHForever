@@ -1,7 +1,7 @@
 #pragma once
 
 // Operating-system services the launcher needs: paths, file dialogs, clipboard, processes, randomness.
-// Windows uses Win32; Linux uses zenity/kdialog for dialogs and xclip/wl-copy for the clipboard when available.
+// Windows uses Win32; Linux uses GTK 3 for the dialogs and the clipboard (the same toolkit as WebKitGTK).
 
 #include <cstdint>
 #include <filesystem>

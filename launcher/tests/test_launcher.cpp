@@ -6,6 +6,7 @@
 #include "json.hpp"
 #include "launcher.hpp"
 #include "param_sfo.hpp"
+#include "platform.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -39,7 +40,13 @@ static std::string sha256_of(const std::string &s) {
     return to_hex(d.data(), d.size());
 }
 
-int main() {
+int main(int argc, char **argv) {
+    // The process test below starts this same program and expects it to return this code.
+    if (argc > 2 && std::string(argv[1]) == "--exit-code") {
+        std::printf("child ran\n");
+        return std::atoi(argv[2]);
+    }
+
     // Hashes: FIPS 180 test vectors.
     CHECK(sha1_of("abc") == "a9993e364706816aba3e25717850c26c9cd0d89d");
     CHECK(sha1_of("") == "da39a3ee5e6b4b0d3255bfef95601890afd80709");
@@ -91,6 +98,28 @@ int main() {
     const fs::path dir = fs::temp_directory_path() / "mhf_launcher_test";
     fs::remove_all(dir);
     fs::create_directories(dir);
+
+    // Processes: the launcher starts the game in its own folder and collects its output. The child changes directory
+    // before it starts the program, so a relative program path has to keep working (Linux, where the launcher is often
+    // run from the folder it was unzipped in).
+    {
+        const fs::path base = dir / "process";
+        fs::create_directories(base);
+        const fs::path log = base / "child.log";
+        std::error_code ec;
+        fs::path program = fs::relative(fs::path(argv[0]), fs::current_path(), ec);
+        if (ec) program = fs::path(argv[0]);
+        std::string error;
+        auto child = platform::Process::start(program, {"--exit-code", "7"}, base, log, error);
+        CHECK(child.has_value());
+        if (child) CHECK(child->wait() == 7);
+        CHECK(error.empty());
+        std::ifstream in(log);
+        std::string line;
+        std::getline(in, line);
+        CHECK(line == "child ran");
+    }
+
     std::string code;
     {
         Launcher l(dir, dir);

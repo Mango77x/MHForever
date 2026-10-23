@@ -2,6 +2,7 @@
 # system web view and does the real work: identifying the player's copy, settings, launching the game, play time.
 
 include(${PROJECT_SOURCE_DIR}/cmake/webview.cmake)
+include(GNUInstallDirs)
 
 # ------------------------------------------------------------------ UI bundle (one self-contained HTML file)
 set(MHF_LAUNCHER_UI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/ui)
@@ -28,6 +29,20 @@ add_custom_command(
     DEPENDS ${_ui_html} ${CMAKE_CURRENT_SOURCE_DIR}/embed.cmake
     COMMENT "Embedding the launcher UI"
     VERBATIM)
+
+# Linux: embed the application icon so the window and the task bar show it without installing any file next to the program.
+set(_icon_cpp "")
+if(UNIX)
+    set(_icon_png ${PROJECT_SOURCE_DIR}/assets/branding/icon-256.png)
+    set(_icon_cpp ${CMAKE_CURRENT_BINARY_DIR}/app_icon.cpp)
+    add_custom_command(
+        OUTPUT ${_icon_cpp}
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${_icon_png} -DOUTPUT=${_icon_cpp} -DSYMBOL=kAppIconPng
+                "-DCOMMENT=assets/branding/icon-256.png" -P ${CMAKE_CURRENT_SOURCE_DIR}/embed.cmake
+        DEPENDS ${_icon_png} ${CMAKE_CURRENT_SOURCE_DIR}/embed.cmake
+        COMMENT "Embedding the application icon"
+        VERBATIM)
+endif()
 
 # ------------------------------------------------------------------ game catalog (from games/*/game.toml and regions)
 # Identification data only (disc ids, dump sizes and SHA-1 hashes), which the legal rules allow (see CONTRIBUTING.md).
@@ -113,6 +128,7 @@ add_executable(mhf_launcher
     native/install/installer.cpp
     native/install/prx_decryptor.cpp
     ${_ui_cpp}
+    ${_icon_cpp}
 )
 target_include_directories(mhf_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(mhf_launcher PRIVATE mhf_core mhf_psp_tools mhf_webview mhf_prx)
@@ -141,12 +157,31 @@ foreach(game IN LISTS MHF_GAMES)
     endif()
 endforeach()
 
+# ------------------------------------------------------------------ install (Linux)
+# `cmake --install build/linux-clang --prefix ~/.local` puts the launcher, the game (when it was built), the fonts,
+# the desktop entry and the icon where the desktop finds them.
+if(UNIX AND NOT APPLE)
+    install(TARGETS mhf_launcher RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    if(TARGET mhfu)
+        install(TARGETS mhfu RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+        install(DIRECTORY ${PROJECT_SOURCE_DIR}/third_party/fonts/liberation-sans/
+                DESTINATION ${CMAKE_INSTALL_BINDIR}/fonts
+                FILES_MATCHING PATTERN "*.ttf" PATTERN "LICENSE")
+    endif()
+    install(FILES ${PROJECT_SOURCE_DIR}/packaging/linux/MHForever.desktop
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES ${PROJECT_SOURCE_DIR}/assets/branding/icon-256.png
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps RENAME mhforever.png)
+    install(FILES ${PROJECT_SOURCE_DIR}/LICENSE ${PROJECT_SOURCE_DIR}/THIRD_PARTY.md
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/MHForever)
+endif()
+
 # ------------------------------------------------------------------ tests
 if(MHF_BUILD_TESTS)
     add_executable(test_launcher tests/test_launcher.cpp native/launcher.cpp native/json.cpp native/hash.cpp
                                  native/platform.cpp native/install/data_dir.cpp
                                  native/install/executable_preparation.cpp native/install/installer.cpp
-                                 native/install/prx_decryptor.cpp)
+                                 native/install/prx_decryptor.cpp ${_icon_cpp})
     target_include_directories(test_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(test_launcher PRIVATE mhf_psp_tools mhf_webview mhf_prx)
     if(WIN32)

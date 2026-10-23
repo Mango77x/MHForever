@@ -1,8 +1,10 @@
 #include "platform.hpp"
 
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <random>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -19,6 +21,12 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
+
+#if !defined(_WIN32)
+// The application icon, embedded by launcher/embed.cmake from assets/branding/icon-256.png.
+extern const unsigned char kAppIconPng[];
+extern const std::size_t kAppIconPngSize;
 #endif
 
 namespace mhf::launcher::platform {
@@ -335,11 +343,23 @@ bool copy_to_clipboard(void *, const std::string &utf8) {
 
 void random_bytes(std::uint8_t *out, std::size_t size) {
     std::ifstream urandom("/dev/urandom", std::ios::binary);
-    urandom.read(reinterpret_cast<char *>(out), static_cast<std::streamsize>(size));
+    if (urandom) urandom.read(reinterpret_cast<char *>(out), static_cast<std::streamsize>(size));
+    if (urandom && urandom.gcount() == static_cast<std::streamsize>(size)) return;
+    std::random_device fallback; // no /dev/urandom (an unusual container): the standard device still works
+    for (std::size_t i = 0; i < size; ++i) out[i] = static_cast<std::uint8_t>(fallback());
 }
 
 void style_window(void *window) {
-    if (window != nullptr) gtk_window_set_default_icon_name("applications-games");
+    // The name and icon the desktop shows for the window (WM_CLASS, the task bar, alt-tab).
+    g_set_prgname("MHForever");
+    g_set_application_name("MHForever");
+    if (window == nullptr) return;
+    GdkPixbufLoader *loader = gdk_pixbuf_loader_new();
+    if (gdk_pixbuf_loader_write(loader, kAppIconPng, static_cast<gsize>(kAppIconPngSize), nullptr)) {
+        gdk_pixbuf_loader_close(loader, nullptr);
+        if (GdkPixbuf *icon = gdk_pixbuf_loader_get_pixbuf(loader)) gtk_window_set_icon(GTK_WINDOW(window), icon);
+    }
+    g_object_unref(loader);
 }
 
 void show_error(const std::string &title, const std::string &message) {
@@ -355,19 +375,46 @@ void show_error(const std::string &title, const std::string &message) {
 
 std::optional<Process> Process::start(const fs::path &program, const std::vector<std::string> &args, const fs::path &cwd,
                                       const fs::path &log_file, std::string &error) {
+    // The child changes to `cwd` before it starts the program, so a relative program must be resolved here.
+    std::error_code ec;
+    const fs::path absolute = fs::absolute(program, ec);
     std::vector<std::string> argv_store;
-    argv_store.push_back(program.string());
+    argv_store.push_back((ec ? program : absolute).string());
     argv_store.insert(argv_store.end(), args.begin(), args.end());
     std::vector<char *> argv;
     for (auto &a : argv_store) argv.push_back(a.data());
     argv.push_back(nullptr);
+
+    // A pipe tells us why exec failed: the child can only report it through its exit code otherwise.
+    int report[2] = {-1, -1};
+    if (pipe(report) != 0) {
+        error = "Could not start the game process (" + std::string(std::strerror(errno)) + ").";
+        return std::nullopt;
+    }
+    if (fcntl(report[1], F_SETFD, FD_CLOEXEC) != 0) {
+        close(report[0]);
+        close(report[1]);
+        error = "Could not start the game process (" + std::string(std::strerror(errno)) + ").";
+        return std::nullopt;
+    }
     const pid_t pid = fork();
     if (pid < 0) {
-        error = "Could not start the game process.";
+        const int failed = errno;
+        close(report[0]);
+        close(report[1]);
+        error = "Could not start the game process (" + std::string(std::strerror(failed)) + ").";
         return std::nullopt;
     }
     if (pid == 0) {
-        if (chdir(cwd.c_str()) != 0) _exit(126);
+        close(report[0]);
+        const auto report_failure = [&](int code) {
+            const ssize_t ignored = write(report[1], &code, sizeof code);
+            (void)ignored;
+        };
+        if (chdir(cwd.c_str()) != 0) {
+            report_failure(errno);
+            _exit(126);
+        }
         const int fd = open(log_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) {
             dup2(fd, 1);
@@ -375,7 +422,22 @@ std::optional<Process> Process::start(const fs::path &program, const std::vector
             close(fd);
         }
         execv(argv[0], argv.data());
+        report_failure(errno);
         _exit(127);
+    }
+    close(report[1]);
+    int child_error = 0;
+    ssize_t read_bytes = 0;
+    do {
+        read_bytes = read(report[0], &child_error, sizeof child_error);
+    } while (read_bytes < 0 && errno == EINTR);
+    close(report[0]);
+    if (read_bytes == static_cast<ssize_t>(sizeof child_error)) {
+        int status = 0;
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+        }
+        error = "Could not start " + to_utf8(program.filename()) + " (" + std::string(std::strerror(child_error)) + ").";
+        return std::nullopt;
     }
     Process p;
     p.pid_ = pid;
