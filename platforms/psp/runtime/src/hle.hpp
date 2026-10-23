@@ -29,7 +29,8 @@ inline void ret64(Context &ctx, std::uint64_t value) {
 
 // Joins the part of a PSP path after "device:" onto `root`. Nothing is returned when the path would leave the root
 // (".." above it) or contains a component the host could read as something else than a plain name: a ':' (a Windows
-// drive such as "C:", or an NTFS stream) or a character Windows forbids in file names.
+// drive such as "C:", or an NTFS stream) or a character Windows forbids in file names. An empty root is a device with no
+// folder behind it: nothing is ever returned for it.
 [[nodiscard]] std::optional<std::filesystem::path> resolve_under_root(const std::filesystem::path &root,
                                                                        const std::string &rest);
 

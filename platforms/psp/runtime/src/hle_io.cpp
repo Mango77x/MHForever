@@ -1,7 +1,7 @@
 // IoFileMgrForUser and StdioForUser over host folders (docs/05-runtime-hle.md).
 //
 // Devices: "ms0:" (memory stick) → options.memstick_root, "disc0:"/"umd0:"/"umd1:" → options.disc_root,
-// "host0:" → options.host_root. Asynchronous calls complete immediately; their result is kept for WaitAsync/PollAsync.
+// "host0:" → options.host_root (closed unless a developer sets it). Asynchronous calls complete immediately; their result is kept for WaitAsync/PollAsync.
 
 #include "hle.hpp"
 #include "kernel.hpp"
@@ -715,6 +715,7 @@ const HleFunction kFunctions[] = {
 } // namespace
 
 std::optional<fs::path> resolve_under_root(const fs::path &root, const std::string &rest) {
+    if (root.empty()) return std::nullopt; // a device with no folder behind it (host0: unless a developer sets one)
     std::vector<std::string> parts;
     std::size_t start = 0;
     while (start <= rest.size()) {

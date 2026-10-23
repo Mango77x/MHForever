@@ -174,12 +174,21 @@ core/net ── one UDP socket per player, shared by every peer link
    aot_load*/aot_store*, slow path for anything outside RAM) and indirect jumps only reach recompiled functions or the
    interpreter, so a game exploit stays inside the virtual PSP. The walls to harden are the HLE boundaries:
    - `hle_io.cpp` `host_path()`: reject path components with a drive or root name (`C:`, `\\?\`, ADS `file:stream`) —
-     on Windows `root / "C:"` replaces the root and escapes the memory stick folder. **Found 2026-10-17, to fix.**
-   - `host0:` maps to `RuntimeOptions::host_root` (debug); disable it in player builds. **To fix.**
-   - GE direct memory reads (`gpu/ge.cpp` host/rd*/wr*, `raw_pointer`): every list/vertex/texture address must stay
-     inside RAM/VRAM bounds.
-   - Every HLE function that takes guest pointers/sizes: validate ranges (savedata, font, atrac, sas, net).
-   - Fuzz the ad-hoc HLE entry points and the HLE file/GE boundaries with malformed input before release.
+     on Windows `root / "C:"` replaces the root and escapes the memory stick folder. **Fixed** (`resolve_under_root`,
+     tested in `test_hle_io`).
+   - `host0:` maps to `RuntimeOptions::host_root` (debug). **Fixed 2026-10-23:** empty by default, and an empty root never
+     resolves, so the device is closed unless a developer tool sets a folder.
+   - GE direct memory reads. **Checked 2026-10-23:** the GE reaches memory only through `host(address, length)`, which
+     returns nothing outside RAM and the EDRAM mirrors (reads give 0, writes are dropped); the OpenGL backend and the
+     frontend use `GuestMemory::raw_pointer(address, length)`, also bounds-checked, and skip a null result.
+   - HLE functions that take guest pointers/sizes. **Checked 2026-10-23:** they go through `GuestMemory`
+     (`load*`/`store*`/`copy_in`/`copy_out`/`read_string`), which throws outside guest memory; `Kernel::thread_main`
+     catches it and stops the program with a message. A bad pointer from the network therefore ends the game cleanly
+     instead of touching host memory. Host buffers sized by the guest (`hle_misc`, savedata, thread arguments) can at
+     worst fail to allocate, which ends the same way. The new net HLE must follow the same rule and cap every size by
+     the protocol limits (PDP 10 KiB, PTP 50 KiB blocks).
+   - Fuzz the ad-hoc HLE entry points and the HLE file/GE boundaries with malformed input before release. **Pending**,
+     with the net HLE.
 2. **IP exposure.** Linked players see each other's IP (city-level geolocation, possible DDoS while playing).
    **Design correction:** the public friend code must not be a permanent rendezvous, or anyone holding a leaked code
    could find a player's IP and online times. So:

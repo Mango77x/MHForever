@@ -71,7 +71,9 @@ struct RuntimeOptions {
     std::filesystem::path disc_root = "disc";
     // When set, "disc0:"/"umd0:" are served read-only from this ISO image instead of disc_root.
     std::filesystem::path disc_image;
-    std::filesystem::path host_root = ".";
+    // "host0:" is a debugging device: empty (the default) keeps it closed, so a game never reaches the host's files
+    // outside the memory stick and the disc (docs/08-multiplayer.md section 4.6). Only developer tools set it.
+    std::filesystem::path host_root;
     // Folder with the free fonts served by sceLibFont (third_party/fonts, copied next to the executable).
     std::filesystem::path font_directory = "fonts";
     // Text the on-screen keyboard starts with when the game's field is empty (e.g. the hunter's name, from the

@@ -32,6 +32,11 @@ int main() {
     MHF_CHECK(!resolve_under_root(kRoot, "/a/b|c").has_value());
     MHF_CHECK(!resolve_under_root(kRoot, "/a/b?").has_value());
 
+    // A device with no folder behind it (host0: in player builds) never resolves.
+    MHF_CHECK(!resolve_under_root({}, "/a").has_value());
+    MHF_CHECK(!resolve_under_root({}, "").has_value());
+    MHF_CHECK(mhf::psp::RuntimeOptions{}.host_root.empty());
+
     // A Runtime's I/O state must not outlive it: a new Runtime at the same address starts from the defaults.
     {
         using mhf::psp::Runtime;

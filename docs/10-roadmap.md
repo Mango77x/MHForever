@@ -98,8 +98,9 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 - The network layer is shared by every future console (3DS, Switch, PS2, Wii, Wii U): `core/net` offers rooms
   (packets or inputs mode), each console adds an adapter (`08-multiplayer.md` §1.1).
-- [ ] Harden HLE boundaries first (`08-multiplayer.md` §4.6: disable `host0:` in player builds, GE address bounds,
-  pointer validation, fuzzing). The Windows drive-letter path escape is fixed (`resolve_under_root`).
+- [x] Harden HLE boundaries first (`08-multiplayer.md` §4.6): the Windows drive-letter path escape is fixed,
+  `host0:` is closed by default, and the GE and HLE guest memory bounds were checked (2026-10-23). Fuzzing comes with the
+  net HLE.
 - First transport: the community's ad hoc servers (PPSSPP/aemu), decided 2026-10-23 (`08-multiplayer.md` §1.2).
 - [ ] Vendor the aemu_postoffice client; PSP adapter (`sceNetAdhoc*`, `sceNetAdhocctl*`, `sceNetAdhocDiscover*`) with
   tracing; adhoctest homebrew against a local reference server.
