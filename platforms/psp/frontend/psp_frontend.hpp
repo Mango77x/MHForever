@@ -5,6 +5,8 @@
 
 #include "mhf/psp/runtime.hpp"
 
+#include "host/keymap.hpp"
+
 #include <functional>
 #include <memory>
 
@@ -19,8 +21,10 @@ public:
     // With `gpu`, the GE draws through OpenGL at `render_scale` times the PSP resolution (software rendering is the
     // fallback when OpenGL 3.3 is missing). `fullscreen` starts in borderless fullscreen; `smooth_textures` is the
     // bilinear texture enhancement and `target_fps` the output rate: multiples of the game's 30 fps up to 180, made with in-between pictures.
+    // `keys` is which physical key stands for which pad button (the launcher's keyboard bindings).
     bool open(const char *title, bool hidden = false, int scale = 2, bool gpu = true, int render_scale = 4,
-              bool fullscreen = false, bool smooth_textures = false, int target_fps = 30);
+              bool fullscreen = false, bool smooth_textures = false, int target_fps = 30,
+              const host::KeyBindings &keys = {});
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
     void attach(Runtime &rt, std::function<void()> extra = {});

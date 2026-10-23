@@ -139,7 +139,7 @@ Frontend::~Frontend() {
 }
 
 bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int render_scale, bool fullscreen,
-                    bool smooth_textures, int target_fps) {
+                    bool smooth_textures, int target_fps, const host::KeyBindings &keys) {
     host::HostOptions o;
     o.title = title;
     o.hidden = hidden;
@@ -151,6 +151,7 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
     impl_->target_fps = target_fps;
     impl_->title = title;
     impl_->open = impl_->host.open(o);
+    impl_->host.set_keymap(keys);
     if (impl_->open && fullscreen && !hidden) impl_->host.toggle_fullscreen();
     return impl_->open;
 }
