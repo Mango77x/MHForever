@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MHForever VERSION 0.5.0 LANGUAGES CXX)
+project(MHForever VERSION 0.5.0 LANGUAGES C CXX)
 
 # Windows executables carry the MHForever icon (a resource file, compiled by the platform resource compiler).
 if(WIN32)
@@ -64,6 +64,7 @@ add_subdirectory(third_party/pokke_save_crypto)
 # FFmpeg decodes the movies (H.264 + ATRAC3/ATRAC3+) and the game's music; by default it is built with the project
 # (cmake/ffmpeg.cmake, docs/02-architecture.md section 9).
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ffmpeg.cmake)
+add_subdirectory(third_party/aemu_postoffice)
 add_subdirectory(core)
 add_subdirectory(platforms/psp)
 foreach(game IN LISTS MHF_GAMES)
