@@ -54,7 +54,7 @@ int main(int argc, char **argv) {
         const auto &program = mhf::psp::generated::MHF_CONCAT(MHF_PROGRAM, _program)();
 #if defined(MHF_HAS_FRONTEND)
         mhf::psp::Frontend frontend;
-        if (window && frontend.open("homebrew", false, 2, !software, 2)) frontend.attach(runtime);
+        if (window && frontend.open("homebrew", false, 2, !software, 2, false, false, 30)) frontend.attach(runtime);
 #else
         (void)window;
         (void)software;

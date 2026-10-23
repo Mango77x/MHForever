@@ -2,6 +2,7 @@
 
 #include "dialog_overlay.hpp"
 #include "gl_backend.hpp"
+#include "host/keymap.hpp"
 #include "host/sdl_host.hpp"
 #include "overlay/menu.hpp"
 #include "mhf/psp/dialog.hpp"
@@ -139,7 +140,7 @@ Frontend::~Frontend() {
 }
 
 bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int render_scale, bool fullscreen,
-                    bool smooth_textures, int target_fps, const host::KeyBindings &keys) {
+                    bool smooth_textures, int target_fps) {
     host::HostOptions o;
     o.title = title;
     o.hidden = hidden;
@@ -151,10 +152,17 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
     impl_->target_fps = target_fps;
     impl_->title = title;
     impl_->open = impl_->host.open(o);
-    impl_->host.set_keymap(keys);
     if (impl_->open && fullscreen && !hidden) impl_->host.toggle_fullscreen();
     return impl_->open;
 }
+
+template <typename KeyBindings>
+void Frontend::set_keymap(const KeyBindings &keys) {
+    impl_->host.set_keymap(keys);
+}
+
+// The game's keyboard bindings (mhfu --keymap); the homebrew runner never instantiates it.
+template void Frontend::set_keymap<host::KeyBindings>(const host::KeyBindings &);
 
 namespace {
 
