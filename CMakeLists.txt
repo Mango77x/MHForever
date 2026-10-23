@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MHForever VERSION 0.4.1 LANGUAGES CXX)
+project(MHForever VERSION 0.4.1 LANGUAGES C CXX)
 
 # Windows executables carry the MHForever icon (a resource file, compiled by the platform resource compiler).
 if(WIN32)
@@ -62,6 +62,7 @@ add_subdirectory(third_party/psprecomp)
 add_subdirectory(third_party/stb)
 add_subdirectory(third_party/at3_standalone)
 add_subdirectory(third_party/pokke_save_crypto)
+add_subdirectory(third_party/aemu_postoffice)
 add_subdirectory(core)
 add_subdirectory(platforms/psp)
 foreach(game IN LISTS MHF_GAMES)
