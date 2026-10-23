@@ -27,6 +27,9 @@ export interface Settings {
   sfxVolume: number; // 0..100
   // Which physical key stands for which pad button: UI Events codes ("KeyK", "ArrowLeft"...), '' when unbound.
   keys: Record<string, string>;
+  // Which controller button stands for which pad button: SDL gamepad names joined with '+', '' when unbound; `stick` is
+  // 'left', 'right' or ''.
+  pad: Record<string, string>;
 }
 
 export interface Stats {
@@ -42,6 +45,7 @@ export interface State {
   friendCode: string;
   settings: Settings;
   keyDefaults: Record<string, string>; // what "Restore defaults" puts back (Settings → Controls)
+  padDefaults: Record<string, string>;
   games: Game[];
   stats: Stats;
   executable: { path: string; found: boolean };
@@ -104,6 +108,11 @@ function simulated(): Native {
     up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
     stick_up: 'KeyW', stick_down: 'KeyS', stick_left: 'KeyA', stick_right: 'KeyD',
   };
+  const defaultPad: Record<string, string> = {
+    south: 'south', east: 'east', west: 'west', north: 'north',
+    left_shoulder: 'left_shoulder+left_trigger', right_shoulder: 'right_shoulder+right_trigger', start: 'start', select: 'back',
+    up: 'dpad_up', down: 'dpad_down', left: 'dpad_left', right: 'dpad_right', stick: 'left',
+  };
   const state: State = {
     version: '0.4.1-dev',
     platform: 'browser',
@@ -111,9 +120,10 @@ function simulated(): Native {
     friendCode: 'K7Q2-M9XA-4RTD-8PLE',
     settings: {
       scale: 4, fullscreen: false, smoothTextures: false, fps: 30, copyImage: false, musicVolume: 80, sfxVolume: 90,
-      keys: { ...defaultKeys },
+      keys: { ...defaultKeys }, pad: { ...defaultPad },
     },
     keyDefaults: defaultKeys,
+    padDefaults: defaultPad,
     games: [],
     stats: { secondsPlayed: 0, sessions: 0, lastPlayed: null },
     executable: { path: '', found: true },

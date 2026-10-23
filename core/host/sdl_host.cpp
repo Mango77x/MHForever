@@ -1,6 +1,7 @@
 #include "host/sdl_host.hpp"
 
 #include "host/keymap_sdl.hpp"
+#include "host/padmap_sdl.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -25,6 +26,7 @@ struct SdlHost::Impl {
     bool text_input{};
     bool initialized{};
     KeyScancodes bindings = resolve_keymap(KeyBindings{});
+    PadMapping pad = resolve_padmap(PadBindings{});
 };
 
 SdlHost::SdlHost() : impl_(std::make_unique<Impl>()) {}
@@ -116,6 +118,14 @@ void SdlHost::set_keymap(const KeyBindings &bindings) {
     impl_->bindings = resolve_keymap(bindings, &unknown);
     for (const std::string &code : unknown) {
         std::fprintf(stderr, "[host] unknown key \"%s\": using the default for that button\n", code.c_str());
+    }
+}
+
+void SdlHost::set_padmap(const PadBindings &bindings) {
+    std::vector<std::string> unknown;
+    impl_->pad = resolve_padmap(bindings, &unknown);
+    for (const std::string &name : unknown) {
+        std::fprintf(stderr, "[host] unknown controller input \"%s\": using the default for that button\n", name.c_str());
     }
 }
 
@@ -268,25 +278,26 @@ GamepadState SdlHost::input() const {
     s.left_x = (down[k.stick_right] ? 1.0f : 0.0f) - (down[k.stick_left] ? 1.0f : 0.0f);
     s.left_y = (down[k.stick_down] ? 1.0f : 0.0f) - (down[k.stick_up] ? 1.0f : 0.0f);
     for (auto *g : impl_->gamepads) {
-        s.south |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_SOUTH);
-        s.east |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_EAST);
-        s.west |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_WEST);
-        s.north |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_NORTH);
-        s.left_shoulder |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) ||
-                           SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 16000;
-        s.right_shoulder |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER) ||
-                            SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16000;
-        s.start |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_START);
-        s.select |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_BACK);
+        const PadMapping &p = impl_->pad; // the player's bindings, in the order of kPadActions
+        s.south |= pad_pressed(g, p.buttons[0]);
+        s.east |= pad_pressed(g, p.buttons[1]);
+        s.west |= pad_pressed(g, p.buttons[2]);
+        s.north |= pad_pressed(g, p.buttons[3]);
+        s.left_shoulder |= pad_pressed(g, p.buttons[4]);
+        s.right_shoulder |= pad_pressed(g, p.buttons[5]);
+        s.start |= pad_pressed(g, p.buttons[6]);
+        s.select |= pad_pressed(g, p.buttons[7]);
         s.guide |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_GUIDE);
-        s.up |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_UP);
-        s.down |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_DOWN);
-        s.left |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_LEFT);
-        s.right |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
+        s.up |= pad_pressed(g, p.buttons[8]);
+        s.down |= pad_pressed(g, p.buttons[9]);
+        s.left |= pad_pressed(g, p.buttons[10]);
+        s.right |= pad_pressed(g, p.buttons[11]);
         auto axis = [g](SDL_GamepadAxis a) { return static_cast<float>(SDL_GetGamepadAxis(g, a)) / 32767.0f; };
-        const float lx = axis(SDL_GAMEPAD_AXIS_LEFTX), ly = axis(SDL_GAMEPAD_AXIS_LEFTY);
-        if (std::fabs(lx) > std::fabs(s.left_x)) s.left_x = lx;
-        if (std::fabs(ly) > std::fabs(s.left_y)) s.left_y = ly;
+        if (p.stick_x != SDL_GAMEPAD_AXIS_INVALID) {
+            const float lx = axis(p.stick_x), ly = axis(p.stick_y);
+            if (std::fabs(lx) > std::fabs(s.left_x)) s.left_x = lx;
+            if (std::fabs(ly) > std::fabs(s.left_y)) s.left_y = ly;
+        }
         const float rx = axis(SDL_GAMEPAD_AXIS_RIGHTX), ry = axis(SDL_GAMEPAD_AXIS_RIGHTY);
         if (std::fabs(rx) > std::fabs(s.right_x)) s.right_x = rx;
         if (std::fabs(ry) > std::fabs(s.right_y)) s.right_y = ry;

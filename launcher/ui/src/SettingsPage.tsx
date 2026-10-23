@@ -5,6 +5,7 @@ import { CopyIcon } from './icons';
 import { frameRates, resolutions } from './format';
 import { setNavigationPaused } from './gamepad';
 import { keyGroups, keyLabel, reservedKeys } from './keys';
+import { anySourcePressed, assignSource, padGroups, padLabel, pressedSource, stickChoices } from './pad';
 
 const rise = (delay: number) => ({
   initial: { opacity: 0, y: 18, filter: 'blur(6px)' },
@@ -122,7 +123,7 @@ function ImportSaves({ gameId }: { gameId: string | undefined }) {
 
 // Keyboard bindings: click a key and press the one you want. Two buttons can never share a key (the other one takes
 // the key this one had), Backspace leaves a button without a key, Esc cancels (docs/07-launcher-ux.md section 5).
-function Controls({ keys, defaults, onChange }: {
+function KeyboardControls({ keys, defaults, onChange }: {
   keys: Record<string, string>;
   defaults: Record<string, string>;
   onChange: (s: Partial<Settings>) => void;
@@ -174,7 +175,7 @@ function Controls({ keys, defaults, onChange }: {
       <div className="srow">
         <div className="slabel">
           <b>Keyboard</b>
-          <span>Click a key and press the one you want. Backspace removes it, Esc cancels. Controllers are unchanged.</span>
+          <span>Click a key and press the one you want. Backspace removes it, Esc cancels.</span>
         </div>
         <button className="ghost mid" onClick={() => { setNotice(''); onChange({ keys: { ...defaults } }); }}>Restore defaults</button>
       </div>
@@ -209,6 +210,148 @@ function Controls({ keys, defaults, onChange }: {
   );
 }
 
+// Controller bindings: click a button and press the one you want on the controller. Two buttons never share a source (the
+// other one takes the source this one had), Backspace or Delete on the keyboard leaves a button empty, Esc cancels. The
+// controller's own navigation is paused while recording (docs/07-launcher-ux.md section 5).
+function PadControls({ pad, defaults, onChange }: {
+  pad: Record<string, string>;
+  defaults: Record<string, string>;
+  onChange: (s: Partial<Settings>) => void;
+}) {
+  const [capturing, setCapturing] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
+  const latest = useRef({ pad, onChange });
+  latest.current = { pad, onChange };
+
+  useEffect(() => {
+    const check = () => setConnected(Array.from(navigator.getGamepads ? navigator.getGamepads() : []).some((g) => g && g.connected));
+    check();
+    window.addEventListener('gamepadconnected', check);
+    window.addEventListener('gamepaddisconnected', check);
+    return () => {
+      window.removeEventListener('gamepadconnected', check);
+      window.removeEventListener('gamepaddisconnected', check);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!capturing) return;
+    setNavigationPaused(true);
+    let frame = 0;
+    let released = !anySourcePressed(); // the press that started the recording must not be the answer
+    const poll = () => {
+      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      let pressed: string | null = null;
+      for (const g of pads) {
+        if (g && g.connected && pressed === null) pressed = pressedSource(g);
+      }
+      if (pressed === null) released = true;
+      else if (released) {
+        latest.current.onChange({ pad: assignSource(latest.current.pad, capturing, pressed) });
+        setCapturing(null);
+        return;
+      }
+      frame = requestAnimationFrame(poll);
+    };
+    frame = requestAnimationFrame(poll);
+    const key = (e: KeyboardEvent) => {
+      if (e.code === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setCapturing(null);
+      } else if (e.code === 'Backspace' || e.code === 'Delete') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        latest.current.onChange({ pad: { ...latest.current.pad, [capturing]: '' } });
+        setCapturing(null);
+      }
+    };
+    window.addEventListener('keydown', key, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('keydown', key, true);
+      setNavigationPaused(false);
+    };
+  }, [capturing]);
+
+  const stick = pad.stick ?? 'left';
+  const stickIndex = Math.max(0, stickChoices.findIndex((c) => c.value === stick));
+  return (
+    <>
+      <div className="srow">
+        <div className="slabel">
+          <b>Controller</b>
+          <span>
+            {connected
+              ? 'Click a button and press the one you want on your controller. Backspace removes it, Esc cancels.'
+              : 'No controller detected. Connect one and press any button, then click a button to change it.'}
+          </span>
+        </div>
+        <button className="ghost mid" onClick={() => onChange({ pad: { ...defaults } })}>Restore defaults</button>
+      </div>
+      {padGroups.map((group) => (
+        <div className="srow" key={group.title}>
+          <div className="slabel"><b>{group.title}</b></div>
+          <div className="row-wrap" style={{ gap: 8 }}>
+            {group.actions.map((action) => {
+              const value = pad[action.id] ?? '';
+              const listening = capturing === action.id;
+              return (
+                <button
+                  key={action.id}
+                  className={'keycap' + (listening ? ' listening' : '') + (value ? '' : ' unset')}
+                  aria-label={`${action.label}: ${listening ? 'press a button' : padLabel(value)}`}
+                  onClick={() => setCapturing(listening ? null : action.id)}
+                >
+                  <span className="keycap-name">{action.label}</span>
+                  <span className="keycap-key">{listening ? 'Press a button…' : padLabel(value)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <div className="srow">
+        <div className="slabel"><b>Analog stick</b><span>Which stick moves the character.</span></div>
+        <div className="seg wide" role="radiogroup" aria-label="Analog stick" style={{ '--n': stickChoices.length } as CSSProperties}>
+          <span className="pill" style={{ transform: `translateX(${stickIndex * 100}%)` }} />
+          {stickChoices.map((choice) => (
+            <button key={choice.value} className={stick === choice.value ? 'on' : ''} role="radio" aria-checked={stick === choice.value}
+              onClick={() => onChange({ pad: { ...pad, stick: choice.value } })}>{choice.label}</button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Controls({ keys, pad, keyDefaults, padDefaults, onChange }: {
+  keys: Record<string, string>;
+  pad: Record<string, string>;
+  keyDefaults: Record<string, string>;
+  padDefaults: Record<string, string>;
+  onChange: (s: Partial<Settings>) => void;
+}) {
+  const [device, setDevice] = useState<'keyboard' | 'controller'>('keyboard');
+  const options = [['keyboard', 'Keyboard'], ['controller', 'Controller']] as const;
+  return (
+    <>
+      <div className="srow">
+        <div className="slabel"><b>Edit the controls of</b><span>Both work at the same time while playing.</span></div>
+        <div className="seg wide" role="radiogroup" aria-label="Device" style={{ '--n': options.length } as CSSProperties}>
+          <span className="pill" style={{ transform: `translateX(${device === 'keyboard' ? 0 : 100}%)` }} />
+          {options.map(([id, label]) => (
+            <button key={id} className={device === id ? 'on' : ''} role="radio" aria-checked={device === id} onClick={() => setDevice(id)}>{label}</button>
+          ))}
+        </div>
+      </div>
+      {device === 'keyboard'
+        ? <KeyboardControls keys={keys} defaults={keyDefaults} onChange={onChange} />
+        : <PadControls pad={pad} defaults={padDefaults} onChange={onChange} />}
+    </>
+  );
+}
+
 export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChangeCopy, onRemoveCopy, onLocateExecutable }: Props) {
   const s = state.settings;
   const [name, setName] = useState(state.pseudonym);
@@ -223,7 +366,7 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
     <section className="settings">
       <motion.div className="page-title" {...rise(0)}>
         <h2>Settings</h2>
-        <p>Saved automatically. Video, audio and keyboard changes apply the next time the game starts.</p>
+        <p>Saved automatically. Video, audio and control changes apply the next time the game starts.</p>
       </motion.div>
 
       <motion.div className="glass section" {...rise(0.06)}>
@@ -258,7 +401,7 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
 
       <motion.div className="glass section" {...rise(0.08)}>
         <h3>Controls</h3>
-        <Controls keys={s.keys ?? {}} defaults={state.keyDefaults ?? {}} onChange={onChange} />
+        <Controls keys={s.keys ?? {}} pad={s.pad ?? {}} keyDefaults={state.keyDefaults ?? {}} padDefaults={state.padDefaults ?? {}} onChange={onChange} />
       </motion.div>
 
       <motion.div className="glass section" {...rise(0.1)}>

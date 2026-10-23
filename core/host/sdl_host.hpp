@@ -5,6 +5,7 @@
 // Console-independent: platforms map GamepadState to their own buttons.
 
 #include "host/keymap.hpp"
+#include "host/padmap.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -56,9 +57,10 @@ public:
     // Opens the window and audio. Returns false (and logs why) when SDL cannot start.
     bool open(const HostOptions &options);
 
-    // Which physical key stands for which button of the emulated pad. The defaults are KeyBindings{}; the launcher
-    // passes the player's choices, see docs/07-launcher-ux.md section 5.
+    // Which physical key, and which button of a controller, stands for which button of the emulated pad. The defaults are
+    // KeyBindings{} and PadBindings{}; the launcher passes the player's choices, see docs/07-launcher-ux.md section 5.
     void set_keymap(const KeyBindings &bindings);
+    void set_padmap(const PadBindings &bindings);
 
     // Processes pending events. Returns false once the user asked to close the window.
     bool poll();

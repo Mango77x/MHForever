@@ -173,6 +173,31 @@ int main(int argc, char **argv) {
         CHECK(saved["start"].as_string() == "Enter");
         CHECK(!saved.has("jump"));
 
+        // Controller bindings: defaults, a change with several sources, an unbound button, and input the launcher ignores.
+        CHECK(state["settings"]["pad"]["south"].as_string() == "south");
+        CHECK(state["settings"]["pad"]["left_shoulder"].as_string() == "left_shoulder+left_trigger");
+        CHECK(state["padDefaults"]["select"].as_string() == "back");
+        Json pad;
+        pad["south"] = "dpad_up+right_trigger";
+        pad["east"] = "";                // deliberately unbound
+        pad["west"] = "banana";          // not a source
+        pad["north"] = "south+nothing";  // one part is not a source
+        pad["start"] = 5;                // not a string
+        pad["stick"] = "right";
+        pad["jump"] = "south";           // not a button of the pad
+        Json pad_edit;
+        pad_edit["pad"] = pad;
+        l.set_settings(pad_edit);
+        const Json pad_state = l.state();
+        const Json &pad_saved = pad_state["settings"]["pad"];
+        CHECK(pad_saved["south"].as_string() == "dpad_up+right_trigger");
+        CHECK(pad_saved["east"].as_string().empty());
+        CHECK(pad_saved["west"].as_string() == "west");
+        CHECK(pad_saved["north"].as_string() == "north");
+        CHECK(pad_saved["start"].as_string() == "start");
+        CHECK(pad_saved["stick"].as_string() == "right");
+        CHECK(!pad_saved.has("jump"));
+
         auto plan = l.plan_launch("mhfu");
         CHECK(!plan.error.empty()); // no game files here
     }
@@ -184,6 +209,8 @@ int main(int argc, char **argv) {
         CHECK(again.state()["settings"]["keys"]["south"].as_string() == "KeyZ");
         CHECK(again.state()["settings"]["keys"]["select"].as_string().empty());
         CHECK(again.state()["settings"]["keys"]["east"].as_string() == "KeyL");
+        CHECK(again.state()["settings"]["pad"]["south"].as_string() == "dpad_up+right_trigger");
+        CHECK(again.state()["settings"]["pad"]["stick"].as_string() == "right");
     }
 
     // launcher.json lives in the data folder; one left next to the executable by an older version is copied there once.

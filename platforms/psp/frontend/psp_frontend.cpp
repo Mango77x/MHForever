@@ -3,6 +3,7 @@
 #include "dialog_overlay.hpp"
 #include "gl_backend.hpp"
 #include "host/keymap.hpp"
+#include "host/padmap.hpp"
 #include "host/sdl_host.hpp"
 #include "overlay/menu.hpp"
 #include "mhf/psp/dialog.hpp"
@@ -156,13 +157,14 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
     return impl_->open;
 }
 
-template <typename KeyBindings>
-void Frontend::set_keymap(const KeyBindings &keys) {
+template <typename KeyBindings, typename PadBindings>
+void Frontend::set_bindings(const KeyBindings &keys, const PadBindings &pad) {
     impl_->host.set_keymap(keys);
+    impl_->host.set_padmap(pad);
 }
 
-// The game's keyboard bindings (mhfu --keymap); the homebrew runner never instantiates it.
-template void Frontend::set_keymap<host::KeyBindings>(const host::KeyBindings &);
+// The game's keyboard and controller bindings (mhfu --keymap, --padmap); the homebrew runner never instantiates it.
+template void Frontend::set_bindings<host::KeyBindings, host::PadBindings>(const host::KeyBindings &, const host::PadBindings &);
 
 namespace {
 
