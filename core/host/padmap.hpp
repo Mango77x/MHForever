@@ -52,4 +52,7 @@ inline constexpr std::array<std::string_view, 17> kPadSources = {
 [[nodiscard]] PadBindings parse_padmap(std::string_view text);
 [[nodiscard]] std::string format_padmap(const PadBindings &pad);
 
+// The name of a binding as a player knows it: "A (Cross)", "LB (L1) + LT (L2)", "Not set" for an empty one.
+[[nodiscard]] std::string pad_label(std::string_view binding);
+
 } // namespace mhf::host

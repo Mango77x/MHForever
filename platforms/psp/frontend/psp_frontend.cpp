@@ -49,6 +49,9 @@ struct Frontend::Impl {
     bool menu_requested{};
     bool guide_down{};
     int music_volume{100}, sfx_volume{100};
+    host::KeyBindings keys; // what the Controls tab edits; the host reads them on every poll
+    host::PadBindings pad;
+    int capture_id{};       // the Controls row waiting for a key or a button, 0 when none
     std::string title;
     LiveSettings live; // what the menu changes while the game runs
     bool open{};
@@ -159,6 +162,8 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
 
 template <typename KeyBindings, typename PadBindings>
 void Frontend::set_bindings(const KeyBindings &keys, const PadBindings &pad) {
+    impl_->keys = keys;
+    impl_->pad = pad;
     impl_->host.set_keymap(keys);
     impl_->host.set_padmap(pad);
 }
@@ -258,7 +263,16 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
     impl.dialog_cv.notify_one();
 }
 
-enum MenuId { kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth };
+enum MenuId { kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kPadStick, kRestoreKeys, kRestorePad };
+
+// The Controls tab: one Binding row per key action (ids from kKeyBase, in the order of host::kKeyActions) and per pad button
+// (from kPadBase, in the order of host::kPadActions).
+constexpr int kKeyBase = 1000, kPadBase = 2000;
+constexpr std::string_view kActionLabels[] = {"Cross", "Circle", "Square", "Triangle", "L", "R", "Start", "Select",
+                                              "D-pad Up", "D-pad Down", "D-pad Left", "D-pad Right",
+                                              "Stick Up", "Stick Down", "Stick Left", "Stick Right"};
+constexpr std::size_t kPadButtons = 12; // the pad actions before the stick
+constexpr std::string_view kStickChoices[] = {"left", "right", ""};
 
 constexpr int kMaxScale = 10;                 // 1x..10x the PSP's 480x272
 constexpr int kFpsChoices[] = {30, 60, 90, 120, 150, 180}; // whole multiples of the game's 30 fps
@@ -298,7 +312,30 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
     overlay::MenuTab video{"Video", {menu_item(Kind::Heading, 0, "Picture"), scale, fps, menu_item(Kind::Heading, 0, "Display"),
                                       menu_item(Kind::Toggle, kFullscreen, "Fullscreen", impl.host.window_rect().fullscreen ? 1 : 0),
                                       menu_item(Kind::Toggle, kSmooth, "Smooth textures", impl.live.smooth_textures ? 1 : 0)}};
-    v.tabs = {game, audio, video};
+    overlay::MenuTab controls{"Controls", {menu_item(Kind::Heading, 0, "Keyboard")}};
+    for (std::size_t i = 0; i < host::kKeyActions.size(); ++i) {
+        const int id = kKeyBase + static_cast<int>(i);
+        overlay::MenuItem row = menu_item(Kind::Binding, id, std::string(kActionLabels[i]), impl.capture_id == id ? 1 : 0);
+        row.text = host::key_label(*host::key_binding(impl.keys, host::kKeyActions[i]));
+        controls.items.push_back(row);
+    }
+    controls.items.push_back(menu_item(Kind::Button, kRestoreKeys, "Restore keyboard defaults"));
+    controls.items.push_back(menu_item(Kind::Heading, 0, "Controller"));
+    for (std::size_t i = 0; i < kPadButtons; ++i) {
+        const int id = kPadBase + static_cast<int>(i);
+        overlay::MenuItem row = menu_item(Kind::Binding, id, std::string(kActionLabels[i]), impl.capture_id == id ? 1 : 0);
+        row.text = host::pad_label(*host::pad_binding(impl.pad, host::kPadActions[i]));
+        controls.items.push_back(row);
+    }
+    overlay::MenuItem stick = menu_item(Kind::Choice, kPadStick, "Analog stick");
+    stick.options = {"Left stick", "Right stick", "None"};
+    for (std::size_t i = 0; i < std::size(kStickChoices); ++i) {
+        if (impl.pad.stick == kStickChoices[i]) stick.value = static_cast<int>(i);
+    }
+    controls.items.push_back(stick);
+    controls.items.push_back(menu_item(Kind::Button, kRestorePad, "Restore controller defaults"));
+    if (impl.capture_id != 0) v.hint = "Press the new key or button  |  Backspace removes it  |  Esc cancels";
+    v.tabs = {game, audio, video, controls};
     return v;
 }
 
@@ -312,6 +349,75 @@ overlay::MenuView menu_confirm_quit() {
     v.tabs = {overlay::MenuTab{"Quit the game?", {menu_item(Kind::Info, 0, "Progress since your last save is lost."),
                                                     menu_item(Kind::Button, kQuitNo, "Keep playing"), yes}}};
     return v;
+}
+
+void apply_bindings(Frontend::Impl &impl) {
+    impl.host.set_keymap(impl.keys);
+    impl.host.set_padmap(impl.pad);
+}
+
+void end_capture(Frontend::Impl &impl) {
+    if (impl.capture_id == 0) return;
+    impl.capture_id = 0;
+    impl.host.set_capture(false);
+    impl.menu.set(menu_main(impl));
+}
+
+// Gives `value` to `action`. No other action keeps it: one that had it takes what this one had. A pad button may hold
+// several sources ("left_shoulder+left_trigger"): the new one is taken out of those lists.
+template <typename Bindings, typename Lookup>
+void assign_binding(Bindings &bindings, Lookup binding_of, std::string_view action, const std::string &value, bool pad) {
+    std::string *slot = binding_of(bindings, action);
+    if (slot == nullptr) return;
+    const std::string previous = *slot;
+    if (!value.empty()) {
+        const std::size_t count = pad ? kPadButtons : host::kKeyActions.size();
+        for (std::size_t i = 0; i < count; ++i) {
+            std::string *other = binding_of(bindings, pad ? host::kPadActions[i] : host::kKeyActions[i]);
+            if (other == nullptr || other == slot) continue;
+            if (!pad) {
+                if (*other == value) *other = previous;
+                continue;
+            }
+            std::string rest;
+            bool found = false;
+            std::size_t start = 0;
+            while (start <= other->size()) {
+                const std::size_t plus = other->find('+', start);
+                const std::string part = other->substr(start, plus == std::string::npos ? std::string::npos : plus - start);
+                if (part == value) found = true;
+                else if (!part.empty()) rest += (rest.empty() ? "" : "+") + part;
+                if (plus == std::string::npos) break;
+                start = plus + 1;
+            }
+            if (found) *other = rest.empty() ? previous : rest;
+        }
+    }
+    *slot = value;
+}
+
+// What the player pressed while a Controls row waited for it.
+void handle_capture(Frontend::Impl &impl) {
+    const bool pad_row = impl.capture_id >= kPadBase;
+    const std::size_t index = static_cast<std::size_t>(impl.capture_id - (pad_row ? kPadBase : kKeyBase));
+    for (const host::CapturedInput &c : impl.host.take_captured()) {
+        if (c.pad != pad_row) continue; // a keyboard row takes a key, a controller row a button
+        if (!c.pad && c.name == "Escape") {
+            end_capture(impl);
+            return;
+        }
+        if (!c.pad && c.name == "F11") continue; // the game keeps it for fullscreen
+        std::string value = c.name;
+        if (!c.pad && (c.name == "Backspace" || c.name == "Delete")) value.clear();
+        if (pad_row) {
+            assign_binding(impl.pad, [](host::PadBindings &b, std::string_view a) { return host::pad_binding(b, a); }, host::kPadActions[index], value, true);
+        } else {
+            assign_binding(impl.keys, [](host::KeyBindings &b, std::string_view a) { return host::key_binding(b, a); }, host::kKeyActions[index], value, false);
+        }
+        apply_bindings(impl);
+        end_capture(impl);
+        return;
+    }
 }
 
 // What the menu reported (a key, a click, a drag). False once the menu should close.
@@ -338,7 +444,24 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         case kQuitYes:
             rt.exit_program_from_host(0);
             return false;
-        default: return true;
+        case kRestoreKeys:
+            impl.keys = host::KeyBindings{};
+            apply_bindings(impl);
+            impl.menu.set(menu_main(impl));
+            return true;
+        case kRestorePad:
+            impl.pad = host::PadBindings{};
+            apply_bindings(impl);
+            impl.menu.set(menu_main(impl));
+            return true;
+        default:
+            if (e.id >= kKeyBase && e.id < kPadBase + static_cast<int>(kPadButtons)) { // a Controls row: wait for the new key or button
+                const bool same = impl.capture_id == e.id;
+                impl.capture_id = same ? 0 : e.id;
+                impl.host.set_capture(!same);
+                impl.menu.set(menu_main(impl));
+            }
+            return true;
         }
     case overlay::Menu::Event::Kind::Changed:
         switch (e.id) {
@@ -350,6 +473,10 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             impl.render_scale = e.value + 1;
             impl.live.scale = impl.render_scale; // the drawing thread applies it at the next picture
             impl.menu.set(menu_main(impl));      // the size shown under the row follows
+            break;
+        case kPadStick:
+            impl.pad.stick = std::string(kStickChoices[std::clamp(e.value, 0, static_cast<int>(std::size(kStickChoices)) - 1)]);
+            apply_bindings(impl);
             break;
         case kFps:
             impl.target_fps = kFpsChoices[std::clamp(e.value, 0, static_cast<int>(std::size(kFpsChoices)) - 1)];
@@ -441,8 +568,10 @@ void run_menu(Frontend::Impl &impl, Runtime &rt) {
             rt.exit_program_from_host(0);
             break;
         }
+        const bool capturing = impl.capture_id != 0; // a Controls row waits for a key or a button: nothing else acts
         std::vector<Key> keys;
         for (const auto &k : impl.host.take_key_events()) {
+            if (capturing) continue;
             using K = host::KeyEvent::Kind;
             switch (k.kind) {
             case K::Up: keys.push_back(Key::Up); break;
@@ -458,7 +587,13 @@ void run_menu(Frontend::Impl &impl, Runtime &rt) {
             }
         }
         const auto since = std::chrono::steady_clock::now() - started;
-        menu_pad_keys(pad_state, impl.host.input(), static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(since).count()), keys);
+        if (capturing) {
+            handle_capture(impl);
+            // What is held when the capture ends (the button just assigned) must not act in the menu.
+            if (impl.capture_id == 0) pad_state.accept = pad_state.back = pad_state.prev = pad_state.next = pad_state.up = pad_state.down = pad_state.left = pad_state.right = true;
+        } else {
+            menu_pad_keys(pad_state, impl.host.input(), static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(since).count()), keys);
+        }
         for (const Key key : keys) {
             if (!menu_press(impl, rt, key)) {
                 open = false;
@@ -487,6 +622,10 @@ void run_menu(Frontend::Impl &impl, Runtime &rt) {
                         impl.menu.hover_row(hit.index);
                     }
                 } else if (m.kind == host::MouseEvent::Kind::Down) {
+                    if (impl.capture_id != 0) { // a click elsewhere gives up the assignment
+                        end_capture(impl);
+                        continue;
+                    }
                     if (hit.kind == Hit::Kind::Tab) {
                         impl.menu.click_tab(hit.index);
                     } else if (hit.kind == Hit::Kind::Row) {
@@ -522,6 +661,8 @@ void run_menu(Frontend::Impl &impl, Runtime &rt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(8));
     }
     impl.host.set_mouse_events(false);
+    impl.capture_id = 0;
+    impl.host.set_capture(false);
     impl.menu_open = false;
     {
         std::lock_guard lock(impl.overlay.mutex);

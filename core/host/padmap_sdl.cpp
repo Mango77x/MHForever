@@ -82,6 +82,13 @@ PadMapping resolve_padmap(const PadBindings &pad, std::vector<std::string> *unkn
     return out;
 }
 
+std::string name_for_button(SDL_GamepadButton button) {
+    for (const auto &[name, known] : kButtons) {
+        if (known == button) return std::string(name);
+    }
+    return {};
+}
+
 bool pad_pressed(SDL_Gamepad *gamepad, const PadSources &sources) {
     for (int i = 0; i < sources.count; ++i) {
         const PadSource &s = sources.list[static_cast<std::size_t>(i)];

@@ -122,6 +122,7 @@ Menu::Event Menu::press(Key key) {
     const int direction = key == Key::Left ? -1 : key == Key::Right ? 1 : 0;
     switch (item.kind) {
     case MenuItem::Kind::Button:
+    case MenuItem::Kind::Binding:
         if (key == Key::Accept) return {Event::Kind::Activated, item.id, 0};
         return {};
     case MenuItem::Kind::Slider:
@@ -196,7 +197,8 @@ Menu::Event Menu::click_row(int row, float along, bool on_bar) {
     MenuItem &item = items()[static_cast<std::size_t>(row)];
     if (!selectable(item)) return {};
     switch (item.kind) {
-    case MenuItem::Kind::Button: return {Event::Kind::Activated, item.id, 0};
+    case MenuItem::Kind::Button:
+    case MenuItem::Kind::Binding: return {Event::Kind::Activated, item.id, 0};
     case MenuItem::Kind::Toggle: return set_value(item, item.value != 0 ? 0 : 1);
     case MenuItem::Kind::Choice: {
         const int n = static_cast<int>(item.options.size());
@@ -367,6 +369,14 @@ struct MenuRenderer::Impl : Painter {
                 if (item.value + 1 < static_cast<int>(item.options.size())) text(right + 3.0f, base, "\xE2\x80\xBA", 11.0f, kAccent, 1.0f, true);
             }
             control = tw + 22.0f;
+            break;
+        }
+        case MenuItem::Kind::Binding: {
+            const bool waiting = item.value != 0;
+            const std::string shown = waiting ? "Press a button..." : item.text;
+            const float tw = measure(shown, 8.0f, true);
+            text(right - tw, base, shown, 8.0f, waiting ? kAccent : (item.text == "Not set" ? kDim : kText), alpha, true);
+            control = tw + 14.0f;
             break;
         }
         case MenuItem::Kind::Button:

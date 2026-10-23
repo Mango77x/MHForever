@@ -1,5 +1,7 @@
 #include "host/padmap.hpp"
 
+#include <utility>
+
 namespace mhf::host {
 namespace {
 
@@ -8,6 +10,14 @@ std::string_view trim(std::string_view text) {
     while (!text.empty() && (text.back() == ' ' || text.back() == '\t')) text.remove_suffix(1);
     return text;
 }
+
+constexpr std::pair<std::string_view, std::string_view> kSourceLabels[] = {
+    {"south", "A (Cross)"},       {"east", "B (Circle)"},      {"west", "X (Square)"},       {"north", "Y (Triangle)"},
+    {"left_shoulder", "LB (L1)"}, {"right_shoulder", "RB (R1)"}, {"left_trigger", "LT (L2)"}, {"right_trigger", "RT (R2)"},
+    {"back", "Back (Select)"},    {"start", "Start"},          {"guide", "Guide"},           {"left_stick", "L3"},
+    {"right_stick", "R3"},        {"dpad_up", "D-pad Up"},     {"dpad_down", "D-pad Down"},  {"dpad_left", "D-pad Left"},
+    {"dpad_right", "D-pad Right"},
+};
 
 std::string PadBindings::*member_for(std::string_view action) {
     if (action == "south") return &PadBindings::south;
@@ -27,6 +37,25 @@ std::string PadBindings::*member_for(std::string_view action) {
 }
 
 } // namespace
+
+std::string pad_label(std::string_view binding) {
+    if (binding.empty()) return "Not set";
+    std::string out;
+    std::size_t start = 0;
+    while (start <= binding.size()) {
+        const std::size_t plus = binding.find('+', start);
+        const std::string_view part = binding.substr(start, plus == std::string_view::npos ? std::string_view::npos : plus - start);
+        std::string label(part);
+        for (const auto &[name, text] : kSourceLabels) {
+            if (part == name) label = std::string(text);
+        }
+        if (!out.empty()) out.append(" + ");
+        out.append(label);
+        if (plus == std::string_view::npos) break;
+        start = plus + 1;
+    }
+    return out;
+}
 
 std::string *pad_binding(PadBindings &pad, std::string_view action) {
     const auto member = member_for(action);

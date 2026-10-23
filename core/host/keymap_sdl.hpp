@@ -38,4 +38,7 @@ struct KeyScancodes {
 // The scancode of one UI Events code ("KeyK", "ArrowLeft"...), or SDL_SCANCODE_UNKNOWN.
 [[nodiscard]] SDL_Scancode scancode_for_code(std::string_view code);
 
+// The other way round: the UI Events code of a scancode, or "" when the host has no name for it.
+[[nodiscard]] std::string code_for_scancode(SDL_Scancode scancode);
+
 } // namespace mhf::host

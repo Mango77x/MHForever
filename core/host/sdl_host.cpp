@@ -27,6 +27,9 @@ struct SdlHost::Impl {
     bool initialized{};
     KeyScancodes bindings = resolve_keymap(KeyBindings{});
     PadMapping pad = resolve_padmap(PadBindings{});
+    bool capture = false;
+    std::vector<CapturedInput> captured;
+    bool trigger_down[2] = {false, false}; // left, right: a trigger counts as pressed once, past this much of its travel
 };
 
 SdlHost::SdlHost() : impl_(std::make_unique<Impl>()) {}
@@ -129,6 +132,17 @@ void SdlHost::set_padmap(const PadBindings &bindings) {
     }
 }
 
+void SdlHost::set_capture(bool on) {
+    impl_->capture = on;
+    impl_->captured.clear();
+}
+
+std::vector<CapturedInput> SdlHost::take_captured() {
+    std::vector<CapturedInput> out;
+    out.swap(impl_->captured);
+    return out;
+}
+
 void SdlHost::show_cursor(bool show) {
     if (show) SDL_ShowCursor();
     else SDL_HideCursor();
@@ -154,6 +168,10 @@ bool SdlHost::poll() {
         switch (e.type) {
         case SDL_EVENT_QUIT: keep_running = false; break;
         case SDL_EVENT_KEY_DOWN:
+            if (impl_->capture && !e.key.repeat) {
+                const std::string code = code_for_scancode(e.key.scancode);
+                if (!code.empty()) impl_->captured.push_back({false, code});
+            }
             if (e.key.key == SDLK_F11 || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT) != 0)) {
                 toggle_fullscreen();
                 break;
@@ -194,6 +212,22 @@ bool SdlHost::poll() {
             break;
         case SDL_EVENT_TEXT_INPUT:
             if (impl_->text_input && e.text.text != nullptr) impl_->keys.push_back({KeyEvent::Kind::Text, e.text.text});
+            break;
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            if (impl_->capture) {
+                const std::string name = name_for_button(static_cast<SDL_GamepadButton>(e.gbutton.button));
+                if (!name.empty() && name != "guide") impl_->captured.push_back({true, name});
+            }
+            break;
+        case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+            if (e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || e.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) {
+                const bool right = e.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER;
+                const bool down = e.gaxis.value > 16000;
+                if (down && !impl_->trigger_down[right ? 1 : 0] && impl_->capture) {
+                    impl_->captured.push_back({true, right ? "right_trigger" : "left_trigger"});
+                }
+                impl_->trigger_down[right ? 1 : 0] = down;
+            }
             break;
         case SDL_EVENT_GAMEPAD_ADDED:
             if (SDL_Gamepad *g = SDL_OpenGamepad(e.gdevice.which)) impl_->gamepads.push_back(g);

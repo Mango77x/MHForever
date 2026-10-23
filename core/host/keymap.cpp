@@ -1,5 +1,8 @@
 #include "host/keymap.hpp"
 
+#include <cctype>
+#include <utility>
+
 namespace mhf::host {
 namespace {
 
@@ -29,7 +32,33 @@ std::string KeyBindings::*member_for(std::string_view action) {
     return nullptr;
 }
 
+constexpr std::pair<std::string_view, std::string_view> kLabels[] = {
+    {"ArrowUp", "Up"},           {"ArrowDown", "Down"},       {"ArrowLeft", "Left"},        {"ArrowRight", "Right"},
+    {"ShiftLeft", "Left Shift"}, {"ShiftRight", "Right Shift"}, {"ControlLeft", "Left Ctrl"}, {"ControlRight", "Right Ctrl"},
+    {"AltLeft", "Left Alt"},     {"AltRight", "Right Alt"},   {"MetaLeft", "Left Win"},     {"MetaRight", "Right Win"},
+    {"Backquote", "`"},          {"Minus", "-"},              {"Equal", "="},               {"BracketLeft", "["},
+    {"BracketRight", "]"},       {"Backslash", "\\"},         {"Semicolon", ";"},           {"Quote", "'"},
+    {"Comma", ","},              {"Period", "."},             {"Slash", "/"},
+};
+
 } // namespace
+
+std::string key_label(std::string_view code) {
+    if (code.empty()) return "Not set";
+    for (const auto &[name, label] : kLabels) {
+        if (code == name) return std::string(label);
+    }
+    if (code.size() == 4 && code.compare(0, 3, "Key") == 0) return std::string(code.substr(3));
+    if (code.size() == 6 && code.compare(0, 5, "Digit") == 0) return std::string(code.substr(5));
+    if (code.size() > 6 && code.compare(0, 6, "Numpad") == 0) return "Num " + key_label(code.substr(6));
+    // "PageUp" -> "Page Up", "CapsLock" -> "Caps Lock"
+    std::string out;
+    for (std::size_t i = 0; i < code.size(); ++i) {
+        if (i > 0 && std::isupper(static_cast<unsigned char>(code[i])) != 0 && std::islower(static_cast<unsigned char>(code[i - 1])) != 0) out.push_back(' ');
+        out.push_back(code[i]);
+    }
+    return out;
+}
 
 std::string *key_binding(KeyBindings &keys, std::string_view action) {
     const auto member = member_for(action);

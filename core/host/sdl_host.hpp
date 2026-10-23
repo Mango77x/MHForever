@@ -37,6 +37,13 @@ struct MouseEvent {
     int wheel{}; // Wheel: +1 up, -1 down
 };
 
+// A key or controller button pressed while the host is capturing input to rebind it (set_capture): a UI Events code
+// ("KeyK", "ArrowLeft") for the keyboard, a gamepad name ("south", "left_trigger") for a controller.
+struct CapturedInput {
+    bool pad{};
+    std::string name;
+};
+
 struct HostOptions {
     const char *title = "MH-Forever";
     int width = 480;   // emulated screen size
@@ -75,6 +82,10 @@ public:
     // Mouse events since the last call, collected by poll() only while set_mouse_events(true) (left button and wheel).
     [[nodiscard]] std::vector<MouseEvent> take_mouse_events();
     void set_mouse_events(bool on);
+    // While on, every new key press and controller button press is also reported by take_captured(), by name, whatever the
+    // bindings are: the in-game menu uses it to learn the button a player wants to assign.
+    void set_capture(bool on);
+    [[nodiscard]] std::vector<CapturedInput> take_captured();
     // Shows or hides the mouse cursor over the window.
     void show_cursor(bool show);
     // Text entry (IME, typed characters). While it is on, the keyboard no longer acts as a gamepad.

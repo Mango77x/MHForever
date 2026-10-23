@@ -61,5 +61,13 @@ int main() {
     no_stick.stick.clear();
     MHF_CHECK(resolve_padmap(no_stick).stick_x == SDL_GAMEPAD_AXIS_INVALID);
 
+    // Names of buttons, both ways, and the labels players read.
+    MHF_CHECK(name_for_button(SDL_GAMEPAD_BUTTON_SOUTH) == "south");
+    MHF_CHECK(name_for_button(SDL_GAMEPAD_BUTTON_DPAD_LEFT) == "dpad_left");
+    MHF_CHECK(name_for_button(SDL_GAMEPAD_BUTTON_MISC1).empty());
+    MHF_CHECK(pad_label("south") == "A (Cross)");
+    MHF_CHECK(pad_label("left_shoulder+left_trigger") == "LB (L1) + LT (L2)");
+    MHF_CHECK(pad_label("") == "Not set");
+
     return mhf::test::finish("host_padmap");
 }

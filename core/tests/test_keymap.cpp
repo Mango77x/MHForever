@@ -67,5 +67,21 @@ int main() {
     MHF_CHECK(partial.north == SDL_SCANCODE_I); // the default for Triangle
     MHF_CHECK(unknown.size() == 1 && unknown[0] == "NotAKey");
 
+    // Every code the host knows maps back to the same scancode, and labels read like a keyboard.
+    for (const char *code : {"KeyA", "KeyZ", "Digit0", "Digit1", "Digit9", "Numpad0", "Numpad7", "F1", "F12", "Enter", "ArrowLeft",
+                             "ShiftRight", "Backquote", "NumpadEnter", "IntlBackslash"}) {
+        const SDL_Scancode scancode = scancode_for_code(code);
+        MHF_CHECK(scancode != SDL_SCANCODE_UNKNOWN);
+        MHF_CHECK(code_for_scancode(scancode) == code);
+    }
+    MHF_CHECK(code_for_scancode(SDL_SCANCODE_UNKNOWN).empty());
+    MHF_CHECK(key_label("KeyK") == "K");
+    MHF_CHECK(key_label("Digit5") == "5");
+    MHF_CHECK(key_label("ArrowUp") == "Up");
+    MHF_CHECK(key_label("ShiftLeft") == "Left Shift");
+    MHF_CHECK(key_label("NumpadEnter") == "Num Enter");
+    MHF_CHECK(key_label("PageDown") == "Page Down");
+    MHF_CHECK(key_label("").empty() == false && key_label("") == "Not set");
+
     return mhf::test::finish("host_keymap");
 }

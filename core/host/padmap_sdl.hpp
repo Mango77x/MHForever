@@ -35,6 +35,9 @@ struct PadMapping {
 // A name this host does not know falls back to that action's default and is added to `unknown`.
 [[nodiscard]] PadMapping resolve_padmap(const PadBindings &pad, std::vector<std::string> *unknown = nullptr);
 
+// The name of a button as a binding spells it ("south", "dpad_up"...), or "" for one that cannot be bound.
+[[nodiscard]] std::string name_for_button(SDL_GamepadButton button);
+
 // Whether any source of `sources` is held on `gamepad`.
 [[nodiscard]] bool pad_pressed(SDL_Gamepad *gamepad, const PadSources &sources);
 
