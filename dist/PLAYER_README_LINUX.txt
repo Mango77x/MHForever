@@ -46,8 +46,9 @@ deletes only its prepared data (never your original .iso or your saves).
 
 Steam Deck
 ----------
-Extract the folder and add MHForever as a non-Steam game (Game Mode > Add a Non-Steam Game). Use the controller:
-the launcher and the in-game menu work without a keyboard. The game window supports 1280x800 and fullscreen.
+This release has not been tested on a Steam Deck. It is a normal desktop build: extract the folder and add MHForever as
+a non-Steam game (Game Mode > Add a Non-Steam Game). Controller-only use, 1280x800 and Game Mode are untested; reports
+are welcome.
 
 
 If something does not start
