@@ -162,16 +162,23 @@ endforeach()
 # the desktop entry and the icon where the desktop finds them.
 if(UNIX AND NOT APPLE)
     install(TARGETS mhf_launcher RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-    if(TARGET mhfu)
-        install(TARGETS mhfu RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    foreach(game IN LISTS MHF_GAMES)
+        if(TARGET ${game})
+            install(TARGETS ${game} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+            set(_installs_games ON)
+        endif()
+    endforeach()
+    if(_installs_games)
         install(DIRECTORY ${PROJECT_SOURCE_DIR}/third_party/fonts/liberation-sans/
                 DESTINATION ${CMAKE_INSTALL_BINDIR}/fonts
                 FILES_MATCHING PATTERN "*.ttf" PATTERN "LICENSE")
     endif()
     install(FILES ${PROJECT_SOURCE_DIR}/packaging/linux/MHForever.desktop
             DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-    install(FILES ${PROJECT_SOURCE_DIR}/assets/branding/icon-256.png
-            DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps RENAME mhforever.png)
+    foreach(size 16 32 64 128 256 512)
+        install(FILES ${PROJECT_SOURCE_DIR}/assets/branding/icon-${size}.png
+                DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/${size}x${size}/apps RENAME mhforever.png)
+    endforeach()
     install(FILES ${PROJECT_SOURCE_DIR}/LICENSE ${PROJECT_SOURCE_DIR}/THIRD_PARTY.md
             DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/MHForever)
 endif()
