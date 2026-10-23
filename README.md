@@ -101,6 +101,8 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
 - **[theguyser](https://github.com/theguyser)**, author of pokke (a port of the Japanese
   release of the same game): the PSP save-data cryptography that lets MHForever read and write saves in the PSP and PPSSPP
   format comes from his project, shared with his permission, along with his time and advice.
+- **[sodomon2](https://github.com/sodomon2)**, for the Linux packaging, the desktop integration and the launcher fixes that
+  came with them (pull request #7).
 - **[PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp)**, the static recompiler framework this project is built on.
 - **[PPSSPP](https://github.com/hrydgard/ppsspp)**, for the executable decryption and the ATRAC decoders used here, and as the
   reference for how the PSP behaves.

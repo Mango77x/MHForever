@@ -96,3 +96,7 @@ The archives are assembled from programs built elsewhere; game data never goes i
    This writes `MHForever-<version>-linux-x64.tar.gz` and its `.sha256`; the execute permission of both programs is
    kept. The text shown to players is `dist/PLAYER_README_LINUX.txt`. As on Windows, the version comes from
    `CMakeLists.txt`.
+
+Release archives are always built by the maintainer on their own machine (for Linux: on a Linux install, a virtual
+machine or WSL), never by CI and never by a third party, because they are programs people will run. CI only builds and
+tests, and checks that the Linux archive layout still packages (it uses the core program as a stand-in for the game).
