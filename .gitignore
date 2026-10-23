@@ -48,5 +48,14 @@ homebrew/**/*.elf
 build*/
 windows-msvc/
 
+# Release archives (made by scripts/package_release.py)
+MHForever-*.zip
+MHForever-*.zip.sha256
+MHForever-*.tar.gz
+MHForever-*.tar.gz.sha256
+
 # Saves written by developer runs of mhfu/homebrew with the default memory stick folder
 /memstick/
+
+# Python bytecode
+__pycache__/
