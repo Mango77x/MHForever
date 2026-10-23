@@ -70,6 +70,17 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
       - name: Test
         run: ctest --preset ${{ matrix.preset }}
+      - name: Package the Linux release layout
+        if: runner.os == 'Linux'
+        run: |
+          cp build/linux-clang/core/mhf /tmp/mhfu
+          python3 scripts/package_release.py --platform linux \
+            --launcher build/linux-clang/launcher/MHForever --game /tmp/mhfu \
+            --fonts third_party/fonts/liberation-sans --out /tmp/mhf-release
+          # The archive, the core program and CMakeLists.txt must agree on the version.
+          version=$(build/linux-clang/core/mhf --version)
+          test -f "/tmp/mhf-release/MHForever-${version}-linux-x64.tar.gz"
+          tar tzf "/tmp/mhf-release/MHForever-${version}-linux-x64.tar.gz"
 
   # AddressSanitizer + UndefinedBehaviorSanitizer over the whole test suite.
   sanitizers:

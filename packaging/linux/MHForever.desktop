@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=MHForever
+GenericName=Native PC port launcher
+Comment=Play your own copy of Freedom Unite natively
+Exec=MHForever
+Icon=mhforever
+Terminal=false
+StartupWMClass=MHForever
+Categories=Game;
+Keywords=recompilation;
