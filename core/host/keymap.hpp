@@ -47,4 +47,7 @@ inline constexpr std::array<std::string_view, 16> kKeyActions = {
 [[nodiscard]] KeyBindings parse_keymap(std::string_view text);
 [[nodiscard]] std::string format_keymap(const KeyBindings &keys);
 
+// The name of a key as a player knows it: "K", "Up", "Left Shift", "Not set" for an empty code.
+[[nodiscard]] std::string key_label(std::string_view code);
+
 } // namespace mhf::host

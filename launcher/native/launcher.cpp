@@ -2,6 +2,7 @@
 
 #include "hash.hpp"
 #include "host/keymap.hpp"
+#include "host/padmap.hpp"
 #include "install/data_dir.hpp"
 #include "install/installer.hpp"
 #include "iso9660.hpp"
@@ -80,6 +81,13 @@ Json default_settings() {
         if (const std::string *key = host::key_binding(defaults, action)) keys[std::string(action)] = *key;
     }
     s["keys"] = keys;
+    // Controller bindings: SDL gamepad names (docs/07-launcher-ux.md section 5), joined with '+' when several press the button.
+    const host::PadBindings pad_defaults;
+    Json pad;
+    for (const std::string_view action : host::kPadActions) {
+        if (const std::string *source = host::pad_binding(pad_defaults, action)) pad[std::string(action)] = *source;
+    }
+    s["pad"] = pad;
     return s;
 }
 
@@ -92,6 +100,34 @@ host::KeyBindings key_bindings_from(const Json &keys) {
         if (std::string *slot = host::key_binding(bindings, action)) *slot = value.as_string();
     }
     return bindings;
+}
+
+// The controller bindings a launcher.json holds; actions it does not mention keep their default.
+host::PadBindings pad_bindings_from(const Json &pad) {
+    host::PadBindings bindings;
+    for (const std::string_view action : host::kPadActions) {
+        const Json &value = pad[action];
+        if (!value.is_string()) continue;
+        if (std::string *slot = host::pad_binding(bindings, action)) *slot = value.as_string();
+    }
+    return bindings;
+}
+
+// An empty string is a pad button the player left without a source; otherwise every part must be a known one. The stick
+// is "left", "right" or empty.
+bool valid_pad_value(std::string_view action, const std::string &value) {
+    if (value.empty()) return true;
+    if (action == "stick") return value == "left" || value == "right";
+    std::size_t start = 0;
+    int parts = 0;
+    while (start <= value.size()) {
+        const std::size_t plus = value.find('+', start);
+        const std::string_view part = std::string_view(value).substr(start, plus == std::string::npos ? std::string::npos : plus - start);
+        if (++parts > 4 || std::find(host::kPadSources.begin(), host::kPadSources.end(), part) == host::kPadSources.end()) return false;
+        if (plus == std::string::npos) break;
+        start = plus + 1;
+    }
+    return true;
 }
 
 // An empty string is a button the player left without a key; anything else must look like a UI Events code.
@@ -112,6 +148,7 @@ Launcher::Launcher(fs::path base_dir, fs::path data_dir, fs::path saves_dir)
     : base_(std::move(base_dir)), file_(data_dir / "launcher.json"), data_dir_(std::move(data_dir)),
       saves_dir_(std::move(saves_dir)), decryptor_(install::builtin_decryptor()) {
     load();
+    import_game_controls();
 }
 
 void Launcher::import_legacy_saves(const std::string &disc_id) {
@@ -432,6 +469,7 @@ Json Launcher::state() {
     s["friendCode"] = friend_code();
     s["settings"] = data_["settings"];
     s["keyDefaults"] = default_settings()["keys"]; // what "Restore defaults" puts back
+    s["padDefaults"] = default_settings()["pad"];
     s["stats"] = data_["stats"];
     Json games(Json::Array{});
     const CatalogEntry *playable = nullptr;
@@ -459,6 +497,37 @@ Json Launcher::state() {
     return s;
 }
 
+void Launcher::import_game_controls() {
+    std::error_code ec;
+    if (!fs::is_regular_file(controls_file(), ec)) return;
+    Json keys, pad;
+    {
+        std::ifstream in(controls_file());
+        for (std::string line; std::getline(in, line);) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            const std::size_t equals = line.find('=');
+            if (equals == std::string::npos) continue;
+            const std::string name = line.substr(0, equals), text = line.substr(equals + 1);
+            if (name == "keymap") {
+                const host::KeyBindings parsed = host::parse_keymap(text);
+                for (const std::string_view action : host::kKeyActions) {
+                    if (const std::string *key = host::key_binding(parsed, action)) keys[std::string(action)] = *key;
+                }
+            } else if (name == "padmap") {
+                const host::PadBindings parsed = host::parse_padmap(text);
+                for (const std::string_view action : host::kPadActions) {
+                    if (const std::string *source = host::pad_binding(parsed, action)) pad[std::string(action)] = *source;
+                }
+            }
+        }
+    }
+    Json partial;
+    partial["keys"] = keys;
+    partial["pad"] = pad;
+    set_settings(partial); // anything that does not validate is ignored there
+    fs::remove(controls_file(), ec);
+}
+
 void Launcher::set_settings(const Json &partial) {
     std::lock_guard lock(mutex_);
     Json &s = data_["settings"];
@@ -483,6 +552,15 @@ void Launcher::set_settings(const Json &partial) {
             const std::string code = value.as_string();
             if (!valid_key_code(code)) continue;
             keys[action] = code;
+        }
+    }
+    if (partial["pad"].is_object()) {
+        Json &pad = s["pad"];
+        for (const auto &[action, value] : partial["pad"].as_object()) {
+            const bool known = std::any_of(host::kPadActions.begin(), host::kPadActions.end(),
+                                           [&](std::string_view name) { return action == name; });
+            if (!known || !value.is_string() || !valid_pad_value(action, value.as_string())) continue;
+            pad[action] = value.as_string();
         }
     }
     save();
@@ -681,6 +759,10 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
     // Always sent, so the game cannot fall back to defaults that differ from what the launcher shows.
     plan.args.push_back("--keymap");
     plan.args.push_back(host::format_keymap(key_bindings_from(s["keys"])));
+    plan.args.push_back("--padmap");
+    plan.args.push_back(host::format_padmap(pad_bindings_from(s["pad"])));
+    plan.args.push_back("--controls-file"); // where the game writes what the player changes in its menu
+    plan.args.push_back(platform::to_utf8(controls_file()));
     fs::create_directories(stick, ec);
     return plan;
 }

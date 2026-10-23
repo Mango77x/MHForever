@@ -19,6 +19,7 @@ struct MenuItem {
         Slider,  // Left/Right change `value` by `step` within min..max
         Toggle,  // `value` 0 or 1; Left/Right/Accept flip it
         Choice,  // `value` is an index into `options`; Left/Right/Accept move it (wrapping with Accept)
+        Binding, // a button the player assigns: `text` is what it is set to, `value` 1 while it waits for a press; Accept activates it
         Info,    // text only, never selected
         Heading, // a title for the rows below, never selected
     };
@@ -26,6 +27,7 @@ struct MenuItem {
     int id = 0;          // what the owner calls it
     std::string label;
     std::string detail;  // dim second line (optional)
+    std::string text;    // Binding: the current assignment
     int value = 0;
     int min = 0, max = 100, step = 5;
     std::vector<std::string> options;

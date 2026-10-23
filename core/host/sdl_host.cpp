@@ -1,6 +1,7 @@
 #include "host/sdl_host.hpp"
 
 #include "host/keymap_sdl.hpp"
+#include "host/padmap_sdl.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -25,6 +26,10 @@ struct SdlHost::Impl {
     bool text_input{};
     bool initialized{};
     KeyScancodes bindings = resolve_keymap(KeyBindings{});
+    PadMapping pad = resolve_padmap(PadBindings{});
+    bool capture = false;
+    std::vector<CapturedInput> captured;
+    bool trigger_down[2] = {false, false}; // left, right: a trigger counts as pressed once, past this much of its travel
 };
 
 SdlHost::SdlHost() : impl_(std::make_unique<Impl>()) {}
@@ -119,6 +124,25 @@ void SdlHost::set_keymap(const KeyBindings &bindings) {
     }
 }
 
+void SdlHost::set_padmap(const PadBindings &bindings) {
+    std::vector<std::string> unknown;
+    impl_->pad = resolve_padmap(bindings, &unknown);
+    for (const std::string &name : unknown) {
+        std::fprintf(stderr, "[host] unknown controller input \"%s\": using the default for that button\n", name.c_str());
+    }
+}
+
+void SdlHost::set_capture(bool on) {
+    impl_->capture = on;
+    impl_->captured.clear();
+}
+
+std::vector<CapturedInput> SdlHost::take_captured() {
+    std::vector<CapturedInput> out;
+    out.swap(impl_->captured);
+    return out;
+}
+
 void SdlHost::show_cursor(bool show) {
     if (show) SDL_ShowCursor();
     else SDL_HideCursor();
@@ -144,6 +168,10 @@ bool SdlHost::poll() {
         switch (e.type) {
         case SDL_EVENT_QUIT: keep_running = false; break;
         case SDL_EVENT_KEY_DOWN:
+            if (impl_->capture && !e.key.repeat) {
+                const std::string code = code_for_scancode(e.key.scancode);
+                if (!code.empty()) impl_->captured.push_back({false, code});
+            }
             if (e.key.key == SDLK_F11 || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT) != 0)) {
                 toggle_fullscreen();
                 break;
@@ -184,6 +212,22 @@ bool SdlHost::poll() {
             break;
         case SDL_EVENT_TEXT_INPUT:
             if (impl_->text_input && e.text.text != nullptr) impl_->keys.push_back({KeyEvent::Kind::Text, e.text.text});
+            break;
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            if (impl_->capture) {
+                const std::string name = name_for_button(static_cast<SDL_GamepadButton>(e.gbutton.button));
+                if (!name.empty() && name != "guide") impl_->captured.push_back({true, name});
+            }
+            break;
+        case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+            if (e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || e.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) {
+                const bool right = e.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER;
+                const bool down = e.gaxis.value > 16000;
+                if (down && !impl_->trigger_down[right ? 1 : 0] && impl_->capture) {
+                    impl_->captured.push_back({true, right ? "right_trigger" : "left_trigger"});
+                }
+                impl_->trigger_down[right ? 1 : 0] = down;
+            }
             break;
         case SDL_EVENT_GAMEPAD_ADDED:
             if (SDL_Gamepad *g = SDL_OpenGamepad(e.gdevice.which)) impl_->gamepads.push_back(g);
@@ -268,25 +312,26 @@ GamepadState SdlHost::input() const {
     s.left_x = (down[k.stick_right] ? 1.0f : 0.0f) - (down[k.stick_left] ? 1.0f : 0.0f);
     s.left_y = (down[k.stick_down] ? 1.0f : 0.0f) - (down[k.stick_up] ? 1.0f : 0.0f);
     for (auto *g : impl_->gamepads) {
-        s.south |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_SOUTH);
-        s.east |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_EAST);
-        s.west |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_WEST);
-        s.north |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_NORTH);
-        s.left_shoulder |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) ||
-                           SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 16000;
-        s.right_shoulder |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER) ||
-                            SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16000;
-        s.start |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_START);
-        s.select |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_BACK);
+        const PadMapping &p = impl_->pad; // the player's bindings, in the order of kPadActions
+        s.south |= pad_pressed(g, p.buttons[0]);
+        s.east |= pad_pressed(g, p.buttons[1]);
+        s.west |= pad_pressed(g, p.buttons[2]);
+        s.north |= pad_pressed(g, p.buttons[3]);
+        s.left_shoulder |= pad_pressed(g, p.buttons[4]);
+        s.right_shoulder |= pad_pressed(g, p.buttons[5]);
+        s.start |= pad_pressed(g, p.buttons[6]);
+        s.select |= pad_pressed(g, p.buttons[7]);
         s.guide |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_GUIDE);
-        s.up |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_UP);
-        s.down |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_DOWN);
-        s.left |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_LEFT);
-        s.right |= SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
+        s.up |= pad_pressed(g, p.buttons[8]);
+        s.down |= pad_pressed(g, p.buttons[9]);
+        s.left |= pad_pressed(g, p.buttons[10]);
+        s.right |= pad_pressed(g, p.buttons[11]);
         auto axis = [g](SDL_GamepadAxis a) { return static_cast<float>(SDL_GetGamepadAxis(g, a)) / 32767.0f; };
-        const float lx = axis(SDL_GAMEPAD_AXIS_LEFTX), ly = axis(SDL_GAMEPAD_AXIS_LEFTY);
-        if (std::fabs(lx) > std::fabs(s.left_x)) s.left_x = lx;
-        if (std::fabs(ly) > std::fabs(s.left_y)) s.left_y = ly;
+        if (p.stick_x != SDL_GAMEPAD_AXIS_INVALID) {
+            const float lx = axis(p.stick_x), ly = axis(p.stick_y);
+            if (std::fabs(lx) > std::fabs(s.left_x)) s.left_x = lx;
+            if (std::fabs(ly) > std::fabs(s.left_y)) s.left_y = ly;
+        }
         const float rx = axis(SDL_GAMEPAD_AXIS_RIGHTX), ry = axis(SDL_GAMEPAD_AXIS_RIGHTY);
         if (std::fabs(rx) > std::fabs(s.right_x)) s.right_x = rx;
         if (std::fabs(ry) > std::fabs(s.right_y)) s.right_y = ry;

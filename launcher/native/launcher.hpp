@@ -53,6 +53,11 @@ public:
     Json state();
 
     void set_settings(const Json &partial);
+    // The bindings the player changed in the game's own menu: the game writes them to controls_file() as it goes, and
+    // this folds them into the settings (validated like any other change) and removes the file. Called when the launcher
+    // starts, before a launch and when the game ends.
+    void import_game_controls();
+    [[nodiscard]] std::filesystem::path controls_file() const { return data_dir_ / "game_controls.txt"; }
     void set_pseudonym(const std::string &name);
 
     // Identifies a disc image (PARAM.SFO + SHA-1 against known good dumps) and adds it to the library.

@@ -5,10 +5,11 @@
 
 #include "mhf/psp/runtime.hpp"
 
-// host/keymap.hpp is not included here on purpose: the PSP runtime and the homebrew runners include this header without the
-// SDL host's include directories. The keyboard bindings travel as a template instead.
+// host/keymap.hpp and host/padmap.hpp are not included here on purpose: the PSP runtime and the homebrew runners include this
+// header without the SDL host's include directories. The keyboard and controller bindings travel as templates instead.
 #include <functional>
 #include <memory>
+#include <string>
 
 namespace mhf::psp {
 
@@ -24,15 +25,19 @@ public:
     bool open(const char *title, bool hidden = false, int scale = 2, bool gpu = true, int render_scale = 4,
               bool fullscreen = false, bool smooth_textures = false, int target_fps = 30);
 
-    // The same, with the keyboard bindings the game was given (host::KeyBindings). A template, so this header never has to
-    // know that type; the frontend instantiates it for the game.
-    template <typename KeyBindings>
+    // The same, with the keyboard and controller bindings the game was given (host::KeyBindings, host::PadBindings). A
+    // template, so this header never has to know those types; the frontend instantiates it for the game.
+    template <typename KeyBindings, typename PadBindings>
     bool open(const char *title, bool hidden, int scale, bool gpu, int render_scale, bool fullscreen,
-              bool smooth_textures, int target_fps, const KeyBindings &keys) {
+              bool smooth_textures, int target_fps, const KeyBindings &keys, const PadBindings &pad) {
         const bool shown = open(title, hidden, scale, gpu, render_scale, fullscreen, smooth_textures, target_fps);
-        set_keymap(keys);
+        set_bindings(keys, pad);
         return shown;
     }
+
+    // Where the bindings changed in the in-game menu are written ("keymap=...\npadmap=...\n"), for the launcher to keep.
+    // Empty (the default): changes last for the session.
+    void set_controls_file(const std::string &path);
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
     void attach(Runtime &rt, std::function<void()> extra = {});
@@ -40,9 +45,10 @@ public:
     struct Impl;
 
 private:
-    // Which physical key stands for which pad button; defined in the frontend, which does know host::KeyBindings.
-    template <typename KeyBindings>
-    void set_keymap(const KeyBindings &keys);
+    // Which physical key and which controller button stand for which pad button; defined in the frontend, which does know
+    // host::KeyBindings and host::PadBindings.
+    template <typename KeyBindings, typename PadBindings>
+    void set_bindings(const KeyBindings &keys, const PadBindings &pad);
 
     std::unique_ptr<Impl> impl_;
 };

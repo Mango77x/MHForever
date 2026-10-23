@@ -227,5 +227,28 @@ int main() {
         }
     }
 
+    // A binding row is activated like a button, shows what it is set to, and the menu keeps the row selected when it is
+    // rebuilt with the new assignment.
+    {
+        MenuView v;
+        MenuItem bind = item(MenuItem::Kind::Binding, 40, "Cross");
+        bind.text = "K";
+        v.tabs = {MenuTab{"Controls", {item(MenuItem::Kind::Heading, 0, "Keyboard"), bind, item(MenuItem::Kind::Binding, 41, "Circle")}}};
+        Menu menu;
+        menu.set(v);
+        MHF_CHECK(selected_id(menu) == 40); // the heading is skipped
+        auto activated = menu.press(Key::Accept);
+        MHF_CHECK(activated.kind == Kind::Activated && activated.id == 40);
+        MHF_CHECK(menu.press(Key::Right).kind == Kind::None);
+        menu.press(Key::Down);
+        MHF_CHECK(selected_id(menu) == 41);
+        v.tabs[0].items[1].text = "Space";
+        v.tabs[0].items[2].value = 1;
+        menu.set(v);
+        MHF_CHECK(selected_id(menu) == 41 && menu.view().items()[1].text == "Space" && menu.view().items()[2].value == 1);
+        const auto clicked = menu.click_row(1, 0.5f, false);
+        MHF_CHECK(clicked.kind == Kind::Activated && clicked.id == 40);
+    }
+
     return mhf::test::finish("test_menu");
 }

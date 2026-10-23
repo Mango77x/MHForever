@@ -20,7 +20,8 @@ What you need
   European release (disc ID ULES01213, version 1.01). CSO/ZSO compressed images are not supported.
 * A controller is optional. Gamepads work out of the box (tested with a PS5 DualSense).
   Keyboard: arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle,
-  Q/E = L/R, Enter = Start, Backspace = Select.
+  Q/E = L/R, Enter = Start, Backspace = Select. Change them, and the controller's buttons, in Settings -> Controls
+  or from the in-game menu (Escape, Controls tab).
   Escape (or the controller's guide button) pauses the game and opens a menu: volume, resolution, frame rate,
   fullscreen and quit. It works with the keyboard, a controller or the mouse.
 

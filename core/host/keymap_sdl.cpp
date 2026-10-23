@@ -90,6 +90,21 @@ SDL_Scancode scancode_for_code(std::string_view code) {
     return SDL_SCANCODE_UNKNOWN;
 }
 
+std::string code_for_scancode(SDL_Scancode scancode) {
+    if (scancode >= SDL_SCANCODE_A && scancode <= SDL_SCANCODE_Z) {
+        return std::string("Key") + static_cast<char>('A' + (scancode - SDL_SCANCODE_A));
+    }
+    if (scancode >= SDL_SCANCODE_1 && scancode <= SDL_SCANCODE_9) return "Digit" + std::to_string(scancode - SDL_SCANCODE_1 + 1);
+    if (scancode == SDL_SCANCODE_0) return "Digit0";
+    if (scancode >= SDL_SCANCODE_KP_1 && scancode <= SDL_SCANCODE_KP_9) return "Numpad" + std::to_string(scancode - SDL_SCANCODE_KP_1 + 1);
+    if (scancode == SDL_SCANCODE_KP_0) return "Numpad0";
+    if (scancode >= SDL_SCANCODE_F1 && scancode <= SDL_SCANCODE_F12) return "F" + std::to_string(scancode - SDL_SCANCODE_F1 + 1);
+    for (const auto &[name, known] : kNamedKeys) {
+        if (known == scancode) return std::string(name);
+    }
+    return {};
+}
+
 KeyScancodes resolve_keymap(const KeyBindings &keys, std::vector<std::string> *unknown) {
     const KeyBindings defaults;
     KeyScancodes out;
