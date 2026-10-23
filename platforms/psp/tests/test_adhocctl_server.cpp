@@ -1,10 +1,14 @@
 // The ad hoc control library against a real PSP ad hoc server (aemu_postoffice's reference server, or any other): two
 // players log in, one creates a group, the other scans, finds it and joins; they see each other; one leaves.
 //
+// Then the sockets over the same server's relay: datagrams both ways (and one that does not fit), a stream between a listening
+// socket and a connecting one, and the end of the stream when one side closes.
+//
 // Needs a server, so it only runs when MHF_ADHOC_TEST_SERVER is set ("host" or "host:port"); otherwise it passes at once.
 // Not part of the game data tests: it uses made-up product codes and nicknames.
 
 #include "adhoc_link_aemu.hpp"
+#include "adhoc_sockets.hpp"
 #include "adhocctl.hpp"
 
 #include "check.hpp"
@@ -65,9 +69,11 @@ int main() {
         return 0;
     }
 
+    // The aemu client does not allow two sessions to be created at the same time (it shares a table of slots), so the second
+    // player starts once the first is logged in. In the game there is one.
     Player alice(server, "Alice", 1);
-    Player bob(server, "Bob", 2);
     MHF_CHECK(alice.wait([&] { return alice.library.online(); }));
+    Player bob(server, "Bob", 2);
     MHF_CHECK(bob.wait([&] { return bob.library.online(); }));
 
     // Alice creates the group by joining it.
@@ -96,6 +102,110 @@ int main() {
     MHF_CHECK(bob.library.disconnect() == 0);
     MHF_CHECK(alice.wait([&] { return alice.library.peers().empty(); }));
     MHF_CHECK(alice.library.state() == State::Connected);
+
+    // ---- sockets over the relay (the next port up from the server's)
+    MHF_CHECK(bob.library.connect(group(name.c_str())) == 0);
+    MHF_CHECK(bob.wait([&] { return bob.library.state() == State::Connected; }));
+    MHF_CHECK(alice.wait([&] { return alice.library.peers().size() == 1; }));
+    std::string host;
+    std::uint16_t port = 0;
+    MHF_CHECK(AemuLink::split_address(server, host, port));
+    const Mac alice_mac{0x02, 0x4D, 0x48, 0x46, 0x00, 1}, bob_mac{0x02, 0x4D, 0x48, 0x46, 0x00, 2};
+    Sockets::Config alice_config, bob_config;
+    alice_config.host = bob_config.host = host;
+    alice_config.relay_port = bob_config.relay_port = static_cast<std::uint16_t>(port + 1);
+    alice_config.mac = alice_mac;
+    bob_config.mac = bob_mac;
+    Sockets alice_net(alice_config), bob_net(bob_config);
+    // Retries `attempt` until it answers (not "would block") or the time runs out.
+    const auto until = [](const std::function<std::uint32_t()> &attempt, int seconds = 10) {
+        const auto end = Clock::now() + std::chrono::seconds(seconds);
+        std::uint32_t result = sockerr::kWouldBlock;
+        while (Clock::now() < end) {
+            result = attempt();
+            if (result != sockerr::kWouldBlock) return result;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return result;
+    };
+
+    // Datagrams.
+    const auto a_pdp = alice_net.pdp_create(1000), b_pdp = bob_net.pdp_create(2000);
+    MHF_CHECK(a_pdp > 0 && b_pdp > 0);
+    MHF_CHECK(alice_net.pdp_create(1000) == as_status(sockerr::kPortInUse));
+    // A datagram sent before the other socket exists on the relay is lost, as on any UDP: give both a moment to log in.
+    std::this_thread::sleep_for(std::chrono::milliseconds(800));
+    const std::uint8_t hello[] = {'h', 'e', 'l', 'l', 'o'};
+    MHF_CHECK(until([&] { return alice_net.pdp_send(static_cast<int>(a_pdp), bob_mac, 2000, hello, sizeof(hello)); }) == 0);
+    std::uint8_t buffer[64] = {};
+    Mac from{};
+    std::uint16_t from_port = 0;
+    std::uint32_t length = sizeof(buffer);
+    MHF_CHECK(until([&] {
+        length = sizeof(buffer);
+        return bob_net.pdp_recv(static_cast<int>(b_pdp), from, from_port, buffer, length);
+    }) == 0);
+    MHF_CHECK(length == 5 && std::memcmp(buffer, "hello", 5) == 0 && from == alice_mac && from_port == 1000);
+    // A datagram that does not fit says how big it is, and stays for a bigger buffer.
+    const std::uint8_t big[40] = {1};
+    MHF_CHECK(until([&] { return bob_net.pdp_send(static_cast<int>(b_pdp), alice_mac, 1000, big, sizeof(big)); }) == 0);
+    std::uint8_t small[8] = {};
+    length = sizeof(small);
+    MHF_CHECK(until([&] {
+        length = sizeof(small);
+        return alice_net.pdp_recv(static_cast<int>(a_pdp), from, from_port, small, length);
+    }) == sockerr::kNotEnoughSpace);
+    MHF_CHECK(length == 40);
+    length = sizeof(buffer);
+    MHF_CHECK(alice_net.pdp_recv(static_cast<int>(a_pdp), from, from_port, buffer, length) == 0 && length == 40 && from_port == 2000);
+    MHF_CHECK(alice_net.pdp_recv(static_cast<int>(a_pdp), from, from_port, buffer, length) == sockerr::kWouldBlock);
+
+    // A stream: Bob listens, Alice opens and connects, Bob accepts; both talk; Alice closes, Bob sees it end.
+    const auto listener = bob_net.ptp_listen(3000);
+    MHF_CHECK(listener > 0);
+    const auto client = alice_net.ptp_open(0, bob_mac, 3000);
+    MHF_CHECK(client > 0);
+    // The pairing needs both sides at it: Alice connects while Bob accepts.
+    std::int64_t accepted = 0;
+    Mac peer{};
+    std::uint16_t peer_port = 0;
+    bool connected = false;
+    const auto end = Clock::now() + std::chrono::seconds(15);
+    while (Clock::now() < end && (!connected || accepted <= 0)) {
+        if (!connected) connected = alice_net.ptp_connect(static_cast<int>(client)) == 0;
+        if (accepted <= 0) {
+            const auto r = bob_net.ptp_accept(static_cast<int>(listener), peer, peer_port);
+            if (r > 0) accepted = r;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    MHF_CHECK(connected && accepted > 0);
+    MHF_CHECK(peer == alice_mac);
+    std::uint32_t sent = 4;
+    MHF_CHECK(alice_net.ptp_send(static_cast<int>(client), reinterpret_cast<const std::uint8_t *>("ping"), sent) == 0 && sent == 4);
+    length = sizeof(buffer);
+    MHF_CHECK(until([&] {
+        length = sizeof(buffer);
+        return bob_net.ptp_recv(static_cast<int>(accepted), buffer, length);
+    }) == 0);
+    MHF_CHECK(length == 4 && std::memcmp(buffer, "ping", 4) == 0);
+    sent = 4;
+    MHF_CHECK(bob_net.ptp_send(static_cast<int>(accepted), reinterpret_cast<const std::uint8_t *>("pong"), sent) == 0);
+    length = sizeof(buffer);
+    MHF_CHECK(until([&] {
+        length = sizeof(buffer);
+        return alice_net.ptp_recv(static_cast<int>(client), buffer, length);
+    }) == 0);
+    MHF_CHECK(length == 4 && std::memcmp(buffer, "pong", 4) == 0);
+    MHF_CHECK(bob_net.ptp_stats().size() == 2); // the listener and the connection
+    MHF_CHECK(alice_net.ptp_close(static_cast<int>(client)) == 0);
+    length = sizeof(buffer);
+    MHF_CHECK(until([&] {
+        length = sizeof(buffer);
+        return bob_net.ptp_recv(static_cast<int>(accepted), buffer, length);
+    }) == sockerr::kDisconnected);
+    MHF_CHECK(bob_net.ptp_close(static_cast<int>(accepted)) == 0 && bob_net.ptp_close(static_cast<int>(listener)) == 0);
+    MHF_CHECK(alice_net.pdp_delete(static_cast<int>(a_pdp)) == 0 && alice_net.pdp_delete(static_cast<int>(a_pdp)) == sockerr::kInvalidSocketId);
 
     return mhf::test::finish("psp_adhocctl_server");
 }

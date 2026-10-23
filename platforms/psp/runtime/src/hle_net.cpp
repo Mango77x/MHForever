@@ -2,11 +2,7 @@
 // sceNetAdhocctl and sceNetAdhocDiscover: the PSP's ad hoc networking on top of an ad hoc server (docs/08-multiplayer.md
 // section 1.2). The socket calls (PDP and PTP) are in hle_net_sockets.cpp.
 
-#include "hle.hpp"
-#include "kernel.hpp"
-
-#include "adhoc_link_aemu.hpp"
-#include "adhocctl.hpp"
+#include "hle_net.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -30,52 +26,8 @@ constexpr std::uint32_t kErrorAdhocctlNotInitialized = 0x80410B08u;
 constexpr std::uint32_t kPeerInfoSize = 152; // next, nickname[128], mac[6], padding[2], flags, last_recv (u64)
 constexpr std::uint32_t kScanInfoSize = 28;  // next, channel, group name[8], bssid (mac[6] + padding[2]), mode
 
-constexpr std::int32_t kDiscoverNone = 0, kDiscoverInProgress = 1, kDiscoverCompleted = 2;
 constexpr std::uint32_t kDiscoverResultOffset = 12; // SceNetAdhocDiscoverParam {unknown1, groupName[8], unknown2, result}
 constexpr std::int32_t kDiscoverNoPeer = 0, kDiscoverCanceled = 1;
-
-// MHF_TRACE_ADHOC=1 logs the ad hoc calls the game makes and what the library tells its handlers.
-bool tracing() {
-    static const bool on = [] {
-        const char *v = std::getenv("MHF_TRACE_ADHOC");
-        return v != nullptr && v[0] == '1';
-    }();
-    return on;
-}
-#define NET_TRACE(...)                                  \
-    do {                                                \
-        if (tracing()) {                                \
-            std::fprintf(stderr, "[adhoc] " __VA_ARGS__); \
-            std::fputc('\n', stderr);                   \
-        }                                               \
-    } while (0)
-
-struct NetState {
-    Runtime *rt{};
-    std::unique_ptr<ad::AemuLink> link; // null: no server configured
-    std::unique_ptr<ad::Adhocctl> adhocctl;
-    bool adhoc_inited = false; // sceNetAdhocInit
-    bool poller_added = false;
-    ad::Mac mac{};
-    std::int32_t discover_status = kDiscoverNone;
-    std::uint32_t discover_params = 0;
-    bool discover_stopping = false;
-
-    // Called by the kernel on every scheduler pass: tells the game's handlers what the library saw.
-    void deliver() {
-        if (!adhocctl || !adhocctl->initialized()) return;
-        for (const ad::Notification &n : adhocctl->poll()) {
-            NET_TRACE("event %d error %d to %zu handler(s)", n.event, n.error, adhocctl->handlers().size());
-            const std::vector<ad::Handler> handlers = adhocctl->handlers(); // a handler may add or remove handlers
-            for (const ad::Handler &h : handlers) {
-                if (h.function != 0) {
-                    rt->kernel().call_from_interrupt(h.function, {static_cast<std::uint32_t>(n.event),
-                                                                  static_cast<std::uint32_t>(n.error), h.argument});
-                }
-            }
-        }
-    }
-};
 
 std::unordered_map<const Runtime *, std::unique_ptr<NetState>> g_net;
 
@@ -162,10 +114,23 @@ void AdhocInit(Runtime &rt, Context &ctx) {
     if (s.adhoc_inited) return ret(ctx, kErrorAlreadyInitialized);
     s.adhoc_inited = true;
     start_link(s);
+    // The sockets go through the relay of the same server (the next port up, as with PPSSPP's servers).
+    std::string host;
+    std::uint16_t port = 0;
+    if (ad::AemuLink::split_address(rt.options().adhoc_server, host, port)) {
+        ad::Sockets::Config config;
+        config.host = host;
+        config.relay_port = static_cast<std::uint16_t>(port + 1);
+        config.mac = s.mac;
+        s.sockets = std::make_unique<ad::Sockets>(std::move(config));
+    }
     ret(ctx, 0);
 }
 void AdhocTerm(Runtime &rt, Context &ctx) {
-    net(rt).adhoc_inited = false;
+    NET_TRACE("sceNetAdhocTerm");
+    NetState &s = net(rt);
+    s.adhoc_inited = false;
+    s.sockets.reset(); // every socket closes
     ret(ctx, 0);
 }
 
@@ -336,6 +301,16 @@ const HleFunction kFunctions[] = {
 } // namespace
 
 std::span<const HleFunction> net_functions() { return kFunctions; }
+
+NetState &net_state(Runtime &rt) { return net(rt); }
+
+bool net_tracing() {
+    static const bool on = [] {
+        const char *v = std::getenv("MHF_TRACE_ADHOC");
+        return v != nullptr && v[0] == '1';
+    }();
+    return on;
+}
 
 void net_release(Runtime &rt) { g_net.erase(&rt); }
 

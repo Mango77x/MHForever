@@ -119,5 +119,6 @@ std::span<const HleFunction> utility_functions();  // sceUtility dialogs
 std::span<const HleFunction> atrac_functions();    // sceAtrac3plus (music decoding)
 std::span<const HleFunction> font_functions();     // sceLibFont (free fonts)
 std::span<const HleFunction> net_functions();      // sceNet, sceNetAdhoc, sceNetAdhocctl, sceWlanDrv (ad hoc play)
+std::span<const HleFunction> net_socket_functions(); // sceNetAdhoc PDP and PTP sockets
 
 } // namespace mhf::psp::hle

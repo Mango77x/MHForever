@@ -208,7 +208,8 @@ authentication).
 ### 4.7 Implementation order (revised 2026-10-23)
 1. Fix the HLE boundary issues above (independent of networking).
 2. Vendor the aemu_postoffice client; the PSP adapter (`sceNetAdhoc*`, `sceNetAdhocctl*`, `sceNetAdhocDiscover*`) on top
-   of it, with call and packet tracing; tested with our own homebrew against the reference server running locally.
+   of it, with call and packet tracing. **Done 2026-10-23** (`05-runtime-hle.md` §5i), tested against the reference server
+   running locally; a homebrew test against it and the first run with the game are still to do.
 3. Two instances on one PC, through a local server, complete a quest together.
 4. Launcher: server choice (PPSSPP's list or an address), live status, stable virtual MAC, pseudonym; a real game on a
    community server. Credits and the messages to PPSSPP and the operators before release (§1.2). Target: 0.6
