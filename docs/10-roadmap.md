@@ -100,12 +100,14 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
   (packets or inputs mode), each console adds an adapter (`08-multiplayer.md` §1.1).
 - [ ] Harden HLE boundaries first (`08-multiplayer.md` §4.6: disable `host0:` in player builds, GE address bounds,
   pointer validation, fuzzing). The Windows drive-letter path escape is fixed (`resolve_under_root`).
-- [ ] Room service in `core/net` with a local transport; PSP adapter (`sceNetAdhoc*`), adhoctest homebrew; two
-  instances on one PC through the launcher.
-- [ ] LAN / direct-address rooms.
-- [ ] Serverless P2P : local identity, friend codes, room codes, Mainline DHT, hole punching (libjuice),
-  UPnP/PCP, IPv6, relay through group members, pairwise rendezvous for friends (`08-multiplayer.md` §4).
-- [ ] (optional) aemu-compatible backend for PPSSPP interop.
+- First transport: the community's ad hoc servers (PPSSPP/aemu), decided 2026-10-23 (`08-multiplayer.md` §1.2).
+- [ ] Vendor the aemu_postoffice client; PSP adapter (`sceNetAdhoc*`, `sceNetAdhocctl*`, `sceNetAdhocDiscover*`) with
+  tracing; adhoctest homebrew against a local reference server.
+- [ ] Two instances on one PC complete a quest through a local server.
+- [ ] Launcher: server choice and live status, stable virtual MAC, pseudonym; play on a community server. Credits, and
+  messages to PPSSPP and the operators, before release. **Target: 0.5.**
+- [ ] Then the target design on top (`08-multiplayer.md` §4): identity, friends, presence, invites, room codes; optional
+  direct P2P links.
 **Acceptance**: 4 players (Windows + Linux/Deck, different networks) complete a quest together.
 
 ## Phase 6 — US and JP regions

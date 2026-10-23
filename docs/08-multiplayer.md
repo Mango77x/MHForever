@@ -43,6 +43,32 @@ Consequences:
 - The room service is the only interface between `core/net` and an adapter. Anything PSP-specific that appears in
   `core/net` while writing the first adapter is in the wrong place.
 
+### 1.2 First transport: the community's ad hoc servers (decided 2026-10-23)
+
+Online play ships first on the servers the PSP community already runs for PPSSPP and for real PSPs (aemu), not on
+servers of our own and not on direct P2P. Reasons:
+- **It works on every network.** Each player only connects out to the server (TCP), so CG-NAT, mobile data and strict
+  NATs are no obstacle; nobody opens ports. Direct P2P (§4) cannot promise that without a relay of some kind.
+- **No cost and no money.** Rule 7 of `CLAUDE.md` stays as it is; the servers are run by volunteers and listed by
+  PPSSPP.
+- **Players from day one**, including PPSSPP and real PSP players, and the servers already group the European, North
+  American and Japanese releases of the game together (see §3).
+- **It is proven** with Monster Hunter: PPSSPP players use it, and a sibling recompilation project (Yakumo, MHP3rd, MIT)
+  reports a complete quest between two machines through such a server.
+
+What it means for the design:
+- The PSP adapter (`platforms/psp/net`) implements `sceNetAdhoc*`, `sceNetAdhocctl*` and `sceNetAdhocDiscover*` on top of
+  the aemu protocols. They are PSP-specific, so they never enter `core/net`.
+- The launcher picks the server (PPSSPP's published list, or any address) and gives the game a stable virtual MAC and
+  the player's pseudonym.
+- The final design of §4 (friends, presence, invites, room codes) is still the goal, built later on top of this: a room
+  code can stand for "group G on server S", and friends exchange invites over the DHT or a direct link between
+  launchers. A server of our own is only needed for direct P2P links (§4.3), which become an optional improvement.
+- Before release: ask PPSSPP before the launcher reads their server list, write to the main server operators, and credit
+  PPSSPP, aemu/aemu_postoffice and the server operators in the README and on the website.
+- Privacy: the servers' public status pages show each player's nickname and ports; the launcher says so. Servers in
+  their default `relay_only` mode do not give players' IP addresses to other players.
+
 ## 2. How the game does it
 
 The game uses the PSP's **ad-hoc** stack: `sceNetAdhocctl` for groups/rooms, `sceNetAdhoc` PDP (datagrams) and PTP (streams),
@@ -53,13 +79,28 @@ See `06-mhfu-module.md` §7. Our runtime implements those APIs and sends packets
 
 - **PPSSPP**: an *adhocctl* server (TCP 27312) for group discovery and, since 1.20, the **"aemu postoffice" relay** (TCP 27313) that
   forwards all traffic with no port forwarding. Public relays exist (EU, Asia, etc.) with Monster Hunter communities.
+  - PPSSPP downloads its server list from `https://metadata.ppsspp.org/adhoc-servers.json` (21 servers on 2026-10-23,
+    all `"data_mode": "AemuPostoffice"`); its default server is `socom.cc`. Entries have a host, a location, a Discord
+    link and often a live status URL (`data.json`: games, groups, nicknames, ports). One of them (`psp.mgn.pub`) says it
+    has "a good amount of Monster Hunter players".
+  - adhocctl (verified in PPSSPP's `proAdhoc.h`): little-endian, packed; opcodes ping 0, login 1 (MAC[6], nickname[128],
+    product code[9]), connect 2 (group[8]), disconnect 3, scan 4, scan complete 5, connect BSSID 6, chat 7 (64 bytes).
+  - Relay (aemu_postoffice `design.md`, `aemu_postoffice_packets.h`): one TCP connection per ad hoc socket, opened with
+    an init record (type: PDP, PTP listen, PTP connect, PTP accept, unreliable PDP; source and destination MAC and port);
+    PDP blocks up to 10 KiB, PTP up to 50 KiB. There is also a UDP path through ENet.
+  - The reference server's `game_db.json` "crosslinks" product codes into one game: `ULES01213` (FU Europe),
+    `ULUS10391` (FU North America) and `ULJM05500` (MHP2G Japan) all play in the same groups.
 - **aemu / PRO Online**: the same protocol on real PSPs/Vitas via a plugin. So **a client compatible with aemu could play with PPSSPP
   users and real PSPs** .
 - `aemu_postoffice` publishes a C client (`postoffice_client.h`, `adhocctl.h`) meant to be integrated into PSP implementations.
   License: **GPL-3.0** (verified 2026-10-17), which is compatible with this GPL-3.0-or-later repository (relicensed 2026-10-19); the protocol can also be
-  reimplemented from its `design.md`.
+  reimplemented from its `design.md`. Its client (`client/postoffice.c` with Windows/Linux socket layers and ENet, plus
+  `adhocctl/client/adhocctl.c`) is the one PPSSPP uses; the plan is to vendor it in `third_party/aemu_postoffice/`.
+  Its reference server (`server_cpp`) can run locally, so tests can talk to a real server without internet or game data.
 
-## 4. Design (decided 2026-10-17): friend codes and room codes, no accounts, no servers of our own
+## 4. Target design (decided 2026-10-17): friend codes and room codes, no accounts, no servers of our own
+
+Since 2026-10-23 this is the design built after the first transport of §1.2, on top of it.
 
 Requirements: no hosted servers, no accounts; a local pseudonym, friend codes and room codes; the launcher is the
 hub (friends list, presence, invites, rooms). Researched 2026-10-17 (sources in §7).
@@ -155,16 +196,17 @@ core/net ── one UDP socket per player, shared by every peer link
 Target: equal or better than ad-hoc in PPSSPP (where peer packets also reach the emulated game, without encryption or
 authentication).
 
-### 4.7 Implementation order and lessons for when online work starts
+### 4.7 Implementation order (revised 2026-10-23)
 1. Fix the HLE boundary issues above (independent of networking).
-2. The room service in `core/net` (§1.1) with a local transport, and the PSP adapter (`sceNetAdhoc*`, `sceNetAdhocctl*`,
-   `sceNetAdhocDiscover`) on top of it, tested with our own homebrew; then two instances on one PC. The game process
-   reaches the network through the launcher, which owns the identity and the one UDP socket (a local link between the
-   two processes).
-3. LAN / direct-address rooms, to play with a friend early.
-4. core/net: identity, jech/dht, libjuice, UPnP/PCP, encryption; room codes first, then friends (pairwise rendezvous).
-5. Measure FU's traffic (packet sizes/rates on ports 10000 and 20001–20004) to size the group relay.
-6. Test matrix in §6 including Spanish ISPs with CG-NAT (Digi, Másmóvil group, Orange DS-Lite) and mobile hotspot.
+2. Vendor the aemu_postoffice client; the PSP adapter (`sceNetAdhoc*`, `sceNetAdhocctl*`, `sceNetAdhocDiscover*`) on top
+   of it, with call and packet tracing; tested with our own homebrew against the reference server running locally.
+3. Two instances on one PC, through a local server, complete a quest together.
+4. Launcher: server choice (PPSSPP's list or an address), live status, stable virtual MAC, pseudonym; a real game on a
+   community server. Credits and the messages to PPSSPP and the operators before release (§1.2). Target: 0.5.
+5. Measure FU's traffic (packet sizes/rates on ports 10000 and 20001–20004).
+6. The design of §4 on top: identity, friends, presence, invites and room codes (room = group on a server); then,
+   optionally, direct P2P links (libjuice, UPnP/PCP, IPv6) for lower latency.
+7. Test matrix in §6 including Spanish ISPs with CG-NAT (Digi, Másmóvil group, Orange DS-Lite) and mobile hotspot.
 
 ### 4.8 Compatibility with PPSSPP and real PSPs 
 Optional mode, later: speak PPSSPP's adhoc-server protocol plus aemu postoffice to join existing community servers
@@ -181,7 +223,7 @@ Optional mode, later: speak PPSSPP's adhoc-server protocol plus aemu postoffice 
 | GameNetworkingSockets (Valve) | BSD-3 | Messages + P2P (WebRTC ICE, own signaling) | ✅ license, but heavy (protobuf, WebRTC); not needed |
 | iroh (n0) | MIT/Apache-2.0, but depends on `ring` (Apache-2.0 AND ISC) | Dial by key, DHT discovery, relays | ❌ Apache-2.0 is incompatible with GPL-2.0; also Rust toolchain; n0's public relays are "development and hobby use only" |
 | c-toxcore (Tox) | GPL-3.0+ | Same model (key IDs, DHT, relays) | ❌ GPL-3 only — design reference |
-| aemu_postoffice | GPL-3.0 | PPSSPP relay protocol | ❌ link; ✅ reimplement the protocol |
+| aemu_postoffice | GPL-3.0 | PPSSPP relay protocol and client | ✅ since the GPL-3.0-or-later relicensing: vendored client (§1.2) |
 | HyperDHT (Holepunch) | MIT | DHT + hole punching by key | ⚠️ JavaScript runtime; reference only |
 
 Since the move to GPL-3.0-or-later, iroh (Apache-2.0) and toxcore (GPL-3.0+) are also license-compatible; not needed for this design.
