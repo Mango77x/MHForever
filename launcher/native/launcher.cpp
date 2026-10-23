@@ -148,6 +148,7 @@ Launcher::Launcher(fs::path base_dir, fs::path data_dir, fs::path saves_dir)
     : base_(std::move(base_dir)), file_(data_dir / "launcher.json"), data_dir_(std::move(data_dir)),
       saves_dir_(std::move(saves_dir)), decryptor_(install::builtin_decryptor()) {
     load();
+    import_game_controls();
 }
 
 void Launcher::import_legacy_saves(const std::string &disc_id) {
@@ -496,6 +497,37 @@ Json Launcher::state() {
     return s;
 }
 
+void Launcher::import_game_controls() {
+    std::error_code ec;
+    if (!fs::is_regular_file(controls_file(), ec)) return;
+    Json keys, pad;
+    {
+        std::ifstream in(controls_file());
+        for (std::string line; std::getline(in, line);) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            const std::size_t equals = line.find('=');
+            if (equals == std::string::npos) continue;
+            const std::string name = line.substr(0, equals), text = line.substr(equals + 1);
+            if (name == "keymap") {
+                const host::KeyBindings parsed = host::parse_keymap(text);
+                for (const std::string_view action : host::kKeyActions) {
+                    if (const std::string *key = host::key_binding(parsed, action)) keys[std::string(action)] = *key;
+                }
+            } else if (name == "padmap") {
+                const host::PadBindings parsed = host::parse_padmap(text);
+                for (const std::string_view action : host::kPadActions) {
+                    if (const std::string *source = host::pad_binding(parsed, action)) pad[std::string(action)] = *source;
+                }
+            }
+        }
+    }
+    Json partial;
+    partial["keys"] = keys;
+    partial["pad"] = pad;
+    set_settings(partial); // anything that does not validate is ignored there
+    fs::remove(controls_file(), ec);
+}
+
 void Launcher::set_settings(const Json &partial) {
     std::lock_guard lock(mutex_);
     Json &s = data_["settings"];
@@ -729,6 +761,8 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
     plan.args.push_back(host::format_keymap(key_bindings_from(s["keys"])));
     plan.args.push_back("--padmap");
     plan.args.push_back(host::format_padmap(pad_bindings_from(s["pad"])));
+    plan.args.push_back("--controls-file"); // where the game writes what the player changes in its menu
+    plan.args.push_back(platform::to_utf8(controls_file()));
     fs::create_directories(stick, ec);
     return plan;
 }

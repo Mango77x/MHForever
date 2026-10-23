@@ -280,6 +280,7 @@ void on_play(const char *id, const Json &args) {
             return fail("The game closed right away (code " + std::to_string(code) + "). Its log is in " +
                         platform::to_utf8(plan.log) + ".\n\n" + tail_of_log(plan.log, 4));
         }
+        g_app.launcher->import_game_controls();
         if (seconds >= 5) g_app.launcher->record_session(seconds);
         Json e;
         e["type"] = "exited";

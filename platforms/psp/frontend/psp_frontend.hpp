@@ -9,6 +9,7 @@
 // header without the SDL host's include directories. The keyboard and controller bindings travel as templates instead.
 #include <functional>
 #include <memory>
+#include <string>
 
 namespace mhf::psp {
 
@@ -33,6 +34,10 @@ public:
         set_bindings(keys, pad);
         return shown;
     }
+
+    // Where the bindings changed in the in-game menu are written ("keymap=...\npadmap=...\n"), for the launcher to keep.
+    // Empty (the default): changes last for the session.
+    void set_controls_file(const std::string &path);
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
     void attach(Runtime &rt, std::function<void()> extra = {});

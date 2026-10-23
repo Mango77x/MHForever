@@ -57,7 +57,7 @@ This uses your own copy of the game and never produces anything that may be comm
 
 Keyboard: arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle, Q/E = L/R, Enter = Start,
 Backspace = Select. The launcher's Settings → Controls changes them, and `--keymap "south=KeyK,east=KeyL,..."` does the
-same from the command line. Any controller SDL recognizes works (Xbox layout: A = cross, B = circle, X = square, Y = triangle).
+same from the command line (`--padmap` for the controller's buttons). Any controller SDL recognizes works (Xbox layout: A = cross, B = circle, X = square, Y = triangle).
 
 Enable the content guard once per clone:
 

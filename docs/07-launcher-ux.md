@@ -145,8 +145,21 @@ mode, where no second window can be shown.
   - Defaults: K/L/J/I face buttons, Q/E L/R, Enter Start, Backspace Select, arrows D-pad, WASD analog stick.
     In the launcher, Backspace or Delete removes a binding and a key already in use is swapped with the other button.
   - Two keys belong to the game and cannot be assigned: **Escape** (in-game menu) and **F11** (fullscreen).
-- Controllers: the pad's own buttons keep the physical mapping above; per-controller profiles, deadzones, sensitivity and
-  remapping the pad's buttons are pending; rumble optional (the PSP has none).
+- Controllers: every button of the pad also answers to a button of the player's controller, chosen in the same place
+  (**Settings → Controls → Controller**; the page has a Keyboard / Controller switch).
+  - A source is an SDL gamepad name (`south`, `left_shoulder`, `left_trigger`, `dpad_up`...): the position of the button on
+    a standard layout, so Xbox, PlayStation and Switch pads behave alike. A binding is one source or several joined with `+`
+    (any of them presses the button); the defaults keep L and R on both the shoulder button and the trigger.
+  - `settings.pad` in `launcher.json` (12 buttons plus `stick`: `left`, `right` or empty) is passed with
+    `--padmap "south=south,left_shoulder=left_shoulder+left_trigger,...,stick=left"`; `core/host/padmap*` resolves it.
+    In the launcher the controller's own navigation pauses while a button is recorded; Backspace or Delete removes a source,
+    Esc cancels, and a source already in use is swapped. The Guide button is never offered (it opens the in-game menu).
+  - Per-controller profiles, deadzones, sensitivity and an analog camera are pending; rumble optional (the PSP has none).
+- In the game: the in-game menu has a **Controls** tab with the same bindings. Pick a row, press the new key or button and it
+  applies at once; Esc or a click cancels, Backspace unbinds, F11 stays reserved. The host reports the next key or button by
+  name while the menu waits for one (`SdlHost::set_capture`). The game writes every change to the file the launcher gave it
+  (`--controls-file`, `game_controls.txt` in the data folder) and the launcher folds it into `launcher.json` when it starts,
+  before a launch and when the game ends, so a change made while playing is kept.
 - Several local pads: player 1 only (the PSP is single-player). Local multiplayer on one machine = several instances: out of scope v1.
 
 ## 6. Steam Deck / Linux

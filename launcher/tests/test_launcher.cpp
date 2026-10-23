@@ -198,6 +198,21 @@ int main(int argc, char **argv) {
         CHECK(pad_saved["stick"].as_string() == "right");
         CHECK(!pad_saved.has("jump"));
 
+        // What the player changed in the game's own menu comes back through a file the game writes.
+        {
+            std::ofstream(l.controls_file()) << "keymap=south=KeyZ,select=,west=KeyX,start=Space,jump=KeyP,north=" << std::string(40, 'Y')
+                                             << "\npadmap=south=dpad_up+right_trigger,up=south,west=banana,stick=right\nunknown=1\n";
+        }
+        l.import_game_controls();
+        const Json from_game = l.state();
+        CHECK(from_game["settings"]["keys"]["west"].as_string() == "KeyX");
+        CHECK(from_game["settings"]["keys"]["start"].as_string() == "Space");
+        CHECK(from_game["settings"]["keys"]["north"].as_string() == "KeyI"); // not a key code: unchanged
+        CHECK(from_game["settings"]["pad"]["up"].as_string() == "south");
+        CHECK(from_game["settings"]["pad"]["west"].as_string() == "west");   // not a source: unchanged
+        CHECK(from_game["settings"]["pad"]["stick"].as_string() == "right");
+        CHECK(!fs::exists(l.controls_file())); // taken over: the file is gone
+
         auto plan = l.plan_launch("mhfu");
         CHECK(!plan.error.empty()); // no game files here
     }

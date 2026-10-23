@@ -20,6 +20,7 @@
 #include <cmath>
 #include <condition_variable>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -52,6 +53,7 @@ struct Frontend::Impl {
     host::KeyBindings keys; // what the Controls tab edits; the host reads them on every poll
     host::PadBindings pad;
     int capture_id{};       // the Controls row waiting for a key or a button, 0 when none
+    std::filesystem::path controls_file; // where a change is written for the launcher (empty: not at all)
     std::string title;
     LiveSettings live; // what the menu changes while the game runs
     bool open{};
@@ -159,6 +161,8 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
     if (impl_->open && fullscreen && !hidden) impl_->host.toggle_fullscreen();
     return impl_->open;
 }
+
+void Frontend::set_controls_file(const std::string &path) { impl_->controls_file = std::filesystem::path(path); }
 
 template <typename KeyBindings, typename PadBindings>
 void Frontend::set_bindings(const KeyBindings &keys, const PadBindings &pad) {
@@ -351,9 +355,21 @@ overlay::MenuView menu_confirm_quit() {
     return v;
 }
 
+// Applies the bindings at once and, when the launcher asked for it, writes them where it will find them: the player's
+// choice then survives the session (the launcher folds the file into its settings).
 void apply_bindings(Frontend::Impl &impl) {
     impl.host.set_keymap(impl.keys);
     impl.host.set_padmap(impl.pad);
+    if (impl.controls_file.empty()) return;
+    std::error_code ec;
+    const std::filesystem::path temp = impl.controls_file.string() + ".tmp";
+    {
+        std::ofstream out(temp, std::ios::trunc);
+        out << "keymap=" << host::format_keymap(impl.keys) << "\npadmap=" << host::format_padmap(impl.pad) << "\n";
+        if (!out) return;
+    }
+    std::filesystem::rename(temp, impl.controls_file, ec); // replaces the previous file in one step
+    if (ec) std::fprintf(stderr, "[frontend] could not save the controls: %s\n", ec.message().c_str());
 }
 
 void end_capture(Frontend::Impl &impl) {
