@@ -7,6 +7,8 @@
 
 #include "kernel.hpp"
 
+#include "mhf/psp/abi.hpp"
+
 #include "psprecomp/common.hpp"
 #include "psprecomp/decoder.hpp"
 
@@ -282,6 +284,7 @@ struct Interpreter {
                     native_call(target); // tail call into recompiled code: it returns to our caller
                     return;
                 } else {
+                    if (target <= pc) abi::poll_interrupts(rt); // a backward jump may be a busy wait
                     pc = target;
                 }
                 continue;
@@ -313,6 +316,9 @@ struct Interpreter {
                 pc = native_call(target) ? after : target;
                 continue;
             }
+            // A loop that waits for something an interrupt or another thread does must still see it happen, as in the recompiled
+            // code (which polls on every backward branch).
+            if (taken && target <= pc) abi::poll_interrupts(rt);
             pc = taken ? target : after;
         }
     }
