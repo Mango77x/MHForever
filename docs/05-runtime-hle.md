@@ -182,7 +182,12 @@ every datagram. `--adhoc-nick` and `--adhoc-mac` set the name and the virtual MA
   port 10000): 186 bytes every 16 vblanks (267 ms), 24 bytes every 16 vblanks, and 74 bytes every 40 vblanks (667 ms), which is
   the one that carries the hunter's position and name. The intervals are counts of vblanks, the same on every run and
   whether the hunter moves or not, so a remote hunter's path reaches the other game as one point every two thirds of a
-  second. The relay itself delivered 300 of 300 test datagrams at 30 per second with a median delay of 16 ms.
+  second. The relay itself delivered 300 of 300 test datagrams at 30 per second with a median delay of 16 ms. PPSSPP 1.20.4 in the same
+  room shows the same stepped movement, so it is how the game itself behaves.
+- Interoperability with PPSSPP (verified 2026-10-24, our game and PPSSPP 1.20.4 in the same room of a local reference server): they
+  see each other in the Gathering Hall. PPSSPP only uses a server's relay when the server is in its published list; for any other
+  address (a local test server, a private one) its "Try to use the packet relay of the server" setting must be set to always on,
+  and it can only be changed with no game loaded. In "Automatic" it falls back to direct P2P and the two never meet.
 - Sockets (`Sockets`) use the relay of the same server (the next port up, 27313): PDP datagrams (up to 10 KiB) and PTP
   streams. Logging a socket in to the relay and pairing a PTP connection take time, so they run on short-lived threads and
   the calls say "would block" meanwhile; the HLE waits the way the PSP's calls do (the guest thread sleeps in 1 ms steps, the
