@@ -15,6 +15,12 @@ The PSP test programs in `homebrew/` are built and run as tests when the [pspdev
 toolchain is installed (`PSPDEV` environment variable or `/opt/pspdev`). The SDL3 window/input/audio host is fetched and
 built automatically (`-DMHF_WITH_SDL=OFF` to skip it).
 
+FFmpeg is mandatory (it decodes the movies and the game's music). On Linux the build uses the FFmpeg the system already
+has, through pkg-config: install its development files first (`libavcodec-dev` and `libavutil-dev` on Debian/Ubuntu,
+`ffmpeg` on Arch). `-DMHF_FFMPEG=bundled` downloads a pinned release, checks its SHA-256 and builds it once, linked
+statically, which is what a self-contained release archive does; Windows defaults to it. There is no option without
+FFmpeg.
+
 ## Running on Linux
 
 The release tarball is a portable folder: extract it and run `./MHForever`. The launcher needs WebKitGTK 4.1 and GTK 3 at
@@ -81,6 +87,7 @@ The archives are assembled from programs built elsewhere; game data never goes i
    python scripts/package_release.py --launcher <MHForever.exe> --game <mhfu.exe> --fonts <the fonts folder next to mhfu.exe>
    ```
    This writes `MHForever-<version>-windows-x64.zip` and its `.sha256`. The text shown to players is `dist/PLAYER_README.txt`.
+   The FFmpeg licence and source note (`third_party/ffmpeg/`) go into the archive as they are.
    `--version` is optional: it defaults to `project(MHForever VERSION ...)` in `CMakeLists.txt`, which is the only place
    the version is written, so the archive, the launcher and `mhf --version` always agree. Bump it there (and only there)
    when preparing a release; pass `--version` only for a one-off archive.
@@ -95,7 +102,8 @@ The archives are assembled from programs built elsewhere; game data never goes i
        --launcher <MHForever> --game <mhfu> --fonts <the fonts folder next to mhfu>
    ```
    This writes `MHForever-<version>-linux-x64.tar.gz` and its `.sha256`; the execute permission of both programs is
-   kept. The text shown to players is `dist/PLAYER_README_LINUX.txt`. As on Windows, the version comes from
+   kept. The archive carries no FFmpeg: the player's distribution provides it, and only the licence and source note
+   (`third_party/ffmpeg/`) travels with the programs. The text shown to players is `dist/PLAYER_README_LINUX.txt`. As on Windows, the version comes from
    `CMakeLists.txt`.
 
 Release archives are always built by the maintainer on their own machine (for Linux: on a Linux install, a virtual

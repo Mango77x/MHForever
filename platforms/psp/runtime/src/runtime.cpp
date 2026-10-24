@@ -69,6 +69,7 @@ Runtime::Runtime(RuntimeOptions options)
     add_hle(hle::misc_functions());
     add_hle(hle::ge_functions());
     add_hle(hle::media_functions());
+    add_hle(hle::mpeg_functions());
     add_hle(hle::sas_functions());
     add_hle(hle::atrac_functions());
     add_hle(hle::utility_functions());
@@ -82,6 +83,7 @@ Runtime::~Runtime() {
     hle::ge_release(*this);
     hle::display_release(*this);
     hle::io_release(*this);
+    hle::mpeg_release(*this);
     if (g_active == this) {
         g_active = nullptr;
     }

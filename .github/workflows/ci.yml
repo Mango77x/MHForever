@@ -38,7 +38,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build clang pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libasound2-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev
+            libasound2-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev \
+            libavcodec-dev libavutil-dev
       - name: Install pspdev toolchain for our homebrew tests (Linux)
         if: runner.os == 'Linux'
         env:
@@ -92,7 +93,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build clang libclang-rt-18-dev pkg-config libwebkit2gtk-4.1-dev \
-            libgtk-3-dev libasound2-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev
+            libgtk-3-dev libasound2-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev \
+            libavcodec-dev libavutil-dev
       - name: Install pspdev toolchain for our homebrew tests
         env:
           PSPDEV_RELEASE: v20261001

@@ -1310,19 +1310,28 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
         texture = it->second.color;
         uv_max[0] = 480.0f / static_cast<float>(it->second.width);
         uv_max[1] = 272.0f / static_cast<float>(it->second.height);
-    } else if ((address & 0x0F000000u) == 0x04000000u || (address & 0x0F000000u) == 0x08000000u) {
+    } else {
+        // The CPU made this screen, so it is whatever the game wrote: the framebuffer in VRAM (`0x04xxxxxx` memory,
+        // the usual case), or an address of the game's own that it flips `sceDisplaySetFrameBuf` between, which is
+        // where the movie player draws its pictures (the GE never touches those).
         const std::uint32_t bpp = pixel_format == 3 ? 4u : 2u;
-        stride = std::max(stride, 480u);
-        pixels_.resize(480u * 272u);
-        const std::uint8_t *base = memory_.raw_pointer(address, static_cast<std::size_t>(stride) * 271u * bpp + 480u * bpp);
-        for (std::uint32_t y = 0; y < 272; ++y) {
-            for (std::uint32_t x = 0; x < 480; ++x) {
-                pixels_[y * 480u + x] = base != nullptr ? framebuffer_pixel(base + (y * stride + x) * bpp, pixel_format) : 0u;
+        const std::uint32_t minimum_stride = (address & 0x0F000000u) == 0x04000000u || (address & 0x0F000000u) == 0x08000000u
+                                                 ? 480u
+                                                 : 512u;
+        stride = std::max(stride, minimum_stride);
+        const std::size_t needed = static_cast<std::size_t>(stride) * 271u * bpp + 480u * bpp;
+        if (memory_.contains(address, needed)) {
+            pixels_.resize(480u * 272u);
+            const std::uint8_t *base = memory_.raw_pointer(address, needed);
+            for (std::uint32_t y = 0; y < 272; ++y) {
+                for (std::uint32_t x = 0; x < 480; ++x) {
+                    pixels_[y * 480u + x] = framebuffer_pixel(base + (y * stride + x) * bpp, pixel_format);
+                }
             }
+            gl_.BindTexture(GL_TEXTURE_2D, display_texture_);
+            gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 480, 272, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels_.data());
+            texture = display_texture_;
         }
-        gl_.BindTexture(GL_TEXTURE_2D, display_texture_);
-        gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 480, 272, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels_.data());
-        texture = display_texture_;
     }
 
     if (interpolate_) {
