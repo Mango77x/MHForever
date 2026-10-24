@@ -21,6 +21,11 @@ constexpr std::uint32_t kPdpMax = 10 * 1024;         // what the relay carries i
 constexpr std::uint32_t kPtpStatSize = 36;           // next, id, local mac[6], peer mac[6], local port, peer port, send, recv, state
 constexpr std::uint64_t kPollStepUs = 1000;
 
+// MHF_TRACE_ADHOC: a call that failed for a reason other than "nothing yet" (those are polled all the time).
+void trace_failure(const char *call, int id, std::uint32_t result) {
+    if (result != 0 && result != se::kWouldBlock && net_tracing()) std::fprintf(stderr, "[adhoc] %s(%d) failed: %08X\n", call, id, result);
+}
+
 bool is_broadcast(const ad::Mac &mac) {
     return std::all_of(mac.begin(), mac.end(), [](std::uint8_t b) { return b == 0xFF; });
 }
@@ -73,7 +78,9 @@ void PdpCreate(Runtime &rt, Context &ctx) {
     if (unavailable(s, error)) return ret(ctx, error);
     if (arg(ctx, 0) == 0 || sarg(ctx, 2) <= 0) return ret(ctx, se::kInvalidArg);
     write_mac(rt, arg(ctx, 0), s.mac);
-    ret(ctx, static_cast<std::uint32_t>(s.sockets->pdp_create(static_cast<std::uint16_t>(arg(ctx, 1)))));
+    const auto created = s.sockets->pdp_create(static_cast<std::uint16_t>(arg(ctx, 1)));
+    NET_TRACE("sceNetAdhocPdpCreate = %d", static_cast<int>(created));
+    ret(ctx, static_cast<std::uint32_t>(created));
 }
 
 // sceNetAdhocPdpDelete(id, unknown)
@@ -118,7 +125,10 @@ void PdpSend(Runtime &rt, Context &ctx) {
         });
         s.note_datagram('s', result, static_cast<std::uint32_t>(data.size()));
         if (result == 0 && net_tracing_packets()) net_trace_packet("send", static_cast<double>(rt.now_us()) / 1e6, id, data.data(), static_cast<std::uint32_t>(data.size()));
-        if (result != 0) return ret(ctx, result);
+        if (result != 0) {
+            trace_failure("sceNetAdhocPdpSend", id, result);
+            return ret(ctx, result);
+        }
     }
     ret(ctx, 0);
 }
@@ -154,6 +164,7 @@ void PdpRecv(Runtime &rt, Context &ctx) {
     } else if (result == se::kNotEnoughSpace) {
         rt.memory().store32(length_address, length); // what the datagram needs
     }
+    trace_failure("sceNetAdhocPdpRecv", id, result);
     ret(ctx, result);
 }
 
@@ -171,7 +182,9 @@ void PtpOpen(Runtime &rt, Context &ctx) {
     if (sarg(ctx, 5) <= 0 || sarg(ctx, 6) <= 0 || sarg(ctx, 7) <= 0) return ret(ctx, se::kInvalidArg);
     write_mac(rt, source, s.mac);
     NET_TRACE("sceNetAdhocPtpOpen(port %u -> port %u)", arg(ctx, 1) & 0xFFFFu, arg(ctx, 3) & 0xFFFFu);
-    ret(ctx, static_cast<std::uint32_t>(s.sockets->ptp_open(static_cast<std::uint16_t>(arg(ctx, 1)), peer, static_cast<std::uint16_t>(arg(ctx, 3)))));
+    const auto opened = s.sockets->ptp_open(static_cast<std::uint16_t>(arg(ctx, 1)), peer, static_cast<std::uint16_t>(arg(ctx, 3)));
+    NET_TRACE("sceNetAdhocPtpOpen = %d", static_cast<int>(opened));
+    ret(ctx, static_cast<std::uint32_t>(opened));
 }
 
 // sceNetAdhocPtpListen(source mac, source port, buffer, retransmit interval, count, backlog, flag)
@@ -183,7 +196,9 @@ void PtpListen(Runtime &rt, Context &ctx) {
     if (sarg(ctx, 2) <= 0 || sarg(ctx, 3) <= 0 || sarg(ctx, 4) <= 0 || sarg(ctx, 5) <= 0) return ret(ctx, se::kInvalidArg);
     write_mac(rt, arg(ctx, 0), s.mac);
     NET_TRACE("sceNetAdhocPtpListen(port %u)", arg(ctx, 1) & 0xFFFFu);
-    ret(ctx, static_cast<std::uint32_t>(s.sockets->ptp_listen(static_cast<std::uint16_t>(arg(ctx, 1)))));
+    const auto listening = s.sockets->ptp_listen(static_cast<std::uint16_t>(arg(ctx, 1)));
+    NET_TRACE("sceNetAdhocPtpListen = %d", static_cast<int>(listening));
+    ret(ctx, static_cast<std::uint32_t>(listening));
 }
 
 // sceNetAdhocPtpConnect(id, timeout, flag)
@@ -260,6 +275,7 @@ void PtpRecv(Runtime &rt, Context &ctx) {
         rt.memory().store32(length_address, length);
         NET_TRACE("sceNetAdhocPtpRecv(%d): %u bytes", id, length);
     }
+    trace_failure("sceNetAdhocPtpRecv", id, result);
     ret(ctx, result);
 }
 

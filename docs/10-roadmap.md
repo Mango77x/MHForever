@@ -106,6 +106,13 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
   tracing, tested against the reference server (2026-10-23, `05-runtime-hle.md` §5i). Two copies of the game, and the game with
   PPSSPP, see each other in the Gathering Hall (2026-10-24). Not yet tried: a quest together.
 - [ ] Two instances on one PC complete a quest through a local server.
+- [ ] **Open bug (2026-10-24): starting a quest together freezes the host.** The last thing in the host's log is
+  `[interp] interpreting 088B2AAC ($ra=088B7054)` (code the static analysis never reached, so the fallback interpreter runs it); after it
+  the game makes no more calls and the window stops, and the guest drops the host after a few seconds. Two copies of ours and ours with
+  PPSSPP behave the same way on the host side. The interpreter now polls interrupts on backward branches like the recompiled code does,
+  which did not cure it. Next: a watchdog that dumps the guest threads when no vblank has passed for a few seconds (`Runtime::dump_threads`),
+  then see what the interpreted function waits for (a flag, an event, an import that is missing); a function the analysis missed may also
+  just need to be added to the recompiled set (`docs/04-recompiler.md` section 7).
 - [ ] Launcher: server choice and live status, stable virtual MAC, pseudonym; play on a community server. Credits, and
   messages to PPSSPP and the operators, before release. **Target: 0.5.**
 - [ ] Then the target design on top (`08-multiplayer.md` §4): identity, friends, presence, invites, room codes; optional
