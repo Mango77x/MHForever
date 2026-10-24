@@ -111,6 +111,11 @@ Observed by the PPSSPP community:
 - Lobby/room: **UDP 10000**.
 - In a quest: **UDP 20001–20004** (one port per player).
 - The ad-hoc server (adhocctl) uses **TCP 27312**; the "postoffice" relay **TCP 27313**.
+- Measured 2026-10-24 in the Gathering Hall (`05-runtime-hle.md` section 5i): the game creates one PDP socket on port 10000 and, once a
+  quest is being set up, one on 20001; every datagram is a broadcast to the group; a hunter's position goes out every 40 vblanks
+  (667 ms), the other two kinds of datagram every 16 vblanks (267 ms); it joins its group through the network configuration dialog
+  (the group is named after the game, e.g. `MHP2Q000` on the servers) and does not use GameMode or Matching. Servers group the EU, US and JP
+  releases of the game together (`ULES01213`, `ULUS10391`, `ULJM05500`).
 - The game tolerates latency well; PPSSPP relays cite it as a title that works.
 - Known original-game behavior: **small monsters are not synchronized** between players (not our bug).
 

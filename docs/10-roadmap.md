@@ -109,6 +109,8 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
   tracing, tested against the reference server (2026-10-23, `05-runtime-hle.md` §5i). Two copies of the game, and the game with
   PPSSPP, see each other in the Gathering Hall (2026-10-24). Not yet tried: a quest together.
 - [ ] Two instances on one PC complete a quest through a local server.
+- [ ] Before 0.5: write to PPSSPP and the main server operators (`08-multiplayer.md` section 1.2) before the launcher gets a list of servers;
+  a short privacy note (servers see the name and the game); the same Windows tests on Linux.
 - [ ] **Open bug (2026-10-24): starting a quest together freezes the host.** The last thing in the host's log is
   `[interp] interpreting 088B2AAC ($ra=088B7054)` (code the static analysis never reached, so the fallback interpreter runs it); after it
   the game makes no more calls and the window stops, and the guest drops the host after a few seconds. Two copies of ours and ours with

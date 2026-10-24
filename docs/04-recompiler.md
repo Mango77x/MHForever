@@ -164,6 +164,13 @@ any address in user RAM without a recompiled function; calls out of interpreted 
 function exists. `MHF_INTERPRET_ONLY=1` forces it for everything except HLE stubs; CTest runs every homebrew test both
 ways, which is the cheap form of the differential testing below.
 
+### 7.1 Interrupts inside interpreted code (2026-10-24)
+
+Recompiled code polls interrupts (`abi::poll_interrupts`) on every backward branch, so a guest loop that waits for something an interrupt
+handler, a callback or another thread does still sees it happen. The interpreter now does the same on backward jumps and taken backward
+branches. Before, a busy wait in interpreted code froze the whole program. It did not cure the freeze when starting a quest together
+(`10-roadmap.md`, Phase 5), which also ends in interpreted code (`[interp] interpreting 088B2AAC`): that function is the next thing to look at.
+
 ## 8. Verification
 
 1. **Golden boot trace** (ACX technique): run until the first N HLE calls and compare with a `golden` file. In CI with homebrew;
