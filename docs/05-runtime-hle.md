@@ -169,7 +169,8 @@ amber accent, Liberation Sans) and feeds keys/text back with `dialog_key()`/`dia
 
 Online play for the PSP's ad hoc mode over the PSP community's ad hoc servers (`08-multiplayer.md` §1.2). Off unless a server is
 set (`--adhoc-server host[:port]` or `MHF_ADHOC_SERVER`): nothing is contacted before the game first uses the ad hoc libraries.
-`MHF_TRACE_ADHOC=1` logs the calls. `--adhoc-nick` and `--adhoc-mac` set the name and the virtual MAC other players see
+`MHF_TRACE_ADHOC=1` logs the calls and, once a second, how many datagrams the game sent and read; `=2` also dumps the start of
+every datagram. `--adhoc-nick` and `--adhoc-mac` set the name and the virtual MAC other players see
 (a MAC made from the nickname when not given).
 
 - `sceNet`, `sceWlanDrv`, `sceNetApctl`, `sceNetInet`: a console with no internet; the MAC calls answer with the virtual MAC.
@@ -177,6 +178,11 @@ set (`--adhoc-server host[:port]` or `MHF_ADHOC_SERVER`): nothing is contacted b
   and no network in it (tested with a fake server). Handlers are called from the kernel's poller through
   `call_from_interrupt`. `AemuLink` talks to the server (the vendored aemu client, TCP 27312) on a thread of its own.
 - `sceNetAdhocDiscover` is a stub that finds nobody, as in PPSSPP.
+- What Freedom Unite sends in the Gathering Hall (measured with the dump, 2026-10-24, one datagram type per size, all broadcast on
+  port 10000): 186 bytes every 16 vblanks (267 ms), 24 bytes every 16 vblanks, and 74 bytes every 40 vblanks (667 ms), which is
+  the one that carries the hunter's position and name. The intervals are counts of vblanks, the same on every run and
+  whether the hunter moves or not, so a remote hunter's path reaches the other game as one point every two thirds of a
+  second. The relay itself delivered 300 of 300 test datagrams at 30 per second with a median delay of 16 ms.
 - Sockets (`Sockets`) use the relay of the same server (the next port up, 27313): PDP datagrams (up to 10 KiB) and PTP
   streams. Logging a socket in to the relay and pairing a PTP connection take time, so they run on short-lived threads and
   the calls say "would block" meanwhile; the HLE waits the way the PSP's calls do (the guest thread sleeps in 1 ms steps, the

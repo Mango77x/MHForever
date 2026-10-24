@@ -116,6 +116,8 @@ void PdpSend(Runtime &rt, Context &ctx) {
         const std::uint32_t result = wait_for(rt, timeout, nonblocking, [&] {
             return s.sockets->pdp_send(id, target, port, data.data(), static_cast<std::uint32_t>(data.size()));
         });
+        s.note_datagram('s', result, static_cast<std::uint32_t>(data.size()));
+        if (result == 0 && net_tracing_packets()) net_trace_packet("send", static_cast<double>(rt.now_us()) / 1e6, id, data.data(), static_cast<std::uint32_t>(data.size()));
         if (result != 0) return ret(ctx, result);
     }
     ret(ctx, 0);
@@ -141,6 +143,8 @@ void PdpRecv(Runtime &rt, Context &ctx) {
         length = static_cast<std::uint32_t>(buffer.size());
         return s.sockets->pdp_recv(id, source, port, buffer.data(), length);
     });
+    s.note_datagram('r', result, length);
+    if (result == 0 && net_tracing_packets()) net_trace_packet("recv", static_cast<double>(rt.now_us()) / 1e6, id, buffer.data(), length);
     if (result == 0) {
         write_mac(rt, mac_address, source);
         rt.memory().store16(port_address, port);

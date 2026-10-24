@@ -13,6 +13,7 @@
 
 #include "check.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -20,6 +21,7 @@
 #include <functional>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -171,6 +173,48 @@ int main() {
     length = sizeof(buffer);
     MHF_CHECK(alice_net.pdp_recv(static_cast<int>(a_pdp), from, from_port, buffer, length) == 0 && length == 40 && from_port == 2000);
     MHF_CHECK(alice_net.pdp_recv(static_cast<int>(a_pdp), from, from_port, buffer, length) == sockerr::kWouldBlock);
+
+    // How even the datagrams arrive: 30 per second for 10 s from Alice to Bob, each stamped with its send time. Only with
+    // MHF_ADHOC_TEST_JITTER=1; prints the delay and the gaps between arrivals (a game that sees them bunch up shows jerky movement).
+    if (std::getenv("MHF_ADHOC_TEST_JITTER") != nullptr) {
+        std::vector<double> delays, gaps;
+        double last_arrival = 0;
+        int sent_count = 0, received_count = 0;
+        const auto start = Clock::now();
+        const auto now_ms = [&] { return std::chrono::duration<double, std::milli>(Clock::now() - start).count(); };
+        auto next_send = 0.0;
+        while (now_ms() < 10000.0) {
+            if (now_ms() >= next_send) {
+                double stamp = now_ms();
+                std::uint8_t packet[24] = {};
+                std::memcpy(packet, &stamp, sizeof(stamp));
+                if (alice_net.pdp_send(static_cast<int>(a_pdp), bob_mac, 2000, packet, sizeof(packet)) == 0) ++sent_count;
+                next_send += 1000.0 / 30.0;
+            }
+            for (;;) {
+                std::uint8_t in[64];
+                std::uint32_t got = sizeof(in);
+                Mac who{};
+                std::uint16_t who_port = 0;
+                if (bob_net.pdp_recv(static_cast<int>(b_pdp), who, who_port, in, got) != 0) break;
+                double stamp = 0;
+                std::memcpy(&stamp, in, sizeof(stamp));
+                const double t = now_ms();
+                delays.push_back(t - stamp);
+                if (last_arrival > 0) gaps.push_back(t - last_arrival);
+                last_arrival = t;
+                ++received_count;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        const auto stat = [](std::vector<double> v, double q) {
+            if (v.empty()) return 0.0;
+            std::sort(v.begin(), v.end());
+            return v[static_cast<std::size_t>(q * static_cast<double>(v.size() - 1))];
+        };
+        std::printf("[jitter] sent %d, received %d; delay ms: median %.1f, 95%% %.1f, max %.1f; gap between arrivals ms: median %.1f, 95%% %.1f, max %.1f\n",
+                    sent_count, received_count, stat(delays, 0.5), stat(delays, 0.95), stat(delays, 1.0), stat(gaps, 0.5), stat(gaps, 0.95), stat(gaps, 1.0));
+    }
 
     // A stream: Bob listens, Alice opens and connects, Bob accepts; both talk; Alice closes, Bob sees it end.
     const auto listener = bob_net.ptp_listen(3000);
