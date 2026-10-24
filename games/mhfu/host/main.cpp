@@ -4,6 +4,7 @@
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
 //             [--smooth-textures] [--fps 30..180] [--music-volume 0-100] [--sfx-volume 0-100]
+//             [--language en|fr|de|es|it|jp]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
 //             [--controls-file <path>]
 //             [--adhoc-server host[:port]] [--adhoc-nick <name>] [--adhoc-mac AA:BB:CC:DD:EE:FF]
@@ -33,8 +34,14 @@
 #include <cstring>
 #include <exception>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
+
+// The PSP's system languages, by the value sceUtilityGetSystemParamInt(8) reports for each.
+constexpr std::pair<std::string_view, int> kLanguages[] = {
+    {"jp", 0}, {"en", 1}, {"fr", 2}, {"es", 3}, {"de", 4}, {"it", 5},
+};
 
 namespace mhf::psp::generated {
 std::span<const Program *const> mhfu_programs();
@@ -205,6 +212,18 @@ int main(int argc, char **argv) {
         else if (a == "--fps" && i + 1 < argc) target_fps = std::clamp(std::stoi(argv[++i]), 30, 180); // enhancement
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--sfx-volume" && i + 1 < argc) options.sfx_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
+        else if (a == "--language" && i + 1 < argc) {
+            // The PSP's system language, which the game reads with sceUtilityGetSystemParamInt(8). English by default.
+            const std::string_view code = argv[++i];
+            const auto found = std::find_if(std::begin(kLanguages), std::end(kLanguages),
+                                            [code](const auto &entry) { return entry.first == code; });
+            if (found == std::end(kLanguages)) {
+                std::fprintf(stderr, "error: unknown --language '%.*s' (en, fr, de, es, it, jp)\n",
+                             static_cast<int>(code.size()), code.data());
+                return 2;
+            }
+            options.system_language = found->second;
+        }
         else if (a == "--keymap" && i + 1 < argc) keyboard = mhf::host::parse_keymap(argv[++i]);
         else if (a == "--padmap" && i + 1 < argc) controller = mhf::host::parse_padmap(argv[++i]);
         else if (a == "--controls-file" && i + 1 < argc) controls_file = argv[++i];

@@ -93,6 +93,9 @@ struct RuntimeOptions {
     // mixer (sceSasCore).
     int music_volume = 100;
     int sfx_volume = 100;
+    // The PSP's system language, as sceUtilityGetSystemParamInt(8) reports it: 0 Japanese, 1 English, 2 French,
+    // 3 Spanish, 4 German, 5 Italian. English by default. A game that reads it starts in that language.
+    int system_language = 1;
 };
 
 class Runtime {
