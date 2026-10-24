@@ -1,7 +1,6 @@
-# FFmpeg (LGPL version 2.1 or later) for the pictures of the game's movies: the H.264 decoder of the avc stream inside
-# every PSMF. The sound of the movies uses the ATRAC3/ATRAC3+ decoders already in the tree (third_party/at3_standalone),
-# which are the same code, so this build is only libavcodec and libavutil, always as shared libraries (docs/02-architecture.md
-# section 9): the project is GPL-3.0-or-later and links them dynamically, and the build with FFmpeg is the shipped one.
+# FFmpeg (LGPL version 2.1 or later) for the moving pictures of the game's movies (the H.264 of every PSMF) and for the
+# ATRAC3/ATRAC3+ sound of the movies and the music of the game (hle_atrac.cpp). It is mandatory: without it the runtime
+# cannot play movies or decode music at all, so there is no OFF switch.
 #
 # MHF_FFMPEG selects where they come from:
 #   bundled (default) On macOS and Linux, download the pinned release below, check its SHA-256, and build it at configure

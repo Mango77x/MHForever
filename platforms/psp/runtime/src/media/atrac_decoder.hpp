@@ -1,8 +1,8 @@
 #pragma once
 
-// The ATRAC3+ sound of the movies, decoded by the standalone ATRAC3/ATRAC3+ decoder already in the tree
-// (third_party/at3_standalone, from FFmpeg through PPSSPP; see THIRD_PARTY.md). It is the same decoder sceAtrac3plus
-// uses for the game's music (hle_atrac.cpp), so there is only one implementation of the format in the runtime.
+// The ATRAC3+ sound of the movies, decoded with FFmpeg's ATRAC3+/ATRAC3 decoders (cmake/ffmpeg.cmake). It is the same
+// decoder sceAtrac3plus uses for the game's music (hle_atrac.cpp), so there is only one implementation of the format
+// in the runtime.
 //
 // A PSMF audio frame carries an 8-byte header of its own (0x0FD0 and the codec parameters) which the demultiplexer
 // strips: what is handed to decode() is the raw ATRAC3+ frame, and what comes out is 2048 samples per channel.
@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <span>
 
-struct ATRAC3PContext;
+struct AVCodecContext;
 
 namespace mhf::psp::media {
 
@@ -25,6 +25,7 @@ public:
     AtracDecoder &operator=(const AtracDecoder &) = delete;
 
     // `channels` and `bytes_per_frame` (the size of one frame without its PSMF header) come from the stream itself.
+    // Fails when there is no ATRAC decoder (builds without FFmpeg): the movie then runs in silence.
     bool open(unsigned channels, unsigned bytes_per_frame);
     void close();
     [[nodiscard]] bool is_open() const noexcept { return context_ != nullptr; }
@@ -35,7 +36,7 @@ public:
     bool decode(std::span<const std::uint8_t> frame, std::int16_t *out) noexcept;
 
 private:
-    ATRAC3PContext *context_{};
+    AVCodecContext *context_{};
     unsigned channels_{2};
     std::array<float, 4096> left_{};
     std::array<float, 4096> right_{};

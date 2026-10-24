@@ -1,50 +1,78 @@
 #include "media/atrac_decoder.hpp"
 
-#include "at3_decoders.h"
-
 #include <algorithm>
 #include <cstring>
 
-namespace mhf::psp::media {
-namespace {
-
-std::int16_t to_pcm(float value) noexcept {
-    if (value >= 1.0f) return 32767;
-    if (value <= -1.0f) return -32767;
-    return static_cast<std::int16_t>(value * 32767.0f);
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavutil/samplefmt.h>
 }
 
-} // namespace
+namespace mhf::psp::media {
 
 AtracDecoder::~AtracDecoder() { close(); }
 
 bool AtracDecoder::open(unsigned channels, unsigned bytes_per_frame) {
     close();
     if (channels == 0 || channels > 2 || bytes_per_frame == 0) return false;
-    int block_align = static_cast<int>(bytes_per_frame);
-    context_ = atrac3p_alloc(static_cast<int>(channels), &block_align);
+    const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_ATRAC3P);
+    if (codec == nullptr) return false;
+    context_ = avcodec_alloc_context3(codec);
+    if (context_ == nullptr) return false;
+    context_->sample_fmt = AV_SAMPLE_FMT_FLTP;
+    // The PSMF header does not say the sample rate; the PSP sound library uses the same one for every movie.
+    context_->sample_rate = 44100;
+    context_->block_align = static_cast<int>(bytes_per_frame);
+    av_channel_layout_default(&context_->ch_layout, static_cast<int>(channels));
+    if (avcodec_open2(context_, codec, nullptr) < 0) {
+        close();
+        return false;
+    }
     channels_ = channels;
-    return context_ != nullptr;
+    return true;
 }
 
 void AtracDecoder::close() {
-    if (context_ != nullptr) atrac3p_free(context_);
+    if (context_ != nullptr) avcodec_free_context(&context_);
     context_ = nullptr;
 }
 
 bool AtracDecoder::decode(std::span<const std::uint8_t> frame, std::int16_t *out) noexcept {
     std::memset(out, 0, static_cast<std::size_t>(kAtracSamplesPerFrame) * channels_ * sizeof(std::int16_t));
     if (context_ == nullptr || frame.empty()) return false;
-    float *planes[2] = {left_.data(), right_.data()};
-    int produced = 0;
-    if (atrac3p_decode_frame(context_, planes, &produced, frame.data(), static_cast<int>(frame.size())) < 0) return false;
-    produced = std::clamp(produced, 0, static_cast<int>(kAtracSamplesPerFrame));
-    const float *right = channels_ == 2 ? right_.data() : left_.data();
-    for (int i = 0; i < produced; ++i) {
-        out[static_cast<std::size_t>(i) * channels_] = to_pcm(left_[static_cast<std::size_t>(i)]);
-        if (channels_ == 2) out[static_cast<std::size_t>(i) * 2u + 1u] = to_pcm(right[i]);
+    AVPacket *packet = av_packet_alloc();
+    AVFrame *decoded = av_frame_alloc();
+    if (packet == nullptr || decoded == nullptr) {
+        av_packet_free(&packet);
+        av_frame_free(&decoded);
+        return false;
     }
-    return produced > 0;
+    bool produced = false;
+    if (av_new_packet(packet, static_cast<int>(frame.size())) >= 0) {
+        std::memcpy(packet->data, frame.data(), frame.size());
+        if (avcodec_send_packet(context_, packet) >= 0) {
+            while (avcodec_receive_frame(context_, decoded) == 0) {
+                if (decoded->format == AV_SAMPLE_FMT_FLTP && decoded->nb_samples > 0) {
+                    const int count = std::min<int>(decoded->nb_samples, kAtracSamplesPerFrame);
+                    const float *left = reinterpret_cast<const float *>(decoded->data[0]);
+                    const float *right = channels_ == 2 ? reinterpret_cast<const float *>(decoded->data[1]) : left;
+                    for (int i = 0; i < count; ++i) {
+                        out[static_cast<std::size_t>(i) * channels_] = static_cast<std::int16_t>(
+                            std::clamp(left[i], -1.0f, 1.0f) * 32767.0f);
+                        if (channels_ == 2)
+                            out[static_cast<std::size_t>(i) * 2u + 1u] = static_cast<std::int16_t>(
+                                std::clamp(right[i], -1.0f, 1.0f) * 32767.0f);
+                    }
+                    produced = count > 0;
+                }
+                av_frame_unref(decoded);
+                break; // one frame in, one frame out
+            }
+        }
+    }
+    av_frame_free(&decoded);
+    av_packet_free(&packet);
+    return produced;
 }
 
 } // namespace mhf::psp::media

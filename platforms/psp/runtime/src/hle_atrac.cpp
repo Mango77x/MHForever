@@ -2,7 +2,8 @@
 //
 // The game hands over a whole RIFF/WAVE ".at3" file in memory (sceAtracSetDataAndGetID) and then pulls one frame of
 // 16-bit stereo PCM per sceAtracDecodeData call (2048 samples for ATRAC3+, 1024 for ATRAC3). Frames are decoded by
-// FFmpeg's decoders (third_party/at3_standalone, LGPL-2.1-or-later).
+// FFmpeg's ATRAC3/ATRAC3+ decoders (cmake/ffmpeg.cmake), like the movie sound; the standalone extract that used to
+// carry this code is gone.
 //
 // Sample positions: the decoder's output starts with a fixed delay (0x170 samples for ATRAC3+, 0x45 for ATRAC3) plus the
 // encoder offset stored in the "fact" chunk; the game sees a timeline that starts after both. Loop points come from the
@@ -11,14 +12,18 @@
 
 #include "hle.hpp"
 
-#include "at3_decoders.h"
-
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 #include <vector>
+
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavutil/samplefmt.h>
+}
 
 namespace mhf::psp::hle {
 
@@ -51,8 +56,8 @@ std::int16_t to_pcm(float f) {
 class Track {
 public:
     ~Track() {
-        if (at3p_ != nullptr) atrac3p_free(at3p_);
-        if (at3_ != nullptr) atrac3_free(at3_);
+        if (at3p_ != nullptr) avcodec_free_context(&at3p_);
+        if (at3_ != nullptr) avcodec_free_context(&at3_);
     }
 
     // Parses the RIFF header. Returns 0 or an sceAtrac error code.
@@ -126,15 +131,45 @@ public:
 
         int block_align = bytes_per_frame_;
         if (plus_) {
-            at3p_ = atrac3p_alloc(channels_, &block_align);
+            const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_ATRAC3P);
+            if (codec != nullptr) {
+                at3p_ = avcodec_alloc_context3(codec);
+                if (at3p_ != nullptr) {
+                    at3p_->sample_fmt = AV_SAMPLE_FMT_FLTP;
+                    at3p_->block_align = block_align;
+                    av_channel_layout_default(&at3p_->ch_layout, channels_);
+                    if (avcodec_open2(at3p_, codec, nullptr) < 0) {
+                        avcodec_free_context(&at3p_);
+                        at3p_ = nullptr;
+                    }
+                }
+            }
         } else {
-            std::uint8_t extra_data[14]{};
+            // The 14-byte extension of the "fmt " chunk the ATRAC3 decoder parses channels and coding mode from.
+            std::array<std::uint8_t, 14> extra_data{};
             extra_data[0] = 1;
             extra_data[3] = static_cast<std::uint8_t>(channels_ << 3);
             extra_data[6] = static_cast<std::uint8_t>(joint_stereo);
             extra_data[8] = static_cast<std::uint8_t>(joint_stereo);
             extra_data[10] = 1;
-            at3_ = atrac3_alloc(channels_, &block_align, extra_data, sizeof extra_data);
+            // libavcodec expects av_malloc'ed memory here: avcodec_open2 reads it and avcodec_free_context frees it.
+            at3_extra_data_ = av_malloc(extra_data.size());
+            const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_ATRAC3);
+            if (at3_extra_data_ != nullptr && codec != nullptr) {
+                std::memcpy(at3_extra_data_, extra_data.data(), extra_data.size());
+                at3_ = avcodec_alloc_context3(codec);
+                if (at3_ != nullptr) {
+                    at3_->sample_fmt = AV_SAMPLE_FMT_FLTP;
+                    at3_->block_align = block_align;
+                    at3_->extradata = static_cast<std::uint8_t *>(at3_extra_data_);
+                    at3_->extradata_size = static_cast<int>(extra_data.size());
+                    av_channel_layout_default(&at3_->ch_layout, channels_);
+                    if (avcodec_open2(at3_, codec, nullptr) < 0) {
+                        avcodec_free_context(&at3_);
+                        at3_ = nullptr;
+                    }
+                }
+            }
         }
         if (at3p_ == nullptr && at3_ == nullptr) return kErrorUnknownFormat;
         return 0;
@@ -210,8 +245,37 @@ private:
     }
 
     void flush() {
-        if (at3p_ != nullptr) atrac3p_flush_buffers(at3p_);
-        if (at3_ != nullptr) atrac3_flush_buffers(at3_);
+        if (at3p_ != nullptr) avcodec_flush_buffers(at3p_);
+        if (at3_ != nullptr) avcodec_flush_buffers(at3_);
+    }
+
+    // Decodes one frame with FFmpeg's packet/frame pair; one frame in, one frame out, floating planar samples.
+    // Returns false when the frame cannot be decoded.
+    bool decode_codec_frame(const std::uint8_t *data, int size, std::int16_t *out) {
+        AVCodecContext *decoder = plus_ ? at3p_ : at3_;
+        if (decoder == nullptr) return false;
+        AVPacket *packet = av_packet_alloc();
+        AVFrame *frame = av_frame_alloc();
+        bool ok = false;
+        if (packet != nullptr && frame != nullptr && av_new_packet(packet, size) >= 0) {
+            std::memcpy(packet->data, data, size);
+            if (avcodec_send_packet(decoder, packet) >= 0 && avcodec_receive_frame(decoder, frame) == 0 &&
+                frame->format == AV_SAMPLE_FMT_FLTP) {
+                const int count = std::min<int>(frame->nb_samples, samples_per_frame_);
+                if (count > 0 && frame->extended_data[0] != nullptr) {
+                    const auto left = reinterpret_cast<const float *>(frame->extended_data[0]);
+                    const auto right = channels_ == 2 ? reinterpret_cast<const float *>(frame->extended_data[1]) : left;
+                    for (int i = 0; i < count; ++i) {
+                        out[static_cast<std::size_t>(i) * 2u] = to_pcm(left[i]);
+                        if (channels_ == 2) out[static_cast<std::size_t>(i) * 2u + 1u] = to_pcm(right[i]);
+                    }
+                }
+                ok = true;
+            }
+        }
+        av_frame_free(&frame);
+        av_packet_free(&packet);
+        return ok;
     }
 
     void decode_frame() {
@@ -221,17 +285,7 @@ private:
         pcm_.assign(static_cast<std::size_t>(samples_per_frame_) * 2u, 0);
         const std::uint32_t at = data_offset_ + static_cast<std::uint32_t>(frame) * bytes_per_frame_;
         if (at + bytes_per_frame_ > data_end_) return; // past the data: silence
-        float *channels[2] = {left_.data(), right_.data()};
-        int produced = 0;
-        const int result = plus_ ? atrac3p_decode_frame(at3p_, channels, &produced, &file_[at], bytes_per_frame_)
-                                 : atrac3_decode_frame(at3_, channels, &produced, &file_[at], bytes_per_frame_);
-        if (result < 0) return;
-        produced = std::min(produced, samples_per_frame_);
-        const float *right = channels_ == 2 ? right_.data() : left_.data();
-        for (int i = 0; i < produced; ++i) {
-            pcm_[static_cast<std::size_t>(i) * 2u] = to_pcm(left_[static_cast<std::size_t>(i)]);
-            pcm_[static_cast<std::size_t>(i) * 2u + 1u] = to_pcm(right[i]);
-        }
+        (void)decode_codec_frame(&file_[at], bytes_per_frame_, pcm_.data());
     }
 
     std::vector<std::uint8_t> file_;
@@ -242,9 +296,9 @@ private:
     int loop_num_{};
     int position_{};
     bool finished_{};
-    ATRAC3PContext *at3p_{};
-    ATRAC3Context *at3_{};
-    std::array<float, 4096> left_{}, right_{};
+    AVCodecContext *at3p_{};
+    AVCodecContext *at3_{};
+    void *at3_extra_data_{};
     std::vector<std::int16_t> pcm_;
     int pcm_start_{-1}, pcm_count_{}, next_frame_{0};
 };

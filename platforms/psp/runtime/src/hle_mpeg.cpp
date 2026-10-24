@@ -3,8 +3,8 @@
 // The movies are Sony PSMF files: an MPEG program stream of 2048-byte packs, holding H.264 pictures and ATRAC3+ sound.
 // The game reads the file into the ring buffer it created (sceMpegRingbufferPut calls back into the game's own read
 // function), and then asks for access units and decodes them. None of the library's demultiplexer or decoders are
-// reimplemented byte by byte here: media/psmf_demuxer splits the packs, FFmpeg's libavcodec (third_party, LGPL) decodes
-// the pictures and third_party/at3_standalone the sound. See THIRD_PARTY.md.
+// reimplemented byte by byte here: media/psmf_demuxer splits the packs, and FFmpeg's libavcodec (LGPL) decodes both the
+// pictures and the sound. See THIRD_PARTY.md.
 //
 // sceMpegAvcDecode gives the game finished pixels, not YCbCr: with the default decode mode the PSP library converts the
 // picture itself, and this game imports neither sceMpegAvcDecodeMode nor sceJpegCsc, so the frames it reads are 32-bit
