@@ -142,11 +142,20 @@ The mapping in that function is: PSP `2` (FR) → `2`, `3` (ES) → `4`, `4` (DE
 (EN); and **if the call fails, it takes `1` and skips the screen**. That failure path is the game's own, not a trick of
 ours.
 
-**What is still open.** The language screen itself is not in an overlay: it is drawn by the executable, after `demo_task`
-(id 1) and `demo_sub` (id 13) load, and it has no timer (it waits for input indefinitely). Finding the function that
-decides to show it means walking the start-up state machine around `0x088AC308`, which is where the next session should
-start. Anything that skips the screen has to be resolved by a canonical name in
-`regions/ULES01213/symbols.toml` and hooked through `register_hook`, per `CONTRIBUTING.md`.
+**The language is read exactly once.** A trace of `sceUtilityGetSystemParamInt(8)` shows a single call, from
+`0x08890738`, inside `0x08890718`, which only `0x0888FDFC` (the start-up) calls. The game never asks again.
+
+**The screen is not driven by that call.** It has no timer (it waits for input indefinitely), and a trace of every
+guest call (36 447 of them) shows no function starting late and none of the overlay routines ever running: the screen is
+drawn by the start-up state machinery, not by a function of its own. Hooking `0x088AC308`, `0x088ACB1C`, `0x09A5F280`
+(demo_task) and `0x09C190F0` (demo_sub) was tried, and none of those hooks fired, so the screen does not run through
+them.
+
+**What that means for skipping it.** `--language` already does its part: the game takes the language in its start-up and
+applies it. The screen is a separate step that never consults the system, so there is nothing to answer there. Skipping
+it means changing the flow of the start-up machinery, which needs a fuller map of its state blocks than this session
+produced; anything that does it has to be resolved by a canonical name in `regions/ULES01213/symbols.toml` and hooked
+through `register_hook`, per `CONTRIBUTING.md`.
 
 **Ruled out**, so nobody repeats the work: a language variable in RAM (`0x08197031` holds the language but is written
 before the screen and skipping it changes nothing), the overlays `demo_task`/`demo_sub`, a saved game (`MHP2NDG.BIN`),
