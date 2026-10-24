@@ -121,8 +121,36 @@ Observed by the PPSSPP community:
 
 ## 8. Languages
 
-The EU version is probably multilingual (EN/FR/DE/ES/IT) and picks the language from the PSP system setting (`sceImpose`/
-`sceUtility` system params). Expose it as a launcher setting. `[VERIFY]`
+The EU version is multilingual (EN/FR/DE/ES/IT). It reads the PSP's system language with
+`sceUtilityGetSystemParamInt(8)` and then shows its own language screen before the title, on every start.
+
+**What the runtime does today.** `RuntimeOptions::system_language` (`0`, `1`, `2`, `3`, `4`, `5` for JP, EN, FR, ES, DE, IT;
+English by default) is what `sceUtilityGetSystemParamInt(8)` answers, and `games/mhfu --language en|fr|de|es|it|jp` sets it.
+The game reads it and opens its language screen with that language already focused, which saves the player from going
+through the list. It still waits for a confirmation.
+
+**Where the language goes inside the game** (EU executable, found with Ghidra; recorded here as knowledge, never as an
+address in code):
+
+| What | Where |
+|---|---|
+| The only function that asks for the system language | `0x08890718`, called once from the start-up function `0x0888FDFC` |
+| It maps the PSP value to the game's own and stores it | `state + 0xF7A574`, the global `0x09A1DB50` and the byte `0x0899BE20` |
+| It then applies it | `0x088902A8` |
+
+The mapping in that function is: PSP `2` (FR) → `2`, `3` (ES) → `4`, `4` (DE) → `2`, `5` (IT) → `5`, anything else → `1`
+(EN); and **if the call fails, it takes `1` and skips the screen**. That failure path is the game's own, not a trick of
+ours.
+
+**What is still open.** The language screen itself is not in an overlay: it is drawn by the executable, after `demo_task`
+(id 1) and `demo_sub` (id 13) load, and it has no timer (it waits for input indefinitely). Finding the function that
+decides to show it means walking the start-up state machine around `0x088AC308`, which is where the next session should
+start. Anything that skips the screen has to be resolved by a canonical name in
+`regions/ULES01213/symbols.toml` and hooked through `register_hook`, per `CONTRIBUTING.md`.
+
+**Ruled out**, so nobody repeats the work: a language variable in RAM (`0x08197031` holds the language but is written
+before the screen and skipping it changes nothing), the overlays `demo_task`/`demo_sub`, a saved game (`MHP2NDG.BIN`),
+`PARAM.SFO`, and a timer that advances the screen.
 
 ## 9. Desired enhancements (phase 7, all toggleable and independent)
 
