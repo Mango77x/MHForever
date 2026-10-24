@@ -1,29 +1,33 @@
 # FFmpeg (LGPL version 2.1 or later) for the moving pictures of the game's movies (the H.264 of every PSMF) and for the
 # ATRAC3/ATRAC3+ sound of the movies and the music of the game (hle_atrac.cpp). It is mandatory: without it the runtime
-# cannot play movies or decode music at all, so there is no OFF switch.
+# cannot play movies or decode music at all.
 #
-# MHF_FFMPEG selects where they come from:
-#   system  (default on Linux)  The libavcodec and libavutil the system provides (pkg-config): the Linux player links
-#                               against the distribution's FFmpeg, so the package manager keeps it patched and the
-#                               repository stores no binary of it.
+# MHF_FFMPEG selects where it comes from:
+#   system  (default on Linux)   The libavcodec and libavutil the system provides (pkg-config): the Linux player links
+#                                against the distribution's FFmpeg, so the package manager keeps it patched and the
+#                                repository stores no binary of it.
 #   bundled (default on Windows) On Windows, a pinned prebuilt LGPL shared build is copied next to the executable. On
-#                               Linux, it downloads the pinned release below, checks its SHA-256 and builds it at
-#                               configure time with the LGPL-only configuration below, linked statically into the
-#                               runtime, which is what a self-contained archive needs. A player needs no FFmpeg
-#                               installed in either case.
+#                                Linux, it downloads the pinned release below, checks its SHA-256 and builds it at
+#                                configure time with the LGPL-only configuration below, linked statically into the
+#                                runtime, which is what a self-contained archive needs. A player needs no FFmpeg
+#                                installed in either case.
 #
-# Sets MHF_HAS_FFMPEG and defines mhf_use_ffmpeg(<target>).
+# The project is GPL-3.0-or-later and re-licenses the LGPL code as GPL-3 in the way section 4 of the LGPL-2.1 allows.
+# The licence and the source note live in third_party/ffmpeg/, and scripts/package_release.py ships them with the rest
+# of the licences; the repository never stores a binary of the library.
+#
+# Defines mhf_ffmpeg and mhf_use_ffmpeg(<target>).
 
 set(MHF_FFMPEG_VERSION 7.1.5)
 set(MHF_FFMPEG_URL "https://ffmpeg.org/releases/ffmpeg-${MHF_FFMPEG_VERSION}.tar.xz")
 set(MHF_FFMPEG_SHA256 de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f)
-set(MHF_FFMPEG_SOVERSIONS avcodec 61 avutil 59)
 
-# Only the decoders the game needs. No demuxer, parser, scaler or resampler: the runtime splits the movie stream into
-# access units itself (media/movie_stream.cpp) and converts pixels itself. No GPL or non-free parts; the build checks it.
+# Only the decoders the game needs: H.264 for the movie pictures and ATRAC3/ATRAC3+ for their sound and the game's
+# music. No demuxer, parser, scaler or resampler: the runtime splits the movie stream into access units itself
+# (media/psmf_demuxer.cpp) and converts pixels itself. No GPL or non-free parts; the build checks it.
 set(MHF_FFMPEG_CONFIGURE_FLAGS
-    --enable-shared
-    --disable-static
+    --enable-static
+    --disable-shared
     --disable-programs
     --disable-doc
     --disable-avdevice
@@ -35,11 +39,14 @@ set(MHF_FFMPEG_CONFIGURE_FLAGS
     --disable-autodetect
     --disable-everything
     --enable-decoder=h264
+    --enable-decoder=atrac3
+    --enable-decoder=atrac3p
     --disable-x86asm
     --disable-debug)
 
-# Windows x64: the LGPL shared build of the same release branch, kept by that project for two years. Built without --enable-gpl
-# and --enable-nonfree, so it is LGPL-3.0-or-later. It also ships libswresample (not used here) as its own dependency.
+# Windows x64: the LGPL shared build of the same release branch, kept by that project for two years. Built without
+# --enable-gpl and --enable-nonfree, so it is LGPL-3.0-or-later. It also ships libswresample (not used here) as its own
+# dependency.
 set(MHF_FFMPEG_WINDOWS_URL
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-06-30-13-34/ffmpeg-n7.1.5-1-g7d0e842004-win64-lgpl-shared-7.1.zip")
 set(MHF_FFMPEG_WINDOWS_SHA256 03a8003e245c08df4277d7b0adc50b93a97ddd4a3aaafea21943c4384df59895)
@@ -58,18 +65,17 @@ set_property(CACHE MHF_FFMPEG PROPERTY STRINGS bundled system)
 string(TOUPPER "${MHF_FFMPEG}" _mhf_ffmpeg_mode)
 if(_mhf_ffmpeg_mode MATCHES "^(ON|TRUE|YES|Y|1|BUNDLED)$")
     set(_mhf_ffmpeg_mode bundled)
-elseif(_mhf_ffmpeg_mode MATCHES "^(OFF|FALSE|NO|N|0)$")
-    set(_mhf_ffmpeg_mode OFF)
 elseif(_mhf_ffmpeg_mode STREQUAL "SYSTEM")
     set(_mhf_ffmpeg_mode system)
 else()
-    message(FATAL_ERROR "MHF_FFMPEG must be bundled, system or OFF, not '${MHF_FFMPEG}'")
+    message(FATAL_ERROR "MHF_FFMPEG must be bundled or system, not '${MHF_FFMPEG}'")
 endif()
 
 set(MHF_FFMPEG_DOWNLOAD_DIR "${CMAKE_BINARY_DIR}/_deps/downloads" CACHE PATH
     "Where the bundled FFmpeg archive is downloaded to, or found without downloading")
 
-set(MHF_HAS_FFMPEG OFF)
+# FFmpeg keeps its configure line, prefix included, as a string in the libraries. The bundled build is configured for a
+# neutral prefix and installed through DESTDIR, so no path of the build machine ends up in the final code.
 set(_mhf_ffmpeg_root "${CMAKE_BINARY_DIR}/_deps/ffmpeg")
 set(_mhf_ffmpeg_bin "${CMAKE_BINARY_DIR}/bin")
 
@@ -113,22 +119,19 @@ function(_mhf_ffmpeg_run what log)
     endif()
 endfunction()
 
-if(_mhf_ffmpeg_mode STREQUAL "OFF")
-    message(STATUS "mhf: FFmpeg off; movies are skipped (MHF_FFMPEG=OFF)")
-
-elseif(_mhf_ffmpeg_mode STREQUAL "system")
+if(_mhf_ffmpeg_mode STREQUAL "system")
     find_package(PkgConfig QUIET)
     if(PKG_CONFIG_FOUND)
-        pkg_check_modules(MHF_LIBAV QUIET IMPORTED_TARGET libavcodec libavutil)
+        pkg_check_modules(MHF_LIBAV REQUIRED IMPORTED_TARGET libavcodec libavutil)
     endif()
     if(NOT MHF_LIBAV_FOUND)
         message(FATAL_ERROR "MHF_FFMPEG=system, but pkg-config finds no libavcodec and libavutil. Install FFmpeg's development "
-            "files, or configure with -DMHF_FFMPEG=bundled (the default).")
+            "files (for example libavcodec-dev and libavutil-dev on Debian/Ubuntu, ffmpeg on Arch), or configure with "
+            "-DMHF_FFMPEG=bundled to build the pinned release instead.")
     endif()
     add_library(mhf_ffmpeg INTERFACE)
     target_link_libraries(mhf_ffmpeg INTERFACE PkgConfig::MHF_LIBAV)
-    set(MHF_HAS_FFMPEG ON)
-    message(STATUS "mhf: FFmpeg libavcodec ${MHF_LIBAV_libavcodec_VERSION} from the system; movies enabled")
+    message(STATUS "mhf: FFmpeg libavcodec ${MHF_LIBAV_libavcodec_VERSION} from the system (LGPL; the distribution's build)")
 
 elseif(WIN32)
     if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR CMAKE_SYSTEM_PROCESSOR MATCHES "ARM|arm|aarch")
@@ -143,9 +146,14 @@ elseif(WIN32)
         file(ARCHIVE_EXTRACT INPUT "${_mhf_ffmpeg_archive}" DESTINATION "${_mhf_ffmpeg_root}")
         file(WRITE "${_mhf_ffmpeg_prefix}/mhf.stamp" "${MHF_FFMPEG_WINDOWS_SHA256}\n")
     endif()
+    # The DLLs are imported, so every executable that links mhf_ffmpeg loads them from its own folder: mhf_use_ffmpeg
+    # copies them beside the target after it is linked (the game, and the tests that link the runtime).
+    set(MHF_FFMPEG_WINDOWS_DLL_FILES "")
     foreach(dll IN LISTS MHF_FFMPEG_WINDOWS_DLLS)
         configure_file("${_mhf_ffmpeg_prefix}/bin/${dll}.dll" "${_mhf_ffmpeg_bin}/${dll}.dll" COPYONLY)
+        list(APPEND MHF_FFMPEG_WINDOWS_DLL_FILES "${_mhf_ffmpeg_bin}/${dll}.dll")
     endforeach()
+    set(MHF_FFMPEG_WINDOWS_DLL_FILES "${MHF_FFMPEG_WINDOWS_DLL_FILES}" CACHE INTERNAL "FFmpeg DLLs to copy beside executables")
     add_library(mhf_ffmpeg INTERFACE)
     foreach(lib avcodec avutil)
         add_library(mhf_ffmpeg_${lib} SHARED IMPORTED)
@@ -160,8 +168,7 @@ elseif(WIN32)
         target_link_libraries(mhf_ffmpeg INTERFACE mhf_ffmpeg_${lib})
     endforeach()
     target_include_directories(mhf_ffmpeg INTERFACE "${_mhf_ffmpeg_prefix}/include")
-    set(MHF_HAS_FFMPEG ON)
-    message(STATUS "mhf: bundled FFmpeg ${MHF_FFMPEG_VERSION} (prebuilt, LGPL); movies enabled")
+    message(STATUS "mhf: bundled FFmpeg ${MHF_FFMPEG_VERSION} (prebuilt, LGPL, dynamic on Windows)")
 
 else()
     find_program(MHF_MAKE NAMES gmake make)
@@ -170,18 +177,8 @@ else()
     endif()
     set(_mhf_ffmpeg_src "${_mhf_ffmpeg_root}/ffmpeg-${MHF_FFMPEG_VERSION}")
     set(_mhf_ffmpeg_prefix "${_mhf_ffmpeg_root}/install")
-    # FFmpeg keeps its configure line, prefix included, as a string in the libraries. It is configured for a neutral prefix
-    # and installed through DESTDIR, so no path of the build machine ends up in a shipped library.
     set(_mhf_ffmpeg_neutral_prefix /ffmpeg)
     set(_mhf_ffmpeg_flags ${MHF_FFMPEG_CONFIGURE_FLAGS})
-    if(APPLE)
-        list(APPEND _mhf_ffmpeg_flags --install-name-dir=@rpath)
-        if(CMAKE_OSX_DEPLOYMENT_TARGET)
-            list(APPEND _mhf_ffmpeg_flags
-                "--extra-cflags=-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}"
-                "--extra-ldflags=-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
-        endif()
-    endif()
     if(DEFINED ENV{CC})
         list(APPEND _mhf_ffmpeg_flags "--cc=$ENV{CC}")
     endif()
@@ -218,39 +215,91 @@ else()
         file(WRITE "${_mhf_ffmpeg_stamp_file}" "${_mhf_ffmpeg_stamp}")
     endif()
 
-    # The libraries go to lib/ next to the executable, under the names the loader looks for; the executable's rpath
-    # points there (mhf_use_ffmpeg).
-    set(_mhf_ffmpeg_lib "${_mhf_ffmpeg_bin}/lib")
+    # Static libraries linked into every user of mhf_ffmpeg.
     add_library(mhf_ffmpeg INTERFACE)
-    set(_versions ${MHF_FFMPEG_SOVERSIONS})
-    while(_versions)
-        list(POP_FRONT _versions lib soversion)
-        if(APPLE)
-            set(runtime_name "lib${lib}.${soversion}.dylib")
-        else()
-            set(runtime_name "lib${lib}.so.${soversion}")
-        endif()
-        configure_file("${_mhf_ffmpeg_prefix}/lib/${runtime_name}" "${_mhf_ffmpeg_lib}/${runtime_name}" COPYONLY)
-        add_library(mhf_ffmpeg_${lib} SHARED IMPORTED)
-        set_target_properties(mhf_ffmpeg_${lib} PROPERTIES IMPORTED_LOCATION "${_mhf_ffmpeg_lib}/${runtime_name}")
-        if(NOT APPLE)
-            set_target_properties(mhf_ffmpeg_${lib} PROPERTIES IMPORTED_SONAME "${runtime_name}")
-        endif()
+    foreach(lib avcodec avutil)
+        add_library(mhf_ffmpeg_${lib} STATIC IMPORTED)
+        set_target_properties(mhf_ffmpeg_${lib} PROPERTIES IMPORTED_LOCATION "${_mhf_ffmpeg_prefix}/lib/lib${lib}.a")
         target_link_libraries(mhf_ffmpeg INTERFACE mhf_ffmpeg_${lib})
-    endwhile()
+    endforeach()
     target_include_directories(mhf_ffmpeg INTERFACE "${_mhf_ffmpeg_prefix}/include")
-    message(STATUS "mhf: bundled FFmpeg ${MHF_FFMPEG_VERSION} (LGPL, h264); movies enabled")
+    message(STATUS "mhf: bundled FFmpeg ${MHF_FFMPEG_VERSION} (LGPL, h264+atrac3+atrac3p, static)")
 endif()
 
-# Links <target> against FFmpeg and lets it find the bundled libraries.
+# Links <target> against FFmpeg.
 function(mhf_use_ffmpeg target)
-    if(NOT MHF_HAS_FFMPEG)
+    target_link_libraries(${target} PRIVATE mhf_ffmpeg)
+endfunction()
+
+# Copies FFmpeg's DLLs beside every executable that ends up linking them, once all the targets exist (call it at the end
+# of the top-level CMakeLists.txt). On Windows the modules are imported, and an executable loads them from its own
+# folder: the game needs them next to itself, and so do the tests that link the runtime (psp_hle_io, psp_hle_savedata),
+# which run from their own directories. Following the links matters because a target may reach FFmpeg through the
+# runtime library rather than by calling mhf_use_ffmpeg() itself.
+function(mhf_ffmpeg_copy_dlls)
+    if(NOT WIN32 OR NOT MHF_FFMPEG_WINDOWS_DLL_FILES)
         return()
     endif()
-    target_compile_definitions(${target} PRIVATE MHF_HAS_FFMPEG=1)
-    target_link_libraries(${target} PRIVATE mhf_ffmpeg)
-    if(MHF_FFMPEG_RPATH)
-        set_property(TARGET ${target} APPEND PROPERTY BUILD_RPATH "${MHF_FFMPEG_RPATH}")
-        set_property(TARGET ${target} APPEND PROPERTY INSTALL_RPATH "${MHF_FFMPEG_RPATH}")
-    endif()
+    # A target reaches FFmpeg if it links mhf_ffmpeg or links a target that reaches it: the game calls mhf_use_ffmpeg()
+    # through the runtime library, and the tests link the runtime, so following the links is what finds them.
+    get_property(all_targets DIRECTORY "${PROJECT_SOURCE_DIR}" PROPERTY BUILDSYSTEM_TARGETS)
+    set(reaches "")
+    set(seen "")
+    set(pending ${all_targets})
+    while(pending)
+        list(POP_FRONT pending target)
+        if(NOT target OR target IN_LIST seen)
+            continue()
+        endif()
+        list(APPEND seen ${target})
+        get_target_property(links ${target} LINK_LIBRARIES)
+        get_target_property(iface ${target} INTERFACE_LINK_LIBRARIES)
+        foreach(list_name links iface)
+            if(NOT ${list_name})
+                continue()
+            endif()
+            foreach(link IN LISTS ${list_name})
+                if(link STREQUAL "mhf_ffmpeg")
+                    list(APPEND reaches ${target})
+                elseif(TARGET ${link})
+                    list(APPEND pending ${link})
+                endif()
+            endforeach()
+        endforeach()
+    endwhile()
+    # Propagate along the links (the list only grows, so the walk terminates even where libraries link each other).
+    set(changed TRUE)
+    while(changed)
+        set(changed FALSE)
+        foreach(target IN LISTS all_targets)
+            if(target IN_LIST reaches)
+                continue()
+            endif()
+            get_target_property(links ${target} LINK_LIBRARIES)
+            get_target_property(iface ${target} INTERFACE_LINK_LIBRARIES)
+            foreach(list_name links iface)
+                if(NOT ${list_name})
+                    continue()
+                endif()
+                foreach(link IN LISTS ${list_name})
+                    if(link IN_LIST reaches)
+                        list(APPEND reaches ${target})
+                        set(changed TRUE)
+                        break()
+                    endif()
+                endforeach()
+                if(target IN_LIST reaches)
+                    break()
+                endif()
+            endforeach()
+        endforeach()
+    endwhile()
+    foreach(target IN LISTS reaches)
+        get_target_property(kind ${target} TYPE)
+        if(kind STREQUAL "EXECUTABLE")
+            add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MHF_FFMPEG_WINDOWS_DLL_FILES} $<TARGET_FILE_DIR:${target}>
+                COMMENT "Copying FFmpeg's DLLs next to ${target}")
+        endif()
+    endforeach()
 endfunction()

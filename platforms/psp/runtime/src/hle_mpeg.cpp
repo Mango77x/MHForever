@@ -412,10 +412,6 @@ void MpegGetAvcAu(Runtime &rt, Context &ctx) {
         ret(ctx, kErrorInvalidValue);
         return;
     }
-    if (!AvcDecoder::available()) {
-        ret(ctx, kErrorNoData); // built without FFmpeg: the movie is over before it starts
-        return;
-    }
     if (!demux_until(rt, *state, [state] { return state->demuxer.video_ready(); })) {
         ret(ctx, kErrorNoData);
         return;
