@@ -104,8 +104,8 @@ there returns `SCE_KERNEL_ERROR_ILLEGAL_CONTEXT`. GE signal/finish callbacks use
 ## 5c. First-pass HLE (to be replaced)
 
 To get past boot, several libraries are deliberately minimal and log once that they are simplified (`sceSasCore` and
-`sceAtrac3plus` are real since 2026-10-17, §5g; the `sceUtility` dialogs since 2026-10-18, §5h): `sceMpeg` reports the
-end of every stream, modules load as HLE stubs. Audio output paces itself in
+`sceAtrac3plus` are real since 2026-10-17, §5g; the `sceUtility` dialogs since 2026-10-18, §5h; `sceMpeg` since
+2026-10-23, §5i): modules load as HLE stubs. Audio output paces itself in
 real time per channel, which keeps game timing realistic. The memory stick is always inserted: registering an
 insert/eject callback (`sceIoDevctl` 0x02415821) notifies it at once with "inserted", as the system does.
 
@@ -163,6 +163,29 @@ amber accent, Liberation Sans) and feeds keys/text back with `dialog_key()`/`dia
 - `RuntimeOptions::interactive_dialogs` is on only in a window (`--auto-dialogs` turns it off); headless runs and tests
   keep the old automatic answers ("yes" / OK / "back", the default text, the game's own slot).
 - Network configuration (`sceUtilityNetconf*`) still reports success at once (online play, `08`).
+
+## 5i. Movies (`hle_mpeg.cpp`, `media/`)
+
+**Implemented (2026-10-23)**. The pre-rendered movies (intro, gallery) are Sony PSMF files: an MPEG-2 program stream of
+2048-byte packs (`00 00 01 BA`) carrying H.264 pictures on stream `0xE0` and ATRAC3+ sound on private stream 1 (`0xBD`),
+both with PES timestamps. Inside the game's disc they are regions of `DATA.BIN`, which is the only file the game opens.
+
+- `media/psmf_demuxer` splits the packs into access units: pictures are delimited by the H.264 access unit delimiter
+  (`00 00 01 09`), a picture is complete when the next one starts (or the stream ends); sound frames are found by their
+  `0x0FD0` header and decoded without it. Timestamps come from the PES headers, and are extrapolated at the stream's
+  frame rate when absent.
+- Pictures are decoded by **FFmpeg's libavcodec** (H.264, one thread, `AV_CODEC_FLAG_LOW_DELAY`, so each call produces
+  its picture; `MHF_FFMPEG=0` leaves the movies out, and the game skips them as it did before).
+- Sound is decoded by `third_party/at3_standalone` (the same ATRAC3/ATRAC3+ code `sceAtrac3plus` uses).
+- The ring buffer is the game's own memory: `sceMpegRingbufferPut` calls the game's read callback from inside the HLE
+  (on the calling thread, with a copy of its registers), so the file is read by the game's own code exactly as on the
+  PSP. Packs leave the ring as they are demultiplexed.
+- `sceMpegAvcDecode` hands the game finished 32-bit pixels, not YCbCr: the PSP library converts with the default decode
+  mode, and FU imports neither `sceMpegAvcDecodeMode` nor any CSC function. Each row is `frameWidth * 4` bytes (R, G, B, A
+  in memory) and **opaque**: FU blends the frame over the black screen it clears, so a zero alpha leaves it invisible.
+- Not implemented: `sceMpegAvcDecodeMode` and the YCbCr path (`AvcDecodeYCbCr`, `AvcInitYCbCr`, `QueryYCbCrSize`),
+  `sceMpegAvcDecodeDetail`, `sceMpegbase`, PCM streams and seeking. FU imports none of them.
+- Verified: the intro of FU EU decodes 480x272 at 29.97 Hz with its ATRAC3+ sound, from the first frame to the end.
 
 ## 5d. Savedata (`hle_savedata.cpp`)
 

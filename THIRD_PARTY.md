@@ -17,6 +17,7 @@ Fetched at build time (not stored in the repository):
 
 | Component | Used by | License | Version | Origin |
 |---|---|---|---|---|
+| FFmpeg (libavcodec, libavutil) | `platforms/psp/runtime/media/avc_decoder.cpp` (H.264 pictures of the movies) | LGPL-2.1-or-later, linked dynamically | 7.1.5 (SHA-256 pinned in `cmake/ffmpeg.cmake`) | https://ffmpeg.org. Built by `cmake/ffmpeg.cmake` (`MHF_FFMPEG=bundled`) with only `--enable-decoder=h264`, no GPL or non-free parts, installed as shared libraries next to the executable with their licence and source note; `system` and `OFF` are also supported |
 | webview | `launcher/` (system web view host) | MIT | 0.12.0 (`3ab4b5d`, `cmake/webview.cmake`) | https://github.com/webview/webview |
 | WebView2 SDK headers | `launcher/` on Windows (headers only; the runtime is part of Windows) | BSD-3-Clause | 1.0.1150.38 | NuGet `Microsoft.Web.WebView2` |
 | React, React DOM | launcher UI, bundled into the launcher executable | MIT | 19.3.1 (`launcher/ui/package-lock.json`) | https://react.dev |
@@ -31,6 +32,12 @@ PSPSDK stub libraries (pspdev, BSD-licensed). It contains identifiers only, no S
 
 Knowledge sources (no code copied): `tclamb/mhp2g-decomp` (CC0) documented the DATA.BIN header layout, the scrambling scheme and
 the `MWo3` overlay header used by `games/mhfu/tools/`. The game's substitution table itself is never included.
+
+Known-how sources for the movie player (no code copied): PPSSPP's `sceMpeg` and `MediaEngine` (GPL-2.0-or-later) established
+the PSMF/MPEG-PS layout, the ring buffer fields, the access unit structure and the pixel layout `sceMpegAvcDecode` produces;
+the MHP3rd profile of the Yakumo project (private, used with its author's permission) showed the same flow end to end.
+`platforms/psp/runtime/src/hle_mpeg.cpp` and `src/media/psmf_demuxer.cpp` are our own implementation, written against
+the player's own files and those references, and say so in their headers.
 
 Never include: Sony PGF fonts, firmware, game assets. The executable preparation module (`launcher/native/install/`) is ours; its decryption comes from
 `third_party/ppsspp_prx/`. The installer decrypts the player's own disc at install time, so no decrypted game code is stored here.

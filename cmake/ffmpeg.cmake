@@ -1,5 +1,6 @@
-# FFmpeg (LGPL version 3 or later) for the game's movies and music: the H.264 decoder of an avc stream and the ATRAC3+
-# audio that comes with it. Only libavcodec and libavutil are used, always as shared libraries (docs/02-architecture.md
+# FFmpeg (LGPL version 2.1 or later) for the pictures of the game's movies: the H.264 decoder of the avc stream inside
+# every PSMF. The sound of the movies uses the ATRAC3/ATRAC3+ decoders already in the tree (third_party/at3_standalone),
+# which are the same code, so this build is only libavcodec and libavutil, always as shared libraries (docs/02-architecture.md
 # section 9): the project is GPL-3.0-or-later and links them dynamically, and the build with FFmpeg is the shipped one.
 #
 # MHF_FFMPEG selects where they come from:
@@ -8,7 +9,7 @@
 #                     build with it. Either way the libraries end up next to the executable (lib/), so a player needs no
 #                     FFmpeg installed.
 #   system            The libavcodec and libavutil that pkg-config finds (handy while developing).
-#   OFF               No FFmpeg: movies are skipped and ATRAC3+ through FFmpeg is off, as before (tests, minimal builds).
+#   OFF               No FFmpeg: the movies are skipped (tests, minimal builds).
 #
 # Sets MHF_HAS_FFMPEG and defines mhf_use_ffmpeg(<target>).
 
@@ -32,7 +33,7 @@ set(MHF_FFMPEG_CONFIGURE_FLAGS
     --disable-network
     --disable-autodetect
     --disable-everything
-    --enable-decoder=atrac3,atrac3p,h264
+    --enable-decoder=h264
     --disable-x86asm
     --disable-debug)
 
@@ -257,7 +258,7 @@ else()
         set(MHF_FFMPEG_RPATH "@loader_path/lib")
     endif()
     set(MHF_HAS_FFMPEG ON)
-    message(STATUS "mhf: bundled FFmpeg ${MHF_FFMPEG_VERSION} (LGPL, h264 atrac3 atrac3p); movies enabled")
+    message(STATUS "mhf: bundled FFmpeg ${MHF_FFMPEG_VERSION} (LGPL, h264); movies enabled")
 endif()
 
 # Links <target> against FFmpeg and lets it find the bundled libraries.
