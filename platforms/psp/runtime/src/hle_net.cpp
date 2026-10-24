@@ -214,6 +214,13 @@ void AdhocctlGetPeerList(Runtime &rt, Context &ctx) {
         for (std::uint32_t b = 0; b < 127 && b < name.size(); ++b) m.store8(entry + 4 + b, static_cast<std::uint8_t>(name[b]));
         write_mac(rt, entry + 132, peers[i].mac);
         m.store32(entry + 140, 0x0400u); // flags, as PPSSPP reports them
+        // When the peer was last heard from, on the clock the game reads with sceKernelGetSystemTimeWide: games judge a peer's
+        // connection by it. PPSSPP reports "10 ms ago" for every peer of the group (one that never says anything would
+        // be flagged as lost), and so do we while the server keeps the group together.
+        const std::uint64_t now = rt.now_us();
+        const std::uint64_t heard = now > 10'000u ? now - 10'000u : 0u;
+        m.store32(entry + 144, static_cast<std::uint32_t>(heard));
+        m.store32(entry + 148, static_cast<std::uint32_t>(heard >> 32u));
     }
     m.store32(size_address, count * kPeerInfoSize);
     ret(ctx, 0);
@@ -307,9 +314,25 @@ NetState &net_state(Runtime &rt) { return net(rt); }
 bool net_tracing() {
     static const bool on = [] {
         const char *v = std::getenv("MHF_TRACE_ADHOC");
-        return v != nullptr && v[0] == '1';
+        return v != nullptr && (v[0] == '1' || v[0] == '2');
     }();
     return on;
+}
+
+bool net_tracing_packets() {
+    static const bool on = [] {
+        const char *v = std::getenv("MHF_TRACE_ADHOC");
+        return v != nullptr && v[0] == '2';
+    }();
+    return on;
+}
+
+void net_trace_packet(const char *direction, double seconds, int socket, const std::uint8_t *data, std::uint32_t length) {
+    char text[3 * 64 + 1];
+    std::size_t n = 0;
+    for (std::uint32_t i = 0; i < length && i < 64; ++i) n += static_cast<std::size_t>(std::snprintf(text + n, sizeof(text) - n, "%02X ", data[i]));
+    text[n] = 0;
+    std::fprintf(stderr, "[packet] %.3f %s socket %d len %u: %s\n", seconds, direction, socket, length, text);
 }
 
 void net_release(Runtime &rt) { g_net.erase(&rt); }
