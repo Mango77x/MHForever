@@ -59,6 +59,25 @@ Keyboard: arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/tri
 Backspace = Select. The launcher's Settings → Controls changes them, and `--keymap "south=KeyK,east=KeyL,..."` does the
 same from the command line (`--padmap` for the controller's buttons). Any controller SDL recognizes works (Xbox layout: A = cross, B = circle, X = square, Y = triangle).
 
+### Trying online play (developers)
+
+Online play talks to a PSP ad hoc server (PPSSPP's and aemu's protocol, `docs/08-multiplayer.md` section 1.2). It is off unless a server
+is set, and nothing is contacted before the game first uses the ad hoc libraries:
+
+- `mhfu ... --adhoc-server host[:port] [--adhoc-nick <name>] [--adhoc-mac AA:BB:CC:DD:EE:FF]`, or the environment variable
+  `MHF_ADHOC_SERVER`; the launcher passes them from Settings → Online play.
+- `MHF_TRACE_ADHOC=1` logs the ad hoc calls and, once a second, the datagrams read and sent; `=2` also dumps the start of every datagram.
+- A local server to test against: build aemu_postoffice's reference server (commit in `third_party/aemu_postoffice/NOTICE.md`, directory
+  `server_cpp`, C++20, clang or g++ on Linux or WSL) and run it. Its adhocctl port is 27312, the relay 27313, and `http://127.0.0.1:8888/data.json`
+  shows who is connected (its log file is buffered; read the status page instead). In WSL2 build it with `steady_clock` in place of
+  `high_resolution_clock`, or it drops every client when the clock is stepped (`docs/05-runtime-hle.md` section 5i).
+- `MHF_ADHOC_TEST_SERVER=<host>` makes the test `psp_adhocctl_server` run two players against that server (datagrams, a stream, optionally
+  `MHF_ADHOC_TEST_KEEPALIVE=1` and `MHF_ADHOC_TEST_JITTER=1`); without it the test is skipped.
+- A second copy of the game on the same machine: run `mhfu.exe` again with another `--memstick` (a copy of the saves folder), `--name`,
+  `--adhoc-nick` and `--adhoc-mac`, both pointing at the same server and entering the same room.
+- PPSSPP as the other end: network on, the server's address set, and its "Try to use the packet relay of the server" setting forced on,
+  changed with no game loaded (for a server that is not in PPSSPP's published list).
+
 Enable the content guard once per clone:
 
 ```sh

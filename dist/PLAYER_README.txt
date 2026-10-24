@@ -51,7 +51,9 @@ Status
 Early release. Freedom Unite runs at 30 fps, as on the original console. Settings also
 offers 60 to 180 fps (any multiple of 30): the game still runs at 30 and the extra pictures
 are drawn in between, so it is experimental and heavy scenes may not hold the highest rates.
-Online multiplayer is being worked on. Expect rough edges.
+Online multiplayer is in development and not part of this release. It works through PSP ad hoc servers (the kind PPSSPP uses); in the
+launcher's Settings there is an experimental "Online play" field for the address of one. Leave it empty to stay offline: nothing is contacted.
+Expect rough edges: starting a quest together does not work yet.
 
 
 Source code and licenses
