@@ -106,7 +106,8 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
   net HLE.
 - First transport: the community's ad hoc servers (PPSSPP/aemu), decided 2026-10-23 (`08-multiplayer.md` §1.2).
 - [x] Vendor the aemu_postoffice client; PSP adapter (`sceNetAdhoc*`, `sceNetAdhocctl*`, `sceNetAdhocDiscover*`) with
-  tracing, tested against the reference server (2026-10-23, `05-runtime-hle.md` §5i). Not yet tried with the game itself.
+  tracing, tested against the reference server (2026-10-23, `05-runtime-hle.md` §5i). Two copies of the game, and the game with
+  PPSSPP, see each other in the Gathering Hall (2026-10-24). Not yet tried: a quest together.
 - [ ] Two instances on one PC complete a quest through a local server.
 - [ ] Launcher: server choice and live status, stable virtual MAC, pseudonym; play on a community server. Credits, and
   messages to PPSSPP and the operators, before release. **Target: 0.6** (0.5 became the North American release).
