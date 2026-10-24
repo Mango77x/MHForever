@@ -32,7 +32,7 @@ Measured on 2026-10-16 with PSPRecomp's analyzer on the decrypted EBOOT: **272 f
 | P1 | `scePower` | 1 | CPU clock / battery |
 | P1 | `sceRtc` | 1 | Real-time clock |
 | P1 | `sceLibFont` | 9 | **The game uses system fonts.** We cannot ship Sony's PGF fonts: implement `sceLibFont` over free fonts (e.g. Noto Sans/Noto Sans JP) with metrics close enough. Risky area for text layout `[VERIFY which fonts/styles the game requests]` |
-| P2 | `sceMpeg` | 24 | Intro/cutscene videos; can be skipped initially |
+| P2 | `sceMpeg` | 24 | Intro/cutscene videos (played with FFmpeg's H.264 + ATRAC3+ decoders, docs/02-architecture.md) |
 | P2 | `sceNetAdhoc` | 15 | Multiplayer data (PDP/PTP); `08-multiplayer.md` |
 | P2 | `sceNetAdhocctl` | 8 | Multiplayer groups/rooms |
 | P2 | `sceNetAdhocDiscover` | 5 | Ad-hoc discovery |
@@ -120,8 +120,8 @@ insert/eject callback (`sceIoDevctl` 0x02415821) notifies it at once with "inser
   the game may be up to 20 ms ahead, catches up after short stalls and restarts after pauses over 100 ms. The host
   mixer jitter-buffers every channel (consumed once it holds two blocks, paused when it runs dry) so blocks of
   different sizes (256-frame voice mixer grains, 2048-frame music frames) never click.
-- **sceAtrac3plus** (`hle_atrac.cpp`, 2026-10-17): real decoding with FFmpeg's ATRAC3/ATRAC3+ decoders
-  (`third_party/at3_standalone`, LGPL-2.1-or-later). The RIFF header gives codec, channels, frame size, the "fact" end
+- **sceAtrac3plus** (`hle_atrac.cpp`, 2026-10-24): real decoding with FFmpeg's ATRAC3/ATRAC3+ decoders
+  (`libavcodec`, shared build of `cmake/ffmpeg.cmake`). The RIFF header gives codec, channels, frame size, the "fact" end
   sample and encoder offset, and the "smpl" loop. The game's timeline starts after the decoder delay (0x170 samples
   for ATRAC3+, 0x45 for ATRAC3) plus the "fact" offset; DecodeData returns one frame (2048 / 1024 samples) of stereo,
   shorter at a loop end or the track end; loops honour SetLoopNum (-1 = forever). Seeks restart the decoder one frame
@@ -174,9 +174,12 @@ both with PES timestamps. Inside the game's disc they are regions of `DATA.BIN`,
   (`00 00 01 09`), a picture is complete when the next one starts (or the stream ends); sound frames are found by their
   `0x0FD0` header and decoded without it. Timestamps come from the PES headers, and are extrapolated at the stream's
   frame rate when absent.
-- Pictures are decoded by **FFmpeg's libavcodec** (H.264, one thread, `AV_CODEC_FLAG_LOW_DELAY`, so each call produces
-  its picture; `MHF_FFMPEG=0` leaves the movies out, and the game skips them as it did before).
-- Sound is decoded by `third_party/at3_standalone` (the same ATRAC3/ATRAC3+ code `sceAtrac3plus` uses).
+- Pictures are decoded by **FFmpeg's libavcodec** (H.264, one thread). Access units the decoder defers while it is still
+  resolving references are queued and handed over on the next call, and nothing moves the pictures out early: the
+  low-delay flag makes H.264 produce pictures before their references are finished and smears the rest of the movie, so
+  it is never set. `MHF_FFMPEG` is mandatory: bundled (static on macOS/Linux, the default) or system (pkg-config);
+  there is no build without it, because the movies and the music both need it.
+- Sound is decoded by the same libavcodec build (its ATRAC3+ decoder), exactly like `sceAtrac3plus`.
 - The ring buffer is the game's own memory: `sceMpegRingbufferPut` calls the game's read callback from inside the HLE
   (on the calling thread, with a copy of its registers), so the file is read by the game's own code exactly as on the
   PSP. Packs leave the ring as they are demultiplexed.

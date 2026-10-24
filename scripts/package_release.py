@@ -28,10 +28,13 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 LICENSES = {
     "LICENSE": ROOT / "LICENSE",
     "THIRD_PARTY.md": ROOT / "THIRD_PARTY.md",
-    "licenses/at3_standalone-LICENSE.txt": ROOT / "third_party/at3_standalone/LICENSE",
     "licenses/psprecomp-LICENSE.txt": ROOT / "third_party/psprecomp/LICENSE",
     "licenses/ppsspp_prx-NOTICE.md": ROOT / "third_party/ppsspp_prx/NOTICE.md",
     "licenses/pokke_save_crypto-LICENSE.txt": ROOT / "third_party/pokke_save_crypto/LICENSE",
+    # FFmpeg's own licence and source note: the library is never shipped in the archive, only the notice that says
+    # where it comes from (the distribution's package on Linux, the pinned build on Windows).
+    "licenses/FFmpeg-SOURCE.txt": ROOT / "third_party/ffmpeg/FFmpeg-SOURCE.txt",
+    "licenses/FFmpeg-LICENSE.txt": ROOT / "third_party/ffmpeg/FFmpeg-LICENSE.txt",
 }
 
 # Platform -> (launcher name, game name, player README, archive suffix).

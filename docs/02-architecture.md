@@ -71,7 +71,7 @@ Dependency rule: `games → platforms → core`. Never the other way. `core` and
 ├─ tests/                    repository-level tests; support/check.hpp
 ├─ scripts/                  content guard, NID extraction, release packaging
 ├─ dist/                     text shipped with the release
-├─ third_party/              psprecomp, at3_standalone, ppsspp_prx, stb, fonts
+├─ third_party/              psprecomp, ppsspp_prx, stb, fonts
 ├─ docs/
 ├─ research/                 git-ignored except README.md
 └─ user_data/                ALWAYS git-ignored: isos/, exe/, overlays/, generated/, build-game/, saves/
@@ -172,16 +172,15 @@ paths for hot functions (memcpy, VFPU math).
 | libjuice | MPL-2.0 | yes (file-level) | yes |
 | mhff / mhtools (MH formats) | GPL-3.0 | no | yes |
 | pspdev/vfpu-docs | GPL-3.0 (docs and tests) | reference only | reference only |
-| FFmpeg (libavcodec, libavutil) | LGPL-2.1-or-later | no (dynamic use allowed) | yes, linked dynamically |
+| FFmpeg (libavcodec, libavutil) | LGPL-2.1-or-later | On Linux, the system's build through pkg-config (the distribution keeps it patched; no binary is stored here); for release archives and on Windows, built by the project (`MHF_FFMPEG`, `cmake/ffmpeg.cmake`) with a pinned archive; re-licensable to GPL-3 the way LGPL-2.1 §4 allows |
 
 **Decision (2026-10-19)**: the repository is **GPL-3.0-or-later**, changed from GPL-2.0-only before anything was published (single copyright holder, no external contributions). Reason: PPSSPP's PRX decrypter needs libkirk's `kirk_engine`, which is GPL-3.0-or-later, and the installer needs it to decrypt the player's own executable. Code from PPSSPP (GPL-2.0-or-later, used under GPL-3), GPL-3 projects (mhff, mhtools, vfpu-docs) and MIT/zlib/MPL/LGPL/Apache projects can be reused with their notices. **GPL-2.0-only** code (the ACX recomp, if its sources carry no "or later") cannot be copied; it stays a behavioral reference.
 
-For ATRAC3/ATRAC3+, FFmpeg's decoders (LGPL-2.1+) are an option compatible with almost any license if linked dynamically or if
-the LGPL terms are respected. **Done (2026-10-17)**: `third_party/at3_standalone` (FFmpeg's decoders as extracted by
-PPSSPP), used under GPL-3.0-or-later as LGPL-2.1-or-later permits; see `THIRD_PARTY.md`.
-
-For the pictures of the pre-rendered movies (H.264 inside Sony's PSMF), the project links **FFmpeg's libavcodec and
-libavutil** (LGPL-2.1-or-later) **dynamically**, built from a pinned release by `cmake/ffmpeg.cmake` with only the H.264
-decoder, no GPL or non-free parts and no programs (`MHF_FFMPEG=bundled|system|OFF`). Dynamic linking under LGPL is
-compatible with GPL-3.0-or-later, and the shipped libraries go next to the executable with their licence and source
-note. The ATRAC3+ sound of the same movies stays on `at3_standalone`, so the two do not overlap.
+For the pictures of the pre-rendered movies (H.264 inside Sony's PSMF) and for the ATRAC3/ATRAC3+ sound of the movies
+and of the game's music, the project links **FFmpeg's libavcodec and libavutil** (LGPL-2.1-or-later), with only the H.264,
+ATRAC3 and ATRAC3+ decoders and no GPL or non-free parts. On Linux the build takes the system's FFmpeg through
+pkg-config (`MHF_FFMPEG=system`, the default there), so the distribution keeps it patched and the repository stores no
+binary of it; the release archives pin a release and build it themselves (`MHF_FFMPEG=bundled`, also the default on
+Windows), and the licence and source note go next to the executable.
+`third_party/at3_standalone` (FFmpeg's decoders as extracted by PPSSPP, used 2026-10-17) is gone: the same libavcodec
+build covers both formats, so the tree carries no private copy of them. See `THIRD_PARTY.md`.

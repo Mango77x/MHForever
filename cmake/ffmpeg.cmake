@@ -3,12 +3,14 @@
 # cannot play movies or decode music at all, so there is no OFF switch.
 #
 # MHF_FFMPEG selects where they come from:
-#   bundled (default) On macOS and Linux, download the pinned release below, check its SHA-256, and build it at configure
-#                     time with the LGPL-only configuration below. On Windows, download a pinned prebuilt LGPL shared
-#                     build with it. Either way the libraries end up next to the executable (lib/), so a player needs no
-#                     FFmpeg installed.
-#   system            The libavcodec and libavutil that pkg-config finds (handy while developing).
-#   OFF               No FFmpeg: the movies are skipped (tests, minimal builds).
+#   system  (default on Linux)  The libavcodec and libavutil the system provides (pkg-config): the Linux player links
+#                               against the distribution's FFmpeg, so the package manager keeps it patched and the
+#                               repository stores no binary of it.
+#   bundled (default on Windows) On Windows, a pinned prebuilt LGPL shared build is copied next to the executable. On
+#                               Linux, it downloads the pinned release below, checks its SHA-256 and builds it at
+#                               configure time with the LGPL-only configuration below, linked statically into the
+#                               runtime, which is what a self-contained archive needs. A player needs no FFmpeg
+#                               installed in either case.
 #
 # Sets MHF_HAS_FFMPEG and defines mhf_use_ffmpeg(<target>).
 
@@ -43,8 +45,16 @@ set(MHF_FFMPEG_WINDOWS_URL
 set(MHF_FFMPEG_WINDOWS_SHA256 03a8003e245c08df4277d7b0adc50b93a97ddd4a3aaafea21943c4384df59895)
 set(MHF_FFMPEG_WINDOWS_DLLS avcodec-61 avutil-59 swresample-5)
 
-set(MHF_FFMPEG "bundled" CACHE STRING "Where FFmpeg comes from: bundled (built with the project), system (pkg-config) or OFF")
-set_property(CACHE MHF_FFMPEG PROPERTY STRINGS bundled system OFF)
+set(_MHF_FFMPEG_DEFAULT "system")
+if(WIN32)
+    set(_MHF_FFMPEG_DEFAULT "bundled")
+endif()
+# Linux takes the system's FFmpeg unless asked otherwise: the player links against the distribution's copy, so the
+# package manager keeps it patched and the repository carries no binary of it. Windows takes the pinned archive, a
+# prebuilt LGPL shared build that goes next to the executable. `bundled` is also there for a self-contained archive.
+set(MHF_FFMPEG "${_MHF_FFMPEG_DEFAULT}" CACHE STRING
+    "Where FFmpeg comes from: system (pkg-config) or bundled (downloaded, checked against its SHA-256 and built here)")
+set_property(CACHE MHF_FFMPEG PROPERTY STRINGS bundled system)
 string(TOUPPER "${MHF_FFMPEG}" _mhf_ffmpeg_mode)
 if(_mhf_ffmpeg_mode MATCHES "^(ON|TRUE|YES|Y|1|BUNDLED)$")
     set(_mhf_ffmpeg_mode bundled)
@@ -103,12 +113,6 @@ function(_mhf_ffmpeg_run what log)
     endif()
 endfunction()
 
-# A short note next to the libraries: what they are and where their source is.
-function(_mhf_ffmpeg_write_notice dir)
-    string(CONCAT text ${ARGN})
-    file(WRITE "${dir}/FFmpeg-SOURCE.txt" "${text}")
-endfunction()
-
 if(_mhf_ffmpeg_mode STREQUAL "OFF")
     message(STATUS "mhf: FFmpeg off; movies are skipped (MHF_FFMPEG=OFF)")
 
@@ -142,14 +146,6 @@ elseif(WIN32)
     foreach(dll IN LISTS MHF_FFMPEG_WINDOWS_DLLS)
         configure_file("${_mhf_ffmpeg_prefix}/bin/${dll}.dll" "${_mhf_ffmpeg_bin}/${dll}.dll" COPYONLY)
     endforeach()
-    configure_file("${_mhf_ffmpeg_prefix}/LICENSE.txt" "${_mhf_ffmpeg_bin}/FFmpeg-LICENSE.txt" COPYONLY)
-    _mhf_ffmpeg_write_notice("${_mhf_ffmpeg_bin}"
-        "The FFmpeg libraries here (avcodec, avutil, swresample) are an unmodified prebuilt\n"
-        "LGPL shared build of FFmpeg ${MHF_FFMPEG_VERSION} from BtbN/FFmpeg-Builds, licensed under the\n"
-        "GNU LGPL version 3 or later (FFmpeg-LICENSE.txt). They are dynamically linked.\n\n"
-        "Build:  ${MHF_FFMPEG_WINDOWS_URL}\n"
-        "Source: https://github.com/FFmpeg/FFmpeg/tree/release/7.1 (the commit is in the file name)\n"
-        "Build scripts: https://github.com/BtbN/FFmpeg-Builds\n")
     add_library(mhf_ffmpeg INTERFACE)
     foreach(lib avcodec avutil)
         add_library(mhf_ffmpeg_${lib} SHARED IMPORTED)
@@ -243,20 +239,6 @@ else()
         target_link_libraries(mhf_ffmpeg INTERFACE mhf_ffmpeg_${lib})
     endwhile()
     target_include_directories(mhf_ffmpeg INTERFACE "${_mhf_ffmpeg_prefix}/include")
-    configure_file("${_mhf_ffmpeg_src}/COPYING.LGPLv2.1" "${_mhf_ffmpeg_lib}/FFmpeg-COPYING.LGPLv2.1.txt" COPYONLY)
-    string(REPLACE ";" " " _mhf_ffmpeg_flag_text "${MHF_FFMPEG_CONFIGURE_FLAGS}")
-    _mhf_ffmpeg_write_notice("${_mhf_ffmpeg_lib}"
-        "The FFmpeg libraries here (libavcodec, libavutil) are FFmpeg ${MHF_FFMPEG_VERSION},\n"
-        "unmodified, licensed under the GNU LGPL version 2.1 or later\n"
-        "(FFmpeg-COPYING.LGPLv2.1.txt). They are dynamically linked.\n\n"
-        "Source: ${MHF_FFMPEG_URL}\n"
-        "SHA-256: ${MHF_FFMPEG_SHA256}\n"
-        "Configured with: ${_mhf_ffmpeg_flag_text}\n")
-    set(MHF_FFMPEG_RPATH "$ORIGIN/lib")
-    if(APPLE)
-        set(MHF_FFMPEG_RPATH "@loader_path/lib")
-    endif()
-    set(MHF_HAS_FFMPEG ON)
     message(STATUS "mhf: bundled FFmpeg ${MHF_FFMPEG_VERSION} (LGPL, h264); movies enabled")
 endif()
 
