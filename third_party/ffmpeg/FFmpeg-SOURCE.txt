@@ -1,0 +1,19 @@
+The FFmpeg libraries used by this program (libavcodec, libavutil) are licensed under the GNU LGPL
+version 2.1 or later (FFmpeg-LICENSE.txt, the COPYING.LGPLv2.1 of the FFmpeg source tree) and are
+never built with --enable-gpl or --enable-nonfree.
+
+How they reach the program depends on the platform, and this note covers both:
+
+  Windows: the pinned build below is shipped next to the executable and dynamically linked.
+
+  Linux: this archive carries no FFmpeg. The program links against the FFmpeg of the distribution it
+  is installed on, which the package manager keeps patched, so the version is whatever that
+  distribution ships. Install its runtime package (for example `ffmpeg` on Arch, or the
+  `libavcodec`/`libavutil` runtime packages on Debian and Ubuntu).
+
+The pinned build below is the one the Windows archive ships. Its object files can be relinked under
+another licence: the same source, configuration and compiler settings reproduce them.
+
+Source: https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz
+SHA-256: de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f
+Configured with: --enable-static --disable-shared --disable-programs --disable-doc --disable-avdevice --disable-avformat --disable-avfilter --disable-swscale --disable-swresample --disable-network --disable-autodetect --disable-everything --enable-decoder=h264 --enable-decoder=atrac3 --enable-decoder=atrac3p --disable-x86asm --disable-debug

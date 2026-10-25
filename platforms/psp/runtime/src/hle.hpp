@@ -43,6 +43,7 @@ void set_working_directory(Runtime &rt, const std::string &psp_path);
 void io_release(Runtime &rt);
 void display_release(Runtime &rt);
 void ge_release(Runtime &rt);
+void mpeg_release(Runtime &rt);
 
 // Runs one sceUtility savedata request (hle_savedata.cpp) and stores its result in the parameter block.
 // `chosen` is the slot the player picked in the list dialog (list modes); without it the request's own selection
@@ -100,7 +101,8 @@ std::span<const HleFunction> system_functions();   // LoadExecForUser, ModuleMgr
 std::span<const HleFunction> display_functions();  // sceDisplay, sceCtrl
 std::span<const HleFunction> misc_functions();     // interrupts, vtimers, modules, UMD, small services
 std::span<const HleFunction> ge_functions();       // sceGe_user
-std::span<const HleFunction> media_functions();    // sceAudio, sceMpeg, dialogs
+std::span<const HleFunction> media_functions();    // sceAudio
+std::span<const HleFunction> mpeg_functions();     // sceMpeg (movies)
 std::span<const HleFunction> sas_functions();      // sceSasCore (voice mixer)
 std::span<const HleFunction> utility_functions();  // sceUtility dialogs
 std::span<const HleFunction> atrac_functions();    // sceAtrac3plus (music decoding)

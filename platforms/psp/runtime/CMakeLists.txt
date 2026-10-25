@@ -7,7 +7,11 @@ add_library(mhf_psp_runtime STATIC
     src/hle_ge.cpp
     src/hle_io.cpp
     src/hle_media.cpp
+    src/hle_mpeg.cpp
     src/hle_atrac.cpp
+    src/media/atrac_decoder.cpp
+    src/media/avc_decoder.cpp
+    src/media/psmf_demuxer.cpp
     src/hle_utility.cpp
     src/hle_font.cpp
     src/hle_sas.cpp
@@ -24,9 +28,12 @@ add_library(mhf_psp_runtime STATIC
     src/sysmem.cpp
     ../gpu/ge.cpp
 )
-target_include_directories(mhf_psp_runtime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../gpu)
-target_link_libraries(mhf_psp_runtime PUBLIC psprecomp_core mhf_psp_tools PRIVATE mhf_stb_truetype at3_standalone mhf_save_crypto)
+target_include_directories(mhf_psp_runtime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/../gpu)
+target_link_libraries(mhf_psp_runtime PUBLIC psprecomp_core mhf_psp_tools PRIVATE mhf_stb_truetype mhf_save_crypto)
 mhf_target_warnings(mhf_psp_runtime)
+# The movies: FFmpeg's H.264 decoder (cmake/ffmpeg.cmake).
+mhf_use_ffmpeg(mhf_psp_runtime)
 if(WIN32)
     target_link_libraries(mhf_psp_runtime PRIVATE winmm dbghelp) # timeBeginPeriod; the sampling profiler (profiler.cpp)
 endif()

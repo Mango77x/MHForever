@@ -129,7 +129,7 @@ The EU version is probably multilingual (EN/FR/DE/ES/IT) and picks the language 
 ## 10. Specific risks
 
 - System fonts: FU imports `sceLibFont` → free replacement fonts with compatible metrics (no PGF).
-- PSMF intro videos: can be skipped at first.
+- PSMF intro videos (a real HLE of `sceMpeg`, implemented above in `05`).
 - Imprecise SAS reverb (known in PPSSPP for FU).
 - Cross-region multiplayer: regions probably cannot play together in the original game `[VERIFY]`; the lobby must group by region.
 - Overlays: extraction and runtime routing are mandatory before any gameplay works.

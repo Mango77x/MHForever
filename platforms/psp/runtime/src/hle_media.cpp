@@ -1,8 +1,8 @@
-// sceAudio and sceMpeg (sceUtility dialogs: hle_utility.cpp, sceSasCore: hle_sas.cpp, sceAtrac3plus: hle_atrac.cpp).
+// sceAudio (movies: hle_mpeg.cpp; sceUtility dialogs: hle_utility.cpp; sceSasCore: hle_sas.cpp; sceAtrac3plus:
+// hle_atrac.cpp).
 //
-// First pass: these keep the game's timing and state machines moving (audio output paces itself in real time,
-// decoders produce silence, movies report the end of their stream, dialogs finish at once). Real sound and video come next (docs/10-roadmap.md phases 2-3); every simplification is logged once. Savedata requests are carried
-// out for real by hle_savedata.cpp.
+// The audio channels pace themselves in real time and hand the mixer what the game sends; the guest's own mixing,
+// voices and music are elsewhere. Savedata requests are carried out for real by hle_savedata.cpp.
 
 #include "hle.hpp"
 #include "kernel.hpp"
@@ -14,7 +14,6 @@
 #include <deque>
 #include <cstdio>
 #include <cstdlib>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -23,13 +22,6 @@ namespace mhf::psp::hle {
 namespace {
 
 Kernel &k(Runtime &rt) { return rt.kernel(); }
-
-void note_once(const char *what) {
-    static std::set<std::string> said;
-    if (said.insert(what).second) {
-        std::fprintf(stderr, "[hle] %s (simplified)\n", what);
-    }
-}
 
 // ---------------------------------------------------------------- sceAudio
 
@@ -153,77 +145,6 @@ void AudioGetChannelRestLength(Runtime &rt, Context &ctx) {
 
 void AudioZero(Runtime &, Context &ctx) { ret(ctx, 0); }
 
-// ---------------------------------------------------------------- sceMpeg (movies end immediately)
-
-constexpr std::uint32_t kMpegNoData = 0x80618001u;
-
-void MpegQueryMemSize(Runtime &rt, Context &ctx) {
-    note_once("sceMpeg plays no video");
-    (void)rt;
-    ret(ctx, 0x10000u); // sceMpegQueryMemSize(mode) returns the work area size itself
-}
-
-void MpegRingbufferQueryMemSize(Runtime &, Context &ctx) { ret(ctx, arg(ctx, 0) * 2048u); }
-
-void MpegRingbufferConstruct(Runtime &rt, Context &ctx) {
-    // SceMpegRingbuffer: packets, packetsRead, packetsWritten, packetsAvail, packetSize, data, callback, cbArg,
-    // dataUpperBound, semaId, mpeg.
-    auto &mem = rt.memory();
-    const std::uint32_t rb = arg(ctx, 0), packets = arg(ctx, 1), data = arg(ctx, 2);
-    mem.store32(rb + 0, packets);
-    mem.store32(rb + 4, 0);
-    mem.store32(rb + 8, 0);
-    mem.store32(rb + 12, 0);
-    mem.store32(rb + 16, 2048);
-    mem.store32(rb + 20, data);
-    mem.store32(rb + 24, arg(ctx, 4));
-    mem.store32(rb + 28, arg(ctx, 5));
-    mem.store32(rb + 32, data + packets * 2048u);
-    mem.store32(rb + 36, 0);
-    mem.store32(rb + 40, 0);
-    ret(ctx, 0);
-}
-
-// sceMpegCreate(mpeg, data, size, ringbuffer, frameWidth, mode, ddrTop): the handle points into the work area, which
-// starts with the library's "LIBMPEG" header; the ring buffer records its owner.
-void MpegCreate(Runtime &rt, Context &ctx) {
-    auto &mem = rt.memory();
-    const std::uint32_t mpeg = arg(ctx, 0), data = arg(ctx, 1), ring = arg(ctx, 3);
-    if (mpeg == 0 || data == 0 || arg(ctx, 2) < 0x10000u) {
-        ret(ctx, 0x80618006u); // SCE_MPEG_ERROR_NO_MEMORY
-        return;
-    }
-    const std::uint32_t handle = data + 0x30u;
-    mem.store32(mpeg, handle);
-    const char magic[12] = {'L', 'I', 'B', 'M', 'P', 'E', 'G', 0, '0', '0', '1', 0};
-    for (std::uint32_t i = 0; i < 12; ++i) mem.store8(handle + i, static_cast<std::uint8_t>(magic[i]));
-    mem.store32(handle + 12, 0xFFFFFFFFu);
-    mem.store32(handle + 16, ring);
-    mem.store32(handle + 20, ring != 0 ? mem.load32(ring + 32) : 0u);
-    if (ring != 0) mem.store32(ring + 40, mpeg);
-    ret(ctx, 0);
-}
-
-void MpegRingbufferAvailableSize(Runtime &rt, Context &ctx) {
-    ret(ctx, rt.memory().load32(arg(ctx, 0)) - rt.memory().load32(arg(ctx, 0) + 12)); // free packets
-}
-void MpegQueryStreamOffset(Runtime &rt, Context &ctx) {
-    if (arg(ctx, 2) != 0) rt.memory().store32(arg(ctx, 2), 2048);
-    ret(ctx, 0);
-}
-void MpegQueryStreamSize(Runtime &rt, Context &ctx) {
-    if (arg(ctx, 1) != 0) rt.memory().store32(arg(ctx, 1), 0);
-    ret(ctx, 0);
-}
-void MpegRegistStream(Runtime &, Context &ctx) { ret(ctx, 0x34340000u); }
-void MpegMallocAvcEsBuf(Runtime &, Context &ctx) { ret(ctx, 1); }
-void MpegGetAu(Runtime &, Context &ctx) { ret(ctx, kMpegNoData); }
-void MpegAvcDecode(Runtime &rt, Context &ctx) {
-    if (arg(ctx, 4) != 0) rt.memory().store32(arg(ctx, 4), 0); // no frame produced
-    ret(ctx, 0);
-}
-void MpegZero(Runtime &, Context &ctx) { ret(ctx, 0); }
-
 const HleFunction kFunctions[] = {
     {"sceAudio", 0x5EC81C55u, "sceAudioChReserve", &AudioChReserve},
     {"sceAudio", 0x6FC46853u, "sceAudioChRelease", &AudioChRelease},
@@ -234,30 +155,6 @@ const HleFunction kFunctions[] = {
     {"sceAudio", 0xE9D97901u, "sceAudioGetChannelRestLen", &AudioGetChannelRestLength},
     {"sceAudio", 0x95FD0C2Du, "sceAudioChangeChannelConfig", &AudioZero},
     {"sceAudio", 0xB7E1D8E7u, "sceAudioChangeChannelVolume", &AudioZero},
-    {"sceMpeg", 0xC132E22Fu, "sceMpegQueryMemSize", &MpegQueryMemSize},
-    {"sceMpeg", 0xD7A29F46u, "sceMpegRingbufferQueryMemSize", &MpegRingbufferQueryMemSize},
-    {"sceMpeg", 0x37295ED8u, "sceMpegRingbufferConstruct", &MpegRingbufferConstruct},
-    {"sceMpeg", 0xB5F6DC87u, "sceMpegRingbufferAvailableSize", &MpegRingbufferAvailableSize},
-    {"sceMpeg", 0x21FF80E4u, "sceMpegQueryStreamOffset", &MpegQueryStreamOffset},
-    {"sceMpeg", 0x611E9E11u, "sceMpegQueryStreamSize", &MpegQueryStreamSize},
-    {"sceMpeg", 0x42560F23u, "sceMpegRegistStream", &MpegRegistStream},
-    {"sceMpeg", 0xA780CF7Eu, "sceMpegMallocAvcEsBuf", &MpegMallocAvcEsBuf},
-    {"sceMpeg", 0xFE246728u, "sceMpegGetAvcAu", &MpegGetAu},
-    {"sceMpeg", 0xE1CE83A7u, "sceMpegGetAtracAu", &MpegGetAu},
-    {"sceMpeg", 0x0E3C2E9Du, "sceMpegAvcDecode", &MpegAvcDecode},
-    {"sceMpeg", 0x682A619Bu, "sceMpegInit", &MpegZero},
-    {"sceMpeg", 0x874624D6u, "sceMpegFinish", &MpegZero},
-    {"sceMpeg", 0xD8C5F121u, "sceMpegCreate", &MpegCreate},
-    {"sceMpeg", 0x606A4649u, "sceMpegDelete", &MpegZero},
-    {"sceMpeg", 0x13407F13u, "sceMpegRingbufferDestruct", &MpegZero},
-    {"sceMpeg", 0xB240A59Eu, "sceMpegRingbufferPut", &MpegZero},
-    {"sceMpeg", 0x167AFD9Eu, "sceMpegInitAu", &MpegZero},
-    {"sceMpeg", 0x591A4AA2u, "sceMpegUnRegistStream", &MpegZero},
-    {"sceMpeg", 0x707B7629u, "sceMpegFlushAllStream", &MpegZero},
-    {"sceMpeg", 0x740FCCD1u, "sceMpegAvcDecodeStop", &MpegZero},
-    {"sceMpeg", 0x800C44DFu, "sceMpegAtracDecode", &MpegZero},
-    {"sceMpeg", 0xCEB870B1u, "sceMpegFreeAvcEsBuf", &MpegZero},
-    {"sceMpeg", 0xF8DCB679u, "sceMpegQueryAtracEsSize", &MpegZero},
 };
 
 } // namespace

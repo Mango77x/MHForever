@@ -57,7 +57,10 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 ## Phase 3 — Single-player playable
 
-- [x] Audio: SAS + ATRAC3+ (music and effects) (2026-10-17). Remaining: SAS reverb, movie audio (sceMpeg).
+- [x] Audio: SAS + ATRAC3+ (music and effects) (2026-10-17). Remaining: SAS reverb.
+- [x] Pre-rendered movies (`sceMpeg`, `05` §5i, 2026-10-23): picture and sound, H.264 through FFmpeg's libavcodec and
+      ATRAC3+ through `libavcodec` (cmake/ffmpeg.cmake). Verified with the intro; the gallery plays through the same calls.
+      Remaining: the YCbCr decode path (`sceMpegAvcDecodeYCbCr`), which FU does not import, and seeking.
 - [x] Savedata (`sceUtility`) save/load/list/delete/sizes to plain folders, `homebrew/savetest` (2026-10-16).
 - [x] Our own UI for the save list, message dialog and on-screen keyboard (`05` §5h, 2026-10-18): drawn over the game,
       gamepad and physical keyboard; verified in FU's character creation (name typed, autosave toast).

@@ -104,8 +104,8 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
 - **[sodomon2](https://github.com/sodomon2)**, for the Linux packaging, the desktop integration and the launcher fixes that
   came with them (pull request #7).
 - **[PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp)**, the static recompiler framework this project is built on.
-- **[PPSSPP](https://github.com/hrydgard/ppsspp)**, for the executable decryption and the ATRAC decoders used here, and as the
-  reference for how the PSP behaves.
+- **[PPSSPP](https://github.com/hrydgard/ppsspp)**, for the executable decryption and as the reference for how the PSP behaves.
+- **[FFmpeg](https://ffmpeg.org)**, whose libavcodec decodes the movie pictures and sound and the game's music.
 - **[tclamb/mhp2g-decomp](https://github.com/tclamb/mhp2g-decomp)**, the matching decompilation of *Monster Hunter Portable 2nd G*,
   whose documented formats and names helped a great deal.
 - Everyone who tested the releases and reported problems on GitHub, Reddit and Discord.
