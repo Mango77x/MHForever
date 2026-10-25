@@ -16,6 +16,8 @@ What you need
   Fedora:        webkit2gtk4.1 gtk3
   Arch:          webkit2gtk-4.1 gtk3
   SDL3 is linked into the programs, so it does not need to be installed.
+* FFmpeg's libavcodec and libavutil (the movies and the music use them), version 7.1: libavcodec.so.61 and
+  libavutil.so.59. Install your distribution's FFmpeg libraries; a different major version will not load.
 * A plain (uncompressed) .iso image of your own copy of Monster Hunter Freedom Unite,
   European release (disc ID ULES01213, version 1.01). CSO/ZSO compressed images are not supported.
 * A controller is optional. Gamepads work out of the box (tested with a PS5 DualSense).

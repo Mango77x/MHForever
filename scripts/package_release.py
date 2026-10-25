@@ -2,13 +2,15 @@
 """Assemble a release archive from binaries built elsewhere.
 
   package_release.py --launcher <MHForever[.exe]> --game <mhfu[.exe]> --fonts <fonts dir>
-                     [--platform windows|linux] [--version <version>] [--out <dir>]
+                     [--ffmpeg-dlls <dir>] [--platform windows|linux] [--version <version>] [--out <dir>]
 
 The version defaults to the one in `project(MHForever VERSION ...)` (CMakeLists.txt), so archives, the launcher and the
 core program never drift apart; pass --version only to override it.
 
-The archive contains our programs, the free fonts, the project and third-party licenses and a player README. It never
-contains game data: the script refuses disc images, executables other than the two programs, and anything it does not know.
+The archive contains our programs, the free fonts, the project and third-party licenses and a player README. On Windows
+it also carries FFmpeg's DLLs (--ffmpeg-dlls, the folder CMake copies them to), because the game loads them from its own
+folder and a clean PC has none. It never contains game data: the script refuses disc images, executables other than the
+two programs and those DLLs, and anything it does not know.
 
 Windows produces MHForever-<version>-windows-x64.zip; Linux produces MHForever-<version>-linux-x64.tar.gz.
 """
@@ -31,8 +33,8 @@ LICENSES = {
     "licenses/psprecomp-LICENSE.txt": ROOT / "third_party/psprecomp/LICENSE",
     "licenses/ppsspp_prx-NOTICE.md": ROOT / "third_party/ppsspp_prx/NOTICE.md",
     "licenses/pokke_save_crypto-LICENSE.txt": ROOT / "third_party/pokke_save_crypto/LICENSE",
-    # FFmpeg's own licence and source note: the library is never shipped in the archive, only the notice that says
-    # where it comes from (the distribution's package on Linux, the pinned build on Windows).
+    # FFmpeg's own licence and source note. The library itself travels in the Windows archive only (its DLLs, below); on
+    # Linux the distribution's package provides it and only this notice is shipped.
     "licenses/FFmpeg-SOURCE.txt": ROOT / "third_party/ffmpeg/FFmpeg-SOURCE.txt",
     "licenses/FFmpeg-LICENSE.txt": ROOT / "third_party/ffmpeg/FFmpeg-LICENSE.txt",
 }
@@ -42,6 +44,16 @@ PLATFORMS = {
     "windows": ("MHForever.exe", "mhfu.exe", "dist/PLAYER_README.txt", "windows-x64"),
     "linux": ("MHForever", "mhfu", "dist/PLAYER_README_LINUX.txt", "linux-x64"),
 }
+
+
+def ffmpeg_dll_names() -> list[str]:
+    """The DLLs the Windows build of FFmpeg is made of, read from `set(MHF_FFMPEG_WINDOWS_DLLS ...)` in cmake/ffmpeg.cmake
+    (the one place that names them, so the pin and the archive never drift apart)."""
+    text = (ROOT / "cmake/ffmpeg.cmake").read_text(encoding="utf-8")
+    match = re.search(r"^set\(\s*MHF_FFMPEG_WINDOWS_DLLS\s+([^)]+)\)", text, re.MULTILINE)
+    if match is None:
+        raise SystemExit("error: cannot read MHF_FFMPEG_WINDOWS_DLLS from cmake/ffmpeg.cmake")
+    return [f"{name}.dll" for name in match.group(1).split()]
 
 
 def project_version() -> str:
@@ -64,6 +76,16 @@ def check_inputs(args, launcher_name: str, game_name: str) -> dict[str, pathlib.
         else:
             print(f"error: unexpected file in the fonts folder: {font.name}", file=sys.stderr)
             return None
+    if args.platform == "windows":
+        if args.ffmpeg_dlls is None:
+            print("error: the Windows archive needs FFmpeg's DLLs: pass --ffmpeg-dlls <folder CMake copied them to>",
+                  file=sys.stderr)
+            return None
+        for dll in ffmpeg_dll_names():
+            files[dll] = args.ffmpeg_dlls / dll
+    elif args.ffmpeg_dlls is not None:
+        print("error: --ffmpeg-dlls is for the Windows archive; Linux uses the system's FFmpeg", file=sys.stderr)
+        return None
     files.update(LICENSES)
     for name, path in files.items():
         if not path.is_file():
@@ -109,6 +131,8 @@ def main() -> int:
     ap.add_argument("--launcher", required=True, type=pathlib.Path)
     ap.add_argument("--game", required=True, type=pathlib.Path)
     ap.add_argument("--fonts", required=True, type=pathlib.Path)
+    ap.add_argument("--ffmpeg-dlls", type=pathlib.Path, default=None,
+                    help="Windows: the folder holding FFmpeg's DLLs (CMake copies them to <build>/bin)")
     ap.add_argument("--platform", choices=sorted(PLATFORMS), default="windows",
                     help="target platform of the programs (default: windows)")
     ap.add_argument("--out", type=pathlib.Path, default=pathlib.Path("."))

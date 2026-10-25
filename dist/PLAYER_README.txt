@@ -24,7 +24,7 @@ What you need
 How to play
 -----------
 1. Unzip this folder anywhere you can write to (not "Program Files").
-2. Open MHForever.exe.
+2. Open MHForever.exe. (Keep the .dll files next to mhfu.exe: the game needs them.)
 3. Add your .iso. The launcher checks your copy and prepares what it needs from it.
    In Settings you can choose to keep a copy of the image in MHForever's own folder.
 4. Press Play.
