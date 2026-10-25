@@ -76,3 +76,5 @@ if(MHF_BUILD_TESTS)
     add_subdirectory(homebrew)
     add_subdirectory(tests)
 endif()
+# After every target exists: on Windows, FFmpeg's DLLs go beside each executable that links them (the tests included).
+mhf_ffmpeg_copy_dlls()

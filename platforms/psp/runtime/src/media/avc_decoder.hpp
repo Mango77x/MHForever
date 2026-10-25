@@ -3,9 +3,6 @@
 // The H.264 pictures inside the game's movies, decoded with FFmpeg's libavcodec (LGPL, see THIRD_PARTY.md and
 // cmake/ffmpeg.cmake). One access unit in, at most one picture out, with no threads: the guest waits for each picture
 // before it asks for the next (docs/05-runtime-hle.md).
-//
-// Without FFmpeg (MHF_FFMPEG=OFF) the class still exists and available() is false, so the movie code can report the
-// movies as finished instead of waiting for pictures that would never come.
 
 #include <cstddef>
 #include <cstdint>
@@ -33,7 +30,6 @@ public:
     AvcDecoder &operator=(const AvcDecoder &) = delete;
 
     // Whether this build has a decoder at all.
-    [[nodiscard]] static bool available() noexcept;
 
     // Starts a stream over; the first access unit should hold the parameter sets (the movies put them there).
     bool open();

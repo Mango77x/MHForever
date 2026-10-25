@@ -4,16 +4,12 @@
 #include <deque>
 #include <vector>
 
-#if defined(MHF_HAS_FFMPEG)
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/pixfmt.h>
 }
-#endif
 
 namespace mhf::psp::media {
-
-#if defined(MHF_HAS_FFMPEG)
 
 struct AvcDecoder::Impl {
     AVCodecContext *context{};
@@ -81,7 +77,6 @@ struct AvcDecoder::Impl {
 AvcDecoder::AvcDecoder() : impl_(std::make_unique<Impl>()) {}
 AvcDecoder::~AvcDecoder() = default;
 
-bool AvcDecoder::available() noexcept { return avcodec_find_decoder(AV_CODEC_ID_H264) != nullptr; }
 
 bool AvcDecoder::open() {
     Impl &impl = *impl_;
@@ -130,21 +125,5 @@ bool AvcDecoder::drain(Picture &picture) {
     }
     return impl.take(picture);
 }
-
-#else // no FFmpeg
-
-struct AvcDecoder::Impl {};
-
-AvcDecoder::AvcDecoder() : impl_(std::make_unique<Impl>()) {}
-AvcDecoder::~AvcDecoder() = default;
-
-bool AvcDecoder::available() noexcept { return false; }
-bool AvcDecoder::open() { return false; }
-void AvcDecoder::close() {}
-bool AvcDecoder::is_open() const noexcept { return false; }
-bool AvcDecoder::decode(std::span<const std::uint8_t>, Picture &) { return false; }
-bool AvcDecoder::drain(Picture &) { return false; }
-
-#endif
 
 } // namespace mhf::psp::media
