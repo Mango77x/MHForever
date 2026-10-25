@@ -88,6 +88,9 @@ public:
                 else return kErrorUnknownFormat;
                 channels_ = read16(file_, at + 2);
                 if (channels_ != 1 && channels_ != 2) return kErrorUnknownFormat;
+                // libavcodec refuses to return frames from a decoder whose sample rate is 0, so it must be set.
+                sample_rate_ = static_cast<int>(read32(file_, at + 4));
+                if (sample_rate_ <= 0) sample_rate_ = 44100;
                 bytes_per_frame_ = read16(file_, at + 12);
                 if (bytes_per_frame_ == 0) return kErrorUnknownFormat;
                 if (!plus_) joint_stereo = read16(file_, at + 24);
@@ -136,6 +139,7 @@ public:
                 at3p_ = avcodec_alloc_context3(codec);
                 if (at3p_ != nullptr) {
                     at3p_->sample_fmt = AV_SAMPLE_FMT_FLTP;
+                    at3p_->sample_rate = sample_rate_;
                     at3p_->block_align = block_align;
                     av_channel_layout_default(&at3p_->ch_layout, channels_);
                     if (avcodec_open2(at3p_, codec, nullptr) < 0) {
@@ -160,6 +164,7 @@ public:
                 at3_ = avcodec_alloc_context3(codec);
                 if (at3_ != nullptr) {
                     at3_->sample_fmt = AV_SAMPLE_FMT_FLTP;
+                    at3_->sample_rate = sample_rate_;
                     at3_->block_align = block_align;
                     at3_->extradata = static_cast<std::uint8_t *>(at3_extra_data_);
                     at3_->extradata_size = static_cast<int>(extra_data.size());
@@ -296,6 +301,7 @@ private:
     int loop_num_{};
     int position_{};
     bool finished_{};
+    int sample_rate_{44100};
     AVCodecContext *at3p_{};
     AVCodecContext *at3_{};
     void *at3_extra_data_{};
