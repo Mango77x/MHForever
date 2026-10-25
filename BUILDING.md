@@ -98,15 +98,16 @@ The archives are assembled from programs built elsewhere; game data never goes i
 ### Linux
 
 1. Build the launcher (`cmake --preset linux-clang`, then `cmake --build --preset linux-clang`).
-2. Build `mhfu` from the generated code (see above) in a Release configuration.
+2. Build `mhfu` from the generated code (see above) in a Release configuration, with `-DMHF_FFMPEG=bundled` so FFmpeg is
+   built from the pinned release and linked statically: the archive then needs nothing from the player's distribution.
 3. Package the programs, the free fonts and the licenses:
    ```sh
    python scripts/package_release.py --platform linux \
        --launcher <MHForever> --game <mhfu> --fonts <the fonts folder next to mhfu>
    ```
    This writes `MHForever-<version>-linux-x64.tar.gz` and its `.sha256`; the execute permission of both programs is
-   kept. The archive carries no FFmpeg: the player's distribution provides it, and only the licence and source note
-   (`third_party/ffmpeg/`) travels with the programs. The text shown to players is `dist/PLAYER_README_LINUX.txt`. As on Windows, the version comes from
+   kept. FFmpeg is inside the programs (static), so the archive carries only its licence and source note
+   (`third_party/ffmpeg/`). The text shown to players is `dist/PLAYER_README_LINUX.txt`. As on Windows, the version comes from
    `CMakeLists.txt`.
 
 Release archives are always built by the maintainer on their own machine (for Linux: on a Linux install, a virtual

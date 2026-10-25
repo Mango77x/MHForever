@@ -1,19 +1,31 @@
-The FFmpeg libraries used by this program (libavcodec, libavutil) are licensed under the GNU LGPL
-version 2.1 or later (FFmpeg-LICENSE.txt, the COPYING.LGPLv2.1 of the FFmpeg source tree) and are
-never built with --enable-gpl or --enable-nonfree.
+The FFmpeg libraries used by this program (libavcodec, libavutil) are never built with --enable-gpl or
+--enable-nonfree. What a release archive carries depends on the platform.
 
-How they reach the program depends on the platform, and this note covers both:
+Linux (MHForever-<version>-linux-x64.tar.gz)
 
-  Windows: the pinned build below is shipped next to the executable and dynamically linked.
+  FFmpeg 7.1.5 is linked statically into the programs. It is built from the source below with the configuration
+  below (MHF_FFMPEG=bundled) and is licensed under the GNU LGPL version 2.1 or later (FFmpeg-LICENSE.txt, the
+  COPYING.LGPLv2.1 of the FFmpeg source tree). Its object files can be relinked under another licence: the same
+  source, configuration and compiler settings reproduce them.
 
-  Linux: this archive carries no FFmpeg. The program links against the FFmpeg of the distribution it
-  is installed on, which the package manager keeps patched, so the version is whatever that
-  distribution ships. Install its runtime package (for example `ffmpeg` on Arch, or the
-  `libavcodec`/`libavutil` runtime packages on Debian and Ubuntu).
+  Source: https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz
+  SHA-256: de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f
+  Configured with: --enable-static --disable-shared --disable-programs --disable-doc --disable-avdevice
+  --disable-avformat --disable-avfilter --disable-swscale --disable-swresample --disable-network
+  --disable-autodetect --disable-everything --enable-decoder=h264 --enable-decoder=atrac3
+  --enable-decoder=atrac3p --disable-x86asm --disable-debug
 
-The pinned build below is the one the Windows archive ships. Its object files can be relinked under
-another licence: the same source, configuration and compiler settings reproduce them.
+Windows (MHForever-<version>-windows-x64.zip)
 
-Source: https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz
-SHA-256: de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f
-Configured with: --enable-static --disable-shared --disable-programs --disable-doc --disable-avdevice --disable-avformat --disable-avfilter --disable-swscale --disable-swresample --disable-network --disable-autodetect --disable-everything --enable-decoder=h264 --enable-decoder=atrac3 --enable-decoder=atrac3p --disable-x86asm --disable-debug
+  avcodec-61.dll, avutil-59.dll and swresample-5.dll are the unmodified LGPL shared build of FFmpeg 7.1.5
+  published by the BtbN FFmpeg-Builds project. They are dynamically linked and shipped next to the executable, so
+  another build of the same version can replace them. That build is configured with --enable-version3, so it is
+  licensed under the GNU LGPL version 3 or later (FFmpeg-LICENSE-LGPLv3.txt, the LICENSE.txt of that archive).
+
+  Archive: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-06-30-13-34/ffmpeg-n7.1.5-1-g7d0e842004-win64-lgpl-shared-7.1.zip
+  SHA-256: 03a8003e245c08df4277d7b0adc50b93a97ddd4a3aaafea21943c4384df59895
+  Source: FFmpeg's git tag n7.1.5 plus one commit (7d0e842004), https://git.ffmpeg.org/ffmpeg.git. The build
+  scripts are at https://github.com/BtbN/FFmpeg-Builds, and the configuration is recorded inside the DLLs.
+
+A build made from the source tree with the default configuration on Linux (MHF_FFMPEG=system) links the FFmpeg
+of the distribution it is built on instead. That is for development; it is not what a release archive carries.
