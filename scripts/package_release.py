@@ -33,8 +33,8 @@ LICENSES = {
     "licenses/psprecomp-LICENSE.txt": ROOT / "third_party/psprecomp/LICENSE",
     "licenses/ppsspp_prx-NOTICE.md": ROOT / "third_party/ppsspp_prx/NOTICE.md",
     "licenses/pokke_save_crypto-LICENSE.txt": ROOT / "third_party/pokke_save_crypto/LICENSE",
-    # FFmpeg's own licence and source note. The library itself travels in the Windows archive only (its DLLs, below); on
-    # Linux the distribution's package provides it and only this notice is shipped.
+    # FFmpeg's own licence and source note. On Windows the library travels as DLLs (below, with their LGPL-3 text); on
+    # Linux it is linked into the programs.
     "licenses/FFmpeg-SOURCE.txt": ROOT / "third_party/ffmpeg/FFmpeg-SOURCE.txt",
     "licenses/FFmpeg-LICENSE.txt": ROOT / "third_party/ffmpeg/FFmpeg-LICENSE.txt",
 }
@@ -83,8 +83,10 @@ def check_inputs(args, launcher_name: str, game_name: str) -> dict[str, pathlib.
             return None
         for dll in ffmpeg_dll_names():
             files[dll] = args.ffmpeg_dlls / dll
+        # The DLLs are an LGPL-3.0-or-later build (--enable-version3), unlike the LGPL-2.1 text every archive carries.
+        files["licenses/FFmpeg-LICENSE-LGPLv3.txt"] = ROOT / "third_party/ffmpeg/FFmpeg-LICENSE-LGPLv3.txt"
     elif args.ffmpeg_dlls is not None:
-        print("error: --ffmpeg-dlls is for the Windows archive; Linux uses the system's FFmpeg", file=sys.stderr)
+        print("error: --ffmpeg-dlls is for the Windows archive; Linux links FFmpeg statically", file=sys.stderr)
         return None
     files.update(LICENSES)
     for name, path in files.items():
