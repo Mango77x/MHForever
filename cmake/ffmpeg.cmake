@@ -348,17 +348,19 @@ function(mhf_ffmpeg_copy_dlls)
         return()
     endif()
     # add_custom_command(TARGET ...) only accepts a target created in the directory the call is made from, and these
-    # targets come from all over the tree. A target of its own carries the copying for each executable instead: it runs
-    # after the executable is built, uses the executable's own directory, and can be declared from anywhere.
+    # targets come from all over the tree. A target of its own carries the copying for each executable instead: it uses
+    # the executable's own directory, can be declared from anywhere, and the executable depends on it, so building only
+    # that executable (cmake --build ... --target mhfu) copies the DLLs too and not just the default "all" build.
     set(copied "")
     foreach(target IN LISTS reaches)
         get_target_property(kind ${target} TYPE)
         if(kind STREQUAL "EXECUTABLE")
-            add_custom_target(${target}_ffmpeg_dlls ALL
+            add_custom_target(${target}_ffmpeg_dlls
+                COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${target}>
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MHF_FFMPEG_WINDOWS_DLL_FILES} $<TARGET_FILE_DIR:${target}>
                 COMMENT "Copying FFmpeg's DLLs next to ${target}"
                 VERBATIM)
-            add_dependencies(${target}_ffmpeg_dlls ${target})
+            add_dependencies(${target} ${target}_ffmpeg_dlls)
             list(APPEND copied ${target})
         endif()
     endforeach()

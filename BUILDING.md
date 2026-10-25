@@ -84,10 +84,13 @@ The archives are assembled from programs built elsewhere; game data never goes i
 2. Build `mhfu.exe` from the generated code (see above) in a Release configuration.
 3. Package them with the free fonts and the licenses:
    ```sh
-   python scripts/package_release.py --launcher <MHForever.exe> --game <mhfu.exe> --fonts <the fonts folder next to mhfu.exe>
+   python scripts/package_release.py --launcher <MHForever.exe> --game <mhfu.exe> --fonts <the fonts folder next to mhfu.exe> \
+       --ffmpeg-dlls <build folder>/bin
    ```
    This writes `MHForever-<version>-windows-x64.zip` and its `.sha256`. The text shown to players is `dist/PLAYER_README.txt`.
-   The FFmpeg licence and source note (`third_party/ffmpeg/`) go into the archive as they are.
+   `--ffmpeg-dlls` is the folder CMake copies FFmpeg's DLLs to (`<build folder>/bin`); they go next to `mhfu.exe`, because
+   the game loads them from its own folder and a clean Windows install has none. The script refuses to build the
+   archive without them. The FFmpeg licence and source note (`third_party/ffmpeg/`) go into the archive as they are.
    `--version` is optional: it defaults to `project(MHForever VERSION ...)` in `CMakeLists.txt`, which is the only place
    the version is written, so the archive, the launcher and `mhf --version` always agree. Bump it there (and only there)
    when preparing a release; pass `--version` only for a one-off archive.
