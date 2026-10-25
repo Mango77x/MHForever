@@ -3,7 +3,7 @@
 disc_id = "ULUS10391"
 disc_version = "1.01"
 market = "US"
-languages = ["en"]   # [VERIFY]
+languages = ["en", "fr", "de", "es", "it"]   # the disc offers all five at the first start
 status = "in-development"
 
 [[accepted_dumps]]
