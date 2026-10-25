@@ -1,5 +1,26 @@
-# North America. Hashes pending: obtain from a dump and cross-check with Redump.
+# North America. Identification data only (hashes identify a dump; they contain no game content).
+# The dump is the one named "Monster Hunter Freedom Unite (USA) (PSP) (PSN)".
 disc_id = "ULUS10391"
+disc_version = "1.01"
 market = "US"
 languages = ["en"]   # [VERIFY]
-status = "planned"
+status = "in-development"
+
+[[accepted_dumps]]
+kind = "iso"
+size = 886702080
+sha1 = "e50bfa0350e10d959689c8dfcaf90b11e3a44f84"
+md5 = "a1c281970c6f4bf747d98742b09a95ef"
+
+# The encrypted executable on the disc (PSP_GAME/SYSDIR/EBOOT.BIN). The installer accepts only this file.
+[encrypted_executable]
+size = 1910672
+sha1 = "4f1969e4a549b7b64557a62039619cad0d33e09a"
+
+# The prepared (plain) executable the recompiled code is generated from. The installer checks its output against
+# this; developer builds may also use a file that matches it. Identification only: never shipped, never committed.
+[dev_executable]
+size = 1910672
+sha1 = "540fa53711ccd3a500a2ff01a71946406085a627"
+entry = 0x08906A54
+text_base = 0x08804000
