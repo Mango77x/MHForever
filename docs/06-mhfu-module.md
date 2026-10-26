@@ -139,23 +139,27 @@ address in code):
 | It then applies it | `0x088902A8` |
 
 The mapping in that function is: PSP `2` (FR) → `2`, `3` (ES) → `4`, `4` (DE) → `2`, `5` (IT) → `5`, anything else → `1`
-(EN); and **if the call fails, it takes `1` and skips the screen**. That failure path is the game's own, not a trick of
-ours.
+(EN).
 
 **The language is read exactly once.** A trace of `sceUtilityGetSystemParamInt(8)` shows a single call, from
 `0x08890738`, inside `0x08890718`, which only `0x0888FDFC` (the start-up) calls. The game never asks again.
 
 **The screen is not driven by that call.** It has no timer (it waits for input indefinitely), and a trace of every
-guest call (36 447 of them) shows no function starting late and none of the overlay routines ever running: the screen is
-drawn by the start-up state machinery, not by a function of its own. Hooking `0x088AC308`, `0x088ACB1C`, `0x09A5F280`
-(demo_task) and `0x09C190F0` (demo_sub) was tried, and none of those hooks fired, so the screen does not run through
-them.
+guest call shows no function starting late and none of the overlay routines ever running: the screen is drawn by the
+start-up state machinery, not by a function of its own. Hooking `0x088AC308`, `0x088ACB1C`, `0x09A5F280` (demo_task)
+and `0x09C190F0` (demo_sub) was tried, and none of those hooks fired, so the screen does not run through them.
+`0x088AC308`/`0x088ACB1C` turned out to be the online-module boot task (`sceNetInit` → Netconf → adhocctl, sequenced
+through the state byte `0x09A1DB60`); it never runs while booting to the title. The idea that a failing
+`sceUtilityGetSystemParamInt(8)` would skip the screen was disproved by experiment: the game still shows it, simply with
+English focused.
 
-**What that means for skipping it.** `--language` already does its part: the game takes the language in its start-up and
-applies it. The screen is a separate step that never consults the system, so there is nothing to answer there. Skipping
-it means changing the flow of the start-up machinery, which needs a fuller map of its state blocks than this session
-produced; anything that does it has to be resolved by a canonical name in `regions/ULES01213/symbols.toml` and hooked
-through `register_hook`, per `CONTRIBUTING.md`.
+**How the port skips it.** The screen does not consult the system and its state blocks never surfaced to afford a hook,
+so the port answers it instead of editing the flow. When `--language` is given, the game focuses that very language, and
+`games/mhfu` presses the game's own confirm once for a few guest frames ~5 s into the boot (`games/mhfu/host/main.cpp`,
+`kLanguagePressFromVblank`): enough for the screen to accept and fade away, early enough that no later screen sees the
+press. Without `--language` the boot behaves exactly like the original. Verified end to end with `--language es` and
+`it` (title screen and later boot screens come out in the picked language) and without it (the screen appears as
+always).
 
 **Ruled out**, so nobody repeats the work: a language variable in RAM (`0x08197031` holds the language but is written
 before the screen and skipping it changes nothing), the overlays `demo_task`/`demo_sub`, a saved game (`MHP2NDG.BIN`),
