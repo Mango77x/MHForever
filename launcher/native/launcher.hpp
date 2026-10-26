@@ -52,6 +52,8 @@ public:
     // Everything the UI shows, as the bridge's State object.
     Json state();
 
+    // Settings belong to a copy of a game (Home's "Game settings": video, audio, controls), except `copyImage`, which is the
+    // launcher's own. set_settings() changes the copy chosen in the Library; state()["settings"] shows the same copy's values.
     void set_settings(const Json &partial);
     // The bindings the player changed in the game's own menu: the game writes them to controls_file() as it goes, and
     // this folds them into the settings (validated like any other change) and removes the file. Called when the launcher
@@ -128,6 +130,7 @@ public:
 private:
     void load();
     void save();
+    void apply_settings(const std::string &disc_id, const Json &partial); // mutex_ held; "" = no copy yet
     std::filesystem::path find_executable(const CatalogEntry &entry);
     const CatalogEntry *entry_for(const std::string &disc_id) const;
     std::string friend_code() const;
@@ -136,6 +139,7 @@ private:
     std::filesystem::path file_;
     std::mutex mutex_;
     Json data_;
+    std::string launched_disc_; // the copy plan_launch() last prepared: where the game's own control changes belong
     std::filesystem::path data_dir_;
     std::filesystem::path saves_dir_;
     install::Decryptor decryptor_;

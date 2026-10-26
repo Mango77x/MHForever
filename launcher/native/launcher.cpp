@@ -80,6 +80,20 @@ const Json *chosen_copy(const Json &data, const std::string &game_id, const Cata
     return first;
 }
 
+// The launcher's own settings: everything else is kept per copy of a game.
+bool is_launcher_setting(const std::string &key) { return key == "copyImage"; }
+
+// What a copy of a game uses: its own settings, over what the launcher.json "settings" hold (the values every copy started
+// from, and what a launcher.json from before the per-copy settings has).
+Json settings_for(const Json &data, const std::string &disc_id) {
+    Json s = data["settings"];
+    const Json &own = data["gameSettings"][disc_id];
+    if (own.is_object()) {
+        for (const auto &[k, v] : own.as_object()) s[k] = v;
+    }
+    return s;
+}
+
 std::optional<std::string> sha1_file(const fs::path &path, std::uint64_t size, const Progress *progress) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return std::nullopt;
@@ -396,6 +410,7 @@ void Launcher::load() {
     Json settings = default_settings();
     for (const auto &[k, v] : data_["settings"].as_object()) settings[k] = v;
     data_["settings"] = settings;
+    if (!data_["gameSettings"].is_object()) data_["gameSettings"] = Json(Json::Object{});
     if (!data_["games"].is_array()) data_["games"] = Json(Json::Array{});
     if (!data_["stats"].is_object()) {
         Json stats;
@@ -510,7 +525,9 @@ Json Launcher::state() {
 #endif
     s["pseudonym"] = data_["pseudonym"];
     s["friendCode"] = friend_code();
-    s["settings"] = data_["settings"];
+    const CatalogEntry *shown = nullptr;
+    chosen_copy(data_, "mhfu", &shown);
+    s["settings"] = settings_for(data_, shown != nullptr ? shown->disc_id : "");
     s["keyDefaults"] = default_settings()["keys"]; // what "Restore defaults" puts back
     s["padDefaults"] = default_settings()["pad"];
     s["stats"] = data_["stats"];
@@ -569,13 +586,39 @@ void Launcher::import_game_controls() {
     Json partial;
     partial["keys"] = keys;
     partial["pad"] = pad;
-    set_settings(partial); // anything that does not validate is ignored there
+    {
+        std::lock_guard lock(mutex_);
+        const CatalogEntry *entry = nullptr;
+        chosen_copy(data_, "mhfu", &entry);
+        // The game that wrote the file is the one that was started, even if the Library shows another copy by now.
+        apply_settings(!launched_disc_.empty() ? launched_disc_ : (entry != nullptr ? std::string(entry->disc_id) : std::string()), partial);
+    }
     fs::remove(controls_file(), ec);
 }
 
 void Launcher::set_settings(const Json &partial) {
     std::lock_guard lock(mutex_);
-    Json &s = data_["settings"];
+    const CatalogEntry *entry = nullptr;
+    chosen_copy(data_, "mhfu", &entry);
+    apply_settings(entry != nullptr ? entry->disc_id : "", partial);
+}
+
+void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
+    Json &launcher_settings = data_["settings"];
+    // The copy's settings start as what the launcher.json "settings" hold, so nobody loses what they had set.
+    Json *own = nullptr;
+    if (!disc_id.empty()) {
+        Json &all = data_["gameSettings"];
+        if (!all[disc_id].is_object()) {
+            Json seed = launcher_settings;
+            for (const auto &[k, v] : launcher_settings.as_object()) {
+                if (is_launcher_setting(k)) seed.object().erase(k);
+            }
+            all[disc_id] = seed;
+        }
+        own = &all[disc_id];
+    }
+    Json &s = own != nullptr ? *own : launcher_settings;
     const auto num = [&](const char *key, double lo, double hi) {
         if (partial[key].is_number()) s[key] = std::clamp(std::round(partial[key].as_number()), lo, hi);
     };
@@ -585,9 +628,10 @@ void Launcher::set_settings(const Json &partial) {
     }
     num("musicVolume", 0, 100);
     num("sfxVolume", 0, 100);
-    for (const char *key : {"fullscreen", "smoothTextures", "copyImage"}) {
+    for (const char *key : {"fullscreen", "smoothTextures"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
+    if (partial["copyImage"].is_bool()) launcher_settings["copyImage"] = partial["copyImage"];
     if (partial["keys"].is_object()) {
         Json &keys = s["keys"];
         for (const auto &[action, value] : partial["keys"].as_object()) {
@@ -781,7 +825,8 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.error = "The decrypted executable was not found (developer build). Locate it in Settings.";
         return plan;
     }
-    const Json &s = data_["settings"];
+    const Json s = settings_for(data_, entry->disc_id);
+    launched_disc_ = entry->disc_id;
     const auto num = [&](const char *key) { return std::to_string(static_cast<int>(s[key].as_number())); };
     const fs::path stick = install::game_saves_dir(saves_dir_, entry->disc_id);
     import_legacy_saves(entry->disc_id);

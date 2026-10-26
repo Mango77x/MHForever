@@ -182,3 +182,13 @@ export const api: Native = isNative ? (w as Native) : simulated();
 export function selectedGame(state: State): Game | undefined {
   return state.games.find((g) => g.supported && g.discId === state.selectedDisc) ?? state.games.find((g) => g.supported);
 }
+
+/** The short region tag shown next to a game's name: (EU), (NA), (JP). */
+export function regionTag(game: Game): string {
+  switch (game.region) {
+    case 'Europe': return 'EU';
+    case 'North America': return 'NA';
+    case 'Japan': return 'JP';
+    default: return game.region;
+  }
+}

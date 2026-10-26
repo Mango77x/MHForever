@@ -427,6 +427,21 @@ int main(int argc, char **argv) {
         CHECK(two.state()["selectedDisc"].as_string() == "ULUS10391");
         CHECK(two.disc_id_for("mhfu") == "ULUS10391");
         CHECK(two.plan_launch("mhfu").error.find(us) != std::string::npos);
+        // Video, audio and controls belong to the copy: changing them for North America leaves Europe as it was.
+        Json eu_start;
+        const double eu_scale = two.state()["settings"]["scale"].as_number(); // the copy's own (Europe) values are the defaults
+        Json change;
+        change["scale"] = 2;
+        change["musicVolume"] = 30;
+        change["copyImage"] = true; // the launcher's own setting, shared by every copy
+        two.set_settings(change);
+        CHECK(two.state()["settings"]["scale"].as_number() == 2);
+        CHECK(two.select_game("ULES01213"));
+        CHECK(two.state()["settings"]["scale"].as_number() == eu_scale);
+        CHECK(two.state()["settings"]["musicVolume"].as_number() == 100);
+        CHECK(two.state()["settings"]["copyImage"].as_bool());
+        CHECK(two.select_game("ULUS10391"));
+        CHECK(two.state()["settings"]["scale"].as_number() == 2 && two.state()["settings"]["musicVolume"].as_number() == 30);
         Launcher again(base, data); // survives a restart
         CHECK(again.state()["selectedDisc"].as_string() == "ULUS10391");
         again.remove_game("ULUS10391"); // one copy only: the other region stays

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import { api, selectedGame, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
+import { api, regionTag, selectedGame, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
 import { CopyIcon } from './icons';
 import { frameRates, resolutions } from './format';
 import { setNavigationPaused } from './gamepad';
@@ -352,7 +352,7 @@ function Controls({ keys, pad, keyDefaults, padDefaults, onChange }: {
   );
 }
 
-export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChangeCopy, onRemoveCopy, onLocateExecutable }: Props) {
+export function SettingsPage({ state, onChange, onPseudonym, onCopyCode }: Pick<Props, 'state' | 'onChange' | 'onPseudonym' | 'onCopyCode'>) {
   const s = state.settings;
   const [name, setName] = useState(state.pseudonym);
   useEffect(() => setName(state.pseudonym), [state.pseudonym]);
@@ -361,12 +361,64 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
     if (clean && clean !== state.pseudonym) onPseudonym(clean);
     else setName(state.pseudonym);
   };
-  const game = selectedGame(state) ?? state.games[0];
   return (
     <section className="settings">
       <motion.div className="page-title" {...rise(0)}>
         <h2>Settings</h2>
-        <p>Saved automatically. Video, audio and control changes apply the next time the game starts.</p>
+        <p>These apply to MHForever and to all your games. Each game has its own video, audio and controls under Game settings.</p>
+      </motion.div>
+
+      <motion.div className="glass section" {...rise(0.18)}>
+        <h3>Profile</h3>
+        <div className="srow">
+          <label htmlFor="pseudonym" className="slabel"><b>Name</b><span>Shown to friends, and typed into the game when it asks for a name.</span></label>
+          <input
+            id="pseudonym"
+            className="text-input"
+            value={name}
+            maxLength={16}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={commitName}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            style={{ width: 240 }}
+          />
+        </div>
+        <div className="srow">
+          <div className="slabel"><b>Friend code</b><span>Stored only on this computer. Back it up from the profile menu.</span></div>
+          <div className="code-box" style={{ minWidth: 300 }}>
+            <span className="code">{state.friendCode}</span>
+            <button className="copy" onClick={onCopyCode} aria-label="Copy friend code"><CopyIcon /> Copy</button>
+          </div>
+        </div>
+      </motion.div>
+      <motion.div className="glass section" {...rise(0.1)}>
+        <h3>Storage</h3>
+        <div className="srow">
+          <div className="slabel"><b>Keep a copy of my disc image</b><span>Copies the image into MHForever's own folder the next time you add your game, so it keeps working if the original moves. Needs about 1 GB.</span></div>
+          <Toggle on={s.copyImage} onToggle={() => onChange({ copyImage: !s.copyImage })} label="Keep a copy of my disc image" />
+        </div>
+      </motion.div>
+      <motion.div className="glass section" {...rise(0.3)}>
+        <h3>About</h3>
+        <div className="srow">
+          <div className="slabel">
+            <b>MHForever {state.version}</b>
+            <span>Free software (GPL-3.0 or later). It contains none of the game's assets: it runs the copy you own.</span>
+          </div>
+        </div>
+      </motion.div>
+    </section>
+  );
+}
+
+export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, onLocateExecutable }: Omit<Props, 'onPseudonym' | 'onCopyCode'>) {
+  const s = state.settings;
+  const game = selectedGame(state) ?? state.games[0];
+  return (
+    <section className="settings">
+      <motion.div className="page-title" {...rise(0)}>
+        <h2>{game ? `${game.title} (${regionTag(game)})` : 'Game settings'}</h2>
+        <p>Saved automatically for this copy of the game. Changes apply the next time the game starts.</p>
       </motion.div>
 
       <motion.div className="glass section" {...rise(0.06)}>
@@ -398,57 +450,21 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
           <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
         </div>
       </motion.div>
-
       <motion.div className="glass section" {...rise(0.08)}>
         <h3>Controls</h3>
         <Controls keys={s.keys ?? {}} pad={s.pad ?? {}} keyDefaults={state.keyDefaults ?? {}} padDefaults={state.padDefaults ?? {}} onChange={onChange} />
       </motion.div>
-
-      <motion.div className="glass section" {...rise(0.1)}>
-        <h3>Game files</h3>
-        <div className="srow">
-          <div className="slabel"><b>Keep a copy of my disc image</b><span>Copies the image into MHForever's own folder the next time you add your game, so it keeps working if the original moves. Needs about 1 GB.</span></div>
-          <Toggle on={s.copyImage} onToggle={() => onChange({ copyImage: !s.copyImage })} label="Keep a copy of my disc image" />
-        </div>
-      </motion.div>
-
       <motion.div className="glass section" {...rise(0.12)}>
         <h3>Audio</h3>
         <Volume id="vol-music" label="Music" value={s.musicVolume} onCommit={(v) => onChange({ musicVolume: v })} />
         <Volume id="vol-sfx" label="Sound effects" value={s.sfxVolume} onCommit={(v) => onChange({ sfxVolume: v })} />
       </motion.div>
-
-      <motion.div className="glass section" {...rise(0.18)}>
-        <h3>Profile</h3>
-        <div className="srow">
-          <label htmlFor="pseudonym" className="slabel"><b>Name</b><span>Shown to friends, and typed into the game when it asks for a name.</span></label>
-          <input
-            id="pseudonym"
-            className="text-input"
-            value={name}
-            maxLength={16}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={commitName}
-            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-            style={{ width: 240 }}
-          />
-        </div>
-        <div className="srow">
-          <div className="slabel"><b>Friend code</b><span>Stored only on this computer. Back it up from the profile menu.</span></div>
-          <div className="code-box" style={{ minWidth: 300 }}>
-            <span className="code">{state.friendCode}</span>
-            <button className="copy" onClick={onCopyCode} aria-label="Copy friend code"><CopyIcon /> Copy</button>
-          </div>
-        </div>
-      </motion.div>
-
       <motion.div className="glass section" {...rise(0.21)}>
         <h3>Saves</h3>
         <ImportSaves gameId={game?.supported ? game.id : undefined} />
       </motion.div>
-
       <motion.div className="glass section" {...rise(0.24)}>
-        <h3>Game files</h3>
+        <h3>Your copy</h3>
         <div className="srow">
           <div className="slabel"><b>Your copy</b><span>{game ? game.isoPath : 'No copy added yet'}</span></div>
           <div className="row-wrap" style={{ gap: 10 }}>
@@ -462,16 +478,6 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
             <span>{state.executable.found ? state.executable.path : 'Not found'}</span>
           </div>
           <button className="ghost mid" onClick={onLocateExecutable}>Locate</button>
-        </div>
-      </motion.div>
-
-      <motion.div className="glass section" {...rise(0.3)}>
-        <h3>About</h3>
-        <div className="srow">
-          <div className="slabel">
-            <b>MHForever {state.version}</b>
-            <span>Free software (GPL-3.0 or later). It contains none of the game's assets: it runs the copy you own.</span>
-          </div>
         </div>
       </motion.div>
     </section>
