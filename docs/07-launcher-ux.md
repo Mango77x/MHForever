@@ -136,7 +136,7 @@ mode, where no second window can be shown.
   - START, SELECT → Menu/View.
   - **Right stick → D-pad** (FU's "claw" camera) with configurable deadzone and repeat. Level 1 is implemented; level 2 (analog camera hook) is an enhancement.
 - Keyboard: every button of the pad answers to a physical key, and the player changes them in the launcher
-  (**Settings → Controls**), not by editing a file; the mouse drives the camera once the analog hook exists.
+  (**Game settings → Controls**), not by editing a file; the mouse drives the camera once the analog hook exists.
   - A binding is a UI Events code (`KeyK`, `ArrowLeft`, `Space`...): it names the key's position, not the character
     printed on it, so WASD stays where a player expects it on AZERTY or QWERTZ.
   - The bindings live in `launcher.json` under `settings.keys` (16 actions) and the launcher passes them to the game with
@@ -146,7 +146,7 @@ mode, where no second window can be shown.
     In the launcher, Backspace or Delete removes a binding and a key already in use is swapped with the other button.
   - Two keys belong to the game and cannot be assigned: **Escape** (in-game menu) and **F11** (fullscreen).
 - Controllers: every button of the pad also answers to a button of the player's controller, chosen in the same place
-  (**Settings → Controls → Controller**; the page has a Keyboard / Controller switch).
+  (**Game settings → Controls → Controller**; the page has a Keyboard / Controller switch).
   - A source is an SDL gamepad name (`south`, `left_shoulder`, `left_trigger`, `dpad_up`...): the position of the button on
     a standard layout, so Xbox, PlayStation and Switch pads behave alike. A binding is one source or several joined with `+`
     (any of them presses the button); the defaults keep L and R on both the shoulder button and the trigger.

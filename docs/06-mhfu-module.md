@@ -13,7 +13,7 @@
 | Region | Disc ID | Title | Status |
 |---|---|---|---|
 | Europe | **ULES01213** | Freedom Unite | Main development (reference copy, v1.01) |
-| North America | **ULUS10391** | Freedom Unite | Second region |
+| North America | **ULUS10391** | Freedom Unite | Playable (v1.01): its own symbol map, overlay map and program (`mhfu-us`) |
 | Japan | **ULJM05500** | Portable 2nd G | Third region; base of `mhp2g-decomp` and FUComplete |
 | Others | PSN, "PSP Essentials"/"The Best", Korea/Asia | — | `[VERIFY]` whether variants with other hashes exist |
 
@@ -75,7 +75,7 @@ mh_camera_update    = 0x088xxxxx
 mh_player_state     = 0x09xxxxxx
 ```
 The EU map (`regions/ULES01213/symbols.toml`) currently holds the entry point and the overlay loader (`04-recompiler.md` §4.4).
-US and JP maps are pending until those dumps are available.
+The US map (`regions/ULUS10391/`) holds the entry point, the overlay loader and the overlay manifest; the JP map is pending until that dump is available.
 
 Flow:
 1. Find and name the function in EU (main development) with Ghidra.
