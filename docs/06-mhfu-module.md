@@ -77,6 +77,12 @@ mh_player_state     = 0x09xxxxxx
 The EU map (`regions/ULES01213/symbols.toml`) currently holds the entry point and the overlay loader (`04-recompiler.md` §4.4).
 The US map (`regions/ULUS10391/`) holds the entry point, the overlay loader and the overlay manifest; the JP map is pending until that dump is available.
 
+**US release (ULUS10391, measured 2026-10-26).** Up to the overlay manager the code sits where it does in EU; from there on
+everything, code and data, is 0x120 bytes higher, and the overlay groups load 0x100 higher. The 298 overlays carry the same names
+and `DATA.BIN` ids as in EU (only `demo_task` differs in size). Recompiled it gives the same 1,042 generated files and the
+same 272 system imports as EU, and it runs: language menu (the disc offers the same five languages), ESRB notice, intro movie,
+character creation and the village. Its save-data key is passed by the game itself, so nothing about it is stored here.
+
 Flow:
 1. Find and name the function in EU (main development) with Ghidra.
 2. Find its counterpart in US/JP with Ghidra Version Tracking / BinDiff / byte signatures.

@@ -214,9 +214,9 @@ console-bound 2, 4 and 6 need a PSP's fuse keys and are not supported).
   previous generation of the data file and `PARAM.SFO` is kept in `<SAVEDATA>/.previous/<folder>/`. A plain file written into
   a folder that was encrypted clears the encryption fields of its `PARAM.SFO`.
 - `MHF_SAVE_ENCRYPTION=0` writes plain saves; `MHF_SAVEDATA_LOG=1` prints the request words around the key.
-- The launcher imports saves (Settings, Saves) by copying folders; it never needs the key.
+- The launcher imports saves (Game settings, Saves) by copying folders; it never needs the key.
 - Not supported: the console-bound modes, saves of another version of the game (their key differs and is only known to
-  that version's executable; a European executable cannot read an American save), and writing a save a real PSP accepts
+  that version's executable; the European program cannot read an American save, nor the American one a European save), and writing a save a real PSP accepts
   (the one PARAM.SFO hash that needs a console's fuse keys is filled with `0x01` bytes, as PC tools do; PPSSPP accepts it).
 
 `platforms/psp/tests/test_hle_savedata.cpp` covers the round trips on a Runtime without a program, and

@@ -62,7 +62,7 @@ Dependency rule: `games → platforms → core`. Never the other way. `core` and
 │  └─ tests/
 ├─ games/mhfu/
 │  ├─ game.toml              module metadata
-│  ├─ regions/ULES01213/     region.toml, symbols.toml, overlays.toml (ULUS10391 and ULJM05500: region.toml for now)
+│  ├─ regions/ULES01213/     region.toml, symbols.toml, overlays.toml (ULUS10391: the same files; ULJM05500: region.toml for now)
 │  ├─ host/                  game-specific host (command line, overlay hook, integration)
 │  ├─ tools/                 DATA.BIN reader, overlay extractor, prepare.py
 │  └─ tests/
@@ -78,7 +78,7 @@ Dependency rule: `games → platforms → core`. Never the other way. `core` and
 ```
 
 Planned and not present yet: `games/mhfu/enhancements/` and per-region `patches/`, a network module in `core/`, and the
-US and JP symbol maps.
+JP symbol map.
 
 ## 3. Player pipeline
 
