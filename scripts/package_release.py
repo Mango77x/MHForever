@@ -132,6 +132,8 @@ def main() -> int:
                     help="release version (default: the version in CMakeLists.txt)")
     ap.add_argument("--launcher", required=True, type=pathlib.Path)
     ap.add_argument("--game", required=True, type=pathlib.Path)
+    ap.add_argument("--game-us", type=pathlib.Path, default=None,
+                    help="the North America program (mhfu-us[.exe]); the archive carries one program per region")
     ap.add_argument("--fonts", required=True, type=pathlib.Path)
     ap.add_argument("--ffmpeg-dlls", type=pathlib.Path, default=None,
                     help="Windows: the folder holding FFmpeg's DLLs (CMake copies them to <build>/bin)")
@@ -149,6 +151,14 @@ def main() -> int:
     files = check_inputs(args, launcher_name, game_name)
     if files is None:
         return 2
+    programs = {game_name}
+    if args.game_us is not None:
+        us_name = game_name.replace("mhfu", "mhfu-us")
+        files[us_name] = args.game_us
+        programs.add(us_name)
+        if not args.game_us.is_file():
+            print(f"error: missing {us_name}: {args.game_us}", file=sys.stderr)
+            return 2
 
     readme = (ROOT / readme_name).read_text(encoding="utf-8").replace("@VERSION@", args.version)
     folder = f"MHForever-{args.version}"
@@ -158,7 +168,7 @@ def main() -> int:
         write_zip(path, folder, readme, files)
     else:
         path = args.out / f"{folder}-{suffix}.tar.gz"
-        write_tarball(path, folder, readme, files, {launcher_name, game_name})
+        write_tarball(path, folder, readme, files, {launcher_name} | programs)
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     (args.out / f"{path.name}.sha256").write_text(f"{digest}  {path.name}\n", encoding="utf-8")
     print(f"{path} ({path.stat().st_size / 1e6:.1f} MB)\nsha256 {digest}")

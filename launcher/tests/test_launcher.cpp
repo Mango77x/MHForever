@@ -392,6 +392,29 @@ int main(int argc, char **argv) {
         CHECK(after.state()["pseudonym"].as_string() == "Hunter");      // the previous file is intact
     }
 
+    // Each region has its own program: the European disc starts mhfu, the North American one mhfu-us.
+    {
+        const fs::path base = dir / "region_base", data = dir / "region_data";
+        fs::create_directories(base);
+        fs::create_directories(data);
+        const fs::path image = base / "disc.iso";
+        std::ofstream(image) << "x";
+#if defined(_WIN32)
+        const char *eu = "mhfu.exe", *us = "mhfu-us.exe";
+#else
+        const char *eu = "mhfu", *us = "mhfu-us";
+#endif
+        std::ofstream(base / eu) << "eu program";
+        std::ofstream(data / "launcher.json") << R"({"games": [{"discId": "ULUS10391", "isoPath": ")"
+                                              << image.generic_string() << R"("}]})";
+        Launcher l(base, data);
+        const auto plan = l.plan_launch("mhfu");
+        CHECK(plan.error.find(us) != std::string::npos); // the missing program is the US one, not the EU one
+        std::ofstream(base / us) << "us program";
+        const auto with_us = l.plan_launch("mhfu");
+        CHECK(with_us.error.find(us) == std::string::npos); // found now; what is still missing is the executable
+    }
+
     // The player's copy (requires game data).
     if (const char *iso = std::getenv("MHF_TEST_ISO")) {
         // Identification: a developer executable of the right size is already known, so only the image is checked.

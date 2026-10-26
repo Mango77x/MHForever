@@ -41,10 +41,21 @@ const char *region_name(const std::string &market) {
 }
 
 #if defined(_WIN32)
-constexpr const char *kGameProgram = "mhfu.exe";
+constexpr const char *kProgramSuffix = ".exe";
 #else
-constexpr const char *kGameProgram = "mhfu";
+constexpr const char *kProgramSuffix = "";
 #endif
+
+// One program per region: the recompiled code is the game's own, so it differs between releases. The European one keeps
+// the plain name (mhfu), the others add the market (mhfu-us).
+std::string game_program_name(const CatalogEntry &e) {
+    std::string name = e.game;
+    if (std::string(e.market) != "EU") {
+        name += '-';
+        for (const char c : std::string(e.market)) name += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return name + kProgramSuffix;
+}
 
 std::optional<std::string> sha1_file(const fs::path &path, std::uint64_t size, const Progress *progress) {
     std::ifstream in(path, std::ios::binary);
@@ -711,13 +722,8 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
     std::lock_guard lock(mutex_);
     LaunchPlan plan;
     plan.cwd = base_;
-    plan.program = base_ / kGameProgram;
     plan.log = base_ / "game.log";
     std::error_code ec;
-    if (!fs::is_regular_file(plan.program, ec)) {
-        plan.error = std::string("The game files are missing: ") + kGameProgram + " should be next to the launcher.";
-        return plan;
-    }
     const Json *game = nullptr;
     const CatalogEntry *entry = nullptr;
     for (const auto &g : data_["games"].as_array()) {
@@ -730,6 +736,12 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
     }
     if (game == nullptr) {
         plan.error = "Add your copy of the game first.";
+        return plan;
+    }
+    const std::string program = game_program_name(*entry);
+    plan.program = base_ / program;
+    if (!fs::is_regular_file(plan.program, ec)) {
+        plan.error = "The game files are missing: " + program + " should be next to the launcher.";
         return plan;
     }
     const fs::path iso = platform::from_utf8((*game)["isoPath"].as_string());

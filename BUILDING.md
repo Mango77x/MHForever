@@ -58,6 +58,9 @@ This uses your own copy of the game and never produces anything that may be comm
    cmake --preset <preset> -B build/game -DMHF_MHFU_GENERATED=user_data/generated/ULES01213 -DMHF_BUILD_TESTS=OFF
    cmake --build build/game --target mhfu
    ```
+   Every region has its own program, because the recompiled code is the release's own. The European one is `mhfu`; for
+   North America generate from `ULUS10391` and configure with `-DMHF_MHFU_PROGRAM_NAME=mhfu-us`, so the launcher finds it
+   (it starts `mhfu` or `mhfu-us` by the disc in the library).
 4. Run it: `build/game/games/mhfu/mhfu --iso <your.iso> --exe <decrypted EBOOT> --window`
    (`--dump-frames <dir>` saves PNGs of the screen, `--trace` logs every system call, `--seconds N` stops after N s).
 
@@ -91,6 +94,7 @@ The archives are assembled from programs built elsewhere; game data never goes i
    `--ffmpeg-dlls` is the folder CMake copies FFmpeg's DLLs to (`<build folder>/bin`); they go next to `mhfu.exe`, because
    the game loads them from its own folder and a clean Windows install has none. The script refuses to build the
    archive without them. The FFmpeg licence and source note (`third_party/ffmpeg/`) go into the archive as they are.
+   `--game-us <mhfu-us.exe>` adds the North America program to the same archive.
    `--version` is optional: it defaults to `project(MHForever VERSION ...)` in `CMakeLists.txt`, which is the only place
    the version is written, so the archive, the launcher and `mhf --version` always agree. Bump it there (and only there)
    when preparing a release; pass `--version` only for a one-off archive.
