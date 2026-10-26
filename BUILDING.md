@@ -107,9 +107,9 @@ The archives are assembled from programs built elsewhere; game data never goes i
 3. Package the programs, the free fonts and the licenses:
    ```sh
    python scripts/package_release.py --platform linux \
-       --launcher <MHForever> --game <mhfu> --fonts <the fonts folder next to mhfu>
+       --launcher <MHForever> --game <mhfu> --game-us <mhfu-us> --fonts <the fonts folder next to mhfu>
    ```
-   This writes `MHForever-<version>-linux-x64.tar.gz` and its `.sha256`; the execute permission of both programs is
+   This writes `MHForever-<version>-linux-x64.tar.gz` and its `.sha256`; the execute permission of the programs is
    kept. FFmpeg is inside the programs (static), so the archive carries only its licence and source note
    (`third_party/ffmpeg/`). The text shown to players is `dist/PLAYER_README_LINUX.txt`. As on Windows, the version comes from
    `CMakeLists.txt`.

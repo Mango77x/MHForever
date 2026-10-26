@@ -31,8 +31,8 @@ What you need
 How to play
 -----------
 1. Extract this folder anywhere you can write to, for example your home folder.
-   The two programs must keep their execute permission. If your file manager removed it:
-       chmod +x MHForever mhfu
+   The programs must keep their execute permission. If your file manager removed it:
+       chmod +x MHForever mhfu mhfu-us
 2. Open MHForever.
 3. Add your .iso. The launcher checks your copy and prepares what it needs from it.
    In Settings you can choose to keep a copy of the image in MHForever's own folder.

@@ -211,10 +211,11 @@ authentication).
    of it, with call and packet tracing; tested with our own homebrew against the reference server running locally.
 3. Two instances on one PC, through a local server, complete a quest together.
 4. Launcher: server choice (PPSSPP's list or an address), live status, stable virtual MAC, pseudonym; a real game on a
-   community server. Credits and the messages to PPSSPP and the operators before release (§1.2). Target: 0.5.
+   community server. Credits and the messages to PPSSPP and the operators before release (§1.2). Target: 0.6
+   (0.5 was the North American release, so multiplayer moved back one version).
 5. Measure FU's traffic (packet sizes/rates on ports 10000 and 20001–20004).
 6. The design of §4 on top: identity, friends, presence, invites and room codes (room = group on a server); then,
-   optionally, direct P2P links (libjuice, UPnP/PCP, IPv6) for lower latency.
+   optionally, direct P2P links (libjuice, UPnP/PCP, IPv6) for lower latency. Target: 0.7.
 7. Test matrix in §6 including Spanish ISPs with CG-NAT (Digi, Másmóvil group, Orange DS-Lite) and mobile hotspot.
 
 ### 4.8 Compatibility with PPSSPP and real PSPs 
