@@ -392,6 +392,62 @@ int main(int argc, char **argv) {
         CHECK(after.state()["pseudonym"].as_string() == "Hunter");      // the previous file is intact
     }
 
+    // Each region has its own program: the European disc starts mhfu, the North American one mhfu-us.
+    {
+        const fs::path base = dir / "region_base", data = dir / "region_data";
+        fs::create_directories(base);
+        fs::create_directories(data);
+        const fs::path image = base / "disc.iso";
+        std::ofstream(image) << "x";
+#if defined(_WIN32)
+        const char *eu = "mhfu.exe", *us = "mhfu-us.exe";
+#else
+        const char *eu = "mhfu", *us = "mhfu-us";
+#endif
+        std::ofstream(base / eu) << "eu program";
+        std::ofstream(data / "launcher.json") << R"({"games": [{"discId": "ULUS10391", "isoPath": ")"
+                                              << image.generic_string() << R"("}]})";
+        Launcher l(base, data);
+        const auto plan = l.plan_launch("mhfu");
+        CHECK(plan.error.find(us) != std::string::npos); // the missing program is the US one, not the EU one
+        std::ofstream(base / us) << "us program";
+        const auto with_us = l.plan_launch("mhfu");
+        CHECK(with_us.error.find(us) == std::string::npos); // found now; what is still missing is the executable
+
+        // Two copies in the library: the Library chooses which one Home, Play and the saves use, and it is remembered.
+        fs::remove(base / us);
+        std::ofstream(data / "launcher.json") << R"({"games": [{"discId": "ULES01213", "isoPath": ")" << image.generic_string()
+                                              << R"("}, {"discId": "ULUS10391", "isoPath": ")" << image.generic_string() << R"("}]})";
+        Launcher two(base, data);
+        CHECK(two.state()["selectedDisc"].as_string() == "ULES01213"); // nothing chosen yet: the first playable copy
+        CHECK(two.disc_id_for("mhfu") == "ULES01213");
+        CHECK(two.plan_launch("mhfu").error.find(us) == std::string::npos);
+        CHECK(two.select_game("ULUS10391"));
+        CHECK(!two.select_game("ULJM05500")); // not in the library
+        CHECK(two.state()["selectedDisc"].as_string() == "ULUS10391");
+        CHECK(two.disc_id_for("mhfu") == "ULUS10391");
+        CHECK(two.plan_launch("mhfu").error.find(us) != std::string::npos);
+        // Video, audio and controls belong to the copy: changing them for North America leaves Europe as it was.
+        Json eu_start;
+        const double eu_scale = two.state()["settings"]["scale"].as_number(); // the copy's own (Europe) values are the defaults
+        Json change;
+        change["scale"] = 2;
+        change["musicVolume"] = 30;
+        change["copyImage"] = true; // the launcher's own setting, shared by every copy
+        two.set_settings(change);
+        CHECK(two.state()["settings"]["scale"].as_number() == 2);
+        CHECK(two.select_game("ULES01213"));
+        CHECK(two.state()["settings"]["scale"].as_number() == eu_scale);
+        CHECK(two.state()["settings"]["musicVolume"].as_number() == 100);
+        CHECK(two.state()["settings"]["copyImage"].as_bool());
+        CHECK(two.select_game("ULUS10391"));
+        CHECK(two.state()["settings"]["scale"].as_number() == 2 && two.state()["settings"]["musicVolume"].as_number() == 30);
+        Launcher again(base, data); // survives a restart
+        CHECK(again.state()["selectedDisc"].as_string() == "ULUS10391");
+        again.remove_game("ULUS10391"); // one copy only: the other region stays
+        CHECK(again.state()["games"].as_array().size() == 1 && again.state()["selectedDisc"].as_string() == "ULES01213");
+    }
+
     // The player's copy (requires game data).
     if (const char *iso = std::getenv("MHF_TEST_ISO")) {
         // Identification: a developer executable of the right size is already known, so only the image is checked.

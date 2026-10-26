@@ -11,7 +11,7 @@
 
 1. Welcome + notice: "You need your own copy of the game. This program contains and downloads none of the game's assets."
 2. **Add game** → file picker (on Deck, SDL3's dialog / desktop portal; also "scan this folder").
-3. Hash identification → shows "Freedom Unite · Europe (ULES01213 v1.01) ✓" or an explained error.
+3. Hash identification → shows "Freedom Unite · Europe (ULES01213 v1.01) ✓" (or North America, ULUS10391) or an explained error.
 4. **Prepare**: the installer checks the image, prepares the game's executable from it and, if the player wants, keeps a copy of
    the image, with a progress bar (§3b). The player never recompiles anything (model A); only model B would add local
    recompilation and compilation.
@@ -32,8 +32,18 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   embeds into the executable (`launcher/embed.cmake`), so the launcher never loads anything from the network. In a plain
   browser (`npm run dev`) a simulated backend in `bridge.ts` stands in for the native side.
 - **Bridge**: native functions `mhf_getState`, `mhf_setSettings`, `mhf_setPseudonym`, `mhf_addGame`, `mhf_removeGame`,
-  `mhf_pickExecutable`, `mhf_play`, `mhf_copyText`, `mhf_exportIdentity` (Promises of JSON); events pushed with
+  `mhf_pickExecutable`, `mhf_selectGame`, `mhf_play`, `mhf_copyText`, `mhf_exportIdentity` (Promises of JSON); events pushed with
   `window.__mhfEvent` (`verify`, `verified`, `verifyFailed`, `launch`, `exited`, `launchFailed`, `state`).
+- **Regions (2026-10-26)**: every region of a game is its own program, because the recompiled code is the release's own:
+  `mhfu` for Europe and `mhfu-us` for North America (CMake `MHF_MHFU_PROGRAM_NAME`; `package_release.py --game-us`).
+  `plan_launch` picks the program by the disc of the chosen copy and names the one that is missing. With several copies in
+  the library, the Library chooses which one Home, Game settings, Play and the save import work on (`mhf_selectGame`,
+  stored as `selectedDisc` in `launcher.json`); Remove deletes only that copy.
+- **Settings (2026-10-26)**: Home's **Game settings** are per copy (video, audio, controls, saves, the copy's files), titled with
+  the game and its region tag, e.g. "Monster Hunter Freedom Unite (NA)": the Japanese release has other controls.
+  They live in `launcher.json` under `gameSettings.<DISC_ID>` and start from what `settings` already held, so an older file
+  loses nothing; control changes made in the game's own menu go to the copy that was started. The launcher's **Settings**
+  keep what is shared: profile, whether to keep a copy of the disc image, and About.
 - **Native host** (`launcher/native`): `launcher.cpp` keeps `launcher.json` next to the executable (portable for now):
   pseudonym, identity seed, settings, library, stats. Adding a copy reads PARAM.SFO (`platforms/psp/tools/param_sfo`)
   and compares size + SHA-1 with `games/*/regions/*/region.toml` (catalog generated at configure time; identification
@@ -136,7 +146,7 @@ mode, where no second window can be shown.
   - START, SELECT → Menu/View.
   - **Right stick → D-pad** (FU's "claw" camera) with configurable deadzone and repeat. Level 1 is implemented; level 2 (analog camera hook) is an enhancement.
 - Keyboard: every button of the pad answers to a physical key, and the player changes them in the launcher
-  (**Settings → Controls**), not by editing a file; the mouse drives the camera once the analog hook exists.
+  (**Game settings → Controls**), not by editing a file; the mouse drives the camera once the analog hook exists.
   - A binding is a UI Events code (`KeyK`, `ArrowLeft`, `Space`...): it names the key's position, not the character
     printed on it, so WASD stays where a player expects it on AZERTY or QWERTZ.
   - The bindings live in `launcher.json` under `settings.keys` (16 actions) and the launcher passes them to the game with
@@ -146,7 +156,7 @@ mode, where no second window can be shown.
     In the launcher, Backspace or Delete removes a binding and a key already in use is swapped with the other button.
   - Two keys belong to the game and cannot be assigned: **Escape** (in-game menu) and **F11** (fullscreen).
 - Controllers: every button of the pad also answers to a button of the player's controller, chosen in the same place
-  (**Settings → Controls → Controller**; the page has a Keyboard / Controller switch).
+  (**Game settings → Controls → Controller**; the page has a Keyboard / Controller switch).
   - A source is an SDL gamepad name (`south`, `left_shoulder`, `left_trigger`, `dpad_up`...): the position of the button on
     a standard layout, so Xbox, PlayStation and Switch pads behave alike. A binding is one source or several joined with `+`
     (any of them presses the button); the defaults keep L and R on both the shoulder button and the trigger.

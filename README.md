@@ -12,7 +12,7 @@
 MHForever turns the PSP version of *Monster Hunter Freedom Unite* (*Monster Hunter Portable 2nd G* in Japan, MHFU) into a
 native PC program: no emulator, any controller, and a launcher that sets everything up from your own disc image.
 
-**Right now only *Monster Hunter Freedom Unite* (European release) is supported. More games are planned**: MHForever is
+**Right now only *Monster Hunter Freedom Unite* (European and North American releases) is supported. More games are planned**: MHForever is
 the first step of a wider Monster Hunter recompilation project, and each game is a module of its own.
 
 > Not affiliated with, endorsed by or sponsored by Capcom or Sony. Requires your own legitimate copy of the game.
@@ -37,23 +37,24 @@ no piracy talk there. Bugs can also be reported as [issues](https://github.com/M
 | Game | Original platform | Release | Status |
 |---|---|---|---|
 | **Monster Hunter Freedom Unite** | PSP | Europe (`ULES01213`, v1.01) | **Playable** |
-| Monster Hunter Freedom Unite | PSP | US and Japan | Planned |
+| **Monster Hunter Freedom Unite** | PSP | North America (`ULUS10391`, v1.01) | **Playable** |
+| Monster Hunter Portable 2nd G | PSP | Japan (`ULJM05500`) | Planned |
 | Other Monster Hunter games | PSP, later PS2 | | Planned, see the [roadmap](docs/10-roadmap.md) |
 
-Only the first row works today. The others are plans, not promises: they are listed so you know where the project is going.
+Only the first two rows work today. The others are plans, not promises: they are listed so you know where the project is going.
 
 ## Where the project is today
 
 | | |
 |---|---|
-| **Playable game** | **Monster Hunter Freedom Unite** (PSP), European release (`ULES01213`, v1.01). It is the only game for now. |
-| **Frame rate** | **30 fps** as on the original console, or **60 to 180 fps** (any multiple of 30) with frame interpolation, chosen in the launcher Settings. Experimental: heavy scenes may not hold the top rates. |
+| **Playable game** | **Monster Hunter Freedom Unite** (PSP), European (`ULES01213`, v1.01) and North American (`ULUS10391`, v1.01) releases. It is the only game for now. Each release has its own video, audio and control settings in the launcher. |
+| **Frame rate** | **30 fps** as on the original console, or **60 to 180 fps** (any multiple of 30) with frame interpolation, chosen in the game's settings in the launcher (Home → Game settings). Experimental: heavy scenes may not hold the top rates. |
 | **Online play** | Not available yet. **Multiplayer over the internet is being designed and built**, so you can hunt with friends without a PSP. |
 | **Platforms** | Windows (64-bit) and Linux (64-bit). Steam Deck notes are in the documentation; the maintainers have no Deck to test on. |
-| **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard and controller buttons are changed in the launcher Settings or from the in-game menu. |
-| **Saves** | Kept in `Documents\MHForever\saves` on Windows and `~/.local/share/MHForever/saves` on Linux, one folder per game; settings in `%APPDATA%\MHForever` or `$XDG_DATA_HOME/MHForever`. Updating never loses them. Saves use the PSP format: import them from a PSP or PPSSPP in Settings (your own version of the game), or copy MHForever's into PPSSPP. |
+| **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard and controller buttons are changed in Game settings (Home) or from the in-game menu. |
+| **Saves** | Kept in `Documents\MHForever\saves` on Windows and `~/.local/share/MHForever/saves` on Linux, one folder per game; settings in `%APPDATA%\MHForever` or `$XDG_DATA_HOME/MHForever`. Updating never loses them. Saves use the PSP format: import them from a PSP or PPSSPP in Game settings (your own version of the game: a European save only works with the European release, and a North American one with the North American release), or copy MHForever's into PPSSPP. |
 | **Resolution** | Up to several times the original 480x272, with an optional smoother texture filter. |
-| **Other games and regions** | The US and Japanese releases of Freedom Unite, and other games of the series, are planned. |
+| **Other games and regions** | The Japanese release (Portable 2nd G) and other games of the series are planned. |
 | **Latest release** | [![Latest release](https://img.shields.io/github/v/release/Mango77x/MHForever?label=version)](https://github.com/Mango77x/MHForever/releases/latest) [![Release date](https://img.shields.io/github/release-date/Mango77x/MHForever?label=published)](https://github.com/Mango77x/MHForever/releases/latest) See the [Releases](../../releases) page. |
 
 It is early software: according to the maintainer's testing, single player can be played from start to finish, but expect rough edges and bugs. Reports are welcome.
@@ -73,7 +74,7 @@ image you provide.
 Your saves live in `Documents\MHForever\saves` on Windows and `~/.local/share/MHForever/saves` on Linux (one folder per game), outside the program folder, so updating never loses them. Any controller recognized by SDL should work (tested with a PS5 DualSense); there are keyboard defaults too.
 
 **Keyboard:** arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle, Q/E = L/R, Enter = Start,
-Backspace = Select. Change them, and the controller's buttons, in **Settings → Controls** or from the in-game menu (Esc).
+Backspace = Select. Change them, and the controller's buttons, in **Game settings → Controls** or from the in-game menu (Esc).
 
 ## What this is
 

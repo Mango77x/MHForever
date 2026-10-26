@@ -1,0 +1,22 @@
+# Canonical symbol map for ULUS10391 (US, DISC_VERSION 1.01). See docs/06-mhfu-module.md section 5.
+# Addresses only; no game code or data. Found on 2026-10-25 by matching the European functions (ULES01213/symbols.toml)
+# byte for byte in the US executable (SHA-1 540fa53711ccd3a500a2ff01a71946406085a627), ignoring the immediates that hold
+# addresses: each function has exactly one match. The code up to mh_overlay_is_active sits where it does in the EU
+# executable; from there on everything, code and data, is 0x120 bytes higher. The region table was checked by reading
+# it: it holds the EU values plus 0x100 for the overlay groups, as the program headers of the US executable say.
+
+[functions]
+mh_main                 = 0x08906A54 # module entry point (the ELF's own entry)
+
+# Overlay manager (docs/04-recompiler.md section 4.4). Groups: 0 eboot, 1 task, 2 sub, 3 em, 4 stage, 5 debug.
+mh_overlay_request      = 0x08890144 # (System*, file_id, group): starts an async read of DATA.BIN file `file_id` into the group's region
+mh_overlay_finish       = 0x088901F8 # (System*, file_id, group): completes the load, calls mh_overlay_prepare, records the active id
+mh_overlay_is_active    = 0x08890284 # (System*, group, file_id) -> bool
+mh_overlay_prepare      = 0x0890DEBC # (image*, size): cache maintenance, clears .bss after the image, runs its static initializers
+mh_static_init_run      = 0x0890C41C # (begin, end, ...): runs a static-initializer table (used for overlays and the executable)
+
+[data]
+mh_overlay_region_bases = 0x089CBB90 # u32[6], region base address per group
+
+[offsets]
+system_active_overlays  = 0x00F7A580 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none); built by the same instructions as in EU

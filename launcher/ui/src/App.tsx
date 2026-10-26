@@ -1,16 +1,16 @@
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { api, onEvent, type Game, type LauncherEvent, type Settings, type State } from './bridge';
+import { api, onEvent, selectedGame, type Game, type LauncherEvent, type Settings, type State } from './bridge';
 import { AlertIcon, CheckIcon, ChevronIcon, CloseIcon, CopyIcon, FriendsIcon, HomeIcon, LibraryIcon, SlidersIcon } from './icons';
 import logoUrl from '../../../assets/branding/icon-128.png';
 import { Home } from './Home';
 import { Library } from './Library';
-import { SettingsPage } from './SettingsPage';
+import { GameSettingsPage, SettingsPage } from './SettingsPage';
 import { clock, hours } from './format';
 import { startNavigation } from './gamepad';
 
-type Screen = 'home' | 'library' | 'settings';
+type Screen = 'home' | 'library' | 'settings' | 'game';
 type Verify = { phase: 'reading' | 'hashing' | 'preparing' | 'copying' | 'done' | 'failed'; progress: number; file: string; game?: Game; message?: string };
 
 function verifyLabel(phase: Verify['phase'], progress: number): string {
@@ -25,7 +25,7 @@ function verifyLabel(phase: Verify['phase'], progress: number): string {
 type Launch = { phase: 'checking' | 'starting' | 'running' | 'exited' | 'failed'; startedAt: number; seconds?: number; message?: string };
 
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 };
-const titles: Record<Screen, string> = { home: 'Home', library: 'Library', settings: 'Settings' };
+const titles: Record<Screen, string> = { home: 'Home', library: 'Library', settings: 'Settings', game: 'Game settings' };
 
 function Toast({ text }: { text: string | null }) {
   return (
@@ -127,7 +127,7 @@ export default function App() {
   const locateExe = () => api.mhf_pickExecutable().then((s) => { setState(s); if (s.executable.found) say('Executable found'); });
   const copyCode = () => api.mhf_copyText(state.friendCode).then(() => say('Friend code copied'));
   const play = () => {
-    const game = state.games.find((g) => g.supported);
+    const game = selectedGame(state);
     if (!game) return;
     setLaunch({ phase: 'checking', startedAt: Date.now() });
     api.mhf_play(game.id);
@@ -236,15 +236,21 @@ export default function App() {
               exit={{ opacity: 0, y: -10, filter: 'blur(4px)', transition: { duration: 0.18 } }}
             >
               {screen === 'home' && (
-                <Home state={state} onPlay={play} onAddCopy={addCopy} onLocateExecutable={locateExe} onSettings={() => go('settings')} onSoon={soon} />
+                <Home state={state} onPlay={play} onAddCopy={addCopy} onLocateExecutable={locateExe} onSettings={() => go('game')} onSoon={soon} />
               )}
-              {screen === 'library' && <Library games={state.games} onAddCopy={addCopy} onOpen={() => go('home')} />}
+              {screen === 'library' && <Library games={state.games} onAddCopy={addCopy} selectedDisc={selectedGame(state)?.discId ?? ''} onOpen={(g) => api.mhf_selectGame(g.discId).then((s) => { setState(s); go('home'); })} />}
               {screen === 'settings' && (
                 <SettingsPage
                   state={state}
                   onChange={setSettings}
                   onPseudonym={(n) => api.mhf_setPseudonym(n).then((s) => { setState(s); say('Name saved'); })}
                   onCopyCode={copyCode}
+                />
+              )}
+              {screen === 'game' && (
+                <GameSettingsPage
+                  state={state}
+                  onChange={setSettings}
                   onChangeCopy={addCopy}
                   onRemoveCopy={(id) => api.mhf_removeGame(id).then((s) => { setState(s); say('Copy removed from the library'); })}
                   onLocateExecutable={locateExe}

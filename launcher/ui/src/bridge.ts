@@ -47,6 +47,7 @@ export interface State {
   keyDefaults: Record<string, string>; // what "Restore defaults" puts back (Settings → Controls)
   padDefaults: Record<string, string>;
   games: Game[];
+  selectedDisc: string; // the copy Home, Settings and Play work on (chosen in the Library)
   stats: Stats;
   executable: { path: string; found: boolean };
 }
@@ -80,6 +81,7 @@ type Native = {
   mhf_addGame(): Promise<{ started: boolean }>;
   mhf_removeGame(id: string): Promise<State>;
   mhf_pickExecutable(): Promise<State>;
+  mhf_selectGame(discId: string): Promise<State>;
   mhf_play(id: string): Promise<{ started: boolean }>;
   mhf_copyText(text: string): Promise<boolean>;
   mhf_exportIdentity(): Promise<{ saved: boolean }>;
@@ -125,6 +127,7 @@ function simulated(): Native {
     keyDefaults: defaultKeys,
     padDefaults: defaultPad,
     games: [],
+    selectedDisc: '',
     stats: { secondsPlayed: 0, sessions: 0, lastPlayed: null },
     executable: { path: '', found: true },
   };
@@ -150,7 +153,8 @@ function simulated(): Native {
       }, 120);
       return { started: true };
     },
-    async mhf_removeGame(id) { state.games = state.games.filter((g) => g.id !== id); return copy(); },
+    async mhf_removeGame(id) { state.games = state.games.filter((g) => g.id !== id && g.discId !== id); return copy(); },
+    async mhf_selectGame(discId) { state.selectedDisc = discId; return copy(); },
     async mhf_pickExecutable() { return copy(); },
     async mhf_play() {
       emit({ type: 'launch', phase: 'checking' });
@@ -173,3 +177,18 @@ function simulated(): Native {
 }
 
 export const api: Native = isNative ? (w as Native) : simulated();
+
+/** The copy the player chose in the Library, else the first one that can be played. */
+export function selectedGame(state: State): Game | undefined {
+  return state.games.find((g) => g.supported && g.discId === state.selectedDisc) ?? state.games.find((g) => g.supported);
+}
+
+/** The short region tag shown next to a game's name: (EU), (NA), (JP). */
+export function regionTag(game: Game): string {
+  switch (game.region) {
+    case 'Europe': return 'EU';
+    case 'North America': return 'NA';
+    case 'Japan': return 'JP';
+    default: return game.region;
+  }
+}

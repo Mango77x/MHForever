@@ -116,7 +116,11 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 ## Phase 6 — US and JP regions
 
-- [ ] `symbols.toml` and `overlays.toml` for ULUS10391 and ULJM05500; symbol-coverage test.
+- [x] ULUS10391 (North America, 2026-10-26): `symbols.toml` (found by matching the EU functions byte for byte) and `overlays.toml`
+      (298 overlays); recompiled to its own program (`mhfu-us`), checked by playing: intro with sound, controller, village
+      with music, save and load.
+- [x] Launcher: one program per region, a Library that chooses the copy, and video, audio and controls per copy.
+- [ ] `symbols.toml` and `overlays.toml` for ULJM05500; symbol-coverage test.
 **Acceptance**: all three regions meet phase 3 criteria.
 
 ## Phase 7 — Optional enhancements

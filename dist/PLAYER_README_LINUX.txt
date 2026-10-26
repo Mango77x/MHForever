@@ -18,10 +18,11 @@ What you need
   SDL3 is linked into the programs, so it does not need to be installed.
   FFmpeg (the movies and the music) is linked into the programs too, so it does not need to be installed either.
 * A plain (uncompressed) .iso image of your own copy of Monster Hunter Freedom Unite,
-  European release (disc ID ULES01213, version 1.01). CSO/ZSO compressed images are not supported.
+  European (disc ID ULES01213) or North American (disc ID ULUS10391) release, version 1.01.
+  CSO/ZSO compressed images are not supported. You can add both: choose which one to play in the Library.
 * A controller is optional. Gamepads work out of the box (tested with a PS5 DualSense).
   Keyboard: arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle,
-  Q/E = L/R, Enter = Start, Backspace = Select. Change them, and the controller's buttons, in Settings -> Controls
+  Q/E = L/R, Enter = Start, Backspace = Select. Change them, and the controller's buttons, in Game settings -> Controls
   or from the in-game menu (Escape, Controls tab).
   Escape (or the controller's guide button) pauses the game and opens a menu: volume, resolution, frame rate,
   fullscreen and quit. It works with the keyboard, a controller or the mouse.
@@ -40,7 +41,7 @@ How to play
 Your settings and library live in $XDG_DATA_HOME/MHForever (usually ~/.local/share/MHForever).
 Your saves live in ~/.local/share/MHForever/saves (one folder per game), so updating MHForever never loses them.
 They use the same format as the PSP and PPSSPP: you can bring your own saves from a PSP memory stick or from
-PPSSPP with Settings > Saves > Choose folder (saves of your own version of the game only; the one you have now is
+PPSSPP with Game settings > Saves > Choose folder (saves of your own version of the game only; the one you have now is
 kept in a backup folder), and you can copy MHForever's saves into PPSSPP's memory stick folder.
 Prepared game data and your library are stored in the same MHForever folder. Removing a game from the launcher
 deletes only its prepared data (never your original .iso or your saves).
@@ -63,7 +64,7 @@ If something does not start
 
 Status
 ------
-Early release. Freedom Unite runs at 30 fps, as on the original console. Settings also
+Early release. Freedom Unite runs at 30 fps, as on the original console. Game settings also
 offers 60 to 180 fps (any multiple of 30): the game still runs at 30 and the extra pictures
 are drawn in between, so it is experimental and heavy scenes may not hold the highest rates.
 Online multiplayer is being worked on. Expect rough edges.

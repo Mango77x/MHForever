@@ -228,6 +228,11 @@ std::string tail_of_log(const fs::path &log, std::size_t lines) {
     return out;
 }
 
+void on_select_game(const char *id, const Json &args) {
+    if (!args.as_array().empty()) g_app.launcher->select_game(args.as_array()[0].as_string());
+    reply(id, g_app.launcher->state());
+}
+
 void on_play(const char *id, const Json &args) {
     Json r;
     if (g_app.busy || args.as_array().empty()) {
@@ -392,6 +397,7 @@ int main(int argc, char **argv) {
     bind("mhf_pickExecutable", on_pick_executable);
     bind("mhf_scanSaves", on_scan_saves);
     bind("mhf_importSaves", on_import_saves);
+    bind("mhf_selectGame", on_select_game);
     bind("mhf_play", on_play);
     bind("mhf_copyText", on_copy_text);
     bind("mhf_exportIdentity", on_export_identity);
