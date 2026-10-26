@@ -9,7 +9,7 @@ const rise = (delay: number) => ({
   transition: { duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] as const },
 });
 
-function GameCard({ game, onOpen }: { game: Game; onOpen: () => void }) {
+function GameCard({ game, selected, onOpen }: { game: Game; selected: boolean; onOpen: () => void }) {
   const [t, setT] = useState({ x: 0, y: 0, on: false });
   return (
     <motion.button
@@ -33,7 +33,7 @@ function GameCard({ game, onOpen }: { game: Game; onOpen: () => void }) {
       <div className="meta">
         {game.supported ? (
           game.verification === 'verified' ? (
-            <span className="chip" style={{ alignSelf: 'flex-start' }}><span className="dot" /> Ready to play</span>
+            <span className="chip" style={{ alignSelf: 'flex-start' }}><span className="dot" /> {selected ? 'Selected · ready to play' : 'Ready to play'}</span>
           ) : (
             <span className="chip warn" style={{ alignSelf: 'flex-start' }}><AlertIcon size={14} /> Unverified dump</span>
           )
@@ -47,7 +47,7 @@ function GameCard({ game, onOpen }: { game: Game; onOpen: () => void }) {
   );
 }
 
-export function Library({ games, onAddCopy, onOpen }: { games: Game[]; onAddCopy: () => void; onOpen: () => void }) {
+export function Library({ games, selectedDisc, onAddCopy, onOpen }: { games: Game[]; selectedDisc: string; onAddCopy: () => void; onOpen: (game: Game) => void }) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
       <motion.div className="page-title" {...rise(0)}>
@@ -55,7 +55,7 @@ export function Library({ games, onAddCopy, onOpen }: { games: Game[]; onAddCopy
         <p>Games you have added from your own copies.</p>
       </motion.div>
       <div className="grid">
-        {games.map((g) => <GameCard key={g.id + g.discId} game={g} onOpen={onOpen} />)}
+        {games.map((g) => <GameCard key={g.id + g.discId} game={g} selected={g.discId === selectedDisc} onOpen={() => onOpen(g)} />)}
         <motion.button className="addcard" {...rise(0.16)} onClick={onAddCopy} data-nav-default={games.length === 0 ? '' : undefined}>
           <span className="plus"><PlusIcon /></span>
           <b>{games.length === 0 ? 'Add my copy' : 'Add another copy'}</b>

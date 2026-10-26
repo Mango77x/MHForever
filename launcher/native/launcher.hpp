@@ -67,7 +67,11 @@ public:
         std::string error;
     };
     AddResult add_game(const std::filesystem::path &iso, const Progress &progress);
-    void remove_game(const std::string &id); // also deletes what the installer stored in the data directory
+    // `id` is a disc id (one copy) or a game id (every copy of that game); also deletes what the installer stored.
+    void remove_game(const std::string &id);
+    // Which copy of a game Play, Settings and the saves use when the library holds several regions. False if the library
+    // has no such supported copy.
+    bool select_game(const std::string &disc_id);
 
     // Replaces the executable decryption this launcher uses (tests; the default is install::builtin_decryptor()).
     void set_decryptor(install::Decryptor decryptor) { decryptor_ = std::move(decryptor); }

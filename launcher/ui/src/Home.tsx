@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import type { State } from './bridge';
+import { selectedGame, type State } from './bridge';
 import { AlertIcon, CheckIcon, FolderIcon, PlayIcon, PlusIcon, SlidersIcon } from './icons';
 import { hours, lastPlayed, resolutions } from './format';
 
@@ -21,7 +21,7 @@ const rise = (delay: number) => ({
 
 export function Hero({ state, onPlay, onAddCopy, onLocateExecutable, onSettings }: Omit<Props, 'onSoon'>) {
   const [m, setM] = useState({ x: 0, y: 0 });
-  const game = state.games.find((g) => g.supported);
+  const game = selectedGame(state);
   const layer = (k: number, s: number) => ({ transform: `translate3d(${m.x * -k}px, ${m.y * -k * 0.45}px, 0) scale(${s})` });
   return (
     <motion.section

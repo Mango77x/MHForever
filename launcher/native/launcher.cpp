@@ -57,6 +57,29 @@ std::string game_program_name(const CatalogEntry &e) {
     return name + kProgramSuffix;
 }
 
+// The copy of `game_id` the player chose (launcher.json "selectedDisc"), else the first supported one.
+const Json *chosen_copy(const Json &data, const std::string &game_id, const CatalogEntry **entry_out) {
+    const Json *first = nullptr;
+    const CatalogEntry *first_entry = nullptr;
+    for (const auto &g : data["games"].as_array()) {
+        const CatalogEntry *e = nullptr;
+        for (const auto &c : catalog()) {
+            if (g["discId"].as_string() == c.disc_id) e = &c;
+        }
+        if (e == nullptr || game_id != e->game || std::string(e->status) == "planned") continue;
+        if (g["discId"].as_string() == data["selectedDisc"].as_string()) {
+            *entry_out = e;
+            return &g;
+        }
+        if (first == nullptr) {
+            first = &g;
+            first_entry = e;
+        }
+    }
+    *entry_out = first_entry;
+    return first;
+}
+
 std::optional<std::string> sha1_file(const fs::path &path, std::uint64_t size, const Progress *progress) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return std::nullopt;
@@ -325,11 +348,20 @@ Launcher::SaveImport Launcher::import_saves(const std::string &disc_id, const st
 
 std::string Launcher::disc_id_for(const std::string &game_id) {
     std::lock_guard lock(mutex_);
+    const CatalogEntry *e = nullptr;
+    return chosen_copy(data_, game_id, &e) != nullptr ? std::string(e->disc_id) : std::string();
+}
+
+bool Launcher::select_game(const std::string &disc_id) {
+    std::lock_guard lock(mutex_);
     for (const auto &g : data_["games"].as_array()) {
         const CatalogEntry *e = entry_for(g["discId"].as_string());
-        if (e != nullptr && game_id == e->game) return e->disc_id;
+        if (e == nullptr || disc_id != e->disc_id || std::string(e->status) == "planned") continue;
+        data_["selectedDisc"] = disc_id;
+        save();
+        return true;
     }
-    return {};
+    return false;
 }
 
 void Launcher::load() {
@@ -496,10 +528,12 @@ Json Launcher::state() {
         out["isoPath"] = g["isoPath"];
         out["verification"] = g["verification"];
         out["supported"] = std::string(e->status) != "planned";
-        if (out["supported"].as_bool() && playable == nullptr) playable = e;
         games.array().push_back(out);
     }
     s["games"] = games;
+    // Home, Settings and Play work on one copy of the game: the one the player chose, else the first playable.
+    chosen_copy(data_, "mhfu", &playable);
+    s["selectedDisc"] = playable != nullptr ? std::string(playable->disc_id) : std::string();
     Json exe;
     const fs::path found = playable ? find_executable(*playable) : fs::path{};
     exe["path"] = platform::to_utf8(found);
@@ -686,12 +720,12 @@ void Launcher::remove_game(const std::string &id) {
     std::vector<std::string> removed; // disc ids whose installed data goes with them
     for (const auto &g : games) {
         const CatalogEntry *e = entry_for(g["discId"].as_string());
-        if (e != nullptr && id == e->game) removed.emplace_back(e->disc_id);
+        if (e != nullptr && (id == e->game || id == e->disc_id)) removed.emplace_back(e->disc_id);
     }
     games.erase(std::remove_if(games.begin(), games.end(),
                                [&](const Json &g) {
                                    const CatalogEntry *e = entry_for(g["discId"].as_string());
-                                   return e == nullptr || id == e->game;
+                                   return e == nullptr || id == e->game || id == e->disc_id;
                                }),
                 games.end());
     for (const auto &disc_id : removed) {
@@ -724,16 +758,8 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
     plan.cwd = base_;
     plan.log = base_ / "game.log";
     std::error_code ec;
-    const Json *game = nullptr;
     const CatalogEntry *entry = nullptr;
-    for (const auto &g : data_["games"].as_array()) {
-        const CatalogEntry *e = entry_for(g["discId"].as_string());
-        if (e != nullptr && game_id == e->game && std::string(e->status) != "planned") {
-            game = &g;
-            entry = e;
-            break;
-        }
-    }
+    const Json *game = chosen_copy(data_, game_id, &entry);
     if (game == nullptr) {
         plan.error = "Add your copy of the game first.";
         return plan;

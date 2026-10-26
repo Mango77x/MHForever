@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import { api, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
+import { api, selectedGame, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
 import { CopyIcon } from './icons';
 import { frameRates, resolutions } from './format';
 import { setNavigationPaused } from './gamepad';
@@ -361,7 +361,7 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
     if (clean && clean !== state.pseudonym) onPseudonym(clean);
     else setName(state.pseudonym);
   };
-  const game = state.games[0];
+  const game = selectedGame(state) ?? state.games[0];
   return (
     <section className="settings">
       <motion.div className="page-title" {...rise(0)}>
@@ -453,7 +453,7 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onChang
           <div className="slabel"><b>Your copy</b><span>{game ? game.isoPath : 'No copy added yet'}</span></div>
           <div className="row-wrap" style={{ gap: 10 }}>
             <button className="ghost mid" onClick={onChangeCopy}>{game ? 'Change' : 'Add my copy'}</button>
-            {game && <button className="ghost mid danger" onClick={() => onRemoveCopy(game.id)}>Remove</button>}
+            {game && <button className="ghost mid danger" onClick={() => onRemoveCopy(game.discId)}>Remove</button>}
           </div>
         </div>
         <div className="srow">

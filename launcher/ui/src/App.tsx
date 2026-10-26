@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { api, onEvent, type Game, type LauncherEvent, type Settings, type State } from './bridge';
+import { api, onEvent, selectedGame, type Game, type LauncherEvent, type Settings, type State } from './bridge';
 import { AlertIcon, CheckIcon, ChevronIcon, CloseIcon, CopyIcon, FriendsIcon, HomeIcon, LibraryIcon, SlidersIcon } from './icons';
 import logoUrl from '../../../assets/branding/icon-128.png';
 import { Home } from './Home';
@@ -127,7 +127,7 @@ export default function App() {
   const locateExe = () => api.mhf_pickExecutable().then((s) => { setState(s); if (s.executable.found) say('Executable found'); });
   const copyCode = () => api.mhf_copyText(state.friendCode).then(() => say('Friend code copied'));
   const play = () => {
-    const game = state.games.find((g) => g.supported);
+    const game = selectedGame(state);
     if (!game) return;
     setLaunch({ phase: 'checking', startedAt: Date.now() });
     api.mhf_play(game.id);
@@ -238,7 +238,7 @@ export default function App() {
               {screen === 'home' && (
                 <Home state={state} onPlay={play} onAddCopy={addCopy} onLocateExecutable={locateExe} onSettings={() => go('settings')} onSoon={soon} />
               )}
-              {screen === 'library' && <Library games={state.games} onAddCopy={addCopy} onOpen={() => go('home')} />}
+              {screen === 'library' && <Library games={state.games} onAddCopy={addCopy} selectedDisc={selectedGame(state)?.discId ?? ''} onOpen={(g) => api.mhf_selectGame(g.discId).then((s) => { setState(s); go('home'); })} />}
               {screen === 'settings' && (
                 <SettingsPage
                   state={state}

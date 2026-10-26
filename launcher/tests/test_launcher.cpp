@@ -413,6 +413,24 @@ int main(int argc, char **argv) {
         std::ofstream(base / us) << "us program";
         const auto with_us = l.plan_launch("mhfu");
         CHECK(with_us.error.find(us) == std::string::npos); // found now; what is still missing is the executable
+
+        // Two copies in the library: the Library chooses which one Home, Play and the saves use, and it is remembered.
+        fs::remove(base / us);
+        std::ofstream(data / "launcher.json") << R"({"games": [{"discId": "ULES01213", "isoPath": ")" << image.generic_string()
+                                              << R"("}, {"discId": "ULUS10391", "isoPath": ")" << image.generic_string() << R"("}]})";
+        Launcher two(base, data);
+        CHECK(two.state()["selectedDisc"].as_string() == "ULES01213"); // nothing chosen yet: the first playable copy
+        CHECK(two.disc_id_for("mhfu") == "ULES01213");
+        CHECK(two.plan_launch("mhfu").error.find(us) == std::string::npos);
+        CHECK(two.select_game("ULUS10391"));
+        CHECK(!two.select_game("ULJM05500")); // not in the library
+        CHECK(two.state()["selectedDisc"].as_string() == "ULUS10391");
+        CHECK(two.disc_id_for("mhfu") == "ULUS10391");
+        CHECK(two.plan_launch("mhfu").error.find(us) != std::string::npos);
+        Launcher again(base, data); // survives a restart
+        CHECK(again.state()["selectedDisc"].as_string() == "ULUS10391");
+        again.remove_game("ULUS10391"); // one copy only: the other region stays
+        CHECK(again.state()["games"].as_array().size() == 1 && again.state()["selectedDisc"].as_string() == "ULES01213");
     }
 
     // The player's copy (requires game data).
