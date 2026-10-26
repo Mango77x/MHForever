@@ -321,6 +321,7 @@ int main(int argc, char **argv) {
     std::string friends_file, friend_actions_file; // --friends-file, --friend-actions-file: friends in the Online tab
     std::string adhoc_nick;            // --adhoc-nick: the name other players see online (default: --name)
     std::vector<ScriptedPress> script;
+    bool language_pick = false; // --language was given: the game screen that confirms it is answered by one press
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--iso" && i + 1 < argc) options.disc_image = argv[++i];
@@ -357,6 +358,7 @@ int main(int argc, char **argv) {
                 return 2;
             }
             options.system_language = found->second;
+            language_pick = true; // the screen that answers after the highlight is satisfied by the game itself
         }
         else if (a == "--keymap" && i + 1 < argc) keyboard = mhf::host::parse_keymap(argv[++i]);
         else if (a == "--padmap" && i + 1 < argc) controller = mhf::host::parse_padmap(argv[++i]);
@@ -419,11 +421,18 @@ int main(int argc, char **argv) {
             std::fprintf(stderr, "[mhfu] --smithy-browse: not mapped for this release, ignored\n");
         }
         std::function<void()> extra;
-        if (!dump_folder.empty() || seconds > 0 || !script.empty()) {
+        if (!dump_folder.empty() || seconds > 0 || !script.empty() || language_pick) {
             if (!dump_folder.empty()) std::filesystem::create_directories(dump_folder);
             auto *rt = &runtime;
             std::uint64_t last_vblank = 0;
             unsigned frame = 0;
+            // The boot's language screen is the first screen that waits for input. When the player picked a language
+            // with --language (the launcher shortcut already selects it), the game highlights that language, so one
+            // confirm press satisfies the screen and the boot goes on looking like no screen ever showed. The press is
+            // not sent straight away: the screen is drawn a few seconds in, so it waits until the emulated boot is
+            // certainly past its first non-interactive screens, and lasts a short window (a few guest frames).
+            constexpr std::uint64_t kLanguagePressFromVblank = 150;  // ~5 s of emulated time
+            constexpr std::uint64_t kLanguagePressVblanks = 3;
             extra = [=]() mutable {
                 const std::uint64_t now = rt->now_us();
                 if (seconds > 0 && static_cast<double>(now) > seconds * 1e6) {
@@ -431,7 +440,10 @@ int main(int argc, char **argv) {
                     rt->dump_threads();
                     rt->exit_program_from_host(0);
                 }
-                if (!script.empty()) {
+                const std::uint64_t vblank = now / mhf::psp::kVblankPeriodUs;
+                const bool press_language = language_pick && vblank >= kLanguagePressFromVblank &&
+                                                                 vblank < kLanguagePressFromVblank + kLanguagePressVblanks;
+                if (!script.empty() || press_language) {
                     mhf::psp::ControllerState pad;
                     for (const auto &p : script) {
                         const double t = static_cast<double>(now) / 1e6;
@@ -440,6 +452,7 @@ int main(int argc, char **argv) {
                         if (p.stick_x != 0) pad.lx = static_cast<std::uint8_t>(128 + p.stick_x);
                         if (p.stick_y != 0) pad.ly = static_cast<std::uint8_t>(128 + p.stick_y);
                     }
+                    if (press_language) pad.buttons |= mhf::psp::buttons::kCross;
                     mhf::psp::set_controller_state(*rt, pad);
                 }
                 // One dump per `dump_every` vblanks, even when the host is not polled on that exact vblank.
