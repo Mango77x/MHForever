@@ -155,10 +155,19 @@ English focused.
 
 **How the port skips it.** The screen does not consult the system and its state blocks never surfaced to afford a hook,
 so the port answers it instead of editing the flow. When `--language` is given, the game focuses that very language, and
-`games/mhfu` presses the game's own confirm once for a few guest frames ~5 s into the boot (`games/mhfu/host/main.cpp`,
-`kLanguagePressFromVblank`): enough for the screen to accept and fade away, early enough that no later screen sees the
-press. Without `--language` the boot behaves exactly like the original. Verified end to end with `--language es` and
-`it` (title screen and later boot screens come out in the picked language) and without it (the screen appears as
+`games/mhfu` presses the game's own confirm as soon as the screen is up. The screen is recognised by the boot's scene
+counter at `0x08B21704`, found by diffing whole-RAM dumps paired with the dumped display: it reads `0` on the black
+start-up, `1`-`2` while initialising, `5` on the screen before, and holds **`7` for as long as the language screen
+waits** (`games/mhfu/host/main.cpp`, `kLanguageScreenStageAddress`/`kLanguageScreenStageValue`). Triggering on the
+marker instead of a fixed time keeps the press tied to the screen on a slow or fast boot.
+
+The cross is pulsed, press and release for ~150 ms each, while the marker stays `7` and for at most 6 s: the marker
+appears with the screen's fade-in, which ignores input, and the screen reads a fresh press, so a cross merely held from
+the start never counts. The pad state is refreshed on every poll of the sequence, including the released half; leaving
+it untouched keeps the cross latched and the screen never sees a new press (this was the first failing attempt). The
+screen is on display only until it starts listening, roughly a second and a half, and is never shown to the player as
+a choice. Without `--language` the boot behaves exactly like the original. Verified end to end with `--language es`
+and `it` (title screen and later boot screens come out in the picked language) and without it (the screen appears as
 always).
 
 **Ruled out**, so nobody repeats the work: a language variable in RAM (`0x08197031` holds the language but is written

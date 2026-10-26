@@ -270,11 +270,22 @@ int main(int argc, char **argv) {
             unsigned frame = 0;
             // The boot's language screen is the first screen that waits for input. When the player picked a language
             // with --language (the launcher shortcut already selects it), the game highlights that language, so one
-            // confirm press satisfies the screen and the boot goes on looking like no screen ever showed. The press is
-            // not sent straight away: the screen is drawn a few seconds in, so it waits until the emulated boot is
-            // certainly past its first non-interactive screens, and lasts a short window (a few guest frames).
-            constexpr std::uint64_t kLanguagePressFromVblank = 150;  // ~5 s of emulated time
-            constexpr std::uint64_t kLanguagePressVblanks = 3;
+            // confirm press satisfies the screen and the boot goes on without a language step.
+            //
+            // Sending the press blind (a fixed time after the boot) races the player's first seconds: on a slow boot
+            // it could land before the screen, on a fast one long after. Instead the press waits for the screen: the
+            // boot's scene counter at 0x08B21704 steps through its start-up screens (0 black, 1-2 init, 5 the screen
+            // before, and 7 held while the language screen waits), verified against dumps of the whole guest RAM
+            // paired with the dumped display.
+            constexpr std::uint32_t kLanguageScreenStageAddress = 0x08B21704u;
+            constexpr std::uint32_t kLanguageScreenStageValue = 7u;
+            // The marker fires while the screen is still fading in and ignoring input, so the cross is pulsed (press
+            // and release, each ~150 ms) until the screen answers and the stage moves on. A fresh press is what the
+            // screen reads; a cross merely held since the fade-in never counts. The sequence is capped and sent once.
+            constexpr std::uint64_t kLanguagePressMaxUs = 6000000;
+            constexpr std::uint64_t kLanguagePulseUs = 9 * mhf::psp::kVblankPeriodUs;
+            bool language_screen_handled = false;
+            std::uint64_t language_press_deadline = 0;
             extra = [=]() mutable {
                 const std::uint64_t now = rt->now_us();
                 if (seconds > 0 && static_cast<double>(now) > seconds * 1e6) {
@@ -282,10 +293,17 @@ int main(int argc, char **argv) {
                     rt->dump_threads();
                     rt->exit_program_from_host(0);
                 }
-                const std::uint64_t vblank = now / mhf::psp::kVblankPeriodUs;
-                const bool press_language = language_pick && vblank >= kLanguagePressFromVblank &&
-                                                                 vblank < kLanguagePressFromVblank + kLanguagePressVblanks;
-                if (!script.empty() || press_language) {
+                const std::uint32_t stage = rt->memory().load32(kLanguageScreenStageAddress);
+                if (language_pick && !language_screen_handled && stage == kLanguageScreenStageValue) {
+                    language_screen_handled = true; // one press sequence: the screen answers and the boot continues
+                    language_press_deadline = now + kLanguagePressMaxUs;
+                }
+                const bool press_language =
+                    language_pick && language_screen_handled && stage == kLanguageScreenStageValue &&
+                    now < language_press_deadline && (now / kLanguagePulseUs) % 2 == 0;
+                // The pad state is refreshed on every poll of the sequence, including the released half: leaving it
+                // untouched would keep the cross latched and the screen would never see a fresh press.
+                if (!script.empty() || language_screen_handled) {
                     mhf::psp::ControllerState pad;
                     for (const auto &p : script) {
                         const double t = static_cast<double>(now) / 1e6;
