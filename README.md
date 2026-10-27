@@ -41,7 +41,7 @@ no piracy talk there. Bugs can also be reported as [issues](https://github.com/M
 | Monster Hunter Portable 2nd G | PSP | Japan (`ULJM05500`) | Planned |
 | Other Monster Hunter games | PSP, later PS2 | | Planned, see the [roadmap](docs/10-roadmap.md) |
 
-Only the first two rows work today. The others are plans, not promises: they are listed so you know where the project is going.
+The first three rows work today (online play is experimental). The others are plans, not promises: they are listed so you know where the project is going.
 
 ## Where the project is today
 
@@ -49,7 +49,6 @@ Only the first two rows work today. The others are plans, not promises: they are
 |---|---|
 | **Playable game** | **Monster Hunter Freedom Unite** (PSP), European (`ULES01213`, v1.01) and North American (`ULUS10391`, v1.01) releases. It is the only game for now. Each release has its own video, audio and control settings in the launcher. |
 | **Frame rate** | **30 fps** as on the original console, or **60 to 180 fps** (any multiple of 30) with frame interpolation, chosen in the game's settings in the launcher (Home → Game settings). Experimental: heavy scenes may not hold the top rates. |
-
 | **Online play** | **Experimental (0.6).** Quests together on the PSP ad hoc servers PPSSPP uses, with other copies of MHForever and with PPSSPP players; pick the server in the launcher under Settings → Online. Friends, room codes and direct connections come after. |
 | **Platforms** | Windows (64-bit) and Linux (64-bit). Steam Deck notes are in the documentation; the maintainers have no Deck to test on. |
 | **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard and controller buttons are changed in Game settings (Home) or from the in-game menu. |
