@@ -106,11 +106,16 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
 - **[sodomon2](https://github.com/sodomon2)**, for the Linux packaging, the desktop integration and the launcher fixes that
   came with them (pull request #7).
 - **[PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp)**, the static recompiler framework this project is built on.
-- **[PPSSPP](https://github.com/hrydgard/ppsspp)**, for the executable decryption and as the reference for how the PSP behaves.
+- **[PPSSPP](https://github.com/hrydgard/ppsspp)**, for the executable decryption, as the reference for how the PSP behaves, and for the
+  ad hoc online play its players keep alive: MHForever plays on the same servers, and the launcher's list of servers comes
+  from the one PPSSPP publishes.
 - **[FFmpeg](https://ffmpeg.org)**, whose libavcodec decodes the movie pictures and sound and the game's music.
 - **[Kethen](https://github.com/Kethen)**, for [aemu_postoffice](https://github.com/Kethen/aemu_postoffice), the client and the
-  protocol that PSP ad hoc servers speak, which MHForever's online play uses (GPL-3.0, included unmodified), and the volunteers who run
-  those servers for the PPSSPP community.
+  protocol that PSP ad hoc servers speak, which MHForever's online play uses (GPL-3.0, included unmodified,
+  with [ENet](https://github.com/zpl-c/enet), MIT).
+- **The volunteers who run the PSP ad hoc servers** for the PPSSPP community, and in particular those MHForever lists:
+  Socom (socom.cc), Madness Gaming Network (psp.mgn.pub), Games Nexus (adhoc.gamesnexus.ovh), Psi-Hate (psi-hate.com)
+  and Neko PSP (cat.wjg.jp).
 - **[tclamb/mhp2g-decomp](https://github.com/tclamb/mhp2g-decomp)**, the matching decompilation of *Monster Hunter Portable 2nd G*,
   whose documented formats and names helped a great deal.
 - Everyone who tested the releases and reported problems on GitHub, Reddit and Discord.
