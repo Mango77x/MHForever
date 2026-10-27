@@ -161,6 +161,13 @@ public:
     void exit_program_from_host(int code);
     // Prints the PSP threads and what they wait for to stderr (debugging hangs).
     void dump_threads();
+    // Progress marks for the stall watchdog (MHF_WATCHDOG=<seconds>, runtime.cpp): every frame the game presents, and the last
+    // system call it made. Cheap enough to keep always on.
+    void note_frame() noexcept { frames_.fetch_add(1, std::memory_order_relaxed); }
+    void note_import(const char *name) noexcept {
+        last_import_.store(name, std::memory_order_relaxed);
+        imports_.fetch_add(1, std::memory_order_relaxed);
+    }
 
 private:
     RuntimeOptions options_;
@@ -168,6 +175,9 @@ private:
     std::unique_ptr<Kernel> kernel_;
     std::thread ticker_;                 // raises abi::interrupt_pending every few milliseconds
     std::atomic<bool> ticker_stop_{false};
+    std::atomic<std::uint64_t> frames_{0};
+    std::atomic<std::uint64_t> imports_{0};
+    std::atomic<const char *> last_import_{nullptr};
     std::vector<FunctionEntry> functions_; // sorted by address (main modules)
     std::vector<std::uint32_t> import_stubs_; // sorted; always native even when interpreting everything
     bool interpret_only_{};                   // MHF_INTERPRET_ONLY=1: run guest code with the interpreter (tests)

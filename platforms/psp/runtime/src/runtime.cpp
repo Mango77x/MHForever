@@ -191,9 +191,67 @@ int Runtime::run(const Program &program, std::string_view boot_path) {
     }
     kernel_->start_thread(uid, static_cast<std::uint32_t>(path.size() + 1), args->address);
     ticker_ = std::thread([this] {
+        // MHF_WATCHDOG=<seconds>: when the game presents no frame for that long, say what it was doing and what every PSP thread
+        // waits for (then again after twice and three times as long). A diagnostic for hangs, off by default; the in-game menu
+        // stops the frames too, so it reports there as well. The thread list is read while the game runs, which is fine for a
+        // report that only has to be roughly right.
+        double stall_seconds = 0;
+        if (const char *v = std::getenv("MHF_WATCHDOG")) stall_seconds = std::atof(v);
+        auto last_change = std::chrono::steady_clock::now();
+        std::uint64_t seen_frames = 0;
+        int reports = 0;
+        // MHF_WATCH_MEM=<hex address>:<hex length>[,...]: print a range of guest memory whenever it changes (checked every 20 ms,
+        // so short-lived values can be missed). A reverse-engineering aid, off by default.
+        struct Watch {
+            std::uint32_t address, length;
+            std::vector<std::uint8_t> last;
+        };
+        std::vector<Watch> watches;
+        if (const char *v = std::getenv("MHF_WATCH_MEM")) {
+            for (std::string_view rest = v; !rest.empty();) {
+                const auto comma = rest.find(',');
+                const std::string item(rest.substr(0, comma));
+                rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
+                const auto colon = item.find(':');
+                if (colon == std::string::npos) continue;
+                watches.push_back({static_cast<std::uint32_t>(std::strtoul(item.c_str(), nullptr, 16)),
+                                   static_cast<std::uint32_t>(std::strtoul(item.c_str() + colon + 1, nullptr, 16)), {}});
+            }
+        }
+        const auto watch_start = std::chrono::steady_clock::now();
+        unsigned ticks = 0;
         while (!ticker_stop_.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
             abi::interrupt_pending.store(true, std::memory_order_relaxed);
+            if (!watches.empty() && ++ticks % 10 == 0) {
+                for (Watch &w : watches) {
+                    std::vector<std::uint8_t> now(w.length);
+                    for (std::uint32_t i = 0; i < w.length; ++i) now[i] = memory_.load8(w.address + i);
+                    if (now == w.last) continue;
+                    w.last = now;
+                    const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - watch_start).count();
+                    for (std::uint32_t row = 0; row < w.length; row += 32) {
+                        std::fprintf(stderr, "[watch] %.2f s %08X:", t, w.address + row);
+                        for (std::uint32_t i = row; i < w.length && i < row + 32; ++i) std::fprintf(stderr, "%s%02X", i % 4 ? "" : " ", now[i]);
+                        std::fputc('\n', stderr);
+                    }
+                }
+            }
+            if (stall_seconds <= 0) continue;
+            const auto now = std::chrono::steady_clock::now();
+            const std::uint64_t frames = frames_.load(std::memory_order_relaxed);
+            if (frames != seen_frames) {
+                seen_frames = frames;
+                last_change = now;
+                reports = 0;
+            } else if (frames > 0 && reports < 3 && std::chrono::duration<double>(now - last_change).count() >= stall_seconds * (reports + 1)) {
+                ++reports;
+                const char *last = last_import_.load(std::memory_order_relaxed);
+                std::fprintf(stderr, "[watchdog] no frame for %.0f s; last system call: %s (%llu calls so far)\n", stall_seconds * reports,
+                             last != nullptr ? last : "none", static_cast<unsigned long long>(imports_.load(std::memory_order_relaxed)));
+                std::fprintf(stderr, "[watchdog] the interpreter last jumped backwards at %08X\n", interpreter_last_backward_branch());
+                kernel_->dump_threads(stderr);
+            }
         }
     });
     return kernel_->run_scheduler();
@@ -287,6 +345,7 @@ void call_import(Runtime &rt, Context &ctx, ImportEntry &import) {
         std::fprintf(stderr, "[hle] %s(%08X, %08X, %08X, %08X)\n", import.hle->name, ctx.gpr[4], ctx.gpr[5],
                      ctx.gpr[6], ctx.gpr[7]);
     }
+    rt.note_import(import.hle->name);
     import.hle->handler(rt, ctx);
 }
 
