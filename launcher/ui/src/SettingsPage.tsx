@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
 import { api, regionTag, selectedGame, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
 import { CopyIcon } from './icons';
+import { OnlineSettings } from './OnlineSettings';
 import { frameRates, resolutions } from './format';
 import { setNavigationPaused } from './gamepad';
 import { keyGroups, keyLabel, reservedKeys } from './keys';
@@ -391,6 +392,11 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode }: Pick<
           </div>
         </div>
       </motion.div>
+      <motion.div className="glass section" {...rise(0.2)}>
+        <h3>Online (experimental)</h3>
+        <OnlineSettings server={s.adhocServer ?? ''} onChange={(adhocServer) => onChange({ adhocServer })} />
+      </motion.div>
+
       <motion.div className="glass section" {...rise(0.1)}>
         <h3>Storage</h3>
         <div className="srow">

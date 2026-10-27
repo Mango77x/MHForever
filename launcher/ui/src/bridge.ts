@@ -30,6 +30,8 @@ export interface Settings {
   // Which controller button stands for which pad button: SDL gamepad names joined with '+', '' when unbound; `stick` is
   // 'left', 'right' or ''.
   pad: Record<string, string>;
+  // The PSP ad hoc server used for online play, "host" or "host:port"; '' keeps the game offline.
+  adhocServer: string;
 }
 
 export interface Stats {
@@ -87,6 +89,7 @@ type Native = {
   mhf_exportIdentity(): Promise<{ saved: boolean }>;
   mhf_scanSaves(gameId: string): Promise<SaveScan>; // asks for a folder, looks for the saves of that game in it
   mhf_importSaves(): Promise<SaveImportResult>; // imports what the last scan found
+  mhf_probeServer(server: string): Promise<number | null>; // milliseconds to connect to an ad hoc server, null when it cannot
 };
 
 const listeners = new Set<(e: LauncherEvent) => void>();
@@ -116,13 +119,13 @@ function simulated(): Native {
     up: 'dpad_up', down: 'dpad_down', left: 'dpad_left', right: 'dpad_right', stick: 'left',
   };
   const state: State = {
-    version: '0.5.0-dev',
+    version: '0.6.0-dev',
     platform: 'browser',
     pseudonym: 'Hunter',
     friendCode: 'K7Q2-M9XA-4RTD-8PLE',
     settings: {
       scale: 4, fullscreen: false, smoothTextures: false, fps: 30, copyImage: false, musicVolume: 80, sfxVolume: 90,
-      keys: { ...defaultKeys }, pad: { ...defaultPad },
+      keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '',
     },
     keyDefaults: defaultKeys,
     padDefaults: defaultPad,
@@ -173,6 +176,7 @@ function simulated(): Native {
     async mhf_exportIdentity() { return { saved: true }; },
     async mhf_scanSaves() { return { picked: true, found: [{ folder: 'ULES01213', title: 'Game Data', exists: true }], note: '' }; },
     async mhf_importSaves() { return { imported: 1, backup: 'C:\\Users\\Hunter\\Documents\\MHForever\\saves\\ULES01213\\backups\\20261022-170000', error: '' }; },
+    async mhf_probeServer(server) { await new Promise((r) => setTimeout(r, 300 + Math.random() * 700)); return server.includes('nowhere') ? null : 20 + Math.round(Math.random() * 250); },
   };
 }
 

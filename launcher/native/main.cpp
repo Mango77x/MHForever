@@ -4,6 +4,7 @@
 
 #include "launcher.hpp"
 #include "platform.hpp"
+#include "probe.hpp"
 
 #include "webview/webview.h"
 
@@ -16,6 +17,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32)
@@ -204,6 +206,23 @@ void on_pick_executable(const char *id, const Json &) {
 void on_copy_text(const char *id, const Json &args) {
     const bool ok = !args.as_array().empty() && platform::copy_to_clipboard(native_window(), args.as_array()[0].as_string());
     reply(id, Json(ok));
+}
+
+// Measures one ad hoc server for the Online settings on a thread of its own (a slow server must not hold the window), and
+// replies with the milliseconds it took to connect, or null when it could not.
+void on_probe_server(const char *id, const Json &args) {
+    const std::string server = args.as_array().empty() ? std::string() : args.as_array()[0].as_string();
+    std::thread([call = std::string(id), server] {
+        const auto ms = server.empty() || server.size() > 253 ? std::nullopt : mhf::launcher::probe_server(server, 3000);
+        auto *payload = new std::pair<std::string, std::string>(call, (ms ? Json(*ms) : Json(nullptr)).dump());
+        webview_dispatch(
+            g_app.view,
+            [](webview_t w, void *arg) {
+                std::unique_ptr<std::pair<std::string, std::string>> p(static_cast<std::pair<std::string, std::string> *>(arg));
+                webview_return(w, p->first.c_str(), 0, p->second.c_str());
+            },
+            payload);
+    }).detach();
 }
 
 void on_export_identity(const char *id, const Json &) {
@@ -401,6 +420,7 @@ int main(int argc, char **argv) {
     bind("mhf_play", on_play);
     bind("mhf_copyText", on_copy_text);
     bind("mhf_exportIdentity", on_export_identity);
+    bind("mhf_probeServer", on_probe_server);
 
     webview_set_html(g_app.view, std::string(reinterpret_cast<const char *>(kUiHtml), kUiHtmlSize).c_str());
     webview_run(g_app.view);

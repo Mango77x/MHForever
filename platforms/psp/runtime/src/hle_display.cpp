@@ -96,6 +96,7 @@ void DisplaySetFrameBuf(Runtime &rt, Context &ctx) {
     if (arg(ctx, 1) != 0) d.stride = arg(ctx, 1);
     d.pixel_format = arg(ctx, 2);
     ++d.frames;
+    rt.note_frame();
     ge_present(rt, d.framebuffer, d.stride, d.pixel_format);
     ret(ctx, 0);
 }

@@ -49,7 +49,8 @@ Only the first two rows work today. The others are plans, not promises: they are
 |---|---|
 | **Playable game** | **Monster Hunter Freedom Unite** (PSP), European (`ULES01213`, v1.01) and North American (`ULUS10391`, v1.01) releases. It is the only game for now. Each release has its own video, audio and control settings in the launcher. |
 | **Frame rate** | **30 fps** as on the original console, or **60 to 180 fps** (any multiple of 30) with frame interpolation, chosen in the game's settings in the launcher (Home → Game settings). Experimental: heavy scenes may not hold the top rates. |
-| **Online play** | Not available yet. **Multiplayer over the internet is being designed and built**, so you can hunt with friends without a PSP. |
+
+| **Online play** | **Experimental (0.6).** Quests together on the PSP ad hoc servers PPSSPP uses, with other copies of MHForever and with PPSSPP players; pick the server in the launcher under Settings → Online. Friends, room codes and direct connections come after. |
 | **Platforms** | Windows (64-bit) and Linux (64-bit). Steam Deck notes are in the documentation; the maintainers have no Deck to test on. |
 | **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard and controller buttons are changed in Game settings (Home) or from the in-game menu. |
 | **Saves** | Kept in `Documents\MHForever\saves` on Windows and `~/.local/share/MHForever/saves` on Linux, one folder per game; settings in `%APPDATA%\MHForever` or `$XDG_DATA_HOME/MHForever`. Updating never loses them. Saves use the PSP format: import them from a PSP or PPSSPP in Game settings (your own version of the game: a European save only works with the European release, and a North American one with the North American release), or copy MHForever's into PPSSPP. |
@@ -107,6 +108,9 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
 - **[PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp)**, the static recompiler framework this project is built on.
 - **[PPSSPP](https://github.com/hrydgard/ppsspp)**, for the executable decryption and as the reference for how the PSP behaves.
 - **[FFmpeg](https://ffmpeg.org)**, whose libavcodec decodes the movie pictures and sound and the game's music.
+- **[Kethen](https://github.com/Kethen)**, for [aemu_postoffice](https://github.com/Kethen/aemu_postoffice), the client and the
+  protocol that PSP ad hoc servers speak, which MHForever's online play uses (GPL-3.0, included unmodified), and the volunteers who run
+  those servers for the PPSSPP community.
 - **[tclamb/mhp2g-decomp](https://github.com/tclamb/mhp2g-decomp)**, the matching decompilation of *Monster Hunter Portable 2nd G*,
   whose documented formats and names helped a great deal.
 - Everyone who tested the releases and reported problems on GitHub, Reddit and Discord.

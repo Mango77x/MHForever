@@ -78,7 +78,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
 - **Release packaging (2026-10-19, Linux 2026-10-22)**: `scripts/package_release.py` assembles the Windows zip and the Linux
   tarball (launcher, game program, free fonts, licenses and the platform's player README) and refuses anything that looks
   like game data. Windows archives keep `dist/PLAYER_README.txt`; Linux archives use `dist/PLAYER_README_LINUX.txt` and
-  keep the execute permission of the programs (launcher, `mhfu`, `mhfu-us`). 0.1.0, 0.2.0, 0.2.1, 0.2.2, 0.2.3, 0.3.0, 0.4.0, 0.4.1, 0.4.2 and 0.5.0 were published as Windows
+  keep the execute permission of the programs (launcher, `mhfu`, `mhfu-us`). 0.1.0, 0.2.0, 0.2.1, 0.2.2, 0.2.3, 0.3.0, 0.4.0, 0.4.1, 0.4.2, 0.5.0 and 0.6.0 were published as Windows
   zips this way (0.4.1 together with the first Linux tarball).
 - **Linux integration**: `cmake --install build/linux-clang --prefix ~/.local` installs the launcher and the game (when it
   was built) in `bin/`, the fonts next to them, and `packaging/linux/MHForever.desktop` plus the icon in the desktop's
@@ -89,27 +89,28 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
 
 ## 3c. The in-game menu (decided 2026-10-22)
 
-**Escape** (or the controller's guide button) pauses the game and opens a menu drawn *inside the game window*, across the
-whole screen: the game's last picture, blurred and darkened, fills the window (cropped, never stretched), tabs run
+**Escape** (or the controller's guide button) opens a menu drawn *inside the game window*, across the whole screen,
+without pausing the game (since 0.6, decided 2026-10-27: a paused game drops out of an ad hoc quest, and a PSP had no
+pause either). The game runs on behind it, blurred and darkened, filling the window (cropped, never stretched), tabs run
 across the top (Game, Audio, Video) and the rows of the selected tab are centred below. It is not a second window and not
 the launcher: the launcher stays what it is, the screen where you add games, set them up and press Play. A first attempt
 that stretched the launcher's own window over the game was dropped on purpose: laying one window over another (focus,
 fullscreen, resizing, closing the game while it is up) is fragile on Windows and impossible on the Steam Deck's game
 mode, where no second window can be shown.
 
-- Tabs: **Game** (resume, quit with a confirmation), **Audio** (music, sound effects), **Video** (internal resolution
+- Tabs: **Game** (back to the game, quit with a confirmation), **Audio** (music, sound effects), **Video** (internal resolution
   1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures). Q / E, Tab, PageUp / PageDown or the controller's
   shoulder buttons change tab; Up from the first row focuses the tab bar. Arrows or the D-pad / stick move and change,
-  Enter or A selects, Esc or B goes back (and, in the menu's top level, resumes).
+  Enter or A selects, Esc or B goes back (and, in the menu's top level, closes it).
 - `core/overlay`: `Painter` (shapes and anti-aliased text with letter spacing, in the launcher's colours, CPU,
   console-independent), `Menu` (tabs and rows: button, slider, toggle, choice; navigation) and `MenuRenderer`. The
   system dialogs (`DialogOverlay`) draw with the same `Painter`. The look is flat: thin hairlines, a small accent, square
   corners.
-- The frontend (`platforms/psp/frontend`) owns what the menu does: it pauses the program (the host keeps the window
-  alive; the program's clock does not count the time) and applies changes at once. A dialog open in the game takes
+- The frontend (`platforms/psp/frontend`) owns what the menu does: while the menu is up the game gets no
+  input (no button stays pressed) but keeps running, the clock and the sound included, and changes apply at once. A dialog open in the game takes
   Escape first (it cancels the dialog).
-- The GL backend, while the menu is up, redraws the last picture as often as the display refreshes: it shrinks it to a
-  small target, blurs it (three Gaussian passes, wider each time), and draws it over the whole window darkened, with the
+- The GL backend, while the menu is up, draws the game's pictures as they come, and the last one again whenever the
+  display refreshes with nothing new: it shrinks each picture to a small target, blurs it (three Gaussian passes, wider each time), and draws it over the whole window darkened, with the
   menu image (letterboxed to 16:9) on top. Changes from the menu reach the drawing thread through `LiveSettings`: the
   **internal resolution** redraws every render target at the new size when the next picture starts (what was on them is
   scaled, not lost) and the **frame rate** changes the number of in-between pictures from the next flip.
@@ -121,8 +122,7 @@ mode, where no second window can be shown.
   button, flips a toggle or steps a choice (left half back, right half forward), a click or drag on a slider's track sets
   its value, and the wheel changes the value under the pointer or else the tab. Positions come from
   `MenuRenderer::layout`, the same ones the menu is drawn at.
-- Not done yet: changes made in the menu are not saved to the launcher's settings; a "don't pause" mode for when a room is
-  open; the Online tab.
+- Not done yet: changes made in the menu are not saved to the launcher's settings; the Online tab.
 
 ## 4. Bundled toolchain (only for model B; not needed with model A)
 
@@ -170,6 +170,14 @@ mode, where no second window can be shown.
   name while the menu waits for one (`SdlHost::set_capture`). The game writes every change to the file the launcher gave it
   (`--controls-file`, `game_controls.txt` in the data folder) and the launcher folds it into `launcher.json` when it starts,
   before a launch and when the game ends, so a change made while playing is kept.
+- Online play (experimental, off by default): **Settings → Online** picks the PSP ad hoc server: Offline, one of a short
+  built-in list of community servers from PPSSPP's published list (`launcher/ui/src/servers.ts`), or another one typed as
+  "host" or "host:port" (`settings.adhocServer`, checked on write). When it is not empty the launcher passes
+  `--adhoc-server` and `--adhoc-mac` (a locally administered MAC made from the identity, the same on every launch; the
+  name is the one in `--name`); empty keeps the game offline and nothing is contacted. The page says the server sees the name
+  and the game. Each server shows how long a TCP connection to it takes (`mhf_probeServer`, `native/probe.cpp`); the list
+  is only measured once the player is online or asks for it, so an offline launcher contacts no one. Before a release that
+  reads PPSSPP's list itself, PPSSPP and the operators are asked first (`08-multiplayer.md` section 1.2).
 - Several local pads: player 1 only (the PSP is single-player). Local multiplayer on one machine = several instances: out of scope v1.
 
 ## 6. Steam Deck / Linux

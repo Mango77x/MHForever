@@ -15,6 +15,7 @@
 #include <functional>
 #include <memory>
 #include <span>
+#include <array>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -74,6 +75,12 @@ struct RuntimeOptions {
     // "host0:" is a debugging device: empty (the default) keeps it closed, so a game never reaches the host's files
     // outside the memory stick and the disc (docs/08-multiplayer.md section 4.6). Only developer tools set it.
     std::filesystem::path host_root;
+    // Online play (docs/08-multiplayer.md section 1.2): the PSP ad hoc server the game's ad hoc library talks to, as "host" or
+    // "host:port" (port 27312). Empty keeps the game offline: nothing is contacted.
+    std::string adhoc_server;
+    std::string adhoc_nickname = "Hunter";   // the name other players see
+    std::string adhoc_product_code;          // ULES01213: servers group players by game
+    std::array<std::uint8_t, 6> adhoc_mac{}; // this console's virtual MAC; all zeros: made from the nickname
     // Folder with the free fonts served by sceLibFont (third_party/fonts, copied next to the executable).
     std::filesystem::path font_directory = "fonts";
     // Text the on-screen keyboard starts with when the game's field is empty (e.g. the hunter's name, from the
@@ -154,6 +161,13 @@ public:
     void exit_program_from_host(int code);
     // Prints the PSP threads and what they wait for to stderr (debugging hangs).
     void dump_threads();
+    // Progress marks for the stall watchdog (MHF_WATCHDOG=<seconds>, runtime.cpp): every frame the game presents, and the last
+    // system call it made. Cheap enough to keep always on.
+    void note_frame() noexcept { frames_.fetch_add(1, std::memory_order_relaxed); }
+    void note_import(const char *name) noexcept {
+        last_import_.store(name, std::memory_order_relaxed);
+        imports_.fetch_add(1, std::memory_order_relaxed);
+    }
 
 private:
     RuntimeOptions options_;
@@ -161,6 +175,9 @@ private:
     std::unique_ptr<Kernel> kernel_;
     std::thread ticker_;                 // raises abi::interrupt_pending every few milliseconds
     std::atomic<bool> ticker_stop_{false};
+    std::atomic<std::uint64_t> frames_{0};
+    std::atomic<std::uint64_t> imports_{0};
+    std::atomic<const char *> last_import_{nullptr};
     std::vector<FunctionEntry> functions_; // sorted by address (main modules)
     std::vector<std::uint32_t> import_stubs_; // sorted; always native even when interpreting everything
     bool interpret_only_{};                   // MHF_INTERPRET_ONLY=1: run guest code with the interpreter (tests)

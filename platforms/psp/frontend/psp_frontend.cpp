@@ -28,6 +28,12 @@
 
 namespace mhf::psp {
 
+// The menu's keys from a gamepad: presses, with the repeat of a held direction.
+struct MenuPad {
+    bool up{}, down{}, left{}, right{}, accept{}, back{}, prev{}, next{};
+    std::uint64_t repeat_at_ms[4]{};
+};
+
 struct Frontend::Impl {
     host::SdlHost host;
     std::vector<std::uint32_t> frame = std::vector<std::uint32_t>(480 * 272);
@@ -40,7 +46,7 @@ struct Frontend::Impl {
         std::uint64_t polls{}, empty{}, lost_us{}, longest_gap_us{}, dropped{}, min_queued{~0ull}, sum_queued{};
         std::uint64_t last_print_us{};
     } audio_stats;
-    // The in-game menu (docs/07-launcher-ux.md section 3c): Escape (or the guide button) pauses the game and opens it.
+    // The in-game menu (docs/07-launcher-ux.md section 3c): Escape (or the guide button) opens it over the running game.
     overlay::Menu menu;
     std::unique_ptr<overlay::MenuRenderer> menu_renderer; // worker thread (GL path) or the emulation thread (software)
     std::optional<overlay::MenuView> menu_pending;        // for the worker (guarded by dialog_mutex)
@@ -49,6 +55,13 @@ struct Frontend::Impl {
     std::unique_ptr<overlay::MenuRenderer> menu_layouter; // the mouse needs to know where everything is drawn
     bool menu_requested{};
     bool guide_down{};
+    // The open menu between polls (step_menu).
+    std::chrono::steady_clock::time_point menu_started;
+    overlay::MenuLayout menu_layout;
+    std::uint64_t menu_layout_version{~0ull}, menu_shown_version{~0ull};
+    int menu_dragging{-1}, menu_pointer_row{-1};
+    MenuPad menu_pad;
+    std::vector<std::uint32_t> soft_menu; // software path: the menu's picture, 480x272
     int music_volume{100}, sfx_volume{100};
     host::KeyBindings keys; // what the Controls tab edits; the host reads them on every poll
     host::PadBindings pad;
@@ -85,7 +98,7 @@ struct Frontend::Impl {
                 std::unique_lock lock(dialog_mutex);
                 dialog_cv.wait(lock, [&] { return dialog_stop || dialog_pending.has_value() || menu_pending.has_value(); });
                 if (dialog_stop) return;
-                if (menu_pending) { // the menu first: the game is paused behind it
+                if (menu_pending) { // the menu first: it covers the game
                     menu_view = std::move(menu_pending);
                     menu_pending.reset();
                 } else {
@@ -293,10 +306,10 @@ overlay::MenuItem menu_item(overlay::MenuItem::Kind kind, int id, std::string la
 overlay::MenuView menu_main(const Frontend::Impl &impl) {
     using Kind = overlay::MenuItem::Kind;
     overlay::MenuView v;
-    v.corner = "Esc  Resume";
-    v.hint = "Arrows or mouse  |  Enter select  |  Q E tabs  |  Esc resume";
+    v.corner = "Esc  Back to the game";
+    v.hint = "Arrows or mouse  |  Enter select  |  Q E tabs  |  Esc back to the game";
 
-    overlay::MenuTab game{"Game", {menu_item(Kind::Button, kResume, "Resume"), menu_item(Kind::Button, kQuit, "Quit the game")}};
+    overlay::MenuTab game{"Game", {menu_item(Kind::Button, kResume, "Back to the game"), menu_item(Kind::Button, kQuit, "Quit the game")}};
     game.items[1].danger = true;
 
     overlay::MenuTab audio{"Audio", {menu_item(Kind::Heading, 0, "Volume"), menu_item(Kind::Slider, kMusic, "Music", impl.music_volume),
@@ -519,12 +532,6 @@ void menu_point(const host::SdlHost::WindowRect &window, float nx, float ny, flo
     y = (ny - (1.0f - fh) * 0.5f) / fh * 272.0f;
 }
 
-// The menu's keys from a gamepad: presses, with the repeat of a held direction.
-struct MenuPad {
-    bool up{}, down{}, left{}, right{}, accept{}, back{}, prev{}, next{};
-    std::uint64_t repeat_at_ms[4]{};
-};
-
 void menu_pad_keys(MenuPad &state, const host::GamepadState &g, std::uint64_t now_ms, std::vector<overlay::Menu::Key> &out) {
     using Key = overlay::Menu::Key;
     const bool dir[4] = {g.up || g.left_y < -0.6f, g.down || g.left_y > 0.6f, g.left || g.left_x < -0.6f, g.right || g.left_x > 0.6f};
@@ -550,12 +557,11 @@ void menu_pad_keys(MenuPad &state, const host::GamepadState &g, std::uint64_t no
     state.next = g.right_shoulder;
 }
 
-// The in-game menu is open: the game is paused (the window stays alive, the program's clock does not count the time)
-// until the player resumes or quits. The menu is drawn as an overlay over the last picture.
-void run_menu(Frontend::Impl &impl, Runtime &rt) {
-    using Key = overlay::Menu::Key;
-    const auto started = std::chrono::steady_clock::now();
-    set_controller_state(rt, ControllerState{}); // nothing stays pressed while the menu is up
+// The in-game menu does not pause the game: it runs behind the menu, without input, so that the other players of an
+// ad hoc session keep hearing from this one (a paused PSP drops out of the quest), and the clock never jumps. `open_menu`
+// puts it up, `step_menu` runs on every poll of the emulation thread until the player goes back to the game or quits,
+// and `close_menu` takes it down. The menu is drawn as an overlay over the running game.
+void open_menu(Frontend::Impl &impl, Runtime &rt) {
     if (impl.font_directory.empty()) impl.font_directory = rt.options().font_directory;
     if (!impl.dialog_thread.joinable() && impl.gpu_state == 1) impl.dialog_thread = std::thread([&impl] { impl.dialog_worker(); });
     impl.menu_confirming_quit = false;
@@ -568,114 +574,20 @@ void run_menu(Frontend::Impl &impl, Runtime &rt) {
     // The drawing thread may be asleep with nothing to wait for: it has to see the menu to start drawing it.
     if (impl.gpu_state == 1) wake_gpu_backend(rt);
     (void)impl.host.take_key_events();
+    impl.host.set_text_input(false);
     impl.host.set_mouse_events(true);
     impl.host.show_cursor(true);
     if (!impl.menu_layouter) impl.menu_layouter = std::make_unique<overlay::MenuRenderer>(impl.font_directory);
-    overlay::MenuLayout layout;
-    std::uint64_t layout_version = ~0ull;
-    int dragging = -1; // the slider row a held button is moving
-    int pointer_row = -1;
-    std::uint64_t shown_version = ~0ull;
-    MenuPad pad_state;
-    pad_state.accept = pad_state.back = pad_state.prev = pad_state.next = true; // what is held now must not act in the menu
-    bool open = true;
-    while (open) {
-        if (!impl.host.poll()) {
-            rt.exit_program_from_host(0);
-            break;
-        }
-        const bool capturing = impl.capture_id != 0; // a Controls row waits for a key or a button: nothing else acts
-        std::vector<Key> keys;
-        for (const auto &k : impl.host.take_key_events()) {
-            if (capturing) continue;
-            using K = host::KeyEvent::Kind;
-            switch (k.kind) {
-            case K::Up: keys.push_back(Key::Up); break;
-            case K::Down: keys.push_back(Key::Down); break;
-            case K::Left: keys.push_back(Key::Left); break;
-            case K::Right: keys.push_back(Key::Right); break;
-            case K::Enter: keys.push_back(Key::Accept); break;
-            case K::Escape:
-            case K::Backspace: keys.push_back(Key::Back); break;
-            case K::PrevTab: keys.push_back(Key::PrevTab); break;
-            case K::NextTab: keys.push_back(Key::NextTab); break;
-            case K::Text: break;
-            }
-        }
-        const auto since = std::chrono::steady_clock::now() - started;
-        if (capturing) {
-            handle_capture(impl);
-            // What is held when the capture ends (the button just assigned) must not act in the menu.
-            if (impl.capture_id == 0) pad_state.accept = pad_state.back = pad_state.prev = pad_state.next = pad_state.up = pad_state.down = pad_state.left = pad_state.right = true;
-        } else {
-            menu_pad_keys(pad_state, impl.host.input(), static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(since).count()), keys);
-        }
-        for (const Key key : keys) {
-            if (!menu_press(impl, rt, key)) {
-                open = false;
-                break;
-            }
-        }
-        // The mouse: hover selects, a click acts, a held button drags a slider, the wheel changes a value or the tab.
-        const auto mouse = impl.host.take_mouse_events();
-        if (open && !mouse.empty()) {
-            if (impl.menu.view().version != layout_version) {
-                layout = impl.menu_layouter->layout(impl.menu.view());
-                layout_version = impl.menu.view().version;
-            }
-            const host::SdlHost::WindowRect window = impl.host.window_rect();
-            for (const auto &m : mouse) {
-                float x = 0.0f, y = 0.0f;
-                menu_point(window, m.x, m.y, x, y);
-                using Hit = overlay::MenuLayout::Hit;
-                const Hit hit = layout.hit(x, y);
-                if (m.kind == host::MouseEvent::Kind::Move) {
-                    pointer_row = hit.kind == Hit::Kind::Row ? hit.index : -1;
-                    if (dragging >= 0 && dragging < static_cast<int>(layout.bars.size())) {
-                        const auto &bar = layout.bars[static_cast<std::size_t>(dragging)];
-                        if (bar.w > 0) open = menu_handle(impl, rt, impl.menu.drag_slider(dragging, (x - bar.x) / bar.w)) && open;
-                    } else if (hit.kind == Hit::Kind::Row) {
-                        impl.menu.hover_row(hit.index);
-                    }
-                } else if (m.kind == host::MouseEvent::Kind::Down) {
-                    if (impl.capture_id != 0) { // a click elsewhere gives up the assignment
-                        end_capture(impl);
-                        continue;
-                    }
-                    if (hit.kind == Hit::Kind::Tab) {
-                        impl.menu.click_tab(hit.index);
-                    } else if (hit.kind == Hit::Kind::Row) {
-                        open = menu_handle(impl, rt, impl.menu.click_row(hit.index, hit.along, hit.on_bar)) && open;
-                        if (hit.on_bar) dragging = hit.index;
-                    }
-                } else if (m.kind == host::MouseEvent::Kind::Up) {
-                    dragging = -1;
-                } else if (m.kind == host::MouseEvent::Kind::Wheel) {
-                    open = menu_handle(impl, rt, impl.menu.scroll(m.wheel, pointer_row)) && open;
-                }
-                if (!open) break;
-            }
-            layout_version = ~0ull; // the rows may have moved
-        }
-        if (open && impl.menu.view().version != shown_version) {
-            shown_version = impl.menu.view().version;
-            if (impl.gpu_state == 1) {
-                {
-                    std::lock_guard lock(impl.dialog_mutex);
-                    impl.menu_pending = impl.menu.view();
-                }
-                impl.dialog_cv.notify_one();
-            } else {
-                if (!impl.menu_renderer) impl.menu_renderer = std::make_unique<overlay::MenuRenderer>(impl.font_directory);
-                std::vector<std::uint32_t> pixels;
-                impl.menu_renderer->render(impl.menu.view(), 1, pixels);
-                copy_frame(rt, impl.frame);
-                blend_over(impl.frame, pixels);
-                impl.host.present(impl.frame.data(), 480, 272, 480);
-            }
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(8));
-    }
+    impl.menu_started = std::chrono::steady_clock::now();
+    impl.menu_layout_version = ~0ull;
+    impl.menu_shown_version = ~0ull;
+    impl.menu_dragging = -1;
+    impl.menu_pointer_row = -1;
+    impl.menu_pad = MenuPad{};
+    impl.menu_pad.accept = impl.menu_pad.back = impl.menu_pad.prev = impl.menu_pad.next = true; // what is held now must not act in the menu
+}
+
+void close_menu(Frontend::Impl &impl) {
     impl.host.set_mouse_events(false);
     impl.capture_id = 0;
     impl.host.set_capture(false);
@@ -692,13 +604,107 @@ void run_menu(Frontend::Impl &impl, Runtime &rt) {
         std::lock_guard lock(impl.dialog_mutex);
         impl.menu_pending.reset();
     }
-    rt.skip_time(static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started).count()));
-    impl.last_audio_us = rt.now_us();
-    impl.audio_owed = 0.0;
-    impl.audio_primed = false; // the device ran dry: fill the cushion again
+    impl.soft_menu.clear();
+    impl.dialog_version = ~0ull; // a system dialog the game opened meanwhile is drawn now
     impl.menu_requested = false;
     impl.guide_down = true; // the guide button that closed the menu is still down: it must not reopen it
+}
+
+// One poll with the menu open: its keys, the gamepad and the mouse, then its picture when it changed. False once the
+// menu has closed.
+bool step_menu(Frontend::Impl &impl, Runtime &rt) {
+    using Key = overlay::Menu::Key;
+    bool open = true;
+    const bool capturing = impl.capture_id != 0; // a Controls row waits for a key or a button: nothing else acts
+    std::vector<Key> keys;
+    for (const auto &k : impl.host.take_key_events()) {
+        if (capturing) continue;
+        using K = host::KeyEvent::Kind;
+        switch (k.kind) {
+        case K::Up: keys.push_back(Key::Up); break;
+        case K::Down: keys.push_back(Key::Down); break;
+        case K::Left: keys.push_back(Key::Left); break;
+        case K::Right: keys.push_back(Key::Right); break;
+        case K::Enter: keys.push_back(Key::Accept); break;
+        case K::Escape:
+        case K::Backspace: keys.push_back(Key::Back); break;
+        case K::PrevTab: keys.push_back(Key::PrevTab); break;
+        case K::NextTab: keys.push_back(Key::NextTab); break;
+        case K::Text: break;
+        }
+    }
+    const auto since = std::chrono::steady_clock::now() - impl.menu_started;
+    MenuPad &pad_state = impl.menu_pad;
+    if (capturing) {
+        handle_capture(impl);
+        // What is held when the capture ends (the button just assigned) must not act in the menu.
+        if (impl.capture_id == 0) pad_state.accept = pad_state.back = pad_state.prev = pad_state.next = pad_state.up = pad_state.down = pad_state.left = pad_state.right = true;
+    } else {
+        menu_pad_keys(pad_state, impl.host.input(), static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(since).count()), keys);
+    }
+    for (const Key key : keys) {
+        if (!menu_press(impl, rt, key)) {
+            open = false;
+            break;
+        }
+    }
+    // The mouse: hover selects, a click acts, a held button drags a slider, the wheel changes a value or the tab.
+    const auto mouse = impl.host.take_mouse_events();
+    if (open && !mouse.empty()) {
+        overlay::MenuLayout &layout = impl.menu_layout;
+        if (impl.menu.view().version != impl.menu_layout_version) {
+            layout = impl.menu_layouter->layout(impl.menu.view());
+            impl.menu_layout_version = impl.menu.view().version;
+        }
+        const host::SdlHost::WindowRect window = impl.host.window_rect();
+        for (const auto &m : mouse) {
+            float x = 0.0f, y = 0.0f;
+            menu_point(window, m.x, m.y, x, y);
+            using Hit = overlay::MenuLayout::Hit;
+            const Hit hit = layout.hit(x, y);
+            if (m.kind == host::MouseEvent::Kind::Move) {
+                impl.menu_pointer_row = hit.kind == Hit::Kind::Row ? hit.index : -1;
+                if (impl.menu_dragging >= 0 && impl.menu_dragging < static_cast<int>(layout.bars.size())) {
+                    const auto &bar = layout.bars[static_cast<std::size_t>(impl.menu_dragging)];
+                    if (bar.w > 0) open = menu_handle(impl, rt, impl.menu.drag_slider(impl.menu_dragging, (x - bar.x) / bar.w)) && open;
+                } else if (hit.kind == Hit::Kind::Row) {
+                    impl.menu.hover_row(hit.index);
+                }
+            } else if (m.kind == host::MouseEvent::Kind::Down) {
+                if (impl.capture_id != 0) { // a click elsewhere gives up the assignment
+                    end_capture(impl);
+                    continue;
+                }
+                if (hit.kind == Hit::Kind::Tab) {
+                    impl.menu.click_tab(hit.index);
+                } else if (hit.kind == Hit::Kind::Row) {
+                    open = menu_handle(impl, rt, impl.menu.click_row(hit.index, hit.along, hit.on_bar)) && open;
+                    if (hit.on_bar) impl.menu_dragging = hit.index;
+                }
+            } else if (m.kind == host::MouseEvent::Kind::Up) {
+                impl.menu_dragging = -1;
+            } else if (m.kind == host::MouseEvent::Kind::Wheel) {
+                open = menu_handle(impl, rt, impl.menu.scroll(m.wheel, impl.menu_pointer_row)) && open;
+            }
+            if (!open) break;
+        }
+        impl.menu_layout_version = ~0ull; // the rows may have moved
+    }
+    if (open && impl.menu.view().version != impl.menu_shown_version) {
+        impl.menu_shown_version = impl.menu.view().version;
+        if (impl.gpu_state == 1) {
+            {
+                std::lock_guard lock(impl.dialog_mutex);
+                impl.menu_pending = impl.menu.view();
+            }
+            impl.dialog_cv.notify_one();
+        } else { // the software path blends it over every picture it presents
+            if (!impl.menu_renderer) impl.menu_renderer = std::make_unique<overlay::MenuRenderer>(impl.font_directory);
+            impl.menu_renderer->render(impl.menu.view(), 1, impl.soft_menu);
+        }
+    }
+    if (!open) close_menu(impl);
+    return open;
 }
 
 ControllerState map_input(const host::GamepadState &g) {
@@ -756,18 +762,28 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
                 return;
             }
             const host::GamepadState pad = impl->host.input();
-            set_controller_state(*runtime, map_input(pad));
-            update_dialogs(*impl, *runtime);
-            if (pad.guide && !impl->guide_down) impl->menu_requested = true;
-            impl->guide_down = pad.guide;
-            if (impl->menu_requested && current_dialog(*runtime).kind == DialogView::Kind::None) run_menu(*impl, *runtime);
-            impl->menu_requested = false;
+            if (impl->menu_open) {
+                set_controller_state(*runtime, ControllerState{}); // the menu has the input, the game runs on without it
+                step_menu(*impl, *runtime);
+            } else {
+                set_controller_state(*runtime, map_input(pad));
+                update_dialogs(*impl, *runtime);
+                if (pad.guide && !impl->guide_down) impl->menu_requested = true;
+                impl->guide_down = pad.guide;
+                if (impl->menu_requested && current_dialog(*runtime).kind == DialogView::Kind::None) {
+                    set_controller_state(*runtime, ControllerState{}); // nothing stays pressed while the menu is up
+                    open_menu(*impl, *runtime);
+                }
+                impl->menu_requested = false;
+            }
             const std::uint64_t now = runtime->now_us();
             const std::uint64_t vblank = now / kVblankPeriodUs;
             if (vblank != impl->last_vblank && impl->gpu_state == 2) {
                 impl->last_vblank = vblank;
                 copy_frame(*runtime, impl->frame);
-                if (impl->dialog_visible) {
+                if (impl->menu_open) {
+                    blend_over(impl->frame, impl->soft_menu);
+                } else if (impl->dialog_visible) {
                     std::lock_guard lock(impl->soft_mutex);
                     blend_over(impl->frame, impl->soft_overlay);
                 }

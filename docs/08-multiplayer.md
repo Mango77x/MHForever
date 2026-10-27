@@ -52,7 +52,8 @@ servers of our own and not on direct P2P. Reasons:
 - **No cost and no money.** Rule 7 of `CLAUDE.md` stays as it is; the servers are run by volunteers and listed by
   PPSSPP.
 - **Players from day one**, including PPSSPP and real PSP players, and the servers already group the European, North
-  American and Japanese releases of the game together (see §3).
+  American and Japanese releases of the game together (see §3). The Japanese release names its rooms in Japanese, so in
+  practice it does not meet the other two (`13-online-plan.md` §4).
 - **It is proven** with Monster Hunter: PPSSPP players use it, and a sibling recompilation project (Yakumo, MHP3rd, MIT)
   reports a complete quest between two machines through such a server.
 
@@ -89,7 +90,9 @@ See `06-mhfu-module.md` §7. Our runtime implements those APIs and sends packets
     an init record (type: PDP, PTP listen, PTP connect, PTP accept, unreliable PDP; source and destination MAC and port);
     PDP blocks up to 10 KiB, PTP up to 50 KiB. There is also a UDP path through ENet.
   - The reference server's `game_db.json` "crosslinks" product codes into one game: `ULES01213` (FU Europe),
-    `ULUS10391` (FU North America) and `ULJM05500` (MHP2G Japan) all play in the same groups.
+    `ULUS10391` (FU North America) and `ULJM05500` (MHP2G Japan) all count as one game. Groups are named by the game, though:
+    FU uses `MHP2Q0` and two digits, the Japanese release `集会所` and two digits (seen live on 2026-10-27), so EU and US
+    players meet and Japanese players stay in rooms of their own (`13-online-plan.md` §4 and §6.3).
 - **aemu / PRO Online**: the same protocol on real PSPs/Vitas via a plugin. So **a client compatible with aemu could play with PPSSPP
   users and real PSPs** .
 - `aemu_postoffice` publishes a C client (`postoffice_client.h`, `adhocctl.h`) meant to be integrated into PSP implementations.
@@ -139,8 +142,8 @@ core/net ── one UDP socket per player, shared by every peer link
 - Caveat: some corporate/university networks block the DHT; home networks normally don't.
 
 ### 4.3 Peer links (NAT traversal)
-1. **IPv6 first**: when both players have global IPv6 (Movistar, Orange and Digi in Spain deploy it) the link is direct
-   with no NAT at all. This also sidesteps CG-NAT, which several Spanish ISPs use on IPv4 (Másmóvil/Yoigo/Pepephone, Digi,
+1. **IPv6 first**: when both players have global IPv6 the link is direct with no NAT at all. Correction 2026-10-27: only
+   about 11 % of users in Spain are IPv6-capable (APNIC), so this helps few players (`13-online-plan.md` §5). This also sidesteps CG-NAT, which several Spanish ISPs use on IPv4 (Másmóvil/Yoigo/Pepephone, Digi,
    Orange/Jazztel via DS-Lite, Fi).
 2. **Automatic port mapping**: try UPnP-IGD, NAT-PMP and PCP (`miniupnpc`, `libnatpmp`, BSD-3). PCP works through
    Orange's DS-Lite.
@@ -206,9 +209,12 @@ Target: equal or better than ad-hoc in PPSSPP (where peer packets also reach the
 authentication).
 
 ### 4.7 Implementation order (revised 2026-10-23)
+The detailed plan for 0.6, 0.7 and later, with the research of 2026-10-27, is `13-online-plan.md` §8.
+
 1. Fix the HLE boundary issues above (independent of networking).
 2. Vendor the aemu_postoffice client; the PSP adapter (`sceNetAdhoc*`, `sceNetAdhocctl*`, `sceNetAdhocDiscover*`) on top
-   of it, with call and packet tracing; tested with our own homebrew against the reference server running locally.
+   of it, with call and packet tracing. **Done 2026-10-23** (`05-runtime-hle.md` §5i), tested against the reference server
+   running locally; a homebrew test against it and the first run with the game are still to do.
 3. Two instances on one PC, through a local server, complete a quest together.
 4. Launcher: server choice (PPSSPP's list or an address), live status, stable virtual MAC, pseudonym; a real game on a
    community server. Credits and the messages to PPSSPP and the operators before release (§1.2). Target: 0.6
@@ -240,12 +246,27 @@ Since the move to GPL-3.0-or-later, iroh (Apache-2.0) and toxcore (GPL-3.0+) are
 
 ## 6. Tests
 
-1. Two instances on the same machine (loopback) with our own ad-hoc homebrew.
+1. Two instances on the same machine (loopback) with our own ad-hoc homebrew. *Homebrew still to write*; the live test
+   `psp_adhocctl_server` (two players against a real server) covers the library and the sockets.
 2. Two machines on a LAN.
 3. Internet with different NATs (including a phone hotspot, usually strict NAT → relay).
 4. Mixed Windows ↔ Linux/Deck.
-5. Against PPSSPP through an aemu relay (optional).
+5. Against PPSSPP through an aemu relay.
 Measure latency and loss; the game is tolerant, but verify it in FU.
+
+How to run these locally is in `BUILDING.md` ("Trying online play"). Results so far (reference server running in WSL2 on the same PC):
+
+| Date | What | Result |
+|---|---|---|
+| 2026-10-23 | `psp_adhocctl_server`: two players join a group, see each other, exchange datagrams (also one that does not fit) and a PTP stream, close | passes (3 of 3 runs) |
+| 2026-10-24 | keepalive: 45 s idle | passes (needs a server on a steady clock) |
+| 2026-10-24 | jitter: 300 datagrams at 30 per second | 300 of 300 arrive, median delay 16 ms, max 23 ms |
+| 2026-10-24 | two copies of the game in the Gathering Hall | they see each other |
+| 2026-10-24 | our game with PPSSPP 1.20.4 in the Gathering Hall | they see each other (PPSSPP needs the relay forced on for this server) |
+| 2026-10-24 | movement of a remote hunter | steps every 0.67 s in ours and in PPSSPP: the game's own traffic |
+| 2026-10-24 | starting a quest together | **fails**: the host freezes (see `10-roadmap.md`, Phase 5) |
+
+Not yet tried: a public server, mobile data or strict NATs, more than two players, Linux, a real PSP.
 
 ## 7. Sources (2026-10-17)
 
