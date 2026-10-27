@@ -155,6 +155,12 @@ foreach(game IN LISTS MHF_GAMES)
             COMMAND ${CMAKE_COMMAND} -E copy_directory $<TARGET_FILE_DIR:${game}>/fonts $<TARGET_FILE_DIR:mhf_launcher>/fonts
             COMMENT "Placing ${game} and its fonts next to the launcher"
             VERBATIM)
+        if(WIN32 AND MHF_FFMPEG_WINDOWS_DLL_FILES) # the game loads FFmpeg from its own folder, which is this one now
+            add_custom_command(TARGET mhf_launcher POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MHF_FFMPEG_WINDOWS_DLL_FILES} $<TARGET_FILE_DIR:mhf_launcher>
+                COMMENT "Placing FFmpeg's DLLs next to the launcher"
+                VERBATIM)
+        endif()
     endif()
 endforeach()
 
