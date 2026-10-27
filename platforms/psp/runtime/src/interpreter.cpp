@@ -12,6 +12,7 @@
 #include "psprecomp/common.hpp"
 #include "psprecomp/decoder.hpp"
 
+#include <atomic>
 #include <bit>
 #include <cmath>
 #include <cstdio>
@@ -22,6 +23,8 @@
 namespace mhf::psp {
 
 namespace {
+
+std::atomic<std::uint32_t> g_last_backward{0}; // where the interpreter last jumped backwards, for the stall watchdog
 
 using psprecomp::DecodedInstruction;
 using K = psprecomp::OpcodeKind;
@@ -280,11 +283,15 @@ struct Interpreter {
                 exec(slot, pc + 4u);
                 if (d.kind == K::Jal) {
                     pc = native_call(target) ? after : target;
-                } else if (rt.lookup(target & 0x3FFFFFFFu) != nullptr) {
-                    native_call(target); // tail call into recompiled code: it returns to our caller
-                    return;
+                } else if (native_call(target)) {
+                    // Recompiled code reached by a jump returns as if by `jr $ra`: carry on wherever $ra points.
+                    if (ctx.gpr[31] == return_address && ctx.gpr[29] >= entry_sp) return;
+                    pc = ctx.gpr[31];
                 } else {
-                    if (target <= pc) abi::poll_interrupts(rt); // a backward jump may be a busy wait
+                    if (target <= pc) {
+                        g_last_backward.store(pc, std::memory_order_relaxed);
+                        abi::poll_interrupts(rt); // a backward jump may be a busy wait
+                    }
                     pc = target;
                 }
                 continue;
@@ -300,9 +307,13 @@ struct Interpreter {
                 if (target == return_address && ctx.gpr[29] >= entry_sp) {
                     return; // returned to the caller of the interpreted function
                 }
-                if (rt.lookup(target & 0x3FFFFFFFu) != nullptr) {
-                    native_call(target);
-                    return;
+                // A jump into recompiled code is not always a tail call: a jump table inside the interpreted function can land
+                // on a case the static analysis took for a function of its own. Either way that code returns as if by
+                // `jr $ra`, so carry on wherever $ra points instead of returning to our caller.
+                if (native_call(target)) {
+                    if (ctx.gpr[31] == return_address && ctx.gpr[29] >= entry_sp) return;
+                    pc = ctx.gpr[31];
+                    continue;
                 }
                 pc = target;
                 continue;
@@ -318,7 +329,10 @@ struct Interpreter {
             }
             // A loop that waits for something an interrupt or another thread does must still see it happen, as in the recompiled
             // code (which polls on every backward branch).
-            if (taken && target <= pc) abi::poll_interrupts(rt);
+            if (taken && target <= pc) {
+                g_last_backward.store(pc, std::memory_order_relaxed);
+                abi::poll_interrupts(rt);
+            }
             pc = taken ? target : after;
         }
     }
@@ -327,6 +341,8 @@ struct Interpreter {
 std::set<std::uint32_t> g_reported;
 
 } // namespace
+
+std::uint32_t interpreter_last_backward_branch() { return g_last_backward.load(std::memory_order_relaxed); }
 
 void interpret_call(Runtime &rt, Context &ctx, std::uint32_t address) {
     if (g_reported.insert(address).second) {
