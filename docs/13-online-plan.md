@@ -169,17 +169,17 @@ latency and not a requirement, given §5's IPv6 figures and the 2025 measurement
 
 ## 7. Decisive experiments
 
-| # | Experiment | Decides |
-|---|---|---|
-| E1 | Two local instances start a quest, with entry traces, the watchdog dump and `/data.json` | the cause of §3 |
-| E2 | Our EU and our NA in the same Gathering Hall, then a quest | EU ↔ NA |
-| E3 | Ours and PPSSPP (US ISO) complete a quest; then PPSSPP hosts | interop in both roles |
-| E4 | Three and four players (two PCs, or three instances) | the PTP backlog of 3, relay limits |
-| E5 | A public server in Europe (Games Nexus or EA Nation Hub), from two networks including mobile data | real latency, strict NATs |
-| E6 | Escape menu open for 30 s during a quest | the no-pause rule |
-| E7 | Private room: a translated group name on the reference server, then on a public one | §6.2 |
-| E8 | Linux (WSL first, then a real machine) | parity |
-| E9 | Fuzz the ad hoc HLE entry points and the control-library parser | `08-multiplayer.md` §4.6 |
+| # | Experiment | Decides | Status |
+|---|---|---|---|
+| E1 | Two local instances start a quest, with entry traces, the watchdog dump and `/data.json` | the cause of §3 | Done 2026-10-27: two fixes (interpreter jump into recompiled code, PtpOpen arguments) |
+| E2 | Our EU and our NA in the same Gathering Hall, then a quest | EU ↔ NA | To do |
+| E3 | Ours and PPSSPP (US ISO) complete a quest; then PPSSPP hosts | interop in both roles | Half done 2026-10-27: ours hosted on socom.cc, a PPSSPP player joined, the quest played. PPSSPP hosting still to test |
+| E4 | Three and four players (two PCs, or three instances) | the PTP backlog of 3, relay limits | To do |
+| E5 | A public server in Europe (Games Nexus or EA Nation Hub), from two networks including mobile data | real latency, strict NATs | To do |
+| E6 | Escape menu open for 30 s during a quest | the no-pause rule | To do |
+| E7 | Private room: a translated group name on the reference server, then on a public one | §6.2 | To do |
+| E8 | Linux (WSL first, then a real machine) | parity | To do |
+| E9 | Fuzz the ad hoc HLE entry points and the control-library parser | `08-multiplayer.md` §4.6 | To do |
 
 ## 8. Work plan
 
