@@ -173,7 +173,7 @@ latency and not a requirement, given §5's IPv6 figures and the 2025 measurement
 |---|---|---|---|
 | E1 | Two local instances start a quest, with entry traces, the watchdog dump and `/data.json` | the cause of §3 | Done 2026-10-27: two fixes (interpreter jump into recompiled code, PtpOpen arguments) |
 | E2 | Our EU and our NA in the same Gathering Hall, then a quest | EU ↔ NA | To do |
-| E3 | Ours and PPSSPP (US ISO) complete a quest; then PPSSPP hosts | interop in both roles | Half done 2026-10-27: ours hosted on socom.cc, a PPSSPP player joined, the quest played. PPSSPP hosting still to test |
+| E3 | Ours and PPSSPP (US ISO) complete a quest; then PPSSPP hosts | interop in both roles | Half done 2026-10-27 on socom.cc: PPSSPP created the room, ours led the quest (listened and accepted), the quest played. Ours joining a quest led by PPSSPP (ours connects) still to test |
 | E4 | Three and four players (two PCs, or three instances) | the PTP backlog of 3, relay limits | To do |
 | E5 | A public server in Europe (Games Nexus or EA Nation Hub), from two networks including mobile data | real latency, strict NATs | To do |
 | E6 | Escape menu open for 30 s during a quest | the no-pause rule | To do |
