@@ -170,11 +170,14 @@ mode, where no second window can be shown.
   name while the menu waits for one (`SdlHost::set_capture`). The game writes every change to the file the launcher gave it
   (`--controls-file`, `game_controls.txt` in the data folder) and the launcher folds it into `launcher.json` when it starts,
   before a launch and when the game ends, so a change made while playing is kept.
-- Online play (experimental, off by default): **Settings → Online play** takes the address of a PSP ad hoc server
-  (`settings.adhocServer`, "host" or "host:port", checked on write). When it is not empty the launcher passes
+- Online play (experimental, off by default): **Settings → Online** picks the PSP ad hoc server: Offline, one of a short
+  built-in list of community servers from PPSSPP's published list (`launcher/ui/src/servers.ts`), or another one typed as
+  "host" or "host:port" (`settings.adhocServer`, checked on write). When it is not empty the launcher passes
   `--adhoc-server` and `--adhoc-mac` (a locally administered MAC made from the identity, the same on every launch; the
   name is the one in `--name`); empty keeps the game offline and nothing is contacted. The page says the server sees the name
-  and the game. No list of servers is built in yet (`08-multiplayer.md` section 1.2: PPSSPP and the operators are asked first).
+  and the game. Each server shows how long a TCP connection to it takes (`mhf_probeServer`, `native/probe.cpp`); the list
+  is only measured once the player is online or asks for it, so an offline launcher contacts no one. Before a release that
+  reads PPSSPP's list itself, PPSSPP and the operators are asked first (`08-multiplayer.md` section 1.2).
 - Several local pads: player 1 only (the PSP is single-player). Local multiplayer on one machine = several instances: out of scope v1.
 
 ## 6. Steam Deck / Linux

@@ -89,6 +89,7 @@ type Native = {
   mhf_exportIdentity(): Promise<{ saved: boolean }>;
   mhf_scanSaves(gameId: string): Promise<SaveScan>; // asks for a folder, looks for the saves of that game in it
   mhf_importSaves(): Promise<SaveImportResult>; // imports what the last scan found
+  mhf_probeServer(server: string): Promise<number | null>; // milliseconds to connect to an ad hoc server, null when it cannot
 };
 
 const listeners = new Set<(e: LauncherEvent) => void>();
@@ -175,6 +176,7 @@ function simulated(): Native {
     async mhf_exportIdentity() { return { saved: true }; },
     async mhf_scanSaves() { return { picked: true, found: [{ folder: 'ULES01213', title: 'Game Data', exists: true }], note: '' }; },
     async mhf_importSaves() { return { imported: 1, backup: 'C:\\Users\\Hunter\\Documents\\MHForever\\saves\\ULES01213\\backups\\20261022-170000', error: '' }; },
+    async mhf_probeServer(server) { await new Promise((r) => setTimeout(r, 300 + Math.random() * 700)); return server.includes('nowhere') ? null : 20 + Math.round(Math.random() * 250); },
   };
 }
 

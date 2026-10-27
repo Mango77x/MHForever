@@ -123,6 +123,7 @@ add_executable(mhf_launcher
     native/json.cpp
     native/hash.cpp
     native/platform.cpp
+    native/probe.cpp
     native/install/data_dir.cpp
     native/install/executable_preparation.cpp
     native/install/installer.cpp
@@ -137,7 +138,7 @@ set_target_properties(mhf_launcher PROPERTIES OUTPUT_NAME MHForever) # MHForever
 if(WIN32)
     set_target_properties(mhf_launcher PROPERTIES WIN32_EXECUTABLE ON)
     target_sources(mhf_launcher PRIVATE ${MHF_WINDOWS_ICON_RC})
-    target_link_libraries(mhf_launcher PRIVATE comdlg32 dwmapi bcrypt shell32 ole32)
+    target_link_libraries(mhf_launcher PRIVATE comdlg32 dwmapi bcrypt shell32 ole32 ws2_32)
     if(MINGW OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_link_options(mhf_launcher PRIVATE -mwindows)
     endif()
