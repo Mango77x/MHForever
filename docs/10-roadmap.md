@@ -99,6 +99,9 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 ## Phase 5 — Multiplayer
 
+- Research 2026-10-27 (`13-online-plan.md`): how the game uses the network (PTP send is its only blocking call),
+  ranked causes of the quest-start freeze and the diagnostics that decide them, compatibility between regions and with
+  PPSSPP and real PSPs, private rooms on public servers, and the plan for 0.6, 0.7 and later.
 - The network layer is shared by every future console (3DS, Switch, PS2, Wii, Wii U): `core/net` offers rooms
   (packets or inputs mode), each console adds an adapter (`08-multiplayer.md` §1.1).
 - [x] Harden HLE boundaries first (`08-multiplayer.md` §4.6): the Windows drive-letter path escape is fixed,
