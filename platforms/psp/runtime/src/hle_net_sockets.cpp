@@ -55,13 +55,20 @@ bool unavailable(NetState &s, std::uint32_t &error) {
 
 // Tries `attempt` (which returns the call's result, kWouldBlock when it cannot yet) until it answers: at once for a
 // non-blocking call, after `timeout_us` (0: never) with a timeout error for a blocking one.
+// A blocking call that waits for a second is reported (every five seconds after that) with MHF_TRACE_ADHOC, because the
+// normal trace line comes only when the call returns, so a call that never returns would leave nothing in the log.
 template <typename Attempt>
-std::uint32_t wait_for(Runtime &rt, std::uint32_t timeout_us, bool nonblocking, Attempt &&attempt) {
+std::uint32_t wait_for(Runtime &rt, std::uint32_t timeout_us, bool nonblocking, Attempt &&attempt, const char *call = "?", int id = 0) {
     const std::uint64_t start = rt.kernel().now_us();
+    std::uint64_t next_report = start + 1000000u;
     for (;;) {
         const std::uint32_t result = attempt();
         if (result != se::kWouldBlock || nonblocking) return result;
         const std::uint64_t now = rt.kernel().now_us();
+        if (now >= next_report) {
+            if (net_tracing()) std::fprintf(stderr, "[adhoc] %s(%d) has been waiting for %llu ms (timeout %u us)\n", call, id, static_cast<unsigned long long>((now - start) / 1000u), timeout_us);
+            next_report = now + 5000000u;
+        }
         if (timeout_us != 0 && now - start >= timeout_us) return se::kTimeout;
         rt.kernel().wait(Kernel::WaitType::Delay, 0, now + kPollStepUs);
         if (rt.kernel().exiting()) return se::kTimeout;
@@ -122,7 +129,7 @@ void PdpSend(Runtime &rt, Context &ctx) {
     for (const ad::Mac &target : targets) {
         const std::uint32_t result = wait_for(rt, timeout, nonblocking, [&] {
             return s.sockets->pdp_send(id, target, port, data.data(), static_cast<std::uint32_t>(data.size()));
-        });
+        }, "sceNetAdhocPdpSend", id);
         s.note_datagram('s', result, static_cast<std::uint32_t>(data.size()));
         if (result == 0 && net_tracing_packets()) net_trace_packet("send", static_cast<double>(rt.now_us()) / 1e6, id, data.data(), static_cast<std::uint32_t>(data.size()));
         if (result != 0) {
@@ -152,7 +159,7 @@ void PdpRecv(Runtime &rt, Context &ctx) {
     const std::uint32_t result = wait_for(rt, timeout, nonblocking, [&] {
         length = static_cast<std::uint32_t>(buffer.size());
         return s.sockets->pdp_recv(id, source, port, buffer.data(), length);
-    });
+    }, "sceNetAdhocPdpRecv", id);
     s.note_datagram('r', result, length);
     if (result == 0 && net_tracing_packets()) net_trace_packet("recv", static_cast<double>(rt.now_us()) / 1e6, id, buffer.data(), length);
     if (result == 0) {
@@ -175,13 +182,17 @@ void PtpOpen(Runtime &rt, Context &ctx) {
     NetState &s = net_state(rt);
     std::uint32_t error = 0;
     if (unavailable(s, error)) return ret(ctx, error);
+    // (source mac, source port, destination mac, destination port, buffer size, retransmit interval, retransmit count, flag)
     const std::uint32_t source = arg(ctx, 0), destination = arg(ctx, 2);
     if (source == 0 || destination == 0) return ret(ctx, se::kInvalidAddr);
     const ad::Mac peer = read_mac(rt, destination);
+    NET_TRACE("sceNetAdhocPtpOpen(port %u -> %02X:%02X:%02X:%02X:%02X:%02X port %u, buffer %d, retransmit %d us x %d, flag %u)",
+              arg(ctx, 1) & 0xFFFFu, peer[0], peer[1], peer[2], peer[3], peer[4], peer[5], arg(ctx, 3) & 0xFFFFu, sarg(ctx, 4),
+              sarg(ctx, 5), sarg(ctx, 6), arg(ctx, 7));
     if (is_broadcast(peer) || std::all_of(peer.begin(), peer.end(), [](std::uint8_t b) { return b == 0; })) return ret(ctx, se::kInvalidAddr);
-    if (sarg(ctx, 5) <= 0 || sarg(ctx, 6) <= 0 || sarg(ctx, 7) <= 0) return ret(ctx, se::kInvalidArg);
+    // The flag may be 0 (Freedom Unite passes 0): only the buffer and the retransmission settings must be positive.
+    if (sarg(ctx, 4) <= 0 || sarg(ctx, 5) <= 0 || sarg(ctx, 6) <= 0) return ret(ctx, se::kInvalidArg);
     write_mac(rt, source, s.mac);
-    NET_TRACE("sceNetAdhocPtpOpen(port %u -> port %u)", arg(ctx, 1) & 0xFFFFu, arg(ctx, 3) & 0xFFFFu);
     const auto opened = s.sockets->ptp_open(static_cast<std::uint16_t>(arg(ctx, 1)), peer, static_cast<std::uint16_t>(arg(ctx, 3)));
     NET_TRACE("sceNetAdhocPtpOpen = %d", static_cast<int>(opened));
     ret(ctx, static_cast<std::uint32_t>(opened));
@@ -195,7 +206,7 @@ void PtpListen(Runtime &rt, Context &ctx) {
     if (arg(ctx, 0) == 0) return ret(ctx, se::kInvalidAddr);
     if (sarg(ctx, 2) <= 0 || sarg(ctx, 3) <= 0 || sarg(ctx, 4) <= 0 || sarg(ctx, 5) <= 0) return ret(ctx, se::kInvalidArg);
     write_mac(rt, arg(ctx, 0), s.mac);
-    NET_TRACE("sceNetAdhocPtpListen(port %u)", arg(ctx, 1) & 0xFFFFu);
+    NET_TRACE("sceNetAdhocPtpListen(port %u, backlog %d)", arg(ctx, 1) & 0xFFFFu, sarg(ctx, 5));
     const auto listening = s.sockets->ptp_listen(static_cast<std::uint16_t>(arg(ctx, 1)));
     NET_TRACE("sceNetAdhocPtpListen = %d", static_cast<int>(listening));
     ret(ctx, static_cast<std::uint32_t>(listening));
@@ -207,7 +218,7 @@ void PtpConnect(Runtime &rt, Context &ctx) {
     const int id = sarg(ctx, 0);
     std::uint32_t error = 0;
     if (unavailable(s, error)) return ret(ctx, error);
-    const std::uint32_t result = wait_for(rt, arg(ctx, 1), arg(ctx, 2) != 0, [&] { return s.sockets->ptp_connect(id); });
+    const std::uint32_t result = wait_for(rt, arg(ctx, 1), arg(ctx, 2) != 0, [&] { return s.sockets->ptp_connect(id); }, "sceNetAdhocPtpConnect", id);
     NET_TRACE("sceNetAdhocPtpConnect(%d) = %08X", id, result);
     ret(ctx, result);
 }
@@ -224,7 +235,7 @@ void PtpAccept(Runtime &rt, Context &ctx) {
     const std::uint32_t result = wait_for(rt, arg(ctx, 3), arg(ctx, 4) != 0, [&] {
         accepted = s.sockets->ptp_accept(id, peer, port);
         return accepted > 0 ? 0u : static_cast<std::uint32_t>(accepted);
-    });
+    }, "sceNetAdhocPtpAccept", id);
     if (result != 0) return ret(ctx, result);
     if (arg(ctx, 1) != 0) write_mac(rt, arg(ctx, 1), peer);
     if (arg(ctx, 2) != 0) rt.memory().store16(arg(ctx, 2), port);
@@ -245,10 +256,11 @@ void PtpSend(Runtime &rt, Context &ctx) {
     std::vector<std::uint8_t> data(static_cast<std::size_t>(wanted));
     rt.memory().copy_out(data_address, data);
     std::uint32_t length = static_cast<std::uint32_t>(data.size());
+    NET_TRACE("sceNetAdhocPtpSend(%d, %d bytes) entered, timeout %u us, %s", id, wanted, arg(ctx, 3), arg(ctx, 4) != 0 ? "non-blocking" : "blocking");
     const std::uint32_t result = wait_for(rt, arg(ctx, 3), arg(ctx, 4) != 0, [&] {
         length = static_cast<std::uint32_t>(data.size());
         return s.sockets->ptp_send(id, data.data(), length);
-    });
+    }, "sceNetAdhocPtpSend", id);
     if (result == 0) rt.memory().store32(length_address, length);
     NET_TRACE("sceNetAdhocPtpSend(%d, %d bytes) = %08X", id, wanted, result);
     ret(ctx, result);
@@ -269,7 +281,7 @@ void PtpRecv(Runtime &rt, Context &ctx) {
     const std::uint32_t result = wait_for(rt, arg(ctx, 3), arg(ctx, 4) != 0, [&] {
         length = static_cast<std::uint32_t>(buffer.size());
         return s.sockets->ptp_recv(id, buffer.data(), length);
-    });
+    }, "sceNetAdhocPtpRecv", id);
     if (result == 0) {
         if (length != 0) rt.memory().copy_in(buffer_address, std::span<const std::uint8_t>(buffer.data(), length));
         rt.memory().store32(length_address, length);
@@ -285,7 +297,7 @@ void PtpFlush(Runtime &rt, Context &ctx) {
     const int id = sarg(ctx, 0);
     std::uint32_t error = 0;
     if (unavailable(s, error)) return ret(ctx, error);
-    ret(ctx, wait_for(rt, arg(ctx, 1), arg(ctx, 2) != 0, [&] { return s.sockets->ptp_flush(id); }));
+    ret(ctx, wait_for(rt, arg(ctx, 1), arg(ctx, 2) != 0, [&] { return s.sockets->ptp_flush(id); }, "sceNetAdhocPtpFlush", id));
 }
 
 // sceNetAdhocPtpClose(id, unknown)
