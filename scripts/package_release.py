@@ -33,6 +33,8 @@ LICENSES = {
     "licenses/psprecomp-LICENSE.txt": ROOT / "third_party/psprecomp/LICENSE",
     "licenses/ppsspp_prx-NOTICE.md": ROOT / "third_party/ppsspp_prx/NOTICE.md",
     "licenses/pokke_save_crypto-LICENSE.txt": ROOT / "third_party/pokke_save_crypto/LICENSE",
+    # The online client (GPL-3.0, the same licence as the programs) and ENet, which it includes (MIT, below).
+    "licenses/aemu_postoffice-NOTICE.md": ROOT / "third_party/aemu_postoffice/NOTICE.md",
     # FFmpeg's own licence and source note. On Windows the library travels as DLLs (below, with their LGPL-3 text); on
     # Linux it is linked into the programs.
     "licenses/FFmpeg-SOURCE.txt": ROOT / "third_party/ffmpeg/FFmpeg-SOURCE.txt",
@@ -44,6 +46,21 @@ PLATFORMS = {
     "windows": ("MHForever.exe", "mhfu.exe", "dist/PLAYER_README.txt", "windows-x64"),
     "linux": ("MHForever", "mhfu", "dist/PLAYER_README_LINUX.txt", "linux-x64"),
 }
+
+
+# ENet keeps its MIT notice inside the vendored header only: the archive carries that comment as a text file.
+ENET_HEADER = ROOT / "third_party/aemu_postoffice/ext/enet/enet.h"
+
+
+def enet_license() -> bytes:
+    """ENet's licence, from the comment at the top of `enet.h` (from "The MIT License" to the end of the comment)."""
+    lines = ENET_HEADER.read_text(encoding="utf-8").splitlines()
+    start = next((i for i, line in enumerate(lines) if "The MIT License" in line), None)
+    end = next((i for i, line in enumerate(lines) if line.strip() == "*/"), None)
+    if start is None or end is None or end <= start:
+        raise SystemExit(f"error: cannot find ENet's licence in {ENET_HEADER}")
+    text = "\n".join(line.strip().removeprefix("*").removeprefix(" ").rstrip() for line in lines[start:end]).strip()
+    return ("ENet (zpl-c/enet v2.7.0), included in the online client\n\n" + text + "\n").encode("utf-8")
 
 
 def ffmpeg_dll_names() -> list[str]:
@@ -102,6 +119,7 @@ def check_inputs(args, launcher_name: str, game_name: str) -> dict[str, pathlib.
 def write_zip(path: pathlib.Path, folder: str, readme: str, files: dict[str, pathlib.Path]) -> None:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         z.writestr(f"{folder}/README.txt", readme.replace("\n", "\r\n"))
+        z.writestr(f"{folder}/licenses/enet-LICENSE.txt", enet_license().replace(b"\n", b"\r\n"))
         for name, source in files.items():
             z.write(source, f"{folder}/{name}")
 
@@ -115,6 +133,12 @@ def write_tarball(path: pathlib.Path, folder: str, readme: str, files: dict[str,
         info.mode = 0o644
         info.mtime = int(time.time())
         t.addfile(info, io.BytesIO(readme_bytes))
+        enet = enet_license()
+        info = tarfile.TarInfo(f"{folder}/licenses/enet-LICENSE.txt")
+        info.size = len(enet)
+        info.mode = 0o644
+        info.mtime = int(time.time())
+        t.addfile(info, io.BytesIO(enet))
         for name, source in files.items():
             info = t.gettarinfo(str(source), arcname=f"{folder}/{name}")
             if info is None:  # only symlinks can fail here, and the inputs are regular files
