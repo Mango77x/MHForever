@@ -89,7 +89,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19), v0.2.0 adds frame interpolation (2026-10-21), v0.2.1 fixes audio clicks and keeps saves and settings outside the program folder (2026-10-22), v0.2.2 makes the 2D HUD interpolate again (2026-10-22), v0.2.3 makes interpolation lighter (about 90 to 150 fps in
       the village at 180, 2026-10-22), v0.3.0 adds the in-game menu on Escape with live video and audio settings and
       internal resolution up to 10x (2026-10-22), v0.4.0 uses the PSP save format: saves can be imported from a PSP or PPSSPP
-      and copied back (2026-10-22), v0.4.1 is the first release with a Linux tarball next to the Windows zip (2026-10-23), v0.4.2 plays the pre-rendered movies and decodes the music with FFmpeg, and edits the keyboard and controller buttons from the launcher and the in-game menu (2026-10-25), v0.5.0 adds the North American release: one program per region, a Library that chooses the copy, and video, audio and controls per copy under Game settings (2026-10-26).
+      and copied back (2026-10-22), v0.4.1 is the first release with a Linux tarball next to the Windows zip (2026-10-23), v0.4.2 plays the pre-rendered movies and decodes the music with FFmpeg, and edits the keyboard and controller buttons from the launcher and the in-game menu (2026-10-25), v0.5.0 adds the North American release: one program per region, a Library that chooses the copy, and video, audio and controls per copy under Game settings (2026-10-26), v0.6.0 brings online play on the PSP ad hoc servers PPSSPP uses: quests with other copies and with PPSSPP, a server picker in the launcher, and an in-game menu that no longer pauses (2026-10-27).
 - [x] Linux release (2026-10-22): portable `MHForever-<version>-linux-x64.tar.gz` from
       `scripts/package_release.py --platform linux` (programs, fonts, licenses, `dist/PLAYER_README_LINUX.txt`), embedded
       application icon, and a `cmake --install` layout with the desktop entry and the icon. CI builds and packages the layout
@@ -110,19 +110,18 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - First transport: the community's ad hoc servers (PPSSPP/aemu), decided 2026-10-23 (`08-multiplayer.md` §1.2).
 - [x] Vendor the aemu_postoffice client; PSP adapter (`sceNetAdhoc*`, `sceNetAdhocctl*`, `sceNetAdhocDiscover*`) with
   tracing, tested against the reference server (2026-10-23, `05-runtime-hle.md` §5i). Two copies of the game, and the game with
-  PPSSPP, see each other in the Gathering Hall (2026-10-24). Not yet tried: a quest together.
-- [ ] Two instances on one PC complete a quest through a local server.
-- [ ] Before 0.5: write to PPSSPP and the main server operators (`08-multiplayer.md` section 1.2) before the launcher gets a list of servers;
-  a short privacy note (servers see the name and the game); the same Windows tests on Linux.
-- [ ] **Open bug (2026-10-24): starting a quest together freezes the host.** The last thing in the host's log is
-  `[interp] interpreting 088B2AAC ($ra=088B7054)` (code the static analysis never reached, so the fallback interpreter runs it); after it
-  the game makes no more calls and the window stops, and the guest drops the host after a few seconds. Two copies of ours and ours with
-  PPSSPP behave the same way on the host side. The interpreter now polls interrupts on backward branches like the recompiled code does,
-  which did not cure it. Next: a watchdog that dumps the guest threads when no vblank has passed for a few seconds (`Runtime::dump_threads`),
-  then see what the interpreted function waits for (a flag, an event, an import that is missing); a function the analysis missed may also
-  just need to be added to the recompiled set (`docs/04-recompiler.md` section 7).
-- [ ] Launcher: server choice and live status, stable virtual MAC, pseudonym; play on a community server. Credits, and
-  messages to PPSSPP and the operators, before release. **Target: 0.6** (0.5 became the North American release).
+  PPSSPP, see each other in the Gathering Hall (2026-10-24).
+- [x] Two instances on one PC complete a quest through a local server (2026-10-27). The freeze at the start of a quest
+  had two causes: the fallback interpreter treated a jump into a jump-table case that the analysis had taken for a
+  function as a tail call and dropped the caller's frame, and `sceNetAdhocPtpOpen` checked the wrong arguments and
+  refused the flag the game passes, so the guest could not reach the host and gave it up (`13-online-plan.md` §7, E1).
+- [x] Quests with PPSSPP on a public server (socom.cc), with either side leading the quest (2026-10-27, E3).
+- [x] Launcher: Settings → Online picks the server (Offline, five community servers from PPSSPP's list with their ping, or
+  any host), stable virtual MAC, pseudonym, and the privacy note (2026-10-27). The in-game menu no longer pauses the
+  game, so opening it does not drop the player from a quest (2026-10-27, E6). **Released in 0.6.0.**
+- [ ] Before the launcher reads PPSSPP's server list itself: write to PPSSPP and the server operators (`08-multiplayer.md`
+  section 1.2; drafts kept outside the repository). Then the remaining experiments of `13-online-plan.md` §7: EU with
+  NA (E2), three and four players (E4), two networks (E5), Linux (E8), fuzzing (E9).
 - [ ] Then the target design on top (`08-multiplayer.md` §4): identity, friends, presence, invites, room codes; optional
   direct P2P links. **Target: 0.7.**
 **Acceptance**: 4 players (Windows + Linux/Deck, different networks) complete a quest together.

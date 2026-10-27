@@ -67,9 +67,12 @@ Status
 Early release. Freedom Unite runs at 30 fps, as on the original console. Game settings also
 offers 60 to 180 fps (any multiple of 30): the game still runs at 30 and the extra pictures
 are drawn in between, so it is experimental and heavy scenes may not hold the highest rates.
-Online multiplayer is in development and not part of this release. It works through PSP ad hoc servers (the kind PPSSPP uses); in the
-launcher's Settings there is an experimental "Online play" field for the address of one. Leave it empty to stay offline: nothing is contacted.
-Expect rough edges: starting a quest together does not work yet.
+Online play (experimental): in the launcher, Settings > Online, pick a server. They are the PSP ad hoc
+servers PPSSPP uses, so you meet other MHForever players and PPSSPP players in the game's own
+Gathering Hall and hunt together. Offline is the default: then nothing is contacted. The server
+shows your name and your game on its public status page; in their usual mode,
+servers do not show your address to other players.
+Escape opens the menu without pausing the game, so you do not drop out of a quest.
 
 
 Source code and licenses
