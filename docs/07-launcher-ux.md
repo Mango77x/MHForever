@@ -89,27 +89,28 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
 
 ## 3c. The in-game menu (decided 2026-10-22)
 
-**Escape** (or the controller's guide button) pauses the game and opens a menu drawn *inside the game window*, across the
-whole screen: the game's last picture, blurred and darkened, fills the window (cropped, never stretched), tabs run
+**Escape** (or the controller's guide button) opens a menu drawn *inside the game window*, across the whole screen,
+without pausing the game (since 0.6, decided 2026-10-27: a paused game drops out of an ad hoc quest, and a PSP had no
+pause either). The game runs on behind it, blurred and darkened, filling the window (cropped, never stretched), tabs run
 across the top (Game, Audio, Video) and the rows of the selected tab are centred below. It is not a second window and not
 the launcher: the launcher stays what it is, the screen where you add games, set them up and press Play. A first attempt
 that stretched the launcher's own window over the game was dropped on purpose: laying one window over another (focus,
 fullscreen, resizing, closing the game while it is up) is fragile on Windows and impossible on the Steam Deck's game
 mode, where no second window can be shown.
 
-- Tabs: **Game** (resume, quit with a confirmation), **Audio** (music, sound effects), **Video** (internal resolution
+- Tabs: **Game** (back to the game, quit with a confirmation), **Audio** (music, sound effects), **Video** (internal resolution
   1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures). Q / E, Tab, PageUp / PageDown or the controller's
   shoulder buttons change tab; Up from the first row focuses the tab bar. Arrows or the D-pad / stick move and change,
-  Enter or A selects, Esc or B goes back (and, in the menu's top level, resumes).
+  Enter or A selects, Esc or B goes back (and, in the menu's top level, closes it).
 - `core/overlay`: `Painter` (shapes and anti-aliased text with letter spacing, in the launcher's colours, CPU,
   console-independent), `Menu` (tabs and rows: button, slider, toggle, choice; navigation) and `MenuRenderer`. The
   system dialogs (`DialogOverlay`) draw with the same `Painter`. The look is flat: thin hairlines, a small accent, square
   corners.
-- The frontend (`platforms/psp/frontend`) owns what the menu does: it pauses the program (the host keeps the window
-  alive; the program's clock does not count the time) and applies changes at once. A dialog open in the game takes
+- The frontend (`platforms/psp/frontend`) owns what the menu does: while the menu is up the game gets no
+  input (no button stays pressed) but keeps running, the clock and the sound included, and changes apply at once. A dialog open in the game takes
   Escape first (it cancels the dialog).
-- The GL backend, while the menu is up, redraws the last picture as often as the display refreshes: it shrinks it to a
-  small target, blurs it (three Gaussian passes, wider each time), and draws it over the whole window darkened, with the
+- The GL backend, while the menu is up, draws the game's pictures as they come, and the last one again whenever the
+  display refreshes with nothing new: it shrinks each picture to a small target, blurs it (three Gaussian passes, wider each time), and draws it over the whole window darkened, with the
   menu image (letterboxed to 16:9) on top. Changes from the menu reach the drawing thread through `LiveSettings`: the
   **internal resolution** redraws every render target at the new size when the next picture starts (what was on them is
   scaled, not lost) and the **frame rate** changes the number of in-between pictures from the next flip.
@@ -121,8 +122,7 @@ mode, where no second window can be shown.
   button, flips a toggle or steps a choice (left half back, right half forward), a click or drag on a slider's track sets
   its value, and the wheel changes the value under the pointer or else the tab. Positions come from
   `MenuRenderer::layout`, the same ones the menu is drawn at.
-- Not done yet: changes made in the menu are not saved to the launcher's settings; a "don't pause" mode for when a room is
-  open; the Online tab.
+- Not done yet: changes made in the menu are not saved to the launcher's settings; the Online tab.
 
 ## 4. Bundled toolchain (only for model B; not needed with model A)
 

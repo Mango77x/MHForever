@@ -26,8 +26,8 @@ struct OverlayImage {
     std::vector<std::uint32_t> pixels;
     int width = 0, height = 0;
     bool visible = false;
-    // The game is paused behind the image (the in-game menu): nothing flips any more, so the backend keeps drawing the
-    // last picture with the image over it, as often as the display refreshes.
+    // The image is the in-game menu: the game runs on behind it, blurred, and the backend draws it at least as often as the
+    // display refreshes, also when the game shows nothing new.
     bool continuous = false;
     std::uint64_t generation = 0;
 };

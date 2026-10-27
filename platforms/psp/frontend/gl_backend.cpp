@@ -474,7 +474,7 @@ public:
 
     [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> next_wakeup() const override {
         if (pacing_.active) return pacing_.next_due;
-        if (overlay_ != nullptr) { // an overlay over a paused game: redraw it every refresh
+        if (overlay_ != nullptr) { // the menu is up: redraw it every refresh, even when the game shows nothing new
             std::lock_guard lock(overlay_->mutex);
             if (overlay_->continuous) return last_show_ + std::chrono::milliseconds(16);
         }
@@ -615,6 +615,7 @@ private:
     GLint blur_uv_off_{}, blur_uv_scale_{}, blur_tex_{}, blur_dir_{}, blur_dim_{};
     GLuint blur_source_{}; // the picture the blur was made from
     bool blur_ready_ = false;
+    bool redraw_only_ = false; // show() draws the same picture again (tick with nothing new): the blur can be kept
     GLuint last_texture_{}; // the picture shown last, kept on screen while the game is paused behind an overlay
     float last_uv_[2] = {1.0f, 1.0f};
     std::chrono::steady_clock::time_point last_show_{};
@@ -1365,8 +1366,8 @@ void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
         menu = overlay_->continuous;
     }
     if (menu && texture != 0 && window_w > 0 && window_h > 0) {
-        // The game is paused behind the menu: the whole window shows its last picture, blurred and darkened.
-        if (!blur_ready_ || blur_source_ != texture) build_blur(texture, uv_max_x, uv_max_y);
+        // The menu is open: the whole window shows the game running behind it, blurred and darkened.
+        if (!blur_ready_ || blur_source_ != texture || !redraw_only_) build_blur(texture, uv_max_x, uv_max_y);
         draw_blurred_background(window_w, window_h);
         have_state_ = false;
     } else if (texture != 0 && window_w > 0 && window_h > 0) {
@@ -1809,7 +1810,9 @@ void GlBackend::show_between(float phase) {
 // this moment, however late it is, and asks to be called again one step later; the flip's own picture closes it.
 void GlBackend::tick() {
     if (!pacing_.active) {
-        show(last_texture_, last_uv_[0], last_uv_[1]); // the game is paused behind an overlay: draw it again
+        redraw_only_ = true; // nothing new to show (the menu is up and no picture came): draw the last one again
+        show(last_texture_, last_uv_[0], last_uv_[1]);
+        redraw_only_ = false;
         have_state_ = false;
         return;
     }
