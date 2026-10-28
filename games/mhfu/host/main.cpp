@@ -298,12 +298,15 @@ int main(int argc, char **argv) {
                     language_screen_handled = true; // one press sequence: the screen answers and the boot continues
                     language_press_deadline = now + kLanguagePressMaxUs;
                 }
-                const bool press_language =
+                const bool answering_language_screen =
                     language_pick && language_screen_handled && stage == kLanguageScreenStageValue &&
-                    now < language_press_deadline && (now / kLanguagePulseUs) % 2 == 0;
-                // The pad state is refreshed on every poll of the sequence, including the released half: leaving it
-                // untouched would keep the cross latched and the screen would never see a fresh press.
-                if (!script.empty() || language_screen_handled) {
+                    now < language_press_deadline;
+                const bool press_language = answering_language_screen && (now / kLanguagePulseUs) % 2 == 0;
+                // The pad state is refreshed on every poll while answering, including the released half: leaving it
+                // untouched would keep the cross latched and the screen would never see a fresh press. Only while
+                // answering, though: the frontend sets the player's own input on the same poll before this runs, so
+                // writing here afterwards would throw it away and leave the controls dead.
+                if (!script.empty() || answering_language_screen) {
                     mhf::psp::ControllerState pad;
                     for (const auto &p : script) {
                         const double t = static_cast<double>(now) / 1e6;

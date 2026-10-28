@@ -165,7 +165,9 @@ The cross is pulsed, press and release for ~150 ms each, while the marker stays 
 appears with the screen's fade-in, which ignores input, and the screen reads a fresh press, so a cross merely held from
 the start never counts. The pad state is refreshed on every poll of the sequence, including the released half; leaving
 it untouched keeps the cross latched and the screen never sees a new press (this was the first failing attempt). The
-screen is on display only until it starts listening, roughly a second and a half, and is never shown to the player as
+refresh stops as soon as the screen is answered: the frontend sets the player's own input on the same poll just before
+`games/mhfu`'s callback runs, so writing the pad afterwards would keep clearing it and the controls would stop working
+(this was the second one). The screen is on display only until it starts listening, roughly a second and a half, and is never shown to the player as
 a choice. Without `--language` the boot behaves exactly like the original. Verified end to end with `--language es`
 and `it` (title screen and later boot screens come out in the picked language) and without it (the screen appears as
 always). The launcher exposes the same choice per copy of the game (*Ask* keeps the original screen, see
