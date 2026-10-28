@@ -74,7 +74,7 @@ Online play talks to a PSP ad hoc server (PPSSPP's and aemu's protocol, `docs/08
 is set, and nothing is contacted before the game first uses the ad hoc libraries:
 
 - `mhfu ... --adhoc-server host[:port] [--adhoc-nick <name>] [--adhoc-mac AA:BB:CC:DD:EE:FF]`, or the environment variable
-  `MHF_ADHOC_SERVER`; the launcher passes them from Settings → Online play.
+  `MHF_ADHOC_SERVER`; the launcher passes them from Settings → Online.
 - `MHF_TRACE_ADHOC=1` logs the ad hoc calls and, once a second, the datagrams read and sent; `=2` also dumps the start of every datagram.
 - A local server to test against: build aemu_postoffice's reference server (commit in `third_party/aemu_postoffice/NOTICE.md`, directory
   `server_cpp`, C++20, clang or g++ on Linux or WSL) and run it. Its adhocctl port is 27312, the relay 27313, and `http://127.0.0.1:8888/data.json`
