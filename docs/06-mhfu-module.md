@@ -124,6 +124,21 @@ Observed by the PPSSPP community:
 The EU version is multilingual (EN/FR/DE/ES/IT). It reads the PSP's system language with
 `sceUtilityGetSystemParamInt(8)` and then shows its own language screen before the title, on every start.
 
+**Why the port answers that screen.** The screen is not a setting the game remembers: it does not save the answer, and
+the game reads the system language only once, at start-up, to preselect a row. So a player who already told MHForever
+which language they want (the launcher's *Language*, `--language`) would be asked the same question again at every
+launch, with no way to say "don't ask". Answering the screen is how the port honours that choice. The clean
+alternatives were tried or ruled out first (below): the screen is drawn by the start-up state machinery, not by a
+function of its own, so there is no call to skip or hook; making `sceUtilityGetSystemParamInt(8)` fail does not remove
+it. Answering it is therefore a deliberate, contained shortcut, not a guess at the game's flow.
+
+**What is asked of that shortcut.** It must only act when a language was chosen (`--language`, else the boot behaves
+exactly like the original), it must not change the language the game ends up with (it confirms the row the runtime's
+answer already focused), and it must fail safe: the trigger is a read of a scene counter, so if a future exec has other
+values or the read misses, no press is sent and the player sees the original screen. The counter and the addresses are
+knowledge for this release and live in the host (`games/mhfu/host/main.cpp`), never as a hook or an address in the
+runtime.
+
 **What the runtime does today.** `RuntimeOptions::system_language` (`0`, `1`, `2`, `3`, `4`, `5` for JP, EN, FR, ES, DE, IT;
 English by default) is what `sceUtilityGetSystemParamInt(8)` answers, and `games/mhfu --language en|fr|de|es|it|jp` sets it.
 The game reads it and opens its language screen with that language already focused, which saves the player from going
