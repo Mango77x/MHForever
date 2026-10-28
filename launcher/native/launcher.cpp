@@ -212,9 +212,52 @@ Launcher::Launcher(fs::path base_dir, fs::path data_dir) : Launcher(std::move(ba
 
 Launcher::Launcher(fs::path base_dir, fs::path data_dir, fs::path saves_dir)
     : base_(std::move(base_dir)), file_(data_dir / "launcher.json"), data_dir_(std::move(data_dir)),
-      saves_dir_(std::move(saves_dir)), decryptor_(install::builtin_decryptor()) {
+      default_saves_dir_(saves_dir), saves_dir_(std::move(saves_dir)), decryptor_(install::builtin_decryptor()) {
     load();
+    if (const std::string custom = data_["savesFolder"].as_string(); !custom.empty()) saves_dir_ = platform::from_utf8(custom);
     import_game_controls();
+}
+
+Launcher::SavesFolderChange Launcher::set_saves_folder(const fs::path &folder) {
+    std::lock_guard lock(mutex_);
+    SavesFolderChange result;
+    const fs::path target = folder.empty() ? default_saves_dir_ : folder;
+    std::error_code ec;
+    const bool same = fs::exists(target, ec) && fs::exists(saves_dir_, ec) && fs::equivalent(target, saves_dir_, ec);
+    if (!same) {
+        // A folder inside the current one would be copied into itself.
+        const fs::path from = fs::weakly_canonical(saves_dir_, ec), to = fs::weakly_canonical(target, ec);
+        if (std::mismatch(from.begin(), from.end(), to.begin(), to.end()).first == from.end()) {
+            result.error = "That folder is inside the current saves folder. Choose one outside it.";
+            return result;
+        }
+        fs::create_directories(target, ec);
+        if (ec || !fs::is_directory(target, ec)) {
+            result.error = "Cannot use that folder: " + (ec ? ec.message() : std::string("it is not a folder"));
+            return result;
+        }
+        if (fs::is_directory(saves_dir_, ec)) {
+            for (const auto &game : fs::directory_iterator(saves_dir_, ec)) {
+                std::error_code item;
+                if (!game.is_directory(item)) continue;
+                const fs::path destination = target / game.path().filename();
+                if (fs::exists(destination, item)) continue; // that game already has saves there: they stay as they are
+                fs::copy(game.path(), destination, fs::copy_options::recursive, item);
+                if (item) {
+                    result.error = "Could not copy the saves of " + platform::to_utf8(game.path().filename()) + ": " + item.message() +
+                                   ". Your saves are still in the old folder.";
+                    return result;
+                }
+                ++result.copied;
+            }
+        }
+    }
+    if (folder.empty()) data_.object().erase("savesFolder");
+    else data_["savesFolder"] = platform::to_utf8(target);
+    saves_dir_ = target;
+    save();
+    result.changed = true;
+    return result;
 }
 
 void Launcher::import_legacy_saves(const std::string &disc_id) {
@@ -549,6 +592,8 @@ Json Launcher::state() {
     s["keyDefaults"] = default_settings()["keys"]; // what "Restore defaults" puts back
     s["padDefaults"] = default_settings()["pad"];
     s["stats"] = data_["stats"];
+    s["savesFolder"] = platform::to_utf8(saves_dir_);
+    s["savesFolderCustom"] = !data_["savesFolder"].as_string().empty();
     Json games(Json::Array{});
     const CatalogEntry *playable = nullptr;
     for (const auto &g : data_["games"].as_array()) {

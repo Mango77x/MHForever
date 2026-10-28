@@ -95,7 +95,16 @@ public:
     Json identity_backup();
     [[nodiscard]] const std::filesystem::path &base_dir() const { return base_; }
     [[nodiscard]] const std::filesystem::path &data_dir() const { return data_dir_; }
+    // Where the saves live: the folder the player chose (Settings > Storage), else the default one given to the constructor.
     [[nodiscard]] const std::filesystem::path &saves_dir() const { return saves_dir_; }
+    // Changes it. Every game's saves are copied into the new folder, except a game that already has saves there, whose
+    // saves are left as they are; nothing is moved or deleted. An empty `folder` goes back to the default.
+    struct SavesFolderChange {
+        bool changed = false;
+        int copied = 0; // games whose saves were copied
+        std::string error;
+    };
+    SavesFolderChange set_saves_folder(const std::filesystem::path &folder);
 
     // Saves used to live in <launcher folder>/memstick, which an update (a new folder) leaves behind. Copies what is
     // there into the memory stick of `disc_id` once per source folder, never overwriting and never deleting the old files.
@@ -141,6 +150,7 @@ private:
     Json data_;
     std::string launched_disc_; // the copy plan_launch() last prepared: where the game's own control changes belong
     std::filesystem::path data_dir_;
+    std::filesystem::path default_saves_dir_;
     std::filesystem::path saves_dir_;
     install::Decryptor decryptor_;
 };

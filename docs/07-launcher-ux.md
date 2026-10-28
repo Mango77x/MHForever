@@ -64,7 +64,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   - *Per-user data* (`data_dir`): `MHF_DATA_DIR`, else `%APPDATA%/MHForever` or `$XDG_DATA_HOME/MHForever`
     (`~/.local/share/MHForever`); layout `games/<DISC_ID>/executable.elf` and, when the image is copied, `image.iso`.
     Executable lookup order: the path set in Settings, the per-user folder, then the developer layout (`../exe`, next to the ISO).
-    `launcher.json` lives in that folder too (an old one next to the executable is copied once); `game.log` stays next to the launcher; saves live in `<Documents>/MHForever/saves/<DISC_ID>` (`install::user_saves_dir()`, `MHF_SAVES_DIR` overrides), imported once from the old `<launcher>/memstick`.
+    `launcher.json` lives in that folder too (an old one next to the executable is copied once); `game.log` stays next to the launcher; saves live in `<Documents>/MHForever/saves/<DISC_ID>` (`install::user_saves_dir()`, `MHF_SAVES_DIR` overrides), imported once from the old `<launcher>/memstick`. Settings → Storage → **Saves folder** picks another folder (`savesFolder` in `launcher.json`; "Use default" goes back): every game's saves are copied there, a game that already has saves in the new folder keeps them, and nothing is moved or deleted.
   - *Executable preparation* (`executable_preparation`): reads `PSP_GAME/SYSDIR/EBOOT.BIN` from the image, accepts it only if
     its size and SHA-1 equal `[encrypted_executable]` in `region.toml`, then refuses any output whose SHA-1 is not
     `[dev_executable]`'s. The decryption itself is a replaceable `Decryptor`; `builtin_decryptor()` (`prx_decryptor.cpp`) wraps PPSSPP's PRX

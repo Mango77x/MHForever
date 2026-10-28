@@ -245,6 +245,11 @@ export default function App() {
                   onChange={setSettings}
                   onPseudonym={(n) => api.mhf_setPseudonym(n).then((s) => { setState(s); say('Name saved'); })}
                   onCopyCode={copyCode}
+                  onSavesFolder={(backToDefault) => api.mhf_savesFolder(backToDefault ? 'default' : '').then((r) => {
+                    setState(r.state);
+                    if (r.error) say(r.error);
+                    else if (r.picked) say(r.copied ? `Saves folder changed, saves of ${r.copied} game${r.copied === 1 ? '' : 's'} copied` : 'Saves folder changed');
+                  })}
                 />
               )}
               {screen === 'game' && (

@@ -353,7 +353,9 @@ function Controls({ keys, pad, keyDefaults, padDefaults, onChange }: {
   );
 }
 
-export function SettingsPage({ state, onChange, onPseudonym, onCopyCode }: Pick<Props, 'state' | 'onChange' | 'onPseudonym' | 'onCopyCode'>) {
+export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onSavesFolder }: Pick<Props, 'state' | 'onChange' | 'onPseudonym' | 'onCopyCode'> & {
+  onSavesFolder: (backToDefault: boolean) => void;
+}) {
   const s = state.settings;
   const [name, setName] = useState(state.pseudonym);
   useEffect(() => setName(state.pseudonym), [state.pseudonym]);
@@ -402,6 +404,20 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode }: Pick<
         <div className="srow">
           <div className="slabel"><b>Keep a copy of my disc image</b><span>Copies the image into MHForever's own folder the next time you add your game, so it keeps working if the original moves. Needs about 1 GB.</span></div>
           <Toggle on={s.copyImage} onToggle={() => onChange({ copyImage: !s.copyImage })} label="Keep a copy of my disc image" />
+        </div>
+        <div className="srow">
+          <div className="slabel">
+            <b>Saves folder</b>
+            <span className="prose">
+              Where your saves are kept, one folder per game. Choosing another copies your saves there; the old folder keeps its
+              copy, and a game that already has saves in the new folder keeps those.
+            </span>
+            <span className="path">{state.savesFolder}</span>
+          </div>
+          <div className="row-actions">
+            <button className="ghost mid" onClick={() => onSavesFolder(false)}>Change…</button>
+            {state.savesFolderCustom && <button className="ghost mid" onClick={() => onSavesFolder(true)}>Use default</button>}
+          </div>
         </div>
       </motion.div>
       <motion.div className="glass section" {...rise(0.3)}>

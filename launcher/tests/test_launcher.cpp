@@ -293,6 +293,44 @@ int main(int argc, char **argv) {
         CHECK(fs::is_regular_file(stick / "PSP" / "SAVEDATA" / "ULES01213SLOT2" / "DATA.BIN"));
     }
 
+    // A saves folder the player chooses: the saves are copied there, a game that already has saves there keeps them,
+    // nothing is deleted, the choice survives a restart, and "default" goes back.
+    {
+        const fs::path base = dir / "folder_base", data = dir / "folder_data", chosen = dir / "folder_chosen";
+        const fs::path save = data / "saves" / "ULES01213" / "PSP" / "SAVEDATA" / "ULES01213SLOT1" / "DATA.BIN";
+        fs::create_directories(save.parent_path());
+        std::ofstream(save, std::ios::binary) << "mine";
+        const fs::path theirs = chosen / "ULUS10391" / "PSP" / "SAVEDATA" / "ULUS10391SLOT1" / "DATA.BIN";
+        fs::create_directories(theirs.parent_path());
+        std::ofstream(theirs, std::ios::binary) << "kept";
+        fs::create_directories(data / "saves" / "ULUS10391" / "PSP" / "SAVEDATA" / "ULUS10391SLOT1");
+        std::ofstream(data / "saves" / "ULUS10391" / "PSP" / "SAVEDATA" / "ULUS10391SLOT1" / "DATA.BIN") << "other";
+        {
+            Launcher l(base, data);
+            CHECK(!l.state()["savesFolderCustom"].as_bool());
+            const auto change = l.set_saves_folder(chosen);
+            CHECK(change.changed && change.error.empty());
+            CHECK(change.copied == 1); // ULES01213; ULUS10391 already had saves there
+            CHECK(l.saves_dir() == chosen);
+            CHECK(l.state()["savesFolderCustom"].as_bool());
+            std::string text;
+            std::ifstream(chosen / "ULES01213" / "PSP" / "SAVEDATA" / "ULES01213SLOT1" / "DATA.BIN", std::ios::binary) >> text;
+            CHECK(text == "mine");
+            std::ifstream(theirs, std::ios::binary) >> text;
+            CHECK(text == "kept");
+            CHECK(fs::is_regular_file(save)); // the old folder keeps its copy
+            const auto inside = l.set_saves_folder(chosen / "ULES01213" / "deeper");
+            CHECK(!inside.changed && !inside.error.empty());
+            CHECK(l.saves_dir() == chosen);
+        }
+        Launcher again(base, data);
+        CHECK(again.saves_dir() == chosen);
+        const auto back = again.set_saves_folder({});
+        CHECK(back.changed && back.error.empty());
+        CHECK(again.saves_dir() == data / "saves");
+        CHECK(!again.state()["savesFolderCustom"].as_bool());
+    }
+
     // Not a disc image.
     {
         std::ofstream(dir / "junk.iso") << "not an iso";
