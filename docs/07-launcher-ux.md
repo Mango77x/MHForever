@@ -44,11 +44,14 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   They live in `launcher.json` under `gameSettings.<DISC_ID>` and start from what `settings` already held, so an older file
   loses nothing; control changes made in the game's own menu go to the copy that was started. The launcher's **Settings**
   keep what is shared: profile, whether to keep a copy of the disc image, and About.
+- **Language (2026-10-28)**: each copy also has a language (Ask / EN / FR / DE / ES / IT) in its Game settings. *Ask* is the
+  original behaviour: the game opens its own language screen at every start. Picking one sends `--language` to the game,
+  which starts in it and answers that screen itself (see `06` §8), so the player never sees it.
 - **Native host** (`launcher/native`): `launcher.cpp` keeps `launcher.json` next to the executable (portable for now):
   pseudonym, identity seed, settings, library, stats. Adding a copy reads PARAM.SFO (`platforms/psp/tools/param_sfo`)
   and compares size + SHA-1 with `games/*/regions/*/region.toml` (catalog generated at configure time; identification
   data only). Launching runs `mhfu(.exe)` next to the launcher with the settings as flags (`--scale`, `--fullscreen`,
-  `--smooth-textures`, `--fps`, `--music-volume`, `--sfx-volume`, `--name`), logs to `game.log`, and records play time and
+  `--smooth-textures`, `--fps`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
   sessions. The game also needs the prepared executable: the installer produces it (below); developer builds can instead use
   `../exe/<DISC_ID>_EBOOT.BIN` (or one next to the ISO), checked against `dev_executable` in region.toml.
 - **Friend code**: generated locally (SHA-256 of a random identity seed, Crockford base32). Provisional: online play will
@@ -84,7 +87,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   was built) in `bin/`, the fonts next to them, and `packaging/linux/MHForever.desktop` plus the icon in the desktop's
   folders. The launcher embeds the icon and sets its application name, so the task bar and alt-tab show MHForever even
   when the archive is run without installing it.
-- Still to do: launcher-managed updates (signed), language selection, Steam Deck packaging
+- Still to do: launcher-managed updates (signed), Steam Deck packaging
   (AppImage/Flatpak), moving the per-user folder, moving saves there.
 
 ## 3c. The in-game menu (decided 2026-10-22)

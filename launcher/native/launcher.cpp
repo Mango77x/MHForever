@@ -121,6 +121,10 @@ Json default_settings() {
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
     s["musicVolume"] = 100;
     s["sfxVolume"] = 100;
+    // The language the game speaks and reads: empty keeps the game's own language screen at every start, and one of
+    // the languages of the disc makes the game start in it (the game's screen is answered, see `--language` in
+    // docs/06-mhfu-module.md). The regional releases offer their own set, so anything else is ignored.
+    s["language"] = "";
     // Keyboard bindings (docs/07-launcher-ux.md section 5). Values are UI Events codes, so they name the key's
     // position rather than the character printed on it, and they are the same on every keyboard layout.
     const host::KeyBindings defaults;
@@ -649,6 +653,15 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     for (const char *key : {"fullscreen", "smoothTextures"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
+    if (partial["language"].is_string()) {
+        const std::string language = partial["language"].as_string();
+        for (const char *known : {"", "en", "fr", "de", "es", "it"}) {
+            if (language == known) {
+                s["language"] = language;
+                break;
+            }
+        }
+    }
     if (partial["copyImage"].is_bool()) launcher_settings["copyImage"] = partial["copyImage"];
     if (partial["adhocServer"].is_string() && valid_server(partial["adhocServer"].as_string())) launcher_settings["adhocServer"] = partial["adhocServer"];
     if (partial["keys"].is_object()) {
@@ -854,6 +867,11 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
                  data_["pseudonym"].as_string(), "--music-volume", num("musicVolume"), "--sfx-volume", num("sfxVolume")};
     if (s["fullscreen"].as_bool()) plan.args.push_back("--fullscreen");
     if (s["smoothTextures"].as_bool()) plan.args.push_back("--smooth-textures");
+    if (const std::string language = s["language"].as_string(); !language.empty()) {
+        // Straight into the chosen language: the game answers its own language screen (docs/06-mhfu-module.md).
+        plan.args.push_back("--language");
+        plan.args.push_back(language);
+    }
     if (s["fps"].as_number() > 30) {
         plan.args.push_back("--fps");
         plan.args.push_back(num("fps"));

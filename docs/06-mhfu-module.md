@@ -168,7 +168,8 @@ it untouched keeps the cross latched and the screen never sees a new press (this
 screen is on display only until it starts listening, roughly a second and a half, and is never shown to the player as
 a choice. Without `--language` the boot behaves exactly like the original. Verified end to end with `--language es`
 and `it` (title screen and later boot screens come out in the picked language) and without it (the screen appears as
-always).
+always). The launcher exposes the same choice per copy of the game (*Ask* keeps the original screen, see
+`07-launcher-ux.md` §3b).
 
 **Ruled out**, so nobody repeats the work: a language variable in RAM (`0x08197031` holds the language but is written
 before the screen and skipping it changes nothing), the overlays `demo_task`/`demo_sub`, a saved game (`MHP2NDG.BIN`),
