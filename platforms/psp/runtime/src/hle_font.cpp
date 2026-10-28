@@ -182,8 +182,20 @@ std::vector<unsigned char> star_bitmap(int size, bool filled) {
     return px;
 }
 
+// Japanese-style characters the game's Latin text uses (full-width hyphen, katakana middle dot...), as the closest
+// character Liberation Sans has: full-width ASCII as ASCII, the ideographic space as a space, the middle dot as U+00B7.
+std::uint32_t latin_equivalent(std::uint32_t code) {
+    if (code >= 0xFF01u && code <= 0xFF5Eu) return code - 0xFEE0u;
+    if (code == 0x3000u) return 0x20u;
+    if (code == 0x30FBu) return 0xB7u;
+    return 0;
+}
+
 int glyph_for(const Face &fc, std::uint32_t code) {
     int glyph = stbtt_FindGlyphIndex(&fc.info, static_cast<int>(code));
+    if (glyph == 0) {
+        if (const std::uint32_t latin = latin_equivalent(code); latin != 0) glyph = stbtt_FindGlyphIndex(&fc.info, static_cast<int>(latin));
+    }
     if (glyph == 0 && code != 0x20u) {
         // Said once per character, so a report names what is missing.
         static std::set<std::uint32_t> reported;
