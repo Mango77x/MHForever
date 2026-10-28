@@ -147,20 +147,22 @@ mhf_target_warnings(mhf_launcher)
 
 # The launcher starts each game's program from its own folder, so building the launcher also builds every game program
 # that exists (a game target exists only when its generated code is configured) and places it (with its fonts) next to the launcher.
+# The copying is a target of its own that runs on every build of the launcher: a change to the game alone does not relink
+# the launcher, and the folder would keep the previous game.
 foreach(game IN LISTS MHF_GAMES)
     if(TARGET ${game})
-        add_dependencies(mhf_launcher ${game})
-        add_custom_command(TARGET mhf_launcher POST_BUILD
+        set(_place_commands
             COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${game}> $<TARGET_FILE_DIR:mhf_launcher>
-            COMMAND ${CMAKE_COMMAND} -E copy_directory $<TARGET_FILE_DIR:${game}>/fonts $<TARGET_FILE_DIR:mhf_launcher>/fonts
-            COMMENT "Placing ${game} and its fonts next to the launcher"
-            VERBATIM)
+            COMMAND ${CMAKE_COMMAND} -E copy_directory $<TARGET_FILE_DIR:${game}>/fonts $<TARGET_FILE_DIR:mhf_launcher>/fonts)
         if(WIN32 AND MHF_FFMPEG_WINDOWS_DLL_FILES) # the game loads FFmpeg from its own folder, which is this one now
-            add_custom_command(TARGET mhf_launcher POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MHF_FFMPEG_WINDOWS_DLL_FILES} $<TARGET_FILE_DIR:mhf_launcher>
-                COMMENT "Placing FFmpeg's DLLs next to the launcher"
-                VERBATIM)
+            list(APPEND _place_commands
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MHF_FFMPEG_WINDOWS_DLL_FILES} $<TARGET_FILE_DIR:mhf_launcher>)
         endif()
+        add_custom_target(mhf_place_${game} ${_place_commands}
+            DEPENDS ${game}
+            COMMENT "Placing ${game}, its fonts and its DLLs next to the launcher"
+            VERBATIM)
+        add_dependencies(mhf_launcher mhf_place_${game})
     endif()
 endforeach()
 
