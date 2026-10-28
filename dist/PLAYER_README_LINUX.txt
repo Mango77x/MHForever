@@ -40,6 +40,7 @@ How to play
 
 Your settings and library live in $XDG_DATA_HOME/MHForever (usually ~/.local/share/MHForever).
 Your saves live in ~/.local/share/MHForever/saves (one folder per game), so updating MHForever never loses them.
+Settings > Storage > Saves folder keeps them in another folder of your choice (your saves are copied there).
 They use the same format as the PSP and PPSSPP: you can bring your own saves from a PSP memory stick or from
 PPSSPP with Game settings > Saves > Choose folder (saves of your own version of the game only; the one you have now is
 kept in a backup folder), and you can copy MHForever's saves into PPSSPP's memory stick folder.
