@@ -141,6 +141,8 @@ using MhfReadPixels = void(APIENTRY *)(GLint, GLint, GLsizei, GLsizei, GLenum, G
     X(PFNGLGENBUFFERSPROC, GenBuffers, glGenBuffers)                                                               \
     X(PFNGLBINDBUFFERPROC, BindBuffer, glBindBuffer)                                                               \
     X(PFNGLBUFFERDATAPROC, BufferData, glBufferData)                                                               \
+    X(PFNGLMAPBUFFERRANGEPROC, MapBufferRange, glMapBufferRange)                                                   \
+    X(PFNGLUNMAPBUFFERPROC, UnmapBuffer, glUnmapBuffer)                                                            \
     X(PFNGLVERTEXATTRIBPOINTERPROC, VertexAttribPointer, glVertexAttribPointer)                                    \
     X(PFNGLENABLEVERTEXATTRIBARRAYPROC, EnableVertexAttribArray, glEnableVertexAttribArray)                        \
     X(MhfDrawArrays, DrawArrays, glDrawArrays)                                                                     \
@@ -578,6 +580,7 @@ private:
     void draw_vertices(const std::vector<GpuVertex> &vertices);
     void show(GLuint texture, float uv_max_x, float uv_max_y);
     void finish_flip();
+    void copy_shown_to_vram(const RenderTarget *shown);
     bool present_interpolated(RenderTarget &shown, const float uv_max[2]);
     [[nodiscard]] float phase_at(std::chrono::steady_clock::time_point when) const;
     void show_between(float phase);
@@ -645,6 +648,13 @@ private:
     std::uint32_t copy_width_{}, copy_height_{};
     GLuint upload_texture_{};                          // CPU pixels on their way to a target or the screen
     GLuint display_texture_{};
+    // The shown picture on its way back to guest VRAM (copy_shown_to_vram): a 480x272 target and a pixel buffer read one
+    // flip later.
+    GLuint readback_texture_{}, readback_fbo_{}, readback_pbo_{};
+    struct PendingReadback {
+        bool active{};
+        std::uint32_t address{}, stride{}, format{}, width{}, height{};
+    } pending_readback_;
     std::vector<std::uint32_t> pixels_;
 
     DrawKey state_key_{};
@@ -1391,8 +1401,63 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
     } else {
         show(texture, uv_max[0], uv_max[1]);
     }
+    copy_shown_to_vram(drawn);
     finish_flip();
     apply_live_fps(); // after the flip: the next one is the first recorded for the new rate
+}
+
+// Some games read the picture on screen with the CPU: Freedom Unite turns the last hunting picture into the background
+// of the quest rewards that way. The GE draws into render targets at the internal resolution and never into guest
+// VRAM, so the picture shown at each flip is also copied back into its framebuffer at the PSP's 480x272. It is read
+// back one flip later through a pixel buffer, so drawing never waits for it; a game reading the screen finds the
+// previous picture, which is what was on display.
+void GlBackend::copy_shown_to_vram(const RenderTarget *shown) {
+    constexpr std::uint32_t kWidth = 480, kHeight = 272;
+    if (pending_readback_.active) {
+        const PendingReadback p = pending_readback_;
+        pending_readback_.active = false;
+        gl_.BindBuffer(GL_PIXEL_PACK_BUFFER, readback_pbo_);
+        const auto *rgba = static_cast<const std::uint8_t *>(
+            gl_.MapBufferRange(GL_PIXEL_PACK_BUFFER, 0, static_cast<GLsizeiptr>(kWidth * kHeight * 4u), GL_MAP_READ_BIT));
+        if (rgba != nullptr) {
+            const std::uint32_t bpp = p.format == 3 ? 4u : 2u;
+            for (std::uint32_t y = 0; y < p.height; ++y) {
+                std::uint8_t *row = memory_.raw_pointer(0x04000000u + p.address + y * p.stride * bpp, p.width * bpp);
+                if (row == nullptr) continue;
+                for (std::uint32_t x = 0; x < p.width; ++x) pack_pixel(rgba + (static_cast<std::size_t>(y) * p.width + x) * 4u, p.format, row + x * bpp);
+            }
+            gl_.UnmapBuffer(GL_PIXEL_PACK_BUFFER);
+        }
+        gl_.BindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    }
+    if (shown == nullptr) return;
+    if (readback_fbo_ == 0) {
+        gl_.GenTextures(1, &readback_texture_);
+        gl_.BindTexture(GL_TEXTURE_2D, readback_texture_);
+        gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kWidth, kHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        gl_.GenFramebuffers(1, &readback_fbo_);
+        gl_.BindFramebuffer(GL_FRAMEBUFFER, readback_fbo_);
+        gl_.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, readback_texture_, 0);
+        gl_.GenBuffers(1, &readback_pbo_);
+        gl_.BindBuffer(GL_PIXEL_PACK_BUFFER, readback_pbo_);
+        gl_.BufferData(GL_PIXEL_PACK_BUFFER, static_cast<GLsizeiptr>(kWidth * kHeight * 4u), nullptr, GL_STREAM_READ);
+        gl_.BindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    }
+    const std::uint32_t width = std::min(kWidth, shown->width), height = std::min(kHeight, shown->height);
+    const GLint s = scale_;
+    gl_.BindFramebuffer(GL_READ_FRAMEBUFFER, shown->fbo);
+    gl_.BindFramebuffer(GL_DRAW_FRAMEBUFFER, readback_fbo_);
+    gl_.Disable(GL_SCISSOR_TEST);
+    gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    gl_.BlitFramebuffer(0, 0, static_cast<GLint>(width) * s, static_cast<GLint>(height) * s, 0, 0, static_cast<GLint>(width),
+                        static_cast<GLint>(height), GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    gl_.BindFramebuffer(GL_READ_FRAMEBUFFER, readback_fbo_);
+    gl_.BindBuffer(GL_PIXEL_PACK_BUFFER, readback_pbo_);
+    gl_.PixelStorei(GL_PACK_ALIGNMENT, 1);
+    gl_.ReadPixels(0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height), GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    gl_.BindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    pending_readback_ = {true, shown->address, shown->stride, shown->format, width, height};
+    have_state_ = false;
 }
 
 // Puts a picture on the window: letterboxed to the PSP's 480:272, with the dialog overlay on top.
