@@ -124,7 +124,17 @@ std::int32_t Kernel::start_thread(int uid, std::uint32_t arg_size, std::uint32_t
     sp -= 64u;
     t->ctx.gpr[29] = sp;
     t->ctx.gpr[28] = t->gp;
-    t->ctx.gpr[26] = t->stack_base + t->stack_size - kThreadTopReserve; // $k0: thread info area
+    // $k0: the thread info area at the top of the stack, which the kernel clears when the thread starts. The C library
+    // finds the thread's own data through it ($k0 + 4, zero for "use the shared one"), so stale bytes from a thread that
+    // used this stack before became a pointer: the sound driver thread crashed printing a message in some quests.
+    // The fields set below follow PPSSPP: the thread id, the initial stack, and two words of all ones.
+    const std::uint32_t info = t->stack_base + t->stack_size - kThreadTopReserve;
+    runtime_.memory().zero(info, kThreadTopReserve);
+    runtime_.memory().store32(info + 0xC0u, static_cast<std::uint32_t>(t->uid));
+    runtime_.memory().store32(info + 0xC8u, t->stack_base);
+    runtime_.memory().store32(info + 0xF8u, 0xFFFFFFFFu);
+    runtime_.memory().store32(info + 0xFCu, 0xFFFFFFFFu);
+    t->ctx.gpr[26] = info;
     t->ctx.gpr[31] = 0u;
     t->ctx.fcr31 = 0x00000E00u;
     // VFPU control registers at reset: identity source prefixes, no destination prefix, condition bits set.
