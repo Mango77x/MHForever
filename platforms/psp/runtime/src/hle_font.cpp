@@ -20,6 +20,7 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -124,9 +125,73 @@ void store_style(Runtime &rt, std::uint32_t address) {
     for (std::size_t i = 0; i < file.size() && i < 63; ++i) mem.store8(address + 0x60 + static_cast<std::uint32_t>(i), static_cast<std::uint8_t>(file[i]));
 }
 
+// The stars of the original font (★ U+2605, ☆ U+2606), which the game uses for levels and ranks. Liberation Sans has no
+// such glyph, so they are drawn here: a five-pointed star standing on the baseline, as tall as a capital letter.
+constexpr std::uint32_t kBlackStar = 0x2605u, kWhiteStar = 0x2606u;
+bool is_star(std::uint32_t code) { return code == kBlackStar || code == kWhiteStar; }
+
+struct StarBox {
+    int size{};    // width and height of the bitmap
+    int x0{}, y0{}; // offset from the pen position (y0 negative: above the baseline)
+    int advance{};
+};
+
+StarBox star_box(const Face &fc) {
+    const int cap = std::max(6, static_cast<int>(std::lround(static_cast<float>(fc.ascent) * fc.scale * 0.72f)));
+    return {cap, 1, -cap, cap + 2};
+}
+
+// Coverage of a star of `size` pixels, 4x4 samples per pixel; the white star keeps only a rim.
+std::vector<unsigned char> star_bitmap(int size, bool filled) {
+    constexpr double kPi = 3.14159265358979323846;
+    const auto points = [&](double radius) {
+        std::vector<std::pair<double, double>> p;
+        const double c = size / 2.0, cy = size * 0.53;
+        for (int i = 0; i < 10; ++i) {
+            const double r = (i % 2 == 0 ? radius : radius * 0.40);
+            const double a = -kPi / 2.0 + i * kPi / 5.0;
+            p.emplace_back(c + r * std::cos(a), cy + r * std::sin(a));
+        }
+        return p;
+    };
+    const auto inside = [](const std::vector<std::pair<double, double>> &p, double x, double y) {
+        bool in = false;
+        for (std::size_t i = 0, j = p.size() - 1; i < p.size(); j = i++) {
+            if ((p[i].second > y) != (p[j].second > y) &&
+                x < (p[j].first - p[i].first) * (y - p[i].second) / (p[j].second - p[i].second) + p[i].first) {
+                in = !in;
+            }
+        }
+        return in;
+    };
+    const auto outer = points(size * 0.5);
+    const auto inner = points(std::max(0.0, size * 0.5 - std::max(1.2, size / 9.0)));
+    std::vector<unsigned char> px(static_cast<std::size_t>(size * size));
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            int hits = 0;
+            for (int sy = 0; sy < 4; ++sy) {
+                for (int sx = 0; sx < 4; ++sx) {
+                    const double fx = x + (sx + 0.5) / 4.0, fy = y + (sy + 0.5) / 4.0;
+                    if (inside(outer, fx, fy) && (filled || !inside(inner, fx, fy))) ++hits;
+                }
+            }
+            px[static_cast<std::size_t>(y * size + x)] = static_cast<unsigned char>(hits * 255 / 16);
+        }
+    }
+    return px;
+}
+
 int glyph_for(const Face &fc, std::uint32_t code) {
     int glyph = stbtt_FindGlyphIndex(&fc.info, static_cast<int>(code));
-    if (glyph == 0 && code != 0x20u) glyph = stbtt_FindGlyphIndex(&fc.info, static_cast<int>(kAltCharacter));
+    if (glyph == 0 && code != 0x20u) {
+        // Said once per character, so a report names what is missing.
+        static std::set<std::uint32_t> reported;
+        if (reported.insert(code).second) {
+            std::fprintf(stderr, "[hle] sceLibFont: %s has no U+%04X, drawn as '_'\n", kFontName, static_cast<unsigned>(code));
+        }
+        glyph = stbtt_FindGlyphIndex(&fc.info, static_cast<int>(kAltCharacter));
+    }
     return glyph;
 }
 
@@ -212,10 +277,19 @@ void FontGetCharInfo(Runtime &rt, Context &ctx) {
     }
     auto &mem = rt.memory();
     mem.zero(out, 0x3C);
-    const int glyph = glyph_for(*fc, code);
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0, advance = 0, bearing = 0;
-    stbtt_GetGlyphBitmapBox(&fc->info, glyph, fc->scale, fc->scale, &x0, &y0, &x1, &y1);
-    stbtt_GetGlyphHMetrics(&fc->info, glyph, &advance, &bearing);
+    if (is_star(code)) {
+        const StarBox b = star_box(*fc);
+        x0 = b.x0;
+        y0 = b.y0;
+        x1 = b.x0 + b.size;
+        y1 = b.y0 + b.size;
+        advance = static_cast<int>(std::lround(b.advance / fc->scale));
+    } else {
+        const int glyph = glyph_for(*fc, code);
+        stbtt_GetGlyphBitmapBox(&fc->info, glyph, fc->scale, fc->scale, &x0, &y0, &x1, &y1);
+        stbtt_GetGlyphHMetrics(&fc->info, glyph, &advance, &bearing);
+    }
     const int width = x1 - x0, height = y1 - y0;
     const float line = static_cast<float>(fc->ascent - fc->descent + fc->line_gap) * fc->scale;
     mem.store32(out + 0, static_cast<std::uint32_t>(width));
@@ -287,18 +361,26 @@ void draw_glyph(Runtime &rt, Context &ctx, int clip_x, int clip_y, int clip_w, i
         ret(ctx, kErrorInvalidParameter);
         return;
     }
-    const int glyph = glyph_for(*fc, code);
-    const float shift_x = static_cast<float>(x64 & 63) / 64.0f, shift_y = static_cast<float>(y64 & 63) / 64.0f;
-    int x0, y0, x1, y1;
-    stbtt_GetGlyphBitmapBoxSubpixel(&fc->info, glyph, fc->scale, fc->scale, shift_x, shift_y, &x0, &y0, &x1, &y1);
-    const int width = x1 - x0, height = y1 - y0;
-    if (width <= 0 || height <= 0) {
-        ret(ctx, 0);
-        return;
+    int width = 0, height = 0;
+    std::vector<unsigned char> pixels;
+    if (is_star(code)) {
+        width = height = star_box(*fc).size;
+        pixels = star_bitmap(width, code == kBlackStar);
+    } else {
+        const int glyph = glyph_for(*fc, code);
+        const float shift_x = static_cast<float>(x64 & 63) / 64.0f, shift_y = static_cast<float>(y64 & 63) / 64.0f;
+        int x0, y0, x1, y1;
+        stbtt_GetGlyphBitmapBoxSubpixel(&fc->info, glyph, fc->scale, fc->scale, shift_x, shift_y, &x0, &y0, &x1, &y1);
+        width = x1 - x0;
+        height = y1 - y0;
+        if (width <= 0 || height <= 0) {
+            ret(ctx, 0);
+            return;
+        }
+        pixels.resize(static_cast<std::size_t>(width * height));
+        stbtt_MakeGlyphBitmapSubpixel(&fc->info, pixels.data(), width, height, width, fc->scale, fc->scale, shift_x, shift_y,
+                                      glyph);
     }
-    std::vector<unsigned char> pixels(static_cast<std::size_t>(width * height));
-    stbtt_MakeGlyphBitmapSubpixel(&fc->info, pixels.data(), width, height, width, fc->scale, fc->scale, shift_x, shift_y,
-                                  glyph);
     // How many pixels fit in one line of the caller's buffer.
     const int per_line = format <= 1 ? static_cast<int>(pitch * 2u) : static_cast<int>(pitch / (format == 2 ? 1u : format == 3 ? 3u : 4u));
     const int max_x = std::min({buffer_width, per_line, clip_x + clip_w});
@@ -331,8 +413,12 @@ void FontGetCharImageRect(Runtime &rt, Context &ctx) {
         ret(ctx, kErrorInvalidParameter);
         return;
     }
-    int x0, y0, x1, y1;
-    stbtt_GetGlyphBitmapBox(&fc->info, glyph_for(*fc, arg(ctx, 1)), fc->scale, fc->scale, &x0, &y0, &x1, &y1);
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    if (is_star(arg(ctx, 1))) {
+        x1 = y1 = star_box(*fc).size;
+    } else {
+        stbtt_GetGlyphBitmapBox(&fc->info, glyph_for(*fc, arg(ctx, 1)), fc->scale, fc->scale, &x0, &y0, &x1, &y1);
+    }
     rt.memory().store16(out, static_cast<std::uint16_t>(x1 - x0));
     rt.memory().store16(out + 2, static_cast<std::uint16_t>(y1 - y0));
     ret(ctx, 0);
