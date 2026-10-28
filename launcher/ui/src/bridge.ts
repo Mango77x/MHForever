@@ -52,6 +52,8 @@ export interface State {
   selectedDisc: string; // the copy Home, Settings and Play work on (chosen in the Library)
   stats: Stats;
   executable: { path: string; found: boolean };
+  savesFolder: string; // where the saves are kept (Settings > Storage)
+  savesFolderCustom: boolean; // the player chose it; false: the default one
 }
 
 export interface SaveScan {
@@ -90,6 +92,8 @@ type Native = {
   mhf_scanSaves(gameId: string): Promise<SaveScan>; // asks for a folder, looks for the saves of that game in it
   mhf_importSaves(): Promise<SaveImportResult>; // imports what the last scan found
   mhf_probeServer(server: string): Promise<number | null>; // milliseconds to connect to an ad hoc server, null when it cannot
+  // Chooses a folder for the saves (copying them there), or goes back to the default one with 'default'.
+  mhf_savesFolder(mode: '' | 'default'): Promise<{ picked: boolean; copied?: number; error?: string; state: State }>;
 };
 
 const listeners = new Set<(e: LauncherEvent) => void>();
@@ -133,6 +137,8 @@ function simulated(): Native {
     selectedDisc: '',
     stats: { secondsPlayed: 0, sessions: 0, lastPlayed: null },
     executable: { path: '', found: true },
+    savesFolder: 'C:\\Users\\Hunter\\Documents\\MHForever\\saves',
+    savesFolderCustom: false,
   };
   const copy = () => JSON.parse(JSON.stringify(state)) as State;
   return {
@@ -177,6 +183,11 @@ function simulated(): Native {
     async mhf_scanSaves() { return { picked: true, found: [{ folder: 'ULES01213', title: 'Game Data', exists: true }], note: '' }; },
     async mhf_importSaves() { return { imported: 1, backup: 'C:\\Users\\Hunter\\Documents\\MHForever\\saves\\ULES01213\\backups\\20261022-170000', error: '' }; },
     async mhf_probeServer(server) { await new Promise((r) => setTimeout(r, 300 + Math.random() * 700)); return server.includes('nowhere') ? null : 20 + Math.round(Math.random() * 250); },
+    async mhf_savesFolder(mode) {
+      state.savesFolderCustom = mode !== 'default';
+      state.savesFolder = mode === 'default' ? 'C:\\Users\\Hunter\\Documents\\MHForever\\saves' : 'D:\\Games\\MHForever saves';
+      return { picked: true, copied: mode === 'default' ? 0 : 1, error: '', state: copy() };
+    },
   };
 }
 

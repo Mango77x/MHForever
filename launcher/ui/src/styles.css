@@ -380,3 +380,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .server-custom { display: flex; flex-direction: column; gap: 6px; padding-left: 46px; }
 .server-custom .text-input { width: min(360px, 100%); }
 .server-error { color: var(--warn); font-size: 13px; }
+
+/* ------------------------------------------------------------------ settings: saves folder */
+.slabel span.path { color: var(--ink); font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; }

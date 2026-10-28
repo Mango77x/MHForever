@@ -195,6 +195,23 @@ void on_import_saves(const char *id, const Json &) {
     reply(id, r);
 }
 
+// Settings > Storage: a folder for the saves (args: [] to choose one, ["default"] to go back to the default one). Replies
+// with what happened and the new state.
+void on_saves_folder(const char *id, const Json &args) {
+    Json r;
+    const bool reset = !args.as_array().empty() && args.as_array()[0].as_string() == "default";
+    const std::optional<fs::path> folder = reset ? std::optional<fs::path>(fs::path()) :
+                                                   platform::open_folder(native_window(), "Choose where to keep your saves");
+    r["picked"] = folder.has_value();
+    if (folder) {
+        const auto change = g_app.launcher->set_saves_folder(*folder);
+        r["copied"] = change.copied;
+        r["error"] = change.error;
+    }
+    r["state"] = g_app.launcher->state();
+    reply(id, r);
+}
+
 void on_pick_executable(const char *id, const Json &) {
     if (const auto file = platform::open_file(native_window(), "Locate the decrypted executable (developer build)",
                                               "Executables", {"*.BIN", "*.bin", "*.elf", "*.prx"})) {
@@ -414,6 +431,7 @@ int main(int argc, char **argv) {
     bind("mhf_addGame", on_add_game);
     bind("mhf_removeGame", on_remove_game);
     bind("mhf_pickExecutable", on_pick_executable);
+    bind("mhf_savesFolder", on_saves_folder);
     bind("mhf_scanSaves", on_scan_saves);
     bind("mhf_importSaves", on_import_saves);
     bind("mhf_selectGame", on_select_game);
