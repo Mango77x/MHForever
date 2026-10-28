@@ -654,6 +654,7 @@ private:
     // The shown picture on its way back to guest VRAM (copy_shown_to_vram): a 480x272 target and a pixel buffer read one
     // flip later.
     GLuint readback_texture_{}, readback_fbo_{}, readback_pbo_{};
+    std::uint32_t readback_flips_{};
     struct PendingReadback {
         bool active{};
         GLsync fence{};
@@ -1413,8 +1414,9 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
 // Some games read the picture on screen with the CPU: Freedom Unite turns the last hunting picture into the background
 // of the quest rewards that way. The GE draws into render targets at the internal resolution and never into guest
 // VRAM, so the picture shown at each flip is also copied back into its framebuffer at the PSP's 480x272. It is read
-// back through a pixel buffer once the GPU has finished with it (a fence says when), so drawing never waits for it; a
-// game reading the screen finds a picture from a flip or two before, which is what was on display.
+// back through a pixel buffer once the GPU has finished with it (a fence says when), so drawing never waits for it. A
+// copy starts every other flip only, which keeps the cost low on a slow GPU; a game reading the screen finds a picture
+// from a few flips before (a tenth of a second at most), which is what was on display.
 void GlBackend::copy_shown_to_vram(const RenderTarget *shown) {
     constexpr std::uint32_t kWidth = 480, kHeight = 272;
     if (pending_readback_.active) {
@@ -1431,13 +1433,18 @@ void GlBackend::copy_shown_to_vram(const RenderTarget *shown) {
             for (std::uint32_t y = 0; y < p.height; ++y) {
                 std::uint8_t *row = memory_.raw_pointer(0x04000000u + p.address + y * p.stride * bpp, p.width * bpp);
                 if (row == nullptr) continue;
-                for (std::uint32_t x = 0; x < p.width; ++x) pack_pixel(rgba + (static_cast<std::size_t>(y) * p.width + x) * 4u, p.format, row + x * bpp);
+                const std::uint8_t *line = rgba + static_cast<std::size_t>(y) * p.width * 4u;
+                if (p.format == 3) {
+                    std::memcpy(row, line, p.width * 4u); // the same bytes as RGBA8
+                    continue;
+                }
+                for (std::uint32_t x = 0; x < p.width; ++x) pack_pixel(line + x * 4u, p.format, row + x * bpp);
             }
             gl_.UnmapBuffer(GL_PIXEL_PACK_BUFFER);
         }
         gl_.BindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     }
-    if (shown == nullptr) return;
+    if (shown == nullptr || ++readback_flips_ % 2u != 0) return;
     if (readback_fbo_ == 0) {
         gl_.GenTextures(1, &readback_texture_);
         gl_.BindTexture(GL_TEXTURE_2D, readback_texture_);
