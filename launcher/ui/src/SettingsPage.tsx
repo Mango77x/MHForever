@@ -14,6 +14,12 @@ const rise = (delay: number) => ({
   transition: { duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] as const },
 });
 
+// The languages every regional disc of the game offers. '' leaves the choice to the game's own language screen, which is
+// what the original shows at every start; picking one makes the game boot in that language and answer its screen
+// (docs/06-mhfu-module.md).
+const languages = [['', 'Ask'], ['en', 'EN'], ['fr', 'FR'], ['de', 'DE'], ['es', 'ES'], ['it', 'IT']] as const;
+const languageNames: Record<string, string> = { en: 'English', fr: 'Français', de: 'Deutsch', es: 'Español', it: 'Italiano' };
+
 type Props = {
   state: State;
   onChange: (s: Partial<Settings>) => void;
@@ -470,6 +476,26 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
         <div className="srow">
           <div className="slabel"><b>Smooth texture filtering</b><span>Optional enhancement: softens pixelated textures. Off is faithful to the original.</span></div>
           <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
+        </div>
+      </motion.div>
+      <motion.div className="glass section" {...rise(0.07)}>
+        <h3>Language</h3>
+        <div className="srow">
+          <div className="slabel">
+            <b>Language</b>
+            <span>
+              {s.language === ''
+                ? 'The game shows its own language screen at every start, as the original does.'
+                : `The game starts in ${languageNames[s.language] ?? s.language} and skips its language screen.`}
+            </span>
+          </div>
+          <div className="seg wide" role="radiogroup" aria-label="Language" style={{ '--n': languages.length } as CSSProperties}>
+            <span className="pill" style={{ transform: `translateX(${Math.max(0, languages.findIndex(([id]) => id === s.language)) * 100}%)` }} />
+            {languages.map(([id, label]) => (
+              <button key={id} className={s.language === id ? 'on' : ''} role="radio" aria-checked={s.language === id}
+                onClick={() => onChange({ language: id })}>{label}</button>
+            ))}
+          </div>
         </div>
       </motion.div>
       <motion.div className="glass section" {...rise(0.08)}>

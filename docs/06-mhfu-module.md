@@ -121,8 +121,76 @@ Observed by the PPSSPP community:
 
 ## 8. Languages
 
-The EU version is probably multilingual (EN/FR/DE/ES/IT) and picks the language from the PSP system setting (`sceImpose`/
-`sceUtility` system params). Expose it as a launcher setting. `[VERIFY]`
+The EU version is multilingual (EN/FR/DE/ES/IT). It reads the PSP's system language with
+`sceUtilityGetSystemParamInt(8)` and then shows its own language screen before the title, on every start.
+
+**Why the port answers that screen.** The screen is not a setting the game remembers: it does not save the answer, and
+the game reads the system language only once, at start-up, to preselect a row. So a player who already told MHForever
+which language they want (the launcher's *Language*, `--language`) would be asked the same question again at every
+launch, with no way to say "don't ask". Answering the screen is how the port honours that choice. The clean
+alternatives were tried or ruled out first (below): the screen is drawn by the start-up state machinery, not by a
+function of its own, so there is no call to skip or hook; making `sceUtilityGetSystemParamInt(8)` fail does not remove
+it. Answering it is therefore a deliberate, contained shortcut, not a guess at the game's flow.
+
+**What is asked of that shortcut.** It must only act when a language was chosen (`--language`, else the boot behaves
+exactly like the original), it must not change the language the game ends up with (it confirms the row the runtime's
+answer already focused), and it must fail safe: the trigger is a read of a scene counter, so if a future exec has other
+values or the read misses, no press is sent and the player sees the original screen. The counter and the addresses are
+knowledge for this release and live in the host (`games/mhfu/host/main.cpp`), never as a hook or an address in the
+runtime.
+
+**What the runtime does today.** `RuntimeOptions::system_language` (`0`, `1`, `2`, `3`, `4`, `5` for JP, EN, FR, ES, DE, IT;
+English by default) is what `sceUtilityGetSystemParamInt(8)` answers, and `games/mhfu --language en|fr|de|es|it|jp` sets it.
+The game reads it and opens its language screen with that language already focused, which saves the player from going
+through the list. It still waits for a confirmation.
+
+**Where the language goes inside the game** (EU executable, found with Ghidra; recorded here as knowledge, never as an
+address in code):
+
+| What | Where |
+|---|---|
+| The only function that asks for the system language | `0x08890718`, called once from the start-up function `0x0888FDFC` |
+| It maps the PSP value to the game's own and stores it | `state + 0xF7A574`, the global `0x09A1DB50` and the byte `0x0899BE20` |
+| It then applies it | `0x088902A8` |
+
+The mapping in that function is: PSP `2` (FR) → `2`, `3` (ES) → `4`, `4` (DE) → `2`, `5` (IT) → `5`, anything else → `1`
+(EN).
+
+**The language is read exactly once.** A trace of `sceUtilityGetSystemParamInt(8)` shows a single call, from
+`0x08890738`, inside `0x08890718`, which only `0x0888FDFC` (the start-up) calls. The game never asks again.
+
+**The screen is not driven by that call.** It has no timer (it waits for input indefinitely), and a trace of every
+guest call shows no function starting late and none of the overlay routines ever running: the screen is drawn by the
+start-up state machinery, not by a function of its own. Hooking `0x088AC308`, `0x088ACB1C`, `0x09A5F280` (demo_task)
+and `0x09C190F0` (demo_sub) was tried, and none of those hooks fired, so the screen does not run through them.
+`0x088AC308`/`0x088ACB1C` turned out to be the online-module boot task (`sceNetInit` → Netconf → adhocctl, sequenced
+through the state byte `0x09A1DB60`); it never runs while booting to the title. The idea that a failing
+`sceUtilityGetSystemParamInt(8)` would skip the screen was disproved by experiment: the game still shows it, simply with
+English focused.
+
+**How the port skips it.** The screen does not consult the system and its state blocks never surfaced to afford a hook,
+so the port answers it instead of editing the flow. When `--language` is given, the game focuses that very language, and
+`games/mhfu` presses the game's own confirm as soon as the screen is up. The screen is recognised by the boot's scene
+counter at `0x08B21704`, found by diffing whole-RAM dumps paired with the dumped display: it reads `0` on the black
+start-up, `1`-`2` while initialising, `5` on the screen before, and holds **`7` for as long as the language screen
+waits** (`games/mhfu/host/main.cpp`, `kLanguageScreenStageAddress`/`kLanguageScreenStageValue`). Triggering on the
+marker instead of a fixed time keeps the press tied to the screen on a slow or fast boot.
+
+The cross is pulsed, press and release for ~150 ms each, while the marker stays `7` and for at most 6 s: the marker
+appears with the screen's fade-in, which ignores input, and the screen reads a fresh press, so a cross merely held from
+the start never counts. The pad state is refreshed on every poll of the sequence, including the released half; leaving
+it untouched keeps the cross latched and the screen never sees a new press (this was the first failing attempt). The
+refresh stops as soon as the screen is answered: the frontend sets the player's own input on the same poll just before
+`games/mhfu`'s callback runs, so writing the pad afterwards would keep clearing it and the controls would stop working
+(this was the second one). The screen is on display only until it starts listening, roughly a second and a half, and is never shown to the player as
+a choice. Without `--language` the boot behaves exactly like the original. Verified end to end with `--language es`
+and `it` (title screen and later boot screens come out in the picked language) and without it (the screen appears as
+always). The launcher exposes the same choice per copy of the game (*Ask* keeps the original screen, see
+`07-launcher-ux.md` §3b).
+
+**Ruled out**, so nobody repeats the work: a language variable in RAM (`0x08197031` holds the language but is written
+before the screen and skipping it changes nothing), the overlays `demo_task`/`demo_sub`, a saved game (`MHP2NDG.BIN`),
+`PARAM.SFO`, and a timer that advances the screen.
 
 ## 9. Desired enhancements (phase 7, all toggleable and independent)
 

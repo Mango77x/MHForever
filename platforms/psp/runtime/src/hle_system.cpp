@@ -3,6 +3,7 @@
 #include "hle.hpp"
 #include "kernel.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -181,7 +182,9 @@ void UtilityGetSystemParamInt(Runtime &rt, Context &ctx) {
     case 4: value = 1; break;  // time format 24h
     case 5: value = 60; break; // timezone (minutes)
     case 6: value = 0; break;  // daylight saving
-    case 8: value = 1; break;  // language: English
+    case 8:                    // language: what the player chose (English unless they picked another)
+        value = static_cast<std::uint32_t>(std::clamp(rt.options().system_language, 0, 5));
+        break;
     case 9: value = 1; break;  // confirm button: cross
     default: ret(ctx, 0x80110103u); return; // invalid id
     }

@@ -22,6 +22,8 @@ export interface Settings {
   fullscreen: boolean;
   smoothTextures: boolean;
   fps: number; // 30..180, a multiple of 30
+  // The language the game speaks and reads: 'en', 'fr', 'de', 'es', 'it'; '' keeps the game's own language screen.
+  language: string;
   copyImage: boolean; // keep a copy of the disc image in MHForever's own folder
   musicVolume: number; // 0..100
   sfxVolume: number; // 0..100
@@ -128,7 +130,7 @@ function simulated(): Native {
     pseudonym: 'Hunter',
     friendCode: 'K7Q2-M9XA-4RTD-8PLE',
     settings: {
-      scale: 4, fullscreen: false, smoothTextures: false, fps: 30, copyImage: false, musicVolume: 80, sfxVolume: 90,
+      scale: 4, fullscreen: false, smoothTextures: false, fps: 30, language: '', copyImage: false, musicVolume: 80, sfxVolume: 90,
       keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '',
     },
     keyDefaults: defaultKeys,

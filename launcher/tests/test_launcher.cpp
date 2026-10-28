@@ -8,6 +8,7 @@
 #include "param_sfo.hpp"
 #include "platform.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -152,6 +153,22 @@ int main(int argc, char **argv) {
         l.set_settings(back);
         CHECK(s["pseudonym"].as_string() == "RathalosSlayer");
 
+        // Language: one of the disc's languages, or "ask" (empty) for the game's own language screen. Anything else is
+        // ignored, as the game ignores a language its disc does not offer.
+        CHECK(l.state()["settings"]["language"].as_string().empty());
+        Json spanish;
+        spanish["language"] = "es";
+        l.set_settings(spanish);
+        CHECK(l.state()["settings"]["language"].as_string() == "es");
+        Json unknown_language;
+        unknown_language["language"] = "xx";
+        l.set_settings(unknown_language);
+        CHECK(l.state()["settings"]["language"].as_string() == "es");
+        Json not_a_language;
+        not_a_language["language"] = 3;
+        l.set_settings(not_a_language);
+        CHECK(l.state()["settings"]["language"].as_string() == "es");
+
         // Keyboard bindings: defaults, a change, a button left without a key, and input the launcher ignores.
         s = l.state();
         CHECK(s["settings"]["keys"]["south"].as_string() == "KeyK");
@@ -234,6 +251,7 @@ int main(int argc, char **argv) {
         CHECK(again.state()["friendCode"].as_string() == code);
         CHECK(again.state()["settings"]["fullscreen"].as_bool());
         CHECK(again.state()["settings"]["fps"].as_number() == 90);
+        CHECK(again.state()["settings"]["language"].as_string() == "es");
         CHECK(again.state()["settings"]["keys"]["south"].as_string() == "KeyZ");
         CHECK(again.state()["settings"]["keys"]["select"].as_string().empty());
         CHECK(again.state()["settings"]["keys"]["east"].as_string() == "KeyL");
@@ -515,6 +533,27 @@ int main(int argc, char **argv) {
             }
             CHECK(last > 0.99);
             std::printf("identified %s\n", r.game ? r.game->dump().c_str() : r.error.c_str());
+
+            // The language reaches the game as --language, and "ask" leaves the flag out so the game keeps its own
+            // language screen.
+#if defined(_WIN32)
+            std::ofstream(dir / "mhfu.exe") << "game program";
+#else
+            std::ofstream(dir / "mhfu") << "game program";
+#endif
+            Json chosen_language;
+            chosen_language["language"] = "es";
+            l.set_settings(chosen_language);
+            const auto started = l.plan_launch("mhfu");
+            CHECK(started.error.empty());
+            const auto flag = std::find(started.args.begin(), started.args.end(), "--language");
+            CHECK(flag != started.args.end());
+            if (flag != started.args.end()) CHECK(flag + 1 != started.args.end() && *(flag + 1) == "es");
+            Json ask;
+            ask["language"] = "";
+            l.set_settings(ask);
+            const auto asked = l.plan_launch("mhfu");
+            CHECK(std::find(asked.args.begin(), asked.args.end(), "--language") == asked.args.end());
         }
         // Executable preparation: the encrypted executable on the disc must pass the identity gate of the catalog.
         // Without a decryptor in this build the only acceptable outcome is "unavailable", never "another release".
