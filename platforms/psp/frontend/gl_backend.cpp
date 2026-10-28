@@ -143,6 +143,9 @@ using MhfReadPixels = void(APIENTRY *)(GLint, GLint, GLsizei, GLsizei, GLenum, G
     X(PFNGLBUFFERDATAPROC, BufferData, glBufferData)                                                               \
     X(PFNGLMAPBUFFERRANGEPROC, MapBufferRange, glMapBufferRange)                                                   \
     X(PFNGLUNMAPBUFFERPROC, UnmapBuffer, glUnmapBuffer)                                                            \
+    X(PFNGLFENCESYNCPROC, FenceSync, glFenceSync)                                                                  \
+    X(PFNGLCLIENTWAITSYNCPROC, ClientWaitSync, glClientWaitSync)                                                   \
+    X(PFNGLDELETESYNCPROC, DeleteSync, glDeleteSync)                                                               \
     X(PFNGLVERTEXATTRIBPOINTERPROC, VertexAttribPointer, glVertexAttribPointer)                                    \
     X(PFNGLENABLEVERTEXATTRIBARRAYPROC, EnableVertexAttribArray, glEnableVertexAttribArray)                        \
     X(MhfDrawArrays, DrawArrays, glDrawArrays)                                                                     \
@@ -653,6 +656,7 @@ private:
     GLuint readback_texture_{}, readback_fbo_{}, readback_pbo_{};
     struct PendingReadback {
         bool active{};
+        GLsync fence{};
         std::uint32_t address{}, stride{}, format{}, width{}, height{};
     } pending_readback_;
     std::vector<std::uint32_t> pixels_;
@@ -1409,11 +1413,14 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
 // Some games read the picture on screen with the CPU: Freedom Unite turns the last hunting picture into the background
 // of the quest rewards that way. The GE draws into render targets at the internal resolution and never into guest
 // VRAM, so the picture shown at each flip is also copied back into its framebuffer at the PSP's 480x272. It is read
-// back one flip later through a pixel buffer, so drawing never waits for it; a game reading the screen finds the
-// previous picture, which is what was on display.
+// back through a pixel buffer once the GPU has finished with it (a fence says when), so drawing never waits for it; a
+// game reading the screen finds a picture from a flip or two before, which is what was on display.
 void GlBackend::copy_shown_to_vram(const RenderTarget *shown) {
     constexpr std::uint32_t kWidth = 480, kHeight = 272;
     if (pending_readback_.active) {
+        // Not read back yet (a slow GPU, or a software one): try again at the next flip rather than wait here.
+        if (gl_.ClientWaitSync(pending_readback_.fence, 0, 0) == GL_TIMEOUT_EXPIRED) return;
+        gl_.DeleteSync(pending_readback_.fence);
         const PendingReadback p = pending_readback_;
         pending_readback_.active = false;
         gl_.BindBuffer(GL_PIXEL_PACK_BUFFER, readback_pbo_);
@@ -1456,7 +1463,8 @@ void GlBackend::copy_shown_to_vram(const RenderTarget *shown) {
     gl_.PixelStorei(GL_PACK_ALIGNMENT, 1);
     gl_.ReadPixels(0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height), GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     gl_.BindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-    pending_readback_ = {true, shown->address, shown->stride, shown->format, width, height};
+    pending_readback_ = {true, gl_.FenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0), shown->address, shown->stride, shown->format, width,
+                         height};
     have_state_ = false;
 }
 
