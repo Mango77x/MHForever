@@ -24,8 +24,8 @@ What you need
   Keyboard: arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle,
   Q/E = L/R, Enter = Start, Backspace = Select. Change them, and the controller's buttons, in Game settings -> Controls
   or from the in-game menu (Escape, Controls tab).
-  Escape (or the controller's guide button) pauses the game and opens a menu: volume, resolution, frame rate,
-  fullscreen and quit. It works with the keyboard, a controller or the mouse.
+  Escape (or the controller's guide button) opens a menu over the game, which keeps running: volume, resolution,
+  frame rate, fullscreen and quit. It works with the keyboard, a controller or the mouse.
 
 
 How to play
