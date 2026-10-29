@@ -5,6 +5,7 @@
 #include "launcher.hpp"
 #include "platform.hpp"
 #include "probe.hpp"
+#include "updater.hpp"
 
 #include "webview/webview.h"
 
@@ -14,7 +15,9 @@
 #include <cstdlib>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -269,6 +272,100 @@ void on_select_game(const char *id, const Json &args) {
     reply(id, g_app.launcher->state());
 }
 
+// ---------------------------------------------------------------- updates (docs/07-launcher-ux.md)
+
+namespace update = mhf::launcher::update;
+
+std::mutex g_update_mutex;
+std::optional<update::Release> g_update; // a newer release, once the check found one
+
+Json update_info(const update::Release &release) {
+    Json e;
+    e["version"] = release.version;
+    e["page"] = release.page;
+    e["size"] = static_cast<double>(release.archive_size);
+    return e;
+}
+
+fs::path launcher_program() {
+#if defined(_WIN32)
+    return platform::executable_dir() / "MHForever.exe";
+#else
+    return platform::executable_dir() / "MHForever";
+#endif
+}
+
+// Asks GitHub for the latest release on a thread of its own; when it is newer, the UI hears of it. Any failure (offline,
+// GitHub's rate limit) just means no update this time.
+void check_for_update() {
+    std::thread([] {
+        std::string error;
+        const auto release = update::check(g_app.launcher->data_dir() / "update", MHF_VERSION_STRING, error);
+        if (!release) return; // none newer, or offline or GitHub's rate limit: no update this time
+        {
+            std::lock_guard lock(g_update_mutex);
+            g_update = *release;
+        }
+        Json e = update_info(*release);
+        e["type"] = "update";
+        g_app.emit(e);
+    }).detach();
+}
+
+void on_update_info(const char *id, const Json &) {
+    std::lock_guard lock(g_update_mutex);
+    reply(id, g_update ? update_info(*g_update) : Json(nullptr));
+}
+
+// Downloads the new release, checks it against the SHA-256 GitHub gives for it, puts its files in place (the replaced
+// ones are kept as <name>.old until the next start) and restarts the launcher. Nothing is changed unless all of that works.
+void on_install_update(const char *id, const Json &) {
+    Json r;
+    std::optional<update::Release> release;
+    {
+        std::lock_guard lock(g_update_mutex);
+        release = g_update;
+    }
+    r["started"] = release.has_value() && !g_app.busy;
+    reply(id, r);
+    if (!r["started"].as_bool()) return;
+    g_app.busy = true;
+    g_app.run_in_background([release = *release] {
+        const fs::path work = g_app.launcher->data_dir() / "update";
+        auto last = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+        const auto phase = [&](const char *name, double progress) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now - last < std::chrono::milliseconds(100) && progress < 1.0) return;
+            last = now;
+            Json e;
+            e["type"] = "updateProgress";
+            e["phase"] = name;
+            e["progress"] = progress;
+            g_app.emit(e);
+        };
+        const auto fail = [](const std::string &message) {
+            Json e;
+            e["type"] = "updateFailed";
+            e["message"] = message;
+            g_app.emit(e);
+            g_app.busy = false;
+        };
+        if (const std::string error = update::apply(release, work, platform::executable_dir(), phase); !error.empty()) {
+            return fail(error);
+        }
+        Json e;
+        e["type"] = "updateReady";
+        e["version"] = release.version;
+        g_app.emit(e);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500)); // the UI says it restarts
+        std::string error;
+        if (!platform::Process::start(launcher_program(), {}, platform::executable_dir(), work / "restart.log", error)) {
+            return fail("The update is installed: start MHForever again. (" + error + ")");
+        }
+        webview_dispatch(g_app.view, [](webview_t w, void *) { webview_terminate(w); }, nullptr);
+    });
+}
+
 void on_play(const char *id, const Json &args) {
     Json r;
     if (g_app.busy || args.as_array().empty()) {
@@ -371,6 +468,34 @@ int run_install_cli(const std::vector<std::string> &args) {
     return 0;
 }
 
+// `MHForever --update`: the same update as the launcher's "Update now", without the window.
+int run_update_cli() {
+    Launcher launcher(platform::executable_dir());
+    const fs::path work = launcher.data_dir() / "update";
+    update::remove_old(platform::executable_dir());
+    std::string error;
+    const auto release = update::check(work, MHF_VERSION_STRING, error);
+    if (!release) {
+        if (!error.empty()) {
+            std::fprintf(stderr, "error: %s\n", error.c_str());
+            return 1;
+        }
+        std::printf("MHForever %s is the latest version.\n", MHF_VERSION_STRING);
+        return 0;
+    }
+    std::printf("Updating MHForever %s to %s (%s)\n", MHF_VERSION_STRING, release->version.c_str(), release->archive.c_str());
+    error = update::apply(*release, work, platform::executable_dir(), [](const char *phase, double fraction) {
+        std::fprintf(stderr, "\r%-12s %3d%%", phase, static_cast<int>(fraction * 100));
+        if (fraction >= 1.0) std::fputc('\n', stderr);
+    });
+    if (!error.empty()) {
+        std::fprintf(stderr, "error: %s\n", error.c_str());
+        return 1;
+    }
+    std::printf("MHForever %s is installed. Start MHForever again.\n", release->version.c_str());
+    return 0;
+}
+
 #if defined(_WIN32)
 // A window-subsystem program has no console of its own: borrow the one it was started from.
 void attach_parent_console() {
@@ -400,12 +525,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                 attach_parent_console();
                 return run_install_cli(args);
             }
+            if (args.size() > 1 && args[1] == "--update") {
+                attach_parent_console();
+                return run_update_cli();
+            }
         }
     }
 #else
 int main(int argc, char **argv) {
     const bool debug = std::getenv("MHF_LAUNCHER_DEBUG") != nullptr;
     if (argc > 1 && std::string(argv[1]) == "--install") return run_install_cli(std::vector<std::string>(argv, argv + argc));
+    if (argc > 1 && std::string(argv[1]) == "--update") return run_update_cli();
 #endif
     g_app.launcher = std::make_unique<Launcher>(platform::executable_dir());
     g_app.view = webview_create(debug ? 1 : 0, nullptr);
@@ -432,6 +562,8 @@ int main(int argc, char **argv) {
     bind("mhf_removeGame", on_remove_game);
     bind("mhf_pickExecutable", on_pick_executable);
     bind("mhf_savesFolder", on_saves_folder);
+    bind("mhf_updateInfo", on_update_info);
+    bind("mhf_installUpdate", on_install_update);
     bind("mhf_scanSaves", on_scan_saves);
     bind("mhf_importSaves", on_import_saves);
     bind("mhf_selectGame", on_select_game);
@@ -440,6 +572,8 @@ int main(int argc, char **argv) {
     bind("mhf_exportIdentity", on_export_identity);
     bind("mhf_probeServer", on_probe_server);
 
+    update::remove_old(platform::executable_dir()); // what the last update replaced, now that it is not running
+    if (g_app.launcher->state()["settings"]["checkUpdates"].as_bool()) check_for_update();
     webview_set_html(g_app.view, std::string(reinterpret_cast<const char *>(kUiHtml), kUiHtmlSize).c_str());
     webview_run(g_app.view);
     if (g_app.worker.joinable()) g_app.worker.detach(); // a running game keeps going after the launcher closes

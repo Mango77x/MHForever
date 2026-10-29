@@ -124,6 +124,7 @@ add_executable(mhf_launcher
     native/hash.cpp
     native/platform.cpp
     native/probe.cpp
+    native/updater.cpp
     native/install/data_dir.cpp
     native/install/executable_preparation.cpp
     native/install/installer.cpp
@@ -195,7 +196,7 @@ endif()
 # ------------------------------------------------------------------ tests
 if(MHF_BUILD_TESTS)
     add_executable(test_launcher tests/test_launcher.cpp native/launcher.cpp native/json.cpp native/hash.cpp
-                                 native/platform.cpp native/install/data_dir.cpp
+                                 native/platform.cpp native/updater.cpp native/install/data_dir.cpp
                                  native/install/executable_preparation.cpp native/install/installer.cpp
                                  native/install/prx_decryptor.cpp ${_icon_cpp})
     target_include_directories(test_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})

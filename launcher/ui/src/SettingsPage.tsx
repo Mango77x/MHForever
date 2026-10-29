@@ -428,6 +428,13 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onSaves
             <span>Free software (GPL-3.0 or later). It contains none of the game's assets: it runs the copy you own.</span>
           </div>
         </div>
+        <div className="srow">
+          <div className="slabel">
+            <b>Check for updates</b>
+            <span className="prose">When MHForever starts, it asks GitHub whether a newer release is out and offers to install it. Nothing else is sent.</span>
+          </div>
+          <Toggle on={s.checkUpdates ?? true} onToggle={() => onChange({ checkUpdates: !(s.checkUpdates ?? true) })} label="Check for updates" />
+        </div>
       </motion.div>
     </section>
   );

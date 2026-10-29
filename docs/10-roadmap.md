@@ -85,7 +85,8 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
   byte for byte against `[dev_executable]` with the developer's disc (2026-10-19).
 - [x] Saves (`<Documents>/MHForever/saves/<DISC_ID>`) and `launcher.json` (`%APPDATA%/MHForever`) kept outside the program folder,
       with a one-time copy from the old layout (0.2.1, 2026-10-22).
-- [ ] Launcher: language selection, signed updates.
+- [x] Launcher: updates from the GitHub releases, checked against the SHA-256 GitHub publishes for each archive (2026-10-29).
+- [ ] Launcher: language selection.
 - [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19), v0.2.0 adds frame interpolation (2026-10-21), v0.2.1 fixes audio clicks and keeps saves and settings outside the program folder (2026-10-22), v0.2.2 makes the 2D HUD interpolate again (2026-10-22), v0.2.3 makes interpolation lighter (about 90 to 150 fps in
       the village at 180, 2026-10-22), v0.3.0 adds the in-game menu on Escape with live video and audio settings and
       internal resolution up to 10x (2026-10-22), v0.4.0 uses the PSP save format: saves can be imported from a PSP or PPSSPP
