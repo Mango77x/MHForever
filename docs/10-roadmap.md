@@ -123,8 +123,10 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [ ] Before the launcher reads PPSSPP's server list itself: write to PPSSPP and the server operators (`08-multiplayer.md`
   section 1.2; drafts kept outside the repository). Then the remaining experiments of `13-online-plan.md` §7: EU with
   NA (E2), three and four players (E4), two networks (E5), Linux (E8), fuzzing (E9).
-- [ ] Then the target design on top (`08-multiplayer.md` §4): identity, friends, presence, invites, room codes; optional
-  direct P2P links. **Target: 0.7.**
+- [ ] Private rooms: room codes that rename the game's 24 halls on any public server (`14-rooms-and-friends.md` §3).
+  **Target: 0.8.**
+- [ ] Friends: friend codes, presence, invites and join over Nostr relays, Discord Rich Presence as an option
+  (`14-rooms-and-friends.md` §4). **Target: 0.9.**
 **Acceptance**: 4 players (Windows + Linux/Deck, different networks) complete a quest together.
 
 ## Phase 6 — US and JP regions
