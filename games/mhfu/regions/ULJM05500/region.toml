@@ -25,3 +25,10 @@ md5 = "cc39d070b2d2c44c9ac8187e00b75dc4"
 [encrypted_executable]
 size = 1890112
 sha1 = "cc92a52fd80f12a74c32ece488c79334b11fd458"
+
+# The prepared (plain) executable the recompiled code is generated from. Identification only: never shipped, never committed.
+[dev_executable]
+size = 1890112
+sha1 = "988baded88caa3487797fdef0d71d2095de3ec52"
+entry = 0x089094D4
+text_base = 0x08804000
