@@ -14,6 +14,24 @@ namespace mhf::psp::adhoc {
 using Mac = std::array<std::uint8_t, 6>;
 using GroupName = std::array<char, 8>; // not necessarily NUL-terminated, as on the PSP
 
+// A group name for logs: printable ASCII as it is, any other byte as \xHH (the Japanese release's names are Shift-JIS).
+inline std::string printable(const GroupName &name) {
+    static const char *hex = "0123456789ABCDEF";
+    std::string out;
+    for (const char c : name) {
+        const auto b = static_cast<unsigned char>(c);
+        if (b == 0) break;
+        if (b >= 0x20 && b < 0x7F && b != '\\') {
+            out.push_back(c);
+        } else {
+            out += "\\x";
+            out.push_back(hex[b >> 4]);
+            out.push_back(hex[b & 15]);
+        }
+    }
+    return out;
+}
+
 // What the server (or a test) reports, in the order it happened.
 struct LinkEvent {
     enum class Kind { Scan, ScanComplete, Connect, LeaderMac, Disconnect, Chat, Error } kind = Kind::Error;

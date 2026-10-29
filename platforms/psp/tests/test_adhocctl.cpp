@@ -183,5 +183,13 @@ int main() {
         MHF_CHECK(!AemuLink::split_address("host:0", host, port));
     }
 
+    // Group names in logs: Freedom Unite's halls as they are, the Japanese release's Shift-JIS bytes in hex.
+    {
+        MHF_CHECK(printable(group("MHP2Q011")) == "MHP2Q011");
+        MHF_CHECK(printable(group("")) == "");
+        const GroupName shift_jis = {'\x8F', '\x57', '\x89', '\xEF', '\x8F', '\x8A', '0', '1'};
+        MHF_CHECK(printable(shift_jis) == "\\x8FW\\x89\\xEF\\x8F\\x8A01");
+    }
+
     return mhf::test::finish("psp_adhocctl");
 }

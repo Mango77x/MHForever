@@ -187,6 +187,11 @@ void AdhocctlGetScanInfo(Runtime &rt, Context &ctx) {
         write_mac(rt, entry + 16, groups[i].leader); // bssid
     }
     m.store32(size_address, count * kScanInfoSize);
+    if (net_tracing() && count > 0) {
+        std::string names;
+        for (std::uint32_t i = 0; i < count; ++i) names += (i == 0 ? "" : " ") + ad::printable(groups[i].name);
+        NET_TRACE("  groups: %s", names.c_str());
+    }
     ret(ctx, 0);
 }
 

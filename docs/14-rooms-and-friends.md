@@ -20,7 +20,10 @@ evidence but not yet seen working.
   second mode chosen by a flag (which mode is which is not known yet; both are seen live).
 - It then scans (`sceNetAdhocctlScan`, `GetScanInfo`) and **compares every group the server reports with its 24 names,
   byte for byte**. A match marks that hall as occupied. **Any other name is ignored.**
-- It joins the hall the player picks through the network configuration dialog, with that hall's name.
+- It joins the hall the player picks through the network configuration dialog, with that hall's name. Seen at run
+  time on socom.cc on 2026-10-29 (R1): the scan returned 13 and 14 Freedom Unite groups, and the game joined
+  `MHP2Q001` and then `MHP2Q013` ("connect" action of the dialog), leaving the group, the library and the ad hoc
+  stack each time it left a hall and starting them again before the next scan.
 - Live public servers on 2026-10-29 match this exactly: Freedom Unite rooms `MHP2Q000` to `MHP2Q023` and `MHP2A000` /
   `MHP2A023` (14 rooms on socom.cc at once); the Japanese release uses `集会所NN` (seen: 12, 15, 23; the prefix is three
   Shift-JIS characters, also six bytes); Portable 3rd uses `MHP3Q000` to `MHP3Q023` the same way.
@@ -175,7 +178,7 @@ off until the player turns it on.
 
 | # | Experiment | Decides |
 |---|---|---|
-| R1 | Trace the group names the game scans and joins (both prefixes, a few halls) | §1 at run time; what `MHP2A0` is |
+| R1 | Trace the group names the game scans and joins (both prefixes, a few halls) | §1 at run time; what `MHP2A0` is. **Done 2026-10-29 for `MHP2Q0`** on socom.cc; `MHP2A0` not reached yet |
 | R2 | Two copies with the same room code on the local reference server: both enter one private hall; a third copy without the code does not see it | §3.1 |
 | R2b | Switch public → private → public from the Escape menu: in the village (applies at once) and inside a hall (applies after leaving), with a public player present | §3.4 |
 | R3 | R2 on socom.cc, with a PPSSPP player in public halls at the same time | §3.2 on a busy server |
