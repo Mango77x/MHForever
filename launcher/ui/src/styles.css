@@ -384,3 +384,13 @@ button { -webkit-tap-highlight-color: transparent; }
 /* ------------------------------------------------------------------ settings: saves folder */
 .slabel span.path { color: var(--ink); font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ------------------------------------------------------------------ updates */
+.update-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 18px; border-radius: 16px;
+  border: 1px solid rgba(242, 165, 65, 0.45); background: rgba(242, 165, 65, 0.1);
+}
+.update-bar b { color: var(--accent); }
+.update-box { display: flex; flex-direction: column; gap: 14px; padding: 28px 32px; width: min(520px, 90vw); }
+.update-progress { height: 8px; border-radius: 999px; background: rgba(255, 236, 210, 0.1); overflow: hidden; }
+.update-progress i { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }

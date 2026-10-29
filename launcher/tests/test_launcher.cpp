@@ -7,6 +7,7 @@
 #include "launcher.hpp"
 #include "param_sfo.hpp"
 #include "platform.hpp"
+#include "updater.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -329,6 +330,65 @@ int main(int argc, char **argv) {
         CHECK(back.changed && back.error.empty());
         CHECK(again.saves_dir() == data / "saves");
         CHECK(!again.state()["savesFolderCustom"].as_bool());
+    }
+
+    // Updates: versions, the release GitHub describes, and putting the new files in place (and back on failure).
+    {
+        namespace up = mhf::launcher::update;
+        CHECK(up::newer("v0.6.3", "0.6.2"));
+        CHECK(up::newer("0.7.0", "0.6.12"));
+        CHECK(up::newer("v1.0", "0.9.9"));
+        CHECK(!up::newer("v0.6.2", "0.6.2"));
+        CHECK(!up::newer("0.6.1", "0.6.2"));
+        CHECK(!up::newer("garbage", "0.6.2"));
+        const auto release = Json::parse(R"({"tag_name":"v0.6.3","html_url":"https://github.com/Mango77x/MHForever/releases/tag/v0.6.3",
+            "assets":[{"name":"MHForever-0.6.3-linux-x64.tar.gz","size":100,"digest":"sha256:AAAA000000000000000000000000000000000000000000000000000000000000",
+                       "browser_download_url":"https://github.com/Mango77x/MHForever/releases/download/v0.6.3/MHForever-0.6.3-linux-x64.tar.gz"},
+                      {"name":"MHForever-0.6.3-windows-x64.zip","size":200,"digest":"sha256:bbbb000000000000000000000000000000000000000000000000000000000000",
+                       "browser_download_url":"https://github.com/Mango77x/MHForever/releases/download/v0.6.3/MHForever-0.6.3-windows-x64.zip"}]})");
+        CHECK(release.has_value());
+        if (release) {
+            const auto win = up::pick(*release, "windows-x64.zip");
+            CHECK(win && win->version == "0.6.3" && win->archive_size == 200 && win->sha256.rfind("bbbb", 0) == 0);
+            const auto lin = up::pick(*release, "linux-x64.tar.gz");
+            CHECK(lin && lin->sha256.rfind("aaaa", 0) == 0); // lowercased
+            CHECK(!up::pick(*release, "macos.zip"));
+        }
+        const auto no_digest = Json::parse(R"({"tag_name":"v0.6.3","assets":[{"name":"x-windows-x64.zip","size":1,
+            "browser_download_url":"https://github.com/x.zip"}]})");
+        CHECK(no_digest && !up::pick(*no_digest, "windows-x64.zip")); // no checksum, no update
+
+        const fs::path root = dir / "update_test", app = root / "app", unpacked = root / "unpacked";
+        fs::remove_all(root);
+        fs::create_directories(app / "fonts");
+        fs::create_directories(unpacked / "fonts");
+        std::ofstream(app / "MHForever.exe") << "old launcher";
+        std::ofstream(app / "fonts" / "a.ttf") << "old font";
+        std::ofstream(app / "game.log") << "mine";
+        std::ofstream(unpacked / "MHForever.exe") << "new launcher";
+        std::ofstream(unpacked / "fonts" / "a.ttf") << "new font";
+        std::ofstream(unpacked / "fonts" / "b.ttf") << "added";
+        CHECK(up::install(unpacked, app).empty());
+        const auto text = [](const fs::path &p) { std::ifstream in(p); std::string t; std::getline(in, t); return t; };
+        CHECK(text(app / "MHForever.exe") == "new launcher");
+        CHECK(text(app / "fonts" / "a.ttf") == "new font");
+        CHECK(text(app / "fonts" / "b.ttf") == "added");
+        CHECK(text(app / "game.log") == "mine"); // not in the archive: untouched
+        CHECK(text(app / "MHForever.exe.old") == "old launcher");
+        up::remove_old(app);
+        CHECK(!fs::exists(app / "MHForever.exe.old") && !fs::exists(app / "fonts" / "a.ttf.old"));
+        // A file that cannot be written (a folder in its place) puts everything back.
+        fs::create_directories(unpacked / "zz_blocked");
+        std::ofstream(unpacked / "zz_blocked" / "file") << "x";
+        std::ofstream(app / "zz_blocked") << "a file where the archive has a folder";
+        std::ofstream(unpacked / "MHForever.exe") << "newer launcher";
+        CHECK(!up::install(unpacked, app).empty());
+        CHECK(text(app / "MHForever.exe") == "new launcher"); // rolled back
+        CHECK(!fs::exists(app / "MHForever.exe.old"));
+        const fs::path hashed = root / "hashed.bin";
+        std::ofstream(hashed, std::ios::binary) << "abc";
+        CHECK(up::sha256_of(hashed) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        fs::remove_all(root);
     }
 
     // Not a disc image.

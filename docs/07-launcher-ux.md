@@ -84,7 +84,14 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   was built) in `bin/`, the fonts next to them, and `packaging/linux/MHForever.desktop` plus the icon in the desktop's
   folders. The launcher embeds the icon and sets its application name, so the task bar and alt-tab show MHForever even
   when the archive is run without installing it.
-- Still to do: launcher-managed updates (signed), language selection, Steam Deck packaging
+- **Updates (2026-10-29)**: when the launcher starts (Settings > About > Check for updates, on by default) it asks GitHub for
+  the latest release; when it is newer, Home offers "Update now". The launcher downloads the archive for its system with the
+  system's `curl`, checks it against the SHA-256 GitHub computes for every release asset (nothing to publish besides the
+  archives), unpacks it with the system's `tar` (both ship with Windows 10 and 11) and puts its files in place: each one it
+  replaces is kept as `<name>.old` until the next start, and a failure at any step puts everything back. Then it restarts.
+  `MHForever --update` does the same without the window; `MHF_UPDATE_URL` points the check at another release description
+  (tests use a `file://` one). Saves and settings live outside the program folder, so they are never touched.
+- Still to do: language selection, Steam Deck packaging
   (AppImage/Flatpak), moving the per-user folder, moving saves there.
 
 ## 3c. The in-game menu (decided 2026-10-22)

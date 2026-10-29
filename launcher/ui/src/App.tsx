@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { api, onEvent, selectedGame, type Game, type LauncherEvent, type Settings, type State } from './bridge';
+import { api, onEvent, selectedGame, type Game, type LauncherEvent, type Settings, type State, type UpdateInfo } from './bridge';
 import { AlertIcon, CheckIcon, ChevronIcon, CloseIcon, CopyIcon, FriendsIcon, HomeIcon, LibraryIcon, SlidersIcon } from './icons';
 import logoUrl from '../../../assets/branding/icon-128.png';
 import { Home } from './Home';
@@ -70,6 +70,8 @@ export default function App() {
   const [launch, setLaunch] = useState<Launch | null>(null);
   const [now, setNow] = useState(Date.now());
   const [padMode, setPadMode] = useState(false);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [updating, setUpdating] = useState<{ phase: string; progress: number; message?: string } | null>(null);
   const toastTimer = useRef<number>(0);
 
   const say = useCallback((text: string) => {
@@ -80,6 +82,7 @@ export default function App() {
   }, []);
 
   useEffect(() => { api.mhf_getState().then(setState); }, []);
+  useEffect(() => { api.mhf_updateInfo().then((u) => { if (u) setUpdate(u); }); }, []);
   useEffect(() => startNavigation(setPadMode), []);
 
   useEffect(() => onEvent((e: LauncherEvent) => {
@@ -93,6 +96,10 @@ export default function App() {
         setLaunch((l) => (l ? { ...l, phase: 'exited', seconds: e.seconds } : l));
         window.setTimeout(() => setLaunch(null), 2600);
         break;
+      case 'update': setUpdate({ version: e.version, page: e.page, size: e.size }); break;
+      case 'updateProgress': setUpdating({ phase: e.phase, progress: e.progress }); break;
+      case 'updateReady': setUpdating({ phase: 'ready', progress: 1 }); break;
+      case 'updateFailed': setUpdating({ phase: 'failed', progress: 0, message: e.message }); break;
       case 'launchFailed': setLaunch((l) => ({ phase: 'failed', startedAt: l?.startedAt ?? Date.now(), message: e.message })); break;
     }
   }), []);
@@ -226,6 +233,18 @@ export default function App() {
               </div>
             </div>
           </header>
+
+          {update && !updating && (
+            <motion.div className="update-bar" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
+              <span><b>MHForever {update.version}</b> is available{update.size > 0 ? ` (${Math.round(update.size / 1048576)} MB)` : ''}.</span>
+              <button className="ghost mid" onClick={() => {
+                setUpdating({ phase: 'downloading', progress: 0 });
+                api.mhf_installUpdate().then((r) => {
+                  if (!r.started) setUpdating({ phase: 'failed', progress: 0, message: 'The update cannot start while a game is running or a copy is being added.' });
+                });
+              }}>Update now</button>
+            </motion.div>
+          )}
 
           <AnimatePresence mode="wait">
             <motion.div
@@ -388,6 +407,28 @@ export default function App() {
         </AnimatePresence>
 
         <Toast text={toast} />
+        <AnimatePresence>
+          {updating && (
+            <motion.div className="overlay" role="dialog" aria-modal="true" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <div className="glass update-box">
+                <h2>
+                  {updating.phase === 'failed' ? 'The update did not work' : updating.phase === 'ready' ? 'Restarting MHForever' : `Updating to ${update?.version ?? 'the new version'}`}
+                </h2>
+                <p className="muted">
+                  {updating.phase === 'downloading' && 'Downloading from GitHub.'}
+                  {updating.phase === 'verifying' && 'Checking that the download matches the release.'}
+                  {updating.phase === 'installing' && 'Putting the new files in place. Your saves and settings are not touched.'}
+                  {updating.phase === 'ready' && 'The new version is installed and opens in a moment.'}
+                  {updating.phase === 'failed' && updating.message}
+                </p>
+                {updating.phase !== 'failed' && (
+                  <div className="update-progress"><i style={{ width: `${Math.round((updating.phase === 'downloading' ? updating.progress : 1) * 100)}%` }} /></div>
+                )}
+                {updating.phase === 'failed' && <button className="ghost mid" onClick={() => setUpdating(null)}>Close</button>}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         {padMode && (
           <div className="pad-hint" aria-hidden="true"><span><kbd>A</kbd>Select</span><span><kbd>B</kbd>Back</span></div>
         )}

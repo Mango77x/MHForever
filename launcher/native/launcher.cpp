@@ -81,7 +81,7 @@ const Json *chosen_copy(const Json &data, const std::string &game_id, const Cata
 }
 
 // The launcher's own settings: everything else is kept per copy of a game.
-bool is_launcher_setting(const std::string &key) { return key == "copyImage" || key == "adhocServer"; }
+bool is_launcher_setting(const std::string &key) { return key == "copyImage" || key == "adhocServer" || key == "checkUpdates"; }
 
 // What a copy of a game uses: its own settings, over what the launcher.json "settings" hold (the values every copy started
 // from, and what a launcher.json from before the per-copy settings has).
@@ -119,6 +119,7 @@ Json default_settings() {
     s["smoothTextures"] = false;
     s["fps"] = 30; // output rate: the game's own 30, or a multiple of it up to 180 (in-between pictures)
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
+    s["checkUpdates"] = true; // ask GitHub for a newer release when the launcher starts
     s["musicVolume"] = 100;
     s["sfxVolume"] = 100;
     // Keyboard bindings (docs/07-launcher-ux.md section 5). Values are UI Events codes, so they name the key's
@@ -695,6 +696,7 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
     if (partial["copyImage"].is_bool()) launcher_settings["copyImage"] = partial["copyImage"];
+    if (partial["checkUpdates"].is_bool()) launcher_settings["checkUpdates"] = partial["checkUpdates"];
     if (partial["adhocServer"].is_string() && valid_server(partial["adhocServer"].as_string())) launcher_settings["adhocServer"] = partial["adhocServer"];
     if (partial["keys"].is_object()) {
         Json &keys = s["keys"];

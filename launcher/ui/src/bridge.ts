@@ -32,6 +32,7 @@ export interface Settings {
   pad: Record<string, string>;
   // The PSP ad hoc server used for online play, "host" or "host:port"; '' keeps the game offline.
   adhocServer: string;
+  checkUpdates: boolean; // ask GitHub for a newer release when the launcher starts
 }
 
 export interface Stats {
@@ -76,7 +77,18 @@ export type LauncherEvent =
   | { type: 'launch'; phase: 'checking' | 'starting' | 'running' }
   | { type: 'exited'; code: number; seconds: number }
   | { type: 'launchFailed'; message: string }
-  | { type: 'state'; state: State };
+  | { type: 'state'; state: State }
+  | ({ type: 'update' } & UpdateInfo)
+  | { type: 'updateProgress'; phase: 'downloading' | 'verifying' | 'installing'; progress: number }
+  | { type: 'updateReady'; version: string }
+  | { type: 'updateFailed'; message: string };
+
+// A newer release of MHForever on GitHub.
+export interface UpdateInfo {
+  version: string;
+  page: string;
+  size: number; // bytes of the archive for this system
+}
 
 type Native = {
   mhf_getState(): Promise<State>;
@@ -93,6 +105,8 @@ type Native = {
   mhf_importSaves(): Promise<SaveImportResult>; // imports what the last scan found
   mhf_probeServer(server: string): Promise<number | null>; // milliseconds to connect to an ad hoc server, null when it cannot
   // Chooses a folder for the saves (copying them there), or goes back to the default one with 'default'.
+  mhf_updateInfo(): Promise<UpdateInfo | null>; // the newer release the start-up check found, if any
+  mhf_installUpdate(): Promise<{ started: boolean }>; // download, check, install and restart (events: updateProgress...)
   mhf_savesFolder(mode: '' | 'default'): Promise<{ picked: boolean; copied?: number; error?: string; state: State }>;
 };
 
@@ -129,7 +143,7 @@ function simulated(): Native {
     friendCode: 'K7Q2-M9XA-4RTD-8PLE',
     settings: {
       scale: 4, fullscreen: false, smoothTextures: false, fps: 30, copyImage: false, musicVolume: 80, sfxVolume: 90,
-      keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '',
+      keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '', checkUpdates: true,
     },
     keyDefaults: defaultKeys,
     padDefaults: defaultPad,
@@ -183,6 +197,21 @@ function simulated(): Native {
     async mhf_scanSaves() { return { picked: true, found: [{ folder: 'ULES01213', title: 'Game Data', exists: true }], note: '' }; },
     async mhf_importSaves() { return { imported: 1, backup: 'C:\\Users\\Hunter\\Documents\\MHForever\\saves\\ULES01213\\backups\\20261022-170000', error: '' }; },
     async mhf_probeServer(server) { await new Promise((r) => setTimeout(r, 300 + Math.random() * 700)); return server.includes('nowhere') ? null : 20 + Math.round(Math.random() * 250); },
+    async mhf_updateInfo() { return { version: '0.7.0', page: 'https://github.com/Mango77x/MHForever/releases', size: 73_000_000 }; },
+    async mhf_installUpdate() {
+      let p = 0;
+      const tick = setInterval(() => {
+        p += 0.08;
+        if (p < 1) emit({ type: 'updateProgress', phase: 'downloading', progress: p });
+        else {
+          clearInterval(tick);
+          emit({ type: 'updateProgress', phase: 'verifying', progress: 1 });
+          setTimeout(() => emit({ type: 'updateProgress', phase: 'installing', progress: 1 }), 500);
+          setTimeout(() => emit({ type: 'updateReady', version: '0.7.0' }), 1200);
+        }
+      }, 120);
+      return { started: true };
+    },
     async mhf_savesFolder(mode) {
       state.savesFolderCustom = mode !== 'default';
       state.savesFolder = mode === 'default' ? 'C:\\Users\\Hunter\\Documents\\MHForever\\saves' : 'D:\\Games\\MHForever saves';
