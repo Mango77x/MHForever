@@ -395,6 +395,75 @@ struct Origin {
     float x_before[3]{}, y_before[3]{};
 };
 
+// Where a register sits in a DrawKey.
+constexpr std::size_t state_index(std::uint32_t reg) {
+    for (std::size_t i = 0; i < kStateRegs.size(); ++i) {
+        if (kStateRegs[i] == reg) return i;
+    }
+    return kStateRegs.size();
+}
+
+// Effects: blended and not writing depth (particles such as dust and smoke, but also layers such as the snow over the
+// terrain).
+bool is_effect(const DrawKey &key) {
+    return (key[state_index(kAlphaBlendEnable)] & 1u) != 0 && (key[state_index(kZWriteDisable)] & 1u) != 0;
+}
+
+// A particle system reuses the memory of a particle that ended for a new one somewhere else, and the points are paired
+// by that memory: moving them back drew the new particle on its way from the old one (fragments around the footsteps at
+// 180 fps). A triangle of a reused particle jumps several times its own size in one flip, which the triangles of a layer
+// such as the snow over the terrain never do (measured: none in a run through the village), although their points shift
+// a little every flip and need their pairing. So in an effect, a piece (triangles joined by shared points) in which any
+// fully paired triangle jumped more than twice its own size is drawn where this flip put it, through the interpolated
+// camera, as a whole so that no shared point is torn apart. Everything else keeps its pairing.
+void unpair_jumping_particles(std::vector<Origin> &origins) {
+    for (const Origin &o : origins) {
+        if (o.sprite) return; // triangles only (sprites take x and y from different points)
+    }
+    const std::size_t count = origins.size() / 3;
+    if (count == 0) return;
+    const auto distance = [](const float *a, const float *b) {
+        const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+        return std::sqrt(dx * dx + dy * dy + dz * dz);
+    };
+    // Triangles that jumped.
+    std::vector<bool> jumped(count, false);
+    bool any = false;
+    for (std::size_t t = 0; t < count; ++t) {
+        const Origin *p = &origins[t * 3];
+        if (!p[0].x_moved || !p[1].x_moved || !p[2].x_moved) continue;
+        const float size = std::max({distance(p[0].x_world, p[1].x_world), distance(p[1].x_world, p[2].x_world),
+                                     distance(p[0].x_world, p[2].x_world)});
+        const float jump = std::max({distance(p[0].x_world, p[0].x_before), distance(p[1].x_world, p[1].x_before),
+                                     distance(p[2].x_world, p[2].x_before)});
+        jumped[t] = jump > 2.0f * size;
+        any = any || jumped[t];
+    }
+    if (!any) return;
+    // Pieces: triangles that share a point (the same key) are joined.
+    std::vector<std::size_t> parent(count);
+    for (std::size_t i = 0; i < count; ++i) parent[i] = i;
+    const auto root = [&](std::size_t i) {
+        while (parent[i] != i) i = parent[i] = parent[parent[i]];
+        return i;
+    };
+    std::unordered_map<std::uint64_t, std::size_t> owner;
+    owner.reserve(origins.size());
+    for (std::size_t i = 0; i < origins.size(); ++i) {
+        if (origins[i].x_key == 0) continue;
+        const auto [it, fresh] = owner.emplace(origins[i].x_key, i / 3);
+        if (!fresh) parent[root(i / 3)] = root(it->second);
+    }
+    std::vector<bool> piece_jumped(count, false);
+    for (std::size_t t = 0; t < count; ++t) {
+        if (jumped[t]) piece_jumped[root(t)] = true;
+    }
+    for (std::size_t t = 0; t < count; ++t) {
+        if (!piece_jumped[root(t)]) continue;
+        for (std::size_t a = t * 3; a < t * 3 + 3; ++a) origins[a].x_moved = origins[a].y_moved = false;
+    }
+}
+
 // One batch of primitives as it was drawn, kept to draw it again between two flips (frame interpolation).
 struct TapeEntry {
     DrawSetup setup;
@@ -500,6 +569,7 @@ private:
         GLuint fbo{}, color{}, depth{};
         std::uint64_t last_draw{}; // present count when last drawn by the GE
         std::uint64_t last_use{};
+        std::uint64_t copied{}; // present count + 1 when last copied back to VRAM (copy_shown_to_vram), 0: never
         [[nodiscard]] std::uint32_t bytes_per_pixel() const { return format == 3 ? 4u : 2u; }
         [[nodiscard]] std::uint32_t end() const { return address + stride * height * bytes_per_pixel(); }
     };
@@ -583,7 +653,7 @@ private:
     void draw_vertices(const std::vector<GpuVertex> &vertices);
     void show(GLuint texture, float uv_max_x, float uv_max_y);
     void finish_flip();
-    void copy_shown_to_vram(const RenderTarget *shown);
+    void copy_shown_to_vram(RenderTarget *shown);
     bool present_interpolated(RenderTarget &shown, const float uv_max[2]);
     [[nodiscard]] float phase_at(std::chrono::steady_clock::time_point when) const;
     void show_between(float phase);
@@ -654,7 +724,6 @@ private:
     // The shown picture on its way back to guest VRAM (copy_shown_to_vram): a 480x272 target and a pixel buffer read one
     // flip later.
     GLuint readback_texture_{}, readback_fbo_{}, readback_pbo_{};
-    std::uint32_t readback_flips_{};
     struct PendingReadback {
         bool active{};
         GLsync fence{};
@@ -961,6 +1030,15 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
     uv_xform[2] = 0.0f;
     uv_xform[3] = 0.0f;
     const bool indexed = info.format >= 4 && info.format <= 7;
+    if (indexed && (info.address & 0x0F000000u) == 0x04000000u && find_target(info.address & 0x001FFFFFu, true) != nullptr) {
+        // A palette texture over a framebuffer the GE drew is read from VRAM, which only holds the screen copy (late, and
+        // at the PSP's resolution). Named once per address, so an effect that looks wrong can be traced to it.
+        static std::set<std::uint32_t> reported;
+        if (reported.insert(info.address).second) {
+            std::fprintf(stderr, "[gl] palette texture read from a drawn framebuffer at %08X (format %u, %ux%u)\n", info.address,
+                         info.format, info.width, info.height);
+        }
+    }
     // A texture inside a framebuffer the GE has drawn: sample the render target itself.
     if ((info.address & 0x0F000000u) == 0x04000000u && !indexed) {
         if (RenderTarget *rt = find_target(info.address & 0x001FFFFFu, true)) {
@@ -1414,10 +1492,10 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
 // Some games read the picture on screen with the CPU: Freedom Unite turns the last hunting picture into the background
 // of the quest rewards that way. The GE draws into render targets at the internal resolution and never into guest
 // VRAM, so the picture shown at each flip is also copied back into its framebuffer at the PSP's 480x272. It is read
-// back through a pixel buffer once the GPU has finished with it (a fence says when), so drawing never waits for it. A
-// copy starts every other flip only, which keeps the cost low on a slow GPU; a game reading the screen finds a picture
-// from a few flips before (a tenth of a second at most), which is what was on display.
-void GlBackend::copy_shown_to_vram(const RenderTarget *shown) {
+// back through a pixel buffer once the GPU has finished with it (a fence says when), so drawing never waits for it. Each
+// framebuffer is copied every fourth flip at most, which keeps the cost low on a slow GPU; a game reading the screen
+// finds a picture from a few flips before (a tenth of a second or so), which is what was on display.
+void GlBackend::copy_shown_to_vram(RenderTarget *shown) {
     constexpr std::uint32_t kWidth = 480, kHeight = 272;
     if (pending_readback_.active) {
         // Not read back yet (a slow GPU, or a software one): try again at the next flip rather than wait here.
@@ -1444,7 +1522,10 @@ void GlBackend::copy_shown_to_vram(const RenderTarget *shown) {
         }
         gl_.BindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     }
-    if (shown == nullptr || ++readback_flips_ % 2u != 0) return;
+    // Each framebuffer is copied at most every fourth flip. Counting flips instead would copy only one framebuffer of a
+    // double-buffered game (they take turns), and the game would read the other one black.
+    if (shown == nullptr || (shown->copied != 0 && frame_ + 1 - shown->copied < 4)) return;
+    shown->copied = frame_ + 1;
     if (readback_fbo_ == 0) {
         gl_.GenTextures(1, &readback_texture_);
         gl_.BindTexture(GL_TEXTURE_2D, readback_texture_);
@@ -2062,6 +2143,7 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
                     if (o.y_moved) std::copy(was, was + 3, o.y_before);
                 }
             }
+            if (is_effect(e.setup.key)) unpair_jumping_particles(e.origins);
         }
         flip_.address = shown.address;
         flip_.width = shown.width;
