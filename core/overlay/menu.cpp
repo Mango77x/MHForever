@@ -255,7 +255,9 @@ struct MenuRenderer::Impl : Painter {
     static constexpr float kLineY = 40.0f;   // hairline under the tabs
     static constexpr float kBlockW = 286.0f; // the rows, centred
     static constexpr float kAreaTop = 52.0f, kAreaBottom = 244.0f;
-    static constexpr float kTabSize = 8.0f, kTabTrack = 1.5f, kTabGap = 30.0f;
+    static constexpr float kTabSize = 8.0f, kTabTrack = 1.5f, kTabGap = 30.0f, kTabGapMin = 12.0f;
+    static constexpr float kIconW = 16.0f;   // the project's icon at the left of the top bar
+    static constexpr float kCornerSize = 6.4f, kCornerTrack = 0.9f;
     static constexpr float kBarW = 92.0f;    // a slider's track
 
     static float row_height(const MenuItem &item) {
@@ -279,12 +281,21 @@ struct MenuRenderer::Impl : Painter {
             p.tab_w.push_back(measure(upper(t.name), kTabSize, true, kTabTrack) - kTabTrack);
             total += p.tab_w.back();
         }
-        if (!v.tabs.empty()) total += kTabGap * static_cast<float>(v.tabs.size() - 1);
+        // The tabs share the bar between the icon and the corner text: centred on the canvas when they fit there, otherwise
+        // in the space left, with narrower gaps when they need them.
+        const float corner_w = v.corner.empty() ? 0.0f : measure(upper(v.corner), kCornerSize, false, kCornerTrack);
+        p.layout.corner = {kW - kMargin - corner_w, kBarY - 9.0f, corner_w, 12.0f};
+        const float left = kMargin + kIconW + 14.0f, right = kW - kMargin - corner_w - (corner_w > 0.0f ? 26.0f : 0.0f);
+        const float gaps = v.tabs.size() > 1 ? static_cast<float>(v.tabs.size() - 1) : 0.0f;
+        float gap = kTabGap;
+        if (gaps > 0.0f && total + gap * gaps > right - left) gap = std::max(kTabGapMin, (right - left - total) / gaps);
+        total += gap * gaps;
         float tx = (kW - total) * 0.5f;
+        tx = std::clamp(tx, left, std::max(left, right - total));
         for (const float w : p.tab_w) {
             p.tab_x.push_back(tx);
-            p.layout.tabs.push_back({tx - 12.0f, kBarY - 13.0f, w + 24.0f, 24.0f});
-            tx += w + kTabGap;
+            p.layout.tabs.push_back({tx - gap * 0.4f, kBarY - 13.0f, w + gap * 0.8f, 24.0f});
+            tx += w + gap;
         }
 
         const auto &rows = v.items();
@@ -396,8 +407,7 @@ struct MenuRenderer::Impl : Painter {
         // ---- top bar: the project's icon on the left, the tabs in the middle, what Escape does on the right
         image(kMargin, kBarY - 13.0f, 16.0f, kIcon, kIconSize);
         if (!v.corner.empty()) {
-            const float cw = measure(upper(v.corner), 6.4f, false, 0.9f);
-            text(kW - kMargin - cw, kBarY, upper(v.corner), 6.4f, kDim, 0.8f, false, 0.9f);
+            text(p.layout.corner.x, kBarY, upper(v.corner), kCornerSize, kDim, 0.8f, false, kCornerTrack);
         }
         for (std::size_t i = 0; i < v.tabs.size(); ++i) {
             const bool active = static_cast<int>(i) == v.tab;

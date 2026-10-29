@@ -138,6 +138,19 @@ int main() {
         MHF_CHECK(lay.tabs.size() == 3 && lay.rows.size() == 2);
         MHF_CHECK(lay.tabs[0].x + lay.tabs[0].w < lay.tabs[1].x && lay.tabs[1].x + lay.tabs[1].w < lay.tabs[2].x); // apart
 
+        // Five tabs and the corner text, as in the game's menu when it is online: the tabs keep clear of the icon and of
+        // the corner, and of each other.
+        {
+            MenuView five = sample();
+            five.corner = "Esc  Back to the game";
+            for (const char *name : {"Controls", "Online"}) five.tabs.push_back(MenuTab{name, {}});
+            const MenuLayout wide = layouter.layout(five);
+            MHF_CHECK(wide.tabs.size() == 5 && wide.corner.w > 0);
+            MHF_CHECK(wide.tabs.front().x > 26.0f + 16.0f);
+            MHF_CHECK(wide.tabs.back().x + wide.tabs.back().w <= wide.corner.x);
+            for (std::size_t i = 1; i < wide.tabs.size(); ++i) MHF_CHECK(wide.tabs[i - 1].x + wide.tabs[i - 1].w <= wide.tabs[i].x);
+        }
+
         // A tab is picked by clicking it.
         auto h = lay.hit(lay.tabs[2].x + 5.0f, lay.tabs[2].y + 5.0f);
         MHF_CHECK(h.kind == MenuLayout::Hit::Kind::Tab && h.index == 2);
@@ -214,14 +227,27 @@ int main() {
     MHF_CHECK(renderer.render(shown.view(), 2, pixels, false));
     MHF_CHECK(pixels[0] == 0u && pixels[pixels.size() - 1] == 0u);
 
-    // MHF_MENU_DUMP=<file>: also writes the picture (raw premultiplied RGBA, 1920x1088) to look at it.
+    // MHF_MENU_DUMP=<file>: also writes the picture (raw premultiplied RGBA, 1920x1088) to look at it: the game's menu
+    // as it is online, five tabs and the corner text, on an Online tab like the game's.
     if (const char *dump = std::getenv("MHF_MENU_DUMP")) {
         std::vector<std::uint32_t> big;
+        MenuView v = sample();
+        v.corner = "Esc  Back to the game";
+        v.tabs.push_back(MenuTab{"Controls", {item(MenuItem::Kind::Button, 90, "Restore keyboard defaults")}});
+        MenuItem halls = item(MenuItem::Kind::Choice, 91, "Halls");
+        halls.options = {"Public", "Private room"};
+        halls.value = 1;
+        halls.detail = "Only players with your room code, on MHForever.";
+        MenuItem code = item(MenuItem::Kind::Button, 92, "Room code   K7QF-29XM");
+        code.detail = "Enter copies it. Friends who play with it meet you in the same halls.";
+        MenuItem paste = item(MenuItem::Kind::Button, 93, "Use the room code you copied");
+        paste.detail = "A friend's code, copied from a message.";
+        v.tabs.push_back(MenuTab{"Online", {item(MenuItem::Kind::Heading, 0, "Gathering Hall"), halls, code, paste,
+                                            item(MenuItem::Kind::Button, 94, "New room code"),
+                                            item(MenuItem::Kind::Info, 0, "Next time you enter the Gathering Hall you see the halls of room K7QF-29XM.")}});
         Menu look;
-        look.set(sample());
-        look.press(Key::NextTab);
-        look.press(Key::NextTab); // the Video tab
-        look.press(Key::Down);
+        look.set(v);
+        for (int i = 0; i < 4; ++i) look.press(Key::NextTab); // the Online tab
         renderer.render(look.view(), 4, big, false);
         if (std::FILE *f = std::fopen(dump, "wb")) {
             std::fwrite(big.data(), 4, big.size(), f);

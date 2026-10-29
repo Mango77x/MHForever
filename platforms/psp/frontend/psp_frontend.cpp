@@ -320,10 +320,9 @@ overlay::MenuTab menu_online(const Frontend::Impl &impl) {
     halls.detail = private_room ? "Only players with your room code, on MHForever." : "Everyone on the server, PPSSPP and PSP players too.";
     tab.items.push_back(halls);
     if (private_room) {
-        overlay::MenuItem code = menu_item(Kind::Info, 0, "Room code  " + format_adhoc_room_code(impl.room));
-        code.detail = "Friends who play with this code meet you in the same halls.";
+        overlay::MenuItem code = menu_item(Kind::Button, kCopyRoom, "Room code   " + format_adhoc_room_code(impl.room));
+        code.detail = "Enter copies it. Friends who play with it meet you in the same halls.";
         tab.items.push_back(code);
-        tab.items.push_back(menu_item(Kind::Button, kCopyRoom, "Copy the room code"));
     }
     overlay::MenuItem paste = menu_item(Kind::Button, kPasteRoom, "Use the room code you copied");
     paste.detail = "A friend's code, copied from a message.";

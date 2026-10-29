@@ -62,6 +62,7 @@ struct MenuLayout {
         [[nodiscard]] bool contains(float px, float py) const { return w > 0 && px >= x && px < x + w && py >= y && py < y + h; }
     };
     std::vector<Rect> tabs;
+    Rect corner;             // the corner text (what Escape does); the tabs never reach into it
     std::vector<Rect> rows;  // one per row of the shown tab; empty (w = 0) when scrolled out of view
     std::vector<Rect> bars;  // the track of a slider row (empty for the other rows)
 
