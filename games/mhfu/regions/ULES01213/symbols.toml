@@ -13,6 +13,7 @@ mh_overlay_prepare      = 0x0890DD9C # (image*, size): cache maintenance, clears
 mh_static_init_run      = 0x0890C2FC # (begin, end, ...): runs a static-initializer table (used for overlays and the executable)
 
 [data]
+mh_language_screen_stage = 0x08B21704 # u32, boot scene counter: 7 while the language screen waits (docs/06-mhfu-module.md §8)
 mh_overlay_region_bases = 0x089CBA70 # u32[6], region base address per group
 
 [offsets]
