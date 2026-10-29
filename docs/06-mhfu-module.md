@@ -77,6 +77,11 @@ mh_player_state     = 0x09xxxxxx
 The EU map (`regions/ULES01213/symbols.toml`) currently holds the entry point and the overlay loader (`04-recompiler.md` §4.4).
 The US map (`regions/ULUS10391/`) holds the entry point, the overlay loader and the overlay manifest; the JP map is pending until that dump is available.
 
+`mhf_recomp` turns every `[data]` entry into a `MHF_SYMBOL_<name>` macro in a generated header (`<program>_symbols.hpp`,
+git-ignored like the generated code) that the host includes. That is how host code reads game state — the language
+screen's scene counter, for example — by canonical name: a region's map decides whether the name exists, and an address
+is never written by hand in the host. A missing name simply disables the behaviour that needs it in that region (§8).
+
 **US release (ULUS10391, measured 2026-10-26).** Up to the overlay manager the code sits where it does in EU; from there on
 everything, code and data, is 0x120 bytes higher, and the overlay groups load 0x100 higher. The 298 overlays carry the same names
 and `DATA.BIN` ids as in EU (only `demo_task` differs in size). Recompiled it gives the same 1,042 generated files and the
@@ -135,62 +140,49 @@ it. Answering it is therefore a deliberate, contained shortcut, not a guess at t
 **What is asked of that shortcut.** It must only act when a language was chosen (`--language`, else the boot behaves
 exactly like the original), it must not change the language the game ends up with (it confirms the row the runtime's
 answer already focused), and it must fail safe: the trigger is a read of a scene counter, so if a future exec has other
-values or the read misses, no press is sent and the player sees the original screen. The counter and the addresses are
-knowledge for this release and live in the host (`games/mhfu/host/main.cpp`), never as a hook or an address in the
-runtime.
+values or the read misses, no press is sent and the player sees the original screen. The counter is a data symbol of the
+region, named in its `symbols.toml` and generated for the host; nothing like it is hardcoded in the runtime or in the
+host.
 
 **What the runtime does today.** `RuntimeOptions::system_language` (`0`, `1`, `2`, `3`, `4`, `5` for JP, EN, FR, ES, DE, IT;
 English by default) is what `sceUtilityGetSystemParamInt(8)` answers, and `games/mhfu --language en|fr|de|es|it|jp` sets it.
 The game reads it and opens its language screen with that language already focused, which saves the player from going
 through the list. It still waits for a confirmation.
 
-**Where the language goes inside the game** (EU executable, found with Ghidra; recorded here as knowledge, never as an
-address in code):
+**What the game does with the language.** It reads the system language exactly once, at start-up, and keeps it only to
+preselect a row of the screen: the answer is not saved and the game never asks the system again. Internally it uses its
+own numbering, so the five PSP values are mapped on the way in (for example, French becomes the game's third language).
 
-| What | Where |
-|---|---|
-| The only function that asks for the system language | `0x08890718`, called once from the start-up function `0x0888FDFC` |
-| It maps the PSP value to the game's own and stores it | `state + 0xF7A574`, the global `0x09A1DB50` and the byte `0x0899BE20` |
-| It then applies it | `0x088902A8` |
-
-The mapping in that function is: PSP `2` (FR) → `2`, `3` (ES) → `4`, `4` (DE) → `2`, `5` (IT) → `5`, anything else → `1`
-(EN).
-
-**The language is read exactly once.** A trace of `sceUtilityGetSystemParamInt(8)` shows a single call, from
-`0x08890738`, inside `0x08890718`, which only `0x0888FDFC` (the start-up) calls. The game never asks again.
-
-**The screen is not driven by that call.** It has no timer (it waits for input indefinitely), and a trace of every
-guest call shows no function starting late and none of the overlay routines ever running: the screen is drawn by the
-start-up state machinery, not by a function of its own. Hooking `0x088AC308`, `0x088ACB1C`, `0x09A5F280` (demo_task)
-and `0x09C190F0` (demo_sub) was tried, and none of those hooks fired, so the screen does not run through them.
-`0x088AC308`/`0x088ACB1C` turned out to be the online-module boot task (`sceNetInit` → Netconf → adhocctl, sequenced
-through the state byte `0x09A1DB60`); it never runs while booting to the title. The idea that a failing
-`sceUtilityGetSystemParamInt(8)` would skip the screen was disproved by experiment: the game still shows it, simply with
-English focused.
+**The screen is not driven by that call.** It is drawn by the start-up state machinery: it has no timer and waits for
+input indefinitely, no function of its own runs for it, and none of the overlay routines is involved. Hooking the
+routines that decorate the start-up, and the demo overlay tasks, was tried and none of them fired while the screen is up.
+The idea that a failing `sceUtilityGetSystemParamInt(8)` would skip the screen was disproved by experiment: the game
+still shows it, simply with English focused.
 
 **How the port skips it.** The screen does not consult the system and its state blocks never surfaced to afford a hook,
 so the port answers it instead of editing the flow. When `--language` is given, the game focuses that very language, and
-`games/mhfu` presses the game's own confirm as soon as the screen is up. The screen is recognised by the boot's scene
-counter at `0x08B21704`, found by diffing whole-RAM dumps paired with the dumped display: it reads `0` on the black
-start-up, `1`-`2` while initialising, `5` on the screen before, and holds **`7` for as long as the language screen
-waits** (`games/mhfu/host/main.cpp`, `kLanguageScreenStageAddress`/`kLanguageScreenStageValue`). Triggering on the
-marker instead of a fixed time keeps the press tied to the screen on a slow or fast boot.
+`games/mhfu` presses the game's own confirm as soon as the screen is up. The press is tied to the screen through the
+boot's scene counter, a data symbol named in the region's `symbols.toml` and generated into a header the host includes:
+the counter steps through the start-up screens and holds one value while the language screen waits, so the press follows
+a slow or fast boot instead of a fixed delay. A region whose symbol map does not name that counter (the North American
+one today) only preselects the language and presses nothing: the same address means something else in another build.
 
-The cross is pulsed, press and release for ~150 ms each, while the marker stays `7` and for at most 6 s: the marker
-appears with the screen's fade-in, which ignores input, and the screen reads a fresh press, so a cross merely held from
-the start never counts. The pad state is refreshed on every poll of the sequence, including the released half; leaving
-it untouched keeps the cross latched and the screen never sees a new press (this was the first failing attempt). The
-refresh stops as soon as the screen is answered: the frontend sets the player's own input on the same poll just before
-`games/mhfu`'s callback runs, so writing the pad afterwards would keep clearing it and the controls would stop working
-(this was the second one). The screen is on display only until it starts listening, roughly a second and a half, and is never shown to the player as
-a choice. Without `--language` the boot behaves exactly like the original. Verified end to end with `--language es`
-and `it` (title screen and later boot screens come out in the picked language) and without it (the screen appears as
-always). The launcher exposes the same choice per copy of the game (*Ask* keeps the original screen, see
-`07-launcher-ux.md` §3b).
+The cross is pulsed, press and release for ~150 ms each, while the counter stays at that value and for at most 6 s: the
+counter moves with the screen's fade-in, which ignores input, and the screen reads a fresh press, so a cross merely held
+from the start never counts. The pad state is refreshed on every poll of the sequence, including the released half;
+leaving it untouched keeps the cross latched and the screen never sees a new press (this was the first failing attempt).
+The refresh stops as soon as the screen is answered: the frontend sets the player's own input on the same poll just
+before `games/mhfu`'s callback runs, so writing the pad afterwards would keep clearing it and the controls would stop
+working (this was the second one). The screen is on display only until it starts listening, roughly a second and a half,
+and is never shown to the player as a choice. Without `--language` the boot behaves exactly like the original. Verified
+end to end with `--language es` and `it` (title screen and later boot screens come out in the picked language) and
+without it (the screen appears as always). The launcher exposes the same choice per copy of the game (*Ask* keeps the
+original screen, see `07-launcher-ux.md` §3b).
 
-**Ruled out**, so nobody repeats the work: a language variable in RAM (`0x08197031` holds the language but is written
-before the screen and skipping it changes nothing), the overlays `demo_task`/`demo_sub`, a saved game (`MHP2NDG.BIN`),
-`PARAM.SFO`, and a timer that advances the screen.
+**Ruled out**, so nobody repeats the work: forcing a language variable that the game already writes before the screen,
+the `demo_task`/`demo_sub` overlays, a saved game (`MHP2NDG.BIN`), `PARAM.SFO`, and a timer that advances the screen.
+The measurements behind all of this — addresses, traces and the candidates tried — stay out of the repository, in the
+local `research/` notes (`research/README.md`).
 
 ## 9. Desired enhancements (phase 7, all toggleable and independent)
 
