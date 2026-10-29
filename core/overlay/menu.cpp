@@ -12,8 +12,11 @@ namespace mhf::overlay {
 // ---------------------------------------------------------------- navigation
 
 bool Menu::selectable(const MenuItem &item) {
-    return item.enabled && item.kind != MenuItem::Kind::Info && item.kind != MenuItem::Kind::Heading;
+    if (!item.enabled || item.kind == MenuItem::Kind::Info || item.kind == MenuItem::Kind::Heading) return false;
+    return item.kind != MenuItem::Kind::Banner || !item.actions.empty();
 }
+
+int Menu::first_action(const MenuItem &item) { return item.kind == MenuItem::Kind::Banner && !item.actions.empty() ? 0 : -1; }
 
 std::vector<MenuItem> &Menu::items() { return view_.tabs[static_cast<std::size_t>(view_.tab)].items; }
 
@@ -27,19 +30,22 @@ int Menu::first_selectable() const {
 
 void Menu::set(MenuView view) {
     std::string keep_tab;
-    int keep_id = -1;
+    int keep_id = -1, keep_action = -1;
     bool had_row = false;
     if (view_.tab >= 0 && view_.tab < static_cast<int>(view_.tabs.size())) {
         keep_tab = view_.tabs[static_cast<std::size_t>(view_.tab)].name;
         const auto &rows = view_.items();
         if (view_.selected >= 0 && view_.selected < static_cast<int>(rows.size())) {
             keep_id = rows[static_cast<std::size_t>(view_.selected)].id;
+            keep_action = view_.action;
             had_row = true;
         }
     }
-    const bool focus = view_.tabs_focused;
+    const bool focus = view_.tabs_focused, pointer = view_.pointer;
     view_ = std::move(view);
     view_.version = ++version_;
+    view_.pointer = pointer;
+    view_.action = -1;
     if (view_.tabs.empty()) {
         view_.tab = 0;
         view_.selected = 0;
@@ -58,6 +64,18 @@ void Menu::set(MenuView view) {
         if (had_row && rows[i].id == keep_id && selectable(rows[i])) found = static_cast<int>(i);
     }
     view_.selected = found >= 0 ? found : first_selectable();
+    if (!rows.empty()) {
+        const MenuItem &row = rows[static_cast<std::size_t>(view_.selected)];
+        view_.action = found >= 0 && keep_action < static_cast<int>(row.actions.size()) && (keep_action >= 0 || first_action(row) < 0)
+                           ? keep_action
+                           : first_action(row);
+    }
+}
+
+void Menu::set_pointer(bool on) {
+    if (view_.pointer == on) return;
+    view_.pointer = on;
+    view_.version = ++version_;
 }
 
 void Menu::move(int direction) {
@@ -67,6 +85,7 @@ void Menu::move(int direction) {
         const int i = ((view_.selected + direction * step) % count + count) % count;
         if (selectable(rows[static_cast<std::size_t>(i)])) {
             view_.selected = i;
+            view_.action = first_action(rows[static_cast<std::size_t>(i)]);
             view_.version = ++version_;
             return;
         }
@@ -78,40 +97,39 @@ void Menu::change_tab(int direction) {
     if (count < 2) return;
     view_.tab = ((view_.tab + direction) % count + count) % count;
     view_.selected = first_selectable();
+    const auto &rows = view_.items();
+    view_.action = rows.empty() ? -1 : first_action(rows[static_cast<std::size_t>(view_.selected)]);
+    view_.version = ++version_;
+}
+
+void Menu::focus_tabs() {
+    if (view_.tabs.size() < 2 && view_.tabs_focused) return;
+    view_.tabs_focused = true;
     view_.version = ++version_;
 }
 
 Menu::Event Menu::press(Key key) {
+    set_pointer(false);
     if (key == Key::Back) return {Event::Kind::Back, 0, 0};
     if (view_.tabs.empty()) return {};
     if (key == Key::PrevTab || key == Key::NextTab) {
         change_tab(key == Key::PrevTab ? -1 : 1);
         return {};
     }
-    if (view_.tabs_focused) { // the tab bar: Left/Right pick the tab, Down (or Accept) goes into it
-        if (key == Key::Left || key == Key::Right) change_tab(key == Key::Left ? -1 : 1);
-        if (key == Key::Down || key == Key::Accept) {
+    if (view_.tabs_focused) { // the sidebar: Up/Down pick the section, Right (or Accept) goes into it
+        if (key == Key::Up || key == Key::Down) change_tab(key == Key::Up ? -1 : 1);
+        if (key == Key::Right || key == Key::Accept) {
             view_.tabs_focused = false;
-            view_.selected = first_selectable();
             view_.version = ++version_;
         }
         return {};
     }
     auto &rows = items();
     if (rows.empty()) {
-        if (key == Key::Up && view_.tabs.size() > 1) {
-            view_.tabs_focused = true;
-            view_.version = ++version_;
-        }
+        if (key == Key::Left) focus_tabs();
         return {};
     }
     if (key == Key::Up || key == Key::Down) {
-        // Up from the first row goes to the tab bar.
-        if (key == Key::Up && view_.tabs.size() > 1 && view_.selected <= first_selectable()) {
-            view_.tabs_focused = true;
-            view_.version = ++version_;
-            return {};
-        }
         move(key == Key::Up ? -1 : 1);
         return {};
     }
@@ -119,23 +137,50 @@ Menu::Event Menu::press(Key key) {
     MenuItem &item = rows[static_cast<std::size_t>(view_.selected)];
     if (!selectable(item)) return {};
     const auto changed = [&](int value) { return set_value(item, value); };
-    const int direction = key == Key::Left ? -1 : key == Key::Right ? 1 : 0;
+    const auto activated = [&](int action) { return Event{Event::Kind::Activated, item.id, 0, action}; };
+    const int actions = static_cast<int>(item.actions.size());
     switch (item.kind) {
     case MenuItem::Kind::Button:
     case MenuItem::Kind::Binding:
-        if (key == Key::Accept) return {Event::Kind::Activated, item.id, 0};
-        return {};
-    case MenuItem::Kind::Slider:
-        if (direction != 0) return changed(std::clamp(item.value + direction * std::max(item.step, 1), item.min, item.max));
+        if (key == Key::Accept) return activated(-1);
+        if (key == Key::Left) focus_tabs();
         return {};
     case MenuItem::Kind::Toggle:
-        if (key == Key::Accept || direction != 0) return changed(item.value != 0 ? 0 : 1);
+        if (key == Key::Accept) return changed(item.value != 0 ? 0 : 1);
+        if (key == Key::Left) focus_tabs();
+        return {};
+    case MenuItem::Kind::Slider:
+        if (key == Key::Left || key == Key::Right) {
+            return changed(std::clamp(item.value + (key == Key::Left ? -1 : 1) * std::max(item.step, 1), item.min, item.max));
+        }
         return {};
     case MenuItem::Kind::Choice: {
         const int n = static_cast<int>(item.options.size());
         if (n == 0) return {};
         if (key == Key::Accept) return changed((item.value + 1) % n);
-        return changed(std::clamp(item.value + direction, 0, n - 1));
+        if (key == Key::Right) return changed(std::min(item.value + 1, n - 1));
+        if (key == Key::Left) {
+            if (item.value <= 0) focus_tabs(); // past the first option: out to the sidebar
+            else return changed(item.value - 1);
+        }
+        return {};
+    }
+    case MenuItem::Kind::Banner:
+    case MenuItem::Kind::Text: {
+        const int lowest = item.kind == MenuItem::Kind::Banner ? 0 : -1; // a field is focused before its actions
+        if (key == Key::Accept) return activated(view_.action);
+        if (key == Key::Left) {
+            if (view_.action <= lowest) {
+                focus_tabs();
+            } else {
+                --view_.action;
+                view_.version = ++version_;
+            }
+        } else if (key == Key::Right && view_.action + 1 < actions) {
+            ++view_.action;
+            view_.version = ++version_;
+        }
+        return {};
     }
     default: return {};
     }
@@ -145,6 +190,14 @@ Menu::Event Menu::press(Key key) {
 
 MenuLayout::Hit MenuLayout::hit(float x, float y) const {
     Hit h;
+    if (close.contains(x, y)) {
+        h.kind = Hit::Kind::Close;
+        return h;
+    }
+    if (resume.contains(x, y)) {
+        h.kind = Hit::Kind::Resume;
+        return h;
+    }
     for (std::size_t i = 0; i < tabs.size(); ++i) {
         if (tabs[i].contains(x, y)) {
             h.kind = Hit::Kind::Tab;
@@ -154,8 +207,26 @@ MenuLayout::Hit MenuLayout::hit(float x, float y) const {
     }
     for (std::size_t i = 0; i < rows.size(); ++i) {
         if (!rows[i].contains(x, y)) continue;
-        h.kind = Hit::Kind::Row;
         h.index = static_cast<int>(i);
+        if (i < actions.size()) {
+            for (std::size_t a = 0; a < actions[i].size(); ++a) {
+                if (actions[i][a].contains(x, y)) {
+                    h.kind = Hit::Kind::Action;
+                    h.sub = static_cast<int>(a);
+                    return h;
+                }
+            }
+        }
+        if (i < options.size()) {
+            for (std::size_t o = 0; o < options[i].size(); ++o) {
+                if (options[i][o].contains(x, y)) {
+                    h.kind = Hit::Kind::Option;
+                    h.sub = static_cast<int>(o);
+                    return h;
+                }
+            }
+        }
+        h.kind = Hit::Kind::Row;
         h.along = std::clamp((x - rows[i].x) / rows[i].w, 0.0f, 1.0f);
         if (i < bars.size() && bars[i].w > 0 && x >= bars[i].x - 4.0f && x < bars[i].x + bars[i].w + 4.0f) {
             h.on_bar = true;
@@ -173,20 +244,27 @@ Menu::Event Menu::set_value(MenuItem &item, int value) {
     return {Event::Kind::Changed, item.id, value};
 }
 
-void Menu::hover_row(int row) {
+void Menu::hover_row(int row, int action) {
     if (view_.tabs.empty() || row < 0 || row >= static_cast<int>(view_.items().size())) return;
-    if (!selectable(view_.items()[static_cast<std::size_t>(row)])) return;
-    if (view_.selected != row || view_.tabs_focused) {
+    const MenuItem &item = view_.items()[static_cast<std::size_t>(row)];
+    if (!selectable(item)) return;
+    if (action < -1 || action >= static_cast<int>(item.actions.size())) action = -1;
+    if (action < 0) action = first_action(item);
+    if (view_.selected != row || view_.action != action || view_.tabs_focused) {
         view_.selected = row;
+        view_.action = action;
         view_.tabs_focused = false;
         view_.version = ++version_;
     }
 }
 
 void Menu::click_tab(int tab) {
-    if (tab < 0 || tab >= static_cast<int>(view_.tabs.size()) || tab == view_.tab) return;
+    if (tab < 0 || tab >= static_cast<int>(view_.tabs.size())) return;
+    if (tab == view_.tab && !view_.tabs_focused) return;
     view_.tab = tab;
     view_.selected = first_selectable();
+    const auto &rows = view_.items();
+    view_.action = rows.empty() ? -1 : first_action(rows[static_cast<std::size_t>(view_.selected)]);
     view_.tabs_focused = false;
     view_.version = ++version_;
 }
@@ -198,18 +276,31 @@ Menu::Event Menu::click_row(int row, float along, bool on_bar) {
     if (!selectable(item)) return {};
     switch (item.kind) {
     case MenuItem::Kind::Button:
-    case MenuItem::Kind::Binding: return {Event::Kind::Activated, item.id, 0};
+    case MenuItem::Kind::Binding: return {Event::Kind::Activated, item.id, 0, -1};
+    case MenuItem::Kind::Text: return {Event::Kind::Activated, item.id, 0, -1}; // the field: start typing
     case MenuItem::Kind::Toggle: return set_value(item, item.value != 0 ? 0 : 1);
-    case MenuItem::Kind::Choice: {
-        const int n = static_cast<int>(item.options.size());
-        if (n == 0) return {};
-        return set_value(item, std::clamp(item.value + (along < 0.5f ? -1 : 1), 0, n - 1));
-    }
     case MenuItem::Kind::Slider:
         if (on_bar) return drag_slider(row, along);
         return {};
     default: return {};
     }
+}
+
+Menu::Event Menu::click_option(int row, int option) {
+    if (view_.tabs.empty() || row < 0 || row >= static_cast<int>(items().size())) return {};
+    hover_row(row);
+    MenuItem &item = items()[static_cast<std::size_t>(row)];
+    if (!selectable(item) || item.kind != MenuItem::Kind::Choice) return {};
+    if (option < 0 || option >= static_cast<int>(item.options.size())) return {};
+    return set_value(item, option);
+}
+
+Menu::Event Menu::click_action(int row, int action) {
+    if (view_.tabs.empty() || row < 0 || row >= static_cast<int>(items().size())) return {};
+    const MenuItem &item = items()[static_cast<std::size_t>(row)];
+    if (!selectable(item) || action < 0 || action >= static_cast<int>(item.actions.size())) return {};
+    hover_row(row, action);
+    return {Event::Kind::Activated, item.id, 0, action};
 }
 
 Menu::Event Menu::drag_slider(int row, float along) {
@@ -230,7 +321,7 @@ Menu::Event Menu::scroll(int direction, int row) {
             return set_value(item, std::clamp(item.value + direction * std::max(item.step, 1), item.min, item.max));
         }
     }
-    change_tab(-direction); // the wheel up goes to the previous tab
+    if (!items().empty()) move(-direction); // the wheel up selects the row above, and the list follows
     return {};
 }
 
@@ -243,203 +334,349 @@ std::string upper(std::string s) {
     return s;
 }
 
+constexpr Color kPanel{0.094f, 0.067f, 0.106f};
+constexpr Color kWarm{0.969f, 0.847f, 0.651f};   // text on an amber tint
+constexpr Color kSoft{0.847f, 0.812f, 0.851f};   // labels that are not focused
+constexpr Color kGreen{0.435f, 0.820f, 0.545f};
+constexpr Color kBlue{0.561f, 0.722f, 0.910f};
+
 } // namespace
 
 struct MenuRenderer::Impl : Painter {
     explicit Impl(const std::filesystem::path &font_directory) : Painter(font_directory) {}
 
-    // Logical units of the 480x272 canvas.
+    // Logical units of the 480x272 canvas (the mockup at 1280 px wide, times 0.375).
     static constexpr float kW = 480.0f, kH = 272.0f;
-    static constexpr float kMargin = 26.0f;  // left/right of the top bar and the hairline
-    static constexpr float kBarY = 28.0f;    // baseline of the tab labels
-    static constexpr float kLineY = 40.0f;   // hairline under the tabs
-    static constexpr float kBlockW = 286.0f; // the rows, centred
-    static constexpr float kAreaTop = 52.0f, kAreaBottom = 244.0f;
-    static constexpr float kTabSize = 8.0f, kTabTrack = 1.5f, kTabGap = 30.0f, kTabGapMin = 12.0f;
-    static constexpr float kIconW = 16.0f;   // the project's icon at the left of the top bar
-    static constexpr float kCornerSize = 6.4f, kCornerTrack = 0.9f;
-    static constexpr float kBarW = 92.0f;    // a slider's track
+    static constexpr float kPad = 10.0f, kGap = 7.0f, kRadius = 6.5f;
+    static constexpr float kSideW = 88.0f;
+    static constexpr float kNavTop = 33.0f, kNavH = 17.0f, kNavGap = 2.0f;
+    static constexpr float kLabel = 5.8f, kDetail = 4.8f, kSmall = 4.4f;
+    static constexpr float kRowGap = 3.5f, kCard = 4.5f;
 
-    static float row_height(const MenuItem &item) {
+    struct Panels {
+        MenuLayout::Rect side, main, content;
+    };
+
+    static Panels panels(const MenuView &v) {
+        Panels p;
+        p.side = {kPad, kPad, kSideW, kH - 2.0f * kPad};
+        p.main = {kPad + kSideW + kGap, kPad, kW - kPad * 2.0f - kSideW - kGap, kH - 2.0f * kPad};
+        const float bottom = p.main.y + p.main.h - (!v.pointer && !v.hint.empty() ? 16.0f : 9.0f);
+        p.content = {p.main.x + 14.0f, p.main.y + 37.0f, p.main.w - 28.0f, bottom - (p.main.y + 37.0f)};
+        return p;
+    }
+
+    float row_height(const MenuItem &item, float w) const {
+        const bool detail = !item.detail.empty();
         switch (item.kind) {
-        case MenuItem::Kind::Heading: return 22.0f;
-        case MenuItem::Kind::Info: return 14.0f;
-        default: return item.detail.empty() ? 23.0f : 31.0f;
+        case MenuItem::Kind::Heading: return 12.0f;
+        case MenuItem::Kind::Info: return static_cast<float>(std::max<std::size_t>(1, wrap(item.label, 5.2f, w - 22.0f).size())) * 7.2f + 8.0f;
+        case MenuItem::Kind::Choice:
+            if (!item.option_details.empty()) return item.label.empty() ? 30.0f : 40.0f;
+            return 31.0f;
+        case MenuItem::Kind::Banner: return 30.0f;
+        case MenuItem::Kind::Text: return 28.0f;
+        default: return detail ? 26.0f : 20.0f;
         }
+    }
+
+    // Buttons laid right to left from `right`, at (y, h): the rects in the order given.
+    std::vector<MenuLayout::Rect> buttons(const std::vector<std::string> &labels, float right, float y, float h) const {
+        std::vector<MenuLayout::Rect> out(labels.size());
+        float x = right;
+        for (std::size_t i = labels.size(); i-- > 0;) {
+            const float w = std::max(22.0f, measure(labels[i], 5.2f, true) + 13.0f);
+            x -= w;
+            out[i] = {x, y, w, h};
+            x -= 3.5f;
+        }
+        return out;
     }
 
     struct Placed {
         MenuLayout layout;
-        std::vector<float> tab_x, tab_w; // the labels
-        float scroll = 0.0f, top = 0.0f, content = 0.0f, total_rows = 0.0f;
+        std::vector<float> row_y;   // every row's top, scrolled
+        std::vector<bool> shown;
+        Panels panels;
+        float scroll = 0.0f, total = 0.0f;
     };
 
     Placed place(const MenuView &v) const {
         Placed p;
-        float total = 0.0f;
-        for (const MenuTab &t : v.tabs) {
-            p.tab_w.push_back(measure(upper(t.name), kTabSize, true, kTabTrack) - kTabTrack);
-            total += p.tab_w.back();
+        p.panels = panels(v);
+        const auto &side = p.panels.side;
+        for (std::size_t i = 0; i < v.tabs.size(); ++i) {
+            p.layout.tabs.push_back({side.x + 5.0f, side.y + kNavTop + static_cast<float>(i) * (kNavH + kNavGap), side.w - 10.0f, kNavH});
         }
-        // The tabs share the bar between the icon and the corner text: centred on the canvas when they fit there, otherwise
-        // in the space left, with narrower gaps when they need them.
-        const float corner_w = v.corner.empty() ? 0.0f : measure(upper(v.corner), kCornerSize, false, kCornerTrack);
-        p.layout.corner = {kW - kMargin - corner_w, kBarY - 9.0f, corner_w, 12.0f};
-        const float left = kMargin + kIconW + 14.0f, right = kW - kMargin - corner_w - (corner_w > 0.0f ? 26.0f : 0.0f);
-        const float gaps = v.tabs.size() > 1 ? static_cast<float>(v.tabs.size() - 1) : 0.0f;
-        float gap = kTabGap;
-        if (gaps > 0.0f && total + gap * gaps > right - left) gap = std::max(kTabGapMin, (right - left - total) / gaps);
-        total += gap * gaps;
-        float tx = (kW - total) * 0.5f;
-        tx = std::clamp(tx, left, std::max(left, right - total));
-        for (const float w : p.tab_w) {
-            p.tab_x.push_back(tx);
-            p.layout.tabs.push_back({tx - gap * 0.4f, kBarY - 13.0f, w + gap * 0.8f, 24.0f});
-            tx += w + gap;
-        }
+        p.layout.resume = {side.x + 5.0f, side.y + side.h - 30.0f, side.w - 10.0f, 17.0f};
+        p.layout.close = {p.panels.main.x + p.panels.main.w - 23.0f, p.panels.main.y + 6.0f, 17.0f, 17.0f};
 
         const auto &rows = v.items();
+        const auto &c = p.panels.content;
         std::vector<float> offsets(rows.size() + 1, 0.0f);
-        for (std::size_t i = 0; i < rows.size(); ++i) offsets[i + 1] = offsets[i] + row_height(rows[i]);
-        const float room = kAreaBottom - kAreaTop;
-        p.total_rows = offsets.back();
-        p.content = std::min(offsets.back(), room);
-        p.top = kAreaTop + std::max(0.0f, (room - p.content) * 0.5f - 6.0f);
-        if (v.selected >= 0 && v.selected < static_cast<int>(rows.size())) {
+        for (std::size_t i = 0; i < rows.size(); ++i) offsets[i + 1] = offsets[i] + row_height(rows[i], c.w) + kRowGap;
+        p.total = offsets.back();
+        if (v.selected >= 0 && v.selected < static_cast<int>(rows.size()) && p.total > c.h) {
             const auto s = static_cast<std::size_t>(v.selected);
-            if (offsets[s + 1] > p.content) p.scroll = offsets[s + 1] - p.content;
+            if (offsets[s + 1] - kRowGap > c.h) p.scroll = offsets[s + 1] - kRowGap - c.h;
             if (s > 0 && rows[s - 1].kind == MenuItem::Kind::Heading && offsets[s - 1] < p.scroll) p.scroll = offsets[s - 1];
         }
-        const float x = (kW - kBlockW) * 0.5f;
         for (std::size_t i = 0; i < rows.size(); ++i) {
-            const float h = row_height(rows[i]);
-            const float y = p.top + offsets[i] - p.scroll;
-            const bool visible = y >= p.top - 0.5f && y + h <= p.top + p.content + 0.5f;
-            const bool pickable = visible && rows[i].kind != MenuItem::Kind::Heading && rows[i].kind != MenuItem::Kind::Info;
-            p.layout.rows.push_back(pickable ? MenuLayout::Rect{x, y, kBlockW, h - 1.0f} : MenuLayout::Rect{});
+            const MenuItem &item = rows[i];
+            const float h = row_height(item, c.w);
+            const float y = c.y + offsets[i] - p.scroll;
+            const bool visible = y >= c.y - 0.5f && y + h <= c.y + c.h + 0.5f;
+            p.row_y.push_back(y);
+            p.shown.push_back(visible);
+            const bool pickable = visible && Menu::selectable(item);
+            p.layout.rows.push_back(pickable ? MenuLayout::Rect{c.x, y, c.w, h} : MenuLayout::Rect{});
             MenuLayout::Rect bar;
-            if (pickable && rows[i].kind == MenuItem::Kind::Slider) {
-                const float base = rows[i].detail.empty() ? y + (h - 1.0f) * 0.5f + 3.2f : y + 12.5f;
-                bar = {x + kBlockW - 12.0f - 24.0f - kBarW, base - 3.0f, kBarW, 1.6f};
+            std::vector<MenuLayout::Rect> options, actions;
+            if (pickable) {
+                switch (item.kind) {
+                case MenuItem::Kind::Slider: {
+                    const float bx = c.x + c.w * 0.42f;
+                    bar = {bx, y + h * 0.5f - 3.0f, c.x + c.w - 30.0f - bx, 6.0f};
+                    break;
+                }
+                case MenuItem::Kind::Choice:
+                    if (!item.option_details.empty()) {
+                        const float top = item.label.empty() ? y : y + 11.0f;
+                        const float n = static_cast<float>(item.options.size());
+                        const float w = (c.w - (n - 1.0f) * 4.0f) / std::max(n, 1.0f);
+                        for (std::size_t o = 0; o < item.options.size(); ++o) options.push_back({c.x + static_cast<float>(o) * (w + 4.0f), top, w, h - (top - y)});
+                    } else {
+                        float x = c.x + 8.0f;
+                        for (const std::string &o : item.options) {
+                            const float w = std::max(16.0f, measure(o, 5.2f, true) + 9.0f);
+                            options.push_back({x, y + 14.0f, w, 13.0f});
+                            x += w + 2.2f;
+                        }
+                    }
+                    break;
+                case MenuItem::Kind::Banner: actions = buttons(item.actions, c.x + c.w - 8.0f, y + 7.0f, 16.0f); break;
+                case MenuItem::Kind::Text: actions = buttons(item.actions, c.x + c.w, y + 9.0f, 17.0f); break;
+                default: break;
+                }
             }
             p.layout.bars.push_back(bar);
+            p.layout.options.push_back(std::move(options));
+            p.layout.actions.push_back(std::move(actions));
         }
         return p;
     }
 
-    void row(float x, float y, float w, const MenuItem &item, bool selected, bool focused) {
-        const float h = row_height(item);
-        if (item.kind == MenuItem::Kind::Heading) {
-            text(x + 12.0f, y + 15.5f, upper(item.label), 6.4f, kAccent, 0.9f, true, 1.0f);
-            return;
+    void ring(const MenuLayout::Rect &r, float radius) { rrect(r.x - 1.2f, r.y - 1.2f, r.w + 2.4f, r.h + 2.4f, radius + 1.0f, kAccent, 0.95f, 0.8f); }
+
+    void centered(const MenuLayout::Rect &r, const std::string &s, float size, Color c, float alpha, bool bold) {
+        text(r.x + (r.w - measure(s, size, bold)) * 0.5f, r.y + r.h * 0.5f + size * 0.36f, s, size, c, alpha, bold);
+    }
+
+    void action_buttons(const std::vector<MenuLayout::Rect> &rects, const MenuItem &item, int focused, float alpha) {
+        for (std::size_t a = 0; a < rects.size() && a < item.actions.size(); ++a) {
+            const auto &r = rects[a];
+            const bool primary = static_cast<int>(a) == item.primary_action;
+            if (primary) rrect(r.x, r.y, r.w, r.h, 4.0f, kAccent, alpha);
+            else rrect(r.x, r.y, r.w, r.h, 4.0f, kWhite, 0.16f * alpha, 0.6f);
+            centered(r, item.actions[a], 5.2f, primary ? kInk : kText, alpha, true);
+            if (static_cast<int>(a) == focused) ring(r, 4.0f);
         }
-        if (item.kind == MenuItem::Kind::Info) {
-            text(x + 12.0f, y + 9.5f, fit(item.label, 7.0f, w - 24.0f), 7.0f, kDim, 0.9f);
-            return;
-        }
+    }
+
+    void row(const Placed &p, std::size_t i, const MenuItem &item, bool selected, const MenuView &v) {
+        const auto &c = p.panels.content;
+        const float x = c.x, w = c.w, y = p.row_y[i], h = row_height(item, w);
         const float alpha = item.enabled ? 1.0f : 0.4f;
-        const bool lit = selected && focused;
-        if (lit) {
-            rect(x, y, w, h - 1.0f, kAccent, 0.10f);
-            rect(x, y, 2.0f, h - 1.0f, kAccent, 1.0f);
+        const bool keys = !v.pointer && !v.tabs_focused;
+        const bool focus = selected && keys;       // the focus ring
+        const bool hover = selected && v.pointer;  // the pointer is over it
+        const MenuLayout::Rect card{x, y, w, h};
+        switch (item.kind) {
+        case MenuItem::Kind::Heading:
+            text(x + 2.0f, y + 9.0f, upper(item.label), kSmall, kAccent, 0.95f, true, 0.6f);
+            return;
+        case MenuItem::Kind::Info: {
+            rrect(x, y, w, h, kCard, kWhite, 0.04f);
+            rrect(x + 7.0f, y + 6.2f, 4.2f, 4.2f, 2.1f, kBlue, 0.9f);
+            float base = y + 9.4f;
+            for (const std::string &line : wrap(item.label, 5.2f, w - 22.0f)) {
+                text(x + 15.0f, base, line, 5.2f, kSoft, 0.95f);
+                base += 7.2f;
+            }
+            return;
         }
-        rect(x + 8.0f, y + h - 1.0f, w - 16.0f, 0.5f, kWhite, 0.06f); // hairline between rows
-        const Color label_color = item.danger ? kDanger : (lit ? kText : Color{0.82f, 0.84f, 0.89f});
-        const float base = item.detail.empty() ? y + (h - 1.0f) * 0.5f + 3.2f : y + 12.5f;
-        const float right = x + w - 12.0f;
-        float control = 0.0f; // room taken by the control on the right
+        case MenuItem::Kind::Banner: {
+            rrect(x, y, w, h, kCard, kAccent, 0.09f);
+            rrect(x, y, w, h, kCard, kAccent, 0.3f, 0.5f);
+            text(x + 8.0f, y + 10.0f, upper(item.label), kSmall, kWarm, 0.95f, true, 0.6f);
+            text(x + 8.0f, y + 24.0f, item.text, 12.5f, kText, alpha, true, 0.8f);
+            action_buttons(p.layout.actions[i], item, focus ? v.action : -1, alpha);
+            return;
+        }
+        case MenuItem::Kind::Text: {
+            text(x + 1.0f, y + 6.0f, item.label, 5.0f, kSoft, alpha, true);
+            const auto &acts = p.layout.actions[i];
+            const float right = acts.empty() ? x + w : acts.front().x - 3.5f;
+            const MenuLayout::Rect field{x, y + 9.0f, right - x, 17.0f};
+            const bool typing = item.value != 0;
+            rrect(field.x, field.y, field.w, field.h, 4.0f, kBlack, 0.25f * alpha);
+            rrect(field.x, field.y, field.w, field.h, 4.0f, typing ? kAccent : kWhite, typing ? 0.9f : 0.16f, typing ? 0.7f : 0.6f);
+            const float base = field.y + 11.0f;
+            if (item.text.empty() && !typing) {
+                text(field.x + 6.0f, base, fit(item.placeholder, 5.4f, field.w - 12.0f), 5.4f, kDim, 0.9f);
+            } else {
+                const float tw = text(field.x + 6.0f, base, fit(item.text, 5.6f, field.w - 14.0f), 5.6f, kText, alpha, false, 0.4f);
+                if (typing) rect(field.x + 6.5f + tw, field.y + 4.0f, 0.6f, 9.0f, kAccent, 1.0f); // the caret
+            }
+            if (focus && v.action < 0) ring(field, 4.0f);
+            action_buttons(acts, item, focus ? v.action : -1, alpha);
+            return;
+        }
+        case MenuItem::Kind::Choice:
+            if (!item.option_details.empty()) {
+                if (!item.label.empty()) text(x + 1.0f, y + 7.0f, item.label, 5.0f, kSoft, alpha, true);
+                const auto &cards = p.layout.options[i];
+                for (std::size_t o = 0; o < cards.size(); ++o) {
+                    const auto &r = cards[o];
+                    const bool on = static_cast<int>(o) == item.value;
+                    rrect(r.x, r.y, r.w, r.h, 5.0f, on ? kAccent : kWhite, on ? 0.08f : 0.03f);
+                    rrect(r.x, r.y, r.w, r.h, 5.0f, on ? kAccent : kWhite, on ? 0.95f : 0.1f, on ? 0.75f : 0.6f);
+                    text(r.x + 7.0f, r.y + 11.0f, item.options[o], 6.0f, kText, alpha, true);
+                    if (o < item.option_details.size()) {
+                        float base = r.y + 18.5f;
+                        for (const std::string &line : wrap(item.option_details[o], 4.8f, r.w - 14.0f)) {
+                            text(r.x + 7.0f, base, line, 4.8f, kSoft, 0.9f);
+                            base += 6.4f;
+                        }
+                    }
+                    if (focus && on) ring(r, 5.0f);
+                }
+                return;
+            }
+            break;
+        default: break;
+        }
+
+        // A card: the label on the left, the control on the right (Choice: the chips under the label).
+        rrect(x, y, w, h, kCard, kWhite, hover ? 0.075f : 0.04f);
+        if (focus && item.kind != MenuItem::Kind::Choice) ring(card, kCard);
+        const Color label_color = item.danger ? kDanger : kText;
+        const bool detail = !item.detail.empty() && item.kind != MenuItem::Kind::Choice;
+        const float base = item.kind == MenuItem::Kind::Choice ? y + 9.5f : detail ? y + 10.5f : y + h * 0.5f + 2.1f;
+        const float right = x + w - 8.0f;
+        float control = 0.0f;
         switch (item.kind) {
         case MenuItem::Kind::Slider: {
-            const std::string number = std::to_string(item.value);
-            text(right - measure(number, 8.0f), base, number, 8.0f, lit ? kText : kDim, alpha);
-            const float bx = right - 24.0f - kBarW, by = base - 3.0f;
-            const float span = static_cast<float>(std::max(item.max - item.min, 1));
-            const float t = std::clamp(static_cast<float>(item.value - item.min) / span, 0.0f, 1.0f);
-            rect(bx, by, kBarW, 1.6f, kWhite, 0.18f * alpha);
-            if (t > 0.0f) rect(bx, by, kBarW * t, 1.6f, kAccent, alpha);
-            rect(bx + kBarW * t - 1.0f, by - 2.6f, 2.0f, 6.8f, lit ? kText : kDim, alpha); // the thumb
-            control = 24.0f + kBarW + 10.0f;
+            const auto &bar = p.layout.bars[i];
+            const std::string number = std::to_string(item.value) + (item.max == 100 ? "%" : "");
+            text(right - measure(number, 5.4f), y + h * 0.5f + 1.9f, number, 5.4f, kSoft, alpha);
+            const float t = std::clamp(static_cast<float>(item.value - item.min) / static_cast<float>(std::max(item.max - item.min, 1)), 0.0f, 1.0f);
+            const float by = bar.y + 2.2f;
+            rrect(bar.x, by, bar.w, 1.6f, 0.8f, kWhite, 0.18f * alpha);
+            if (t > 0.0f) rrect(bar.x, by, bar.w * t, 1.6f, 0.8f, kAccent, alpha);
+            rrect(bar.x + bar.w * t - 3.0f, by - 2.2f, 6.0f, 6.0f, 3.0f, kWhite, alpha); // the thumb
+            control = right - bar.x + 6.0f;
             break;
         }
         case MenuItem::Kind::Toggle: {
             const bool on = item.value != 0;
-            const float pw = 22.0f, ph = 9.0f, px = right - pw, py = base - 7.0f;
-            rrect(px, py, pw, ph, 1.6f, on ? kAccent : kWhite, on ? alpha : 0.16f * alpha);
-            const float kw = 8.0f;
-            rrect(on ? px + pw - kw - 1.0f : px + 1.0f, py + 1.0f, kw, ph - 2.0f, 1.0f, on ? kInk : kDim, alpha);
-            control = pw + 10.0f;
-            break;
-        }
-        case MenuItem::Kind::Choice: {
-            const std::string shown =
-                item.value >= 0 && item.value < static_cast<int>(item.options.size()) ? item.options[static_cast<std::size_t>(item.value)] : "";
-            const float tw = measure(shown, 8.0f, true);
-            text(right - tw, base, shown, 8.0f, kText, alpha, true);
-            if (lit) {
-                if (item.value > 0) text(right - tw - 9.0f, base, "\xE2\x80\xB9", 11.0f, kAccent, 1.0f, true);
-                if (item.value + 1 < static_cast<int>(item.options.size())) text(right + 3.0f, base, "\xE2\x80\xBA", 11.0f, kAccent, 1.0f, true);
-            }
-            control = tw + 22.0f;
+            const float pw = 16.5f, ph = 9.8f, px = right - pw, py = y + (h - ph) * 0.5f;
+            rrect(px, py, pw, ph, ph * 0.5f, on ? kAccent : kWhite, on ? alpha : 0.18f * alpha);
+            rrect(on ? px + pw - ph + 1.1f : px + 1.1f, py + 1.1f, ph - 2.2f, ph - 2.2f, (ph - 2.2f) * 0.5f, kWhite, alpha);
+            control = pw + 8.0f;
             break;
         }
         case MenuItem::Kind::Binding: {
             const bool waiting = item.value != 0;
-            const std::string shown = waiting ? "Press a button..." : item.text;
-            const float tw = measure(shown, 8.0f, true);
-            text(right - tw, base, shown, 8.0f, waiting ? kAccent : (item.text == "Not set" ? kDim : kText), alpha, true);
-            control = tw + 14.0f;
+            const std::string shown = waiting ? "Press a key or button..." : (item.text.empty() ? "Not set" : item.text);
+            const float cw = std::max(30.0f, measure(shown, 5.2f, true) + 10.0f), ch = 13.0f;
+            const float cx = right - cw, cy = y + (h - ch) * 0.5f;
+            rrect(cx, cy, cw, ch, 3.5f, waiting ? kAccent : kBlack, waiting ? 0.15f : 0.2f);
+            rrect(cx, cy, cw, ch, 3.5f, waiting ? kAccent : kWhite, waiting ? 0.9f : 0.14f, 0.6f);
+            centered({cx, cy, cw, ch}, shown, 5.2f, waiting ? kWarm : (item.text.empty() ? kDim : kText), alpha, true);
+            control = cw + 8.0f;
             break;
         }
         case MenuItem::Kind::Button:
-            if (lit) text(right - 4.0f, base, "\xE2\x80\xBA", 11.0f, kAccent, 1.0f, true);
-            control = 14.0f;
+            if (!item.danger) text(right - 3.0f, y + h * 0.5f + 2.6f, "\xE2\x80\xBA", 8.0f, hover || focus ? kAccent : kDim, 1.0f, true);
+            control = 10.0f;
             break;
+        case MenuItem::Kind::Choice: {
+            const auto &chips = p.layout.options[i];
+            for (std::size_t o = 0; o < chips.size(); ++o) {
+                const auto &r = chips[o];
+                const bool on = static_cast<int>(o) == item.value;
+                if (on) rrect(r.x, r.y, r.w, r.h, 3.5f, kAccent, alpha);
+                else rrect(r.x, r.y, r.w, r.h, 3.5f, kWhite, 0.16f * alpha, 0.6f);
+                centered(r, item.options[o], 5.2f, on ? kInk : kText, alpha, true);
+                if (focus && on) ring(r, 3.5f);
+            }
+            break;
+        }
         default: break;
         }
-        text(x + 12.0f, base, fit(item.label, 9.0f, w - 24.0f - control), 9.0f, label_color, alpha, lit);
-        if (!item.detail.empty()) text(x + 12.0f, y + 23.5f, fit(item.detail, 6.6f, w - 24.0f), 6.6f, kDim, alpha);
+        const float lw = text(x + 8.0f, base, fit(item.label, kLabel, w - 16.0f - control), kLabel, label_color, alpha, true);
+        if (item.kind == MenuItem::Kind::Choice && !item.detail.empty()) {
+            text(x + 8.0f + lw + 5.0f, base, fit(item.detail, kDetail, w - 26.0f - lw), kDetail, kDim, 0.95f);
+        } else if (detail) {
+            text(x + 8.0f, y + 19.0f, fit(item.detail, kDetail, w - 16.0f - control), kDetail, kDim, 0.95f);
+        }
     }
 
     void draw(const MenuView &v, bool backdrop) {
         if (backdrop) fill_all(kBlack, 0.45f);
         const Placed p = place(v);
+        const auto &side = p.panels.side, &main = p.panels.main;
 
-        // ---- top bar: the project's icon on the left, the tabs in the middle, what Escape does on the right
-        image(kMargin, kBarY - 13.0f, 16.0f, kIcon, kIconSize);
-        if (!v.corner.empty()) {
-            text(p.layout.corner.x, kBarY, upper(v.corner), kCornerSize, kDim, 0.8f, false, kCornerTrack);
-        }
+        // ---- the sidebar: the program and the game, the sections, the way back to the game
+        rrect(side.x, side.y, side.w, side.h, kRadius, kPanel, 0.88f);
+        rrect(side.x, side.y, side.w, side.h, kRadius, kWhite, 0.07f, 0.5f);
+        image(side.x + 7.0f, side.y + 8.0f, 15.0f, kIcon, kIconSize);
+        if (!v.title.empty()) text(side.x + 27.0f, side.y + 14.5f, fit(v.title, 5.8f, side.w - 32.0f), 5.8f, kText, 1.0f, true);
+        if (!v.subtitle.empty()) text(side.x + 27.0f, side.y + 21.0f, fit(v.subtitle, 4.5f, side.w - 32.0f), 4.5f, kDim, 1.0f);
         for (std::size_t i = 0; i < v.tabs.size(); ++i) {
+            const auto &r = p.layout.tabs[i];
             const bool active = static_cast<int>(i) == v.tab;
-            const float tx = p.tab_x[i];
-            if (active && v.tabs_focused) rect(tx - 9.0f, kBarY - 11.0f, p.tab_w[i] + 18.0f, 17.0f, kAccent, 0.12f);
-            text(tx, kBarY, upper(v.tabs[i].name), kTabSize, active ? kText : kDim, active ? 1.0f : 0.75f, true, kTabTrack);
-            if (active) rect(tx, kBarY + 6.0f, p.tab_w[i], 1.6f, kAccent, 1.0f);
+            if (active) rrect(r.x, r.y, r.w, r.h, 4.0f, kAccent, 0.14f);
+            text(r.x + 7.0f, r.y + r.h * 0.5f + 2.1f, v.tabs[i].name, kLabel, active ? kWarm : kSoft, 1.0f, true);
+            if (!v.tabs[i].badge.empty()) {
+                const bool private_badge = v.tabs[i].badge != "Public";
+                const float bw = measure(v.tabs[i].badge, 4.2f, true) + 6.0f;
+                const MenuLayout::Rect b{r.x + r.w - bw - 4.0f, r.y + (r.h - 8.0f) * 0.5f, bw, 8.0f};
+                rrect(b.x, b.y, b.w, b.h, 4.0f, private_badge ? kAccent : kGreen, 0.2f);
+                centered(b, v.tabs[i].badge, 4.2f, private_badge ? kWarm : kGreen, 1.0f, true);
+            }
+            if (active && v.tabs_focused && !v.pointer) ring(r, 4.0f);
         }
-        rect(kMargin, kLineY, kW - 2.0f * kMargin, 0.5f, kWhite, 0.12f);
+        const auto &resume = p.layout.resume;
+        rrect(resume.x, resume.y, resume.w, resume.h, 4.5f, kAccent, 1.0f);
+        centered(resume, v.resume, 5.6f, kInk, 1.0f, true);
+        const std::string esc = "Esc also closes this menu";
+        text(side.x + (side.w - measure(esc, 4.2f)) * 0.5f, side.y + side.h - 5.5f, esc, 4.2f, kDim, 0.9f);
 
-        // ---- rows, centred in the area below
+        // ---- the panel: the section's title, its rows, the key hints
+        rrect(main.x, main.y, main.w, main.h, kRadius, kPanel, 0.88f);
+        rrect(main.x, main.y, main.w, main.h, kRadius, kWhite, 0.07f, 0.5f);
+        centered(p.layout.close, "\xC3\x97", 10.0f, kDim, 1.0f, false);
+        if (v.tab >= 0 && v.tab < static_cast<int>(v.tabs.size())) {
+            const MenuTab &tab = v.tabs[static_cast<std::size_t>(v.tab)];
+            text(main.x + 14.0f, main.y + 19.0f, tab.name, 9.5f, kText, 1.0f, true);
+            if (!tab.subtitle.empty()) text(main.x + 14.0f, main.y + 27.5f, fit(tab.subtitle, 5.2f, main.w - 46.0f), 5.2f, kDim, 1.0f);
+        }
         const auto &rows = v.items();
-        const float x = (kW - kBlockW) * 0.5f;
-        float offset = 0.0f;
         for (std::size_t i = 0; i < rows.size(); ++i) {
-            const float h = row_height(rows[i]);
-            const float y = p.top + offset - p.scroll;
-            offset += h;
-            if (y < p.top - 0.5f || y + h > p.top + p.content + 0.5f) continue;
-            row(x, y, kBlockW, rows[i], static_cast<int>(i) == v.selected, !v.tabs_focused);
+            if (!p.shown[i]) continue;
+            row(p, i, rows[i], static_cast<int>(i) == v.selected, v);
         }
-        if (p.total_rows > p.content) { // more rows than room: a thin scroll bar
-            const float thumb = std::max(12.0f, p.content * p.content / p.total_rows);
-            const float at = p.scroll / std::max(p.total_rows - p.content, 1.0f) * (p.content - thumb);
-            rect(x + kBlockW + 6.0f, p.top + at, 1.2f, thumb, kWhite, 0.3f);
+        const auto &c = p.panels.content;
+        if (p.total > c.h + 0.5f) { // more rows than room: a thin scroll bar
+            const float thumb = std::max(12.0f, c.h * c.h / p.total);
+            const float at = p.scroll / std::max(p.total - c.h, 1.0f) * (c.h - thumb);
+            rrect(main.x + main.w - 6.0f, c.y + at, 1.4f, thumb, 0.7f, kWhite, 0.3f);
         }
-
-        // ---- the hint line
-        if (!v.hint.empty()) {
-            const float size = 6.4f, track = 0.6f;
-            const float hw = measure(v.hint, size, false, track);
-            text((kW - hw) * 0.5f, kH - 18.0f, v.hint, size, kDim, 0.75f, false, track);
+        if (!v.pointer && !v.hint.empty()) {
+            const float hw = measure(v.hint, 4.6f, false, 0.3f);
+            text(main.x + (main.w - hw) * 0.5f, main.y + main.h - 6.0f, v.hint, 4.6f, kDim, 0.9f, false, 0.3f);
         }
     }
 };

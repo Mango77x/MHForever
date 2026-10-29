@@ -99,21 +99,29 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
 
 **Escape** (or the controller's guide button) opens a menu drawn *inside the game window*, across the whole screen,
 without pausing the game (since 0.6, decided 2026-10-27: a paused game drops out of an ad hoc quest, and a PSP had no
-pause either). The game runs on behind it, blurred and darkened, filling the window (cropped, never stretched), tabs run
-across the top (Game, Audio, Video) and the rows of the selected tab are centred below. It is not a second window and not
+pause either). The game runs on behind it, blurred and darkened, filling the window (cropped, never stretched). Since
+2026-10-29 the menu is made for the mouse first (the owner found the keyboard-first one hard to use): the sections sit in
+a sidebar on the left with "Back to the game" at its foot, the selected section's rows fill a panel on the right with a ×
+in its corner, and every option is on screen (chips for the resolution and the frame rate, switches, sliders with their
+value, cards for the Online section's public or private halls). It is not a second window and not
 the launcher: the launcher stays what it is, the screen where you add games, set them up and press Play. A first attempt
 that stretched the launcher's own window over the game was dropped on purpose: laying one window over another (focus,
 fullscreen, resizing, closing the game while it is up) is fragile on Windows and impossible on the Steam Deck's game
 mode, where no second window can be shown.
 
-- Tabs: **Game** (back to the game, quit with a confirmation), **Audio** (music, sound effects), **Video** (internal resolution
-  1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures). Q / E, Tab, PageUp / PageDown or the controller's
-  shoulder buttons change tab; Up from the first row focuses the tab bar. Arrows or the D-pad / stick move and change,
-  Enter or A selects, Esc or B goes back (and, in the menu's top level, closes it).
+- Sections: **Game** (back to the game, quit with a confirmation), **Audio** (music, sound effects), **Video** (internal
+  resolution 1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures), **Controls**, and **Online** when a server
+  is set. The keyboard and the controller still do everything: Q / E, Tab, PageUp / PageDown or the shoulder buttons
+  change section; Left from a row (or before a choice's first option) goes to the sidebar, where Up/Down pick the section
+  and Right goes back; arrows or the D-pad / stick move between rows and through a row's options and buttons, Enter or A
+  selects, Esc or B goes back (and, at the top, closes the menu). A focus ring and the key hints show only while keys or a
+  controller are used; moving the mouse hides them.
+- Joining a friend's room (Online): with the keyboard the field takes the typed code (Enter joins, Esc stops); with a
+  controller A opens a code keyboard of the 32 characters a room code can hold; Paste takes it from the clipboard.
 - `core/overlay`: `Painter` (shapes and anti-aliased text with letter spacing, in the launcher's colours, CPU,
-  console-independent), `Menu` (tabs and rows: button, slider, toggle, choice; navigation) and `MenuRenderer`. The
-  system dialogs (`DialogOverlay`) draw with the same `Painter`. The look is flat: thin hairlines, a small accent, square
-  corners.
+  console-independent), `Menu` (sections and rows: button, slider, toggle, choice, binding, banner with buttons, text
+  field, note; the navigation, and the mouse targets of `MenuLayout`) and `MenuRenderer`. The system dialogs
+  (`DialogOverlay`) draw with the same `Painter`. The look follows the launcher: rounded panels and cards, one amber accent.
 - The frontend (`platforms/psp/frontend`) owns what the menu does: while the menu is up the game gets no
   input (no button stays pressed) but keeps running, the clock and the sound included, and changes apply at once. A dialog open in the game takes
   Escape first (it cancels the dialog).

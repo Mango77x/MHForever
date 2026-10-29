@@ -28,7 +28,8 @@ MenuItem item(MenuItem::Kind kind, int id, const char *label, int value = 0) {
 
 MenuView sample() {
     MenuView v;
-    v.corner = "Esc  Resume";
+    v.title = "MHForever";
+    v.subtitle = "Freedom Unite";
     v.hint = "Arrows move  |  Enter select  |  Q E tabs  |  Esc resume";
 
     MenuTab game{"Game", {item(MenuItem::Kind::Button, kResume, "Resume"), item(MenuItem::Kind::Button, kQuit, "Quit the game")}};
@@ -58,27 +59,25 @@ int main() {
     Menu menu;
     menu.set(sample());
 
-    // Starts on the first tab, on its first row.
-    MHF_CHECK(menu.view().tab == 0 && selected_id(menu) == kResume && !menu.view().tabs_focused);
+    // Starts on the first section, on its first row, as for the mouse (no focus ring).
+    MHF_CHECK(menu.view().tab == 0 && selected_id(menu) == kResume && !menu.view().tabs_focused && menu.view().pointer);
 
-    // Down and Up move through the rows and wrap; a button is activated by Accept only.
+    // Down and Up move through the rows and wrap; a button is activated by Accept; a key leaves the pointer mode.
     menu.press(Key::Down);
-    MHF_CHECK(selected_id(menu) == kQuit);
+    MHF_CHECK(selected_id(menu) == kQuit && !menu.view().pointer);
     menu.press(Key::Down);
     MHF_CHECK(selected_id(menu) == kResume);
     menu.press(Key::Down);
     auto e = menu.press(Key::Accept);
-    MHF_CHECK(e.kind == Kind::Activated && e.id == kQuit);
-    MHF_CHECK(menu.press(Key::Left).kind == Kind::None);
+    MHF_CHECK(e.kind == Kind::Activated && e.id == kQuit && e.action == -1);
+    menu.set_pointer(true);
+    MHF_CHECK(menu.view().pointer);
 
-    // Up from the first row goes to the tab bar; there Left/Right pick the tab and Down goes back into the rows.
-    menu.press(Key::Up);
-    MHF_CHECK(selected_id(menu) == kResume);
-    menu.press(Key::Up);
-    MHF_CHECK(menu.view().tabs_focused);
-    menu.press(Key::Right);
+    // Left from a button goes to the sidebar; there Up/Down pick the section and Right goes back into the rows.
+    MHF_CHECK(menu.press(Key::Left).kind == Kind::None && menu.view().tabs_focused);
+    menu.press(Key::Down);
     MHF_CHECK(menu.view().tab == 1 && menu.view().tabs_focused);
-    MHF_CHECK(menu.press(Key::Accept).kind == Kind::None && !menu.view().tabs_focused);
+    MHF_CHECK(menu.press(Key::Right).kind == Kind::None && !menu.view().tabs_focused);
     MHF_CHECK(selected_id(menu) == kMusic); // the heading is skipped
 
     // A slider moves by its step and stops at its ends, reporting only what changed.
@@ -99,12 +98,16 @@ int main() {
     menu.press(Key::PrevTab);
     MHF_CHECK(menu.view().tab == 2);
 
-    // A choice moves with the arrows (not past its ends) and wraps with Accept; a toggle flips.
+    // A choice moves with the arrows and wraps with Accept; Left before its first option goes to the sidebar. A toggle
+    // flips with Accept.
     MHF_CHECK(menu.press(Key::Right).kind == Kind::None); // 4x is the last option
     e = menu.press(Key::Left);
     MHF_CHECK(e.kind == Kind::Changed && e.id == kScale && e.value == 2);
     MHF_CHECK(menu.press(Key::Accept).value == 3);
     MHF_CHECK(menu.press(Key::Accept).value == 0); // wraps
+    MHF_CHECK(menu.press(Key::Left).kind == Kind::None && menu.view().tabs_focused);
+    menu.press(Key::Right);
+    MHF_CHECK(!menu.view().tabs_focused && selected_id(menu) == kScale);
     menu.press(Key::Down);
     MHF_CHECK(selected_id(menu) == kFps);
     menu.press(Key::Down);
@@ -112,7 +115,7 @@ int main() {
     MHF_CHECK(e.kind == Kind::Changed && e.id == kFullscreen && e.value == 0);
     menu.press(Key::Down); // the disabled row is skipped
     MHF_CHECK(selected_id(menu) == kSmooth);
-    MHF_CHECK(menu.press(Key::Right).value == 1);
+    MHF_CHECK(menu.press(Key::Accept).value == 1);
 
     // Back is reported; the version changes whenever the picture would.
     MHF_CHECK(menu.press(Key::Back).kind == Kind::Back);
@@ -136,19 +139,19 @@ int main() {
         m.set(sample());
         MenuLayout lay = layouter.layout(m.view());
         MHF_CHECK(lay.tabs.size() == 3 && lay.rows.size() == 2);
-        MHF_CHECK(lay.tabs[0].x + lay.tabs[0].w < lay.tabs[1].x && lay.tabs[1].x + lay.tabs[1].w < lay.tabs[2].x); // apart
+        MHF_CHECK(lay.tabs[0].y + lay.tabs[0].h <= lay.tabs[1].y && lay.tabs[1].y + lay.tabs[1].h <= lay.tabs[2].y); // a column
 
-        // Five tabs and the corner text, as in the game's menu when it is online: the tabs keep clear of the icon and of
-        // the corner, and of each other.
+        // Five sections, as in the game's menu when it is online: they stay above the sidebar's button, left of the
+        // panel; the button and the panel's × are hit as such.
         {
             MenuView five = sample();
-            five.corner = "Esc  Back to the game";
             for (const char *name : {"Controls", "Online"}) five.tabs.push_back(MenuTab{name, {}});
             const MenuLayout wide = layouter.layout(five);
-            MHF_CHECK(wide.tabs.size() == 5 && wide.corner.w > 0);
-            MHF_CHECK(wide.tabs.front().x > 26.0f + 16.0f);
-            MHF_CHECK(wide.tabs.back().x + wide.tabs.back().w <= wide.corner.x);
-            for (std::size_t i = 1; i < wide.tabs.size(); ++i) MHF_CHECK(wide.tabs[i - 1].x + wide.tabs[i - 1].w <= wide.tabs[i].x);
+            MHF_CHECK(wide.tabs.size() == 5 && wide.resume.w > 0 && wide.close.w > 0);
+            MHF_CHECK(wide.tabs.back().y + wide.tabs.back().h < wide.resume.y);
+            MHF_CHECK(wide.tabs.front().x + wide.tabs.front().w < wide.close.x);
+            MHF_CHECK(wide.hit(wide.resume.x + 4.0f, wide.resume.y + 4.0f).kind == MenuLayout::Hit::Kind::Resume);
+            MHF_CHECK(wide.hit(wide.close.x + 4.0f, wide.close.y + 4.0f).kind == MenuLayout::Hit::Kind::Close);
         }
 
         // A tab is picked by clicking it.
@@ -158,20 +161,25 @@ int main() {
         MHF_CHECK(m.view().tab == 2 && !m.view().tabs_focused);
         lay = layouter.layout(m.view());
 
-        // Over a row it is selected; a disabled row cannot be; a toggle flips and a choice steps by the side clicked.
+        // Over a row it is selected; a disabled row cannot be; a toggle flips; a choice's options are hit one by one.
         h = lay.hit(lay.rows[2].x + 10.0f, lay.rows[2].y + 5.0f);
         MHF_CHECK(h.kind == MenuLayout::Hit::Kind::Row && h.index == 2 && !h.on_bar);
         m.hover_row(h.index);
         MHF_CHECK(selected_id(m) == kFullscreen);
         e = m.click_row(2, h.along, false);
         MHF_CHECK(e.kind == Kind::Changed && e.id == kFullscreen && e.value == 0);
-        MHF_CHECK(m.click_row(0, 0.9f, false).kind == Kind::None); // 4x is the last option already
-        MHF_CHECK(m.click_row(0, 0.1f, false).value == 2);
+        MHF_CHECK(lay.options[0].size() == 4);
+        h = lay.hit(lay.options[0][1].x + 2.0f, lay.options[0][1].y + 2.0f);
+        MHF_CHECK(h.kind == MenuLayout::Hit::Kind::Option && h.index == 0 && h.sub == 1);
+        MHF_CHECK(m.click_option(0, 3).kind == Kind::None); // 4x is chosen already
+        e = m.click_option(0, h.sub);
+        MHF_CHECK(e.kind == Kind::Changed && e.id == kScale && e.value == 1);
+        MHF_CHECK(m.click_row(0, 0.5f, false).kind == Kind::None); // beside the options nothing changes
         m.hover_row(3);
         MHF_CHECK(selected_id(m) != kNotNow);
 
         // A slider: its track is hit separately, a click or a drag sets the value from the position (to a step), the
-        // wheel over it moves it, and the wheel elsewhere changes tab.
+        // wheel over it moves it, and the wheel elsewhere moves the selection.
         m.click_tab(1);
         lay = layouter.layout(m.view());
         MHF_CHECK(lay.rows[0].w == 0 && lay.rows[1].w > 0 && lay.bars[1].w > 0); // the heading cannot be picked
@@ -184,10 +192,8 @@ int main() {
         MHF_CHECK(m.drag_slider(1, 1.5f).value == 100);  // and kept in range
         MHF_CHECK(m.drag_slider(1, -1.0f).value == 0);
         MHF_CHECK(m.scroll(1, 1).value == 5);
-        MHF_CHECK(m.view().tab == 1);
-        MHF_CHECK(m.scroll(1, -1).kind == Kind::None && m.view().tab == 0); // up: the previous tab
-        m.scroll(-1, -1);
-        MHF_CHECK(m.view().tab == 1);
+        MHF_CHECK(m.view().tab == 1 && selected_id(m) == kMusic);
+        MHF_CHECK(m.scroll(-1, -1).kind == Kind::None && m.view().tab == 1 && selected_id(m) == kSfx); // down: the next row
 
         // Out of range is ignored.
         m.hover_row(99);
@@ -195,17 +201,64 @@ int main() {
         MHF_CHECK(m.drag_slider(-1, 0.5f).kind == Kind::None);
     }
 
-    // The project's icon is drawn at the top left, and the same place stays clear without it.
+    // The project's icon is drawn at the top of the sidebar.
     {
         MenuRenderer icon_renderer(MHF_FONT_DIR);
         std::vector<std::uint32_t> big;
         MHF_CHECK(icon_renderer.render(sample(), 4, big, false));
         const int w = MenuRenderer::width(4);
         bool any = false;
-        for (int y = 15 * 4; y < 31 * 4; ++y) {
-            for (int x = 26 * 4; x < 42 * 4; ++x) any = any || (big[static_cast<std::size_t>(y) * static_cast<std::size_t>(w) + static_cast<std::size_t>(x)] >> 24u) != 0;
+        for (int y = 18 * 4; y < 33 * 4; ++y) {
+            for (int x = 17 * 4; x < 32 * 4; ++x) any = any || (big[static_cast<std::size_t>(y) * static_cast<std::size_t>(w) + static_cast<std::size_t>(x)] >> 24u) != 0;
         }
         MHF_CHECK(any);
+    }
+
+    // A banner's and a text field's actions: Left/Right move between them (a field first, then its actions), Accept
+    // reports the one focused, a click reports the one under the pointer; Left past the first goes to the sidebar.
+    {
+        MenuView v;
+        MenuItem code = item(MenuItem::Kind::Banner, 50, "Your room code");
+        code.text = "K7QF-29XM";
+        code.actions = {"Copy", "New code"};
+        MenuItem note = item(MenuItem::Kind::Banner, 51, "Nothing to press"); // no actions: never selected
+        MenuItem join = item(MenuItem::Kind::Text, 52, "Join a friend's room");
+        join.actions = {"Paste", "Join"};
+        v.tabs = {MenuTab{"Game", {}}, MenuTab{"Online", {code, note, join}}};
+        Menu m;
+        m.set(v);
+        m.click_tab(1);
+        MHF_CHECK(selected_id(m) == 50 && m.view().action == 0);
+        auto a = m.press(Key::Accept);
+        MHF_CHECK(a.kind == Kind::Activated && a.id == 50 && a.action == 0);
+        m.press(Key::Right);
+        MHF_CHECK(m.press(Key::Accept).action == 1);
+        m.press(Key::Right); // the last one: stays
+        MHF_CHECK(m.view().action == 1);
+        m.press(Key::Down); // the banner without actions is skipped
+        MHF_CHECK(selected_id(m) == 52 && m.view().action == -1);
+        a = m.press(Key::Accept);
+        MHF_CHECK(a.kind == Kind::Activated && a.id == 52 && a.action == -1); // the field
+        m.press(Key::Right);
+        m.press(Key::Right);
+        MHF_CHECK(m.press(Key::Accept).action == 1);
+        m.press(Key::Left);
+        m.press(Key::Left);
+        MHF_CHECK(m.view().action == -1 && !m.view().tabs_focused);
+        m.press(Key::Left);
+        MHF_CHECK(m.view().tabs_focused);
+        // The mouse: the layout has the buttons, a click on one is that action.
+        MenuRenderer layouter(MHF_FONT_DIR);
+        const MenuLayout lay = layouter.layout(m.view());
+        MHF_CHECK(lay.actions.size() == 3 && lay.actions[0].size() == 2 && lay.actions[1].empty() && lay.actions[2].size() == 2);
+        MHF_CHECK(lay.rows[1].w == 0);
+        const auto h = lay.hit(lay.actions[2][0].x + 2.0f, lay.actions[2][0].y + 2.0f);
+        MHF_CHECK(h.kind == MenuLayout::Hit::Kind::Action && h.index == 2 && h.sub == 0);
+        a = m.click_action(h.index, h.sub);
+        MHF_CHECK(a.kind == Kind::Activated && a.id == 52 && a.action == 0 && !m.view().tabs_focused);
+        a = m.click_row(2, 0.1f, false);
+        MHF_CHECK(a.kind == Kind::Activated && a.id == 52 && a.action == -1); // a click in the field
+        MHF_CHECK(m.click_action(2, 5).kind == Kind::None);
     }
 
     // Nothing to navigate: no crash.
@@ -227,29 +280,40 @@ int main() {
     MHF_CHECK(renderer.render(shown.view(), 2, pixels, false));
     MHF_CHECK(pixels[0] == 0u && pixels[pixels.size() - 1] == 0u);
 
-    // MHF_MENU_DUMP=<file>: also writes the picture (raw premultiplied RGBA, 1920x1088) to look at it: the game's menu
-    // as it is online, five tabs and the corner text, on an Online tab like the game's.
+    // MHF_MENU_DUMP=<file>: also writes pictures (raw premultiplied RGBA, 1920x1088) to look at: <file> the Online
+    // section as the game shows it, <file>.video the Video section with the focus ring of the keys.
     if (const char *dump = std::getenv("MHF_MENU_DUMP")) {
         std::vector<std::uint32_t> big;
         MenuView v = sample();
-        v.corner = "Esc  Back to the game";
         v.tabs.push_back(MenuTab{"Controls", {item(MenuItem::Kind::Button, 90, "Restore keyboard defaults")}});
-        MenuItem halls = item(MenuItem::Kind::Choice, 91, "Halls");
-        halls.options = {"Public", "Private room"};
+        MenuItem halls = item(MenuItem::Kind::Choice, 91, "");
+        halls.options = {"Public halls", "Private room"};
+        halls.option_details = {"Everyone on the server, PPSSPP and PSP players too.", "Only friends with your room code, on MHForever."};
         halls.value = 1;
-        halls.detail = "Only players with your room code, on MHForever.";
-        MenuItem code = item(MenuItem::Kind::Button, 92, "Room code   K7QF-29XM");
-        code.detail = "Enter copies it. Friends who play with it meet you in the same halls.";
-        MenuItem paste = item(MenuItem::Kind::Button, 93, "Use the room code you copied");
-        paste.detail = "A friend's code, copied from a message.";
-        v.tabs.push_back(MenuTab{"Online", {item(MenuItem::Kind::Heading, 0, "Gathering Hall"), halls, code, paste,
-                                            item(MenuItem::Kind::Button, 94, "New room code"),
-                                            item(MenuItem::Kind::Info, 0, "Next time you enter the Gathering Hall you see the halls of room K7QF-29XM.")}});
+        MenuItem code = item(MenuItem::Kind::Banner, 92, "Your room code");
+        code.text = "K7QF-29XM";
+        code.actions = {"Copy", "New code"};
+        code.primary_action = 0;
+        MenuItem join = item(MenuItem::Kind::Text, 93, "Join a friend's room");
+        join.placeholder = "Type or paste a code, like K7QF-29XM";
+        join.actions = {"Paste", "Join"};
+        join.primary_action = 1;
+        MenuItem server = item(MenuItem::Kind::Info, 0, "socom.cc. Change the server in the launcher, Settings > Online.");
+        v.tabs.push_back(MenuTab{"Online", {halls, code, join,
+                                            item(MenuItem::Kind::Info, 0, "Next time you enter the Gathering Hall you see the halls of your room."), server},
+                                 "Who you meet in the Gathering Hall.", "Private"});
         Menu look;
         look.set(v);
-        for (int i = 0; i < 4; ++i) look.press(Key::NextTab); // the Online tab
+        look.click_tab(4); // the Online section, as the mouse leaves it
         renderer.render(look.view(), 4, big, false);
         if (std::FILE *f = std::fopen(dump, "wb")) {
+            std::fwrite(big.data(), 4, big.size(), f);
+            std::fclose(f);
+        }
+        look.click_tab(2);
+        look.press(Key::Down); // keys: the focus ring on the frame rate
+        renderer.render(look.view(), 4, big, false);
+        if (std::FILE *f = std::fopen((std::string(dump) + ".video").c_str(), "wb")) {
             std::fwrite(big.data(), 4, big.size(), f);
             std::fclose(f);
         }
