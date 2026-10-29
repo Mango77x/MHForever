@@ -81,6 +81,12 @@ struct RuntimeOptions {
     std::string adhoc_nickname = "Hunter";   // the name other players see
     std::string adhoc_product_code;          // ULES01213: servers group players by game
     std::array<std::uint8_t, 6> adhoc_mac{}; // this console's virtual MAC; all zeros: made from the nickname
+    // Private room (docs/14-rooms-and-friends.md section 3): with a room code the game's halls are renamed, so only
+    // players with the same code meet. Empty: the public halls.
+    std::string adhoc_room;
+    // The first six bytes of the game's hall names (game data), so that a scan in a private room shows which halls are
+    // taken. Prefixes the game joins with are learnt as well.
+    std::vector<std::string> adhoc_hall_prefixes;
     // Folder with the free fonts served by sceLibFont (third_party/fonts, copied next to the executable).
     std::filesystem::path font_directory = "fonts";
     // Text the on-screen keyboard starts with when the game's field is empty (e.g. the hunter's name, from the
@@ -159,6 +165,19 @@ public:
         options_.sfx_volume = sfx;
     }
     void exit_program_from_host(int code);
+    // Online play: the private room the game's next scan and next join use, "" for the public halls
+    // (docs/14-rooms-and-friends.md section 3.4). A code that is not valid means the public halls. Changing it never
+    // takes the player out of a hall: it applies when the game next enters one.
+    void set_adhoc_room(std::string_view code);
+    [[nodiscard]] std::string adhoc_room();
+    // The game is in a hall of the ad hoc network now.
+    [[nodiscard]] bool adhoc_in_hall();
+    // Online play: another ad hoc server ("host" or "host:port"). It takes over as soon as that cuts nothing off: at
+    // once in the village, after the game left the hall or the quest it is in otherwise. adhoc_server() is the one
+    // chosen; adhoc_server_pending() says it is still waiting.
+    void set_adhoc_server(std::string_view server);
+    [[nodiscard]] std::string adhoc_server();
+    [[nodiscard]] bool adhoc_server_pending();
     // Prints the PSP threads and what they wait for to stderr (debugging hangs).
     void dump_threads();
     // Progress marks for the stall watchdog (MHF_WATCHDOG=<seconds>, runtime.cpp): every frame the game presents, and the last
@@ -193,6 +212,12 @@ private:
     std::unordered_map<std::uint64_t, bool> reported_unimplemented_;
     std::uint64_t overlay_activations_{};
 };
+
+// Room codes (docs/14-rooms-and-friends.md section 3): "k7qf-29xm" -> "K7QF29XM", "" when not a valid code; a new
+// random one; and the way players read and type one, "K7QF-29XM".
+[[nodiscard]] std::string adhoc_room_code(std::string_view text);
+[[nodiscard]] std::string new_adhoc_room_code();
+[[nodiscard]] std::string format_adhoc_room_code(const std::string &code);
 
 // Resolves and runs an imported function (also used by generated import wrappers through abi::call_import).
 void call_import(Runtime &rt, Context &ctx, ImportEntry &import);

@@ -6,7 +6,7 @@
 //             [--smooth-textures] [--fps 30..180] [--music-volume 0-100] [--sfx-volume 0-100]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
 //             [--controls-file <path>]
-//             [--adhoc-server host[:port]] [--adhoc-nick <name>] [--adhoc-mac AA:BB:CC:DD:EE:FF]
+//             [--adhoc-server host[:port]] [--adhoc-nick <name>] [--adhoc-mac AA:BB:CC:DD:EE:FF] [--adhoc-room CODE]
 // The executable supplies the initial data sections. The launcher's installer prepares it from the player's own disc image
 // (launcher/native/install/); developer builds can also point --exe at a file that matches region.toml's dev_executable.
 
@@ -210,6 +210,7 @@ int main(int argc, char **argv) {
         else if (a == "--controls-file" && i + 1 < argc) controls_file = argv[++i];
         else if (a == "--adhoc-server" && i + 1 < argc) options.adhoc_server = argv[++i]; // online play: an ad hoc server (PPSSPP's)
         else if (a == "--adhoc-nick" && i + 1 < argc) adhoc_nick = argv[++i];
+        else if (a == "--adhoc-room" && i + 1 < argc) options.adhoc_room = argv[++i]; // a private room's code
         else if (a == "--adhoc-mac" && i + 1 < argc) {
             if (!parse_mac(argv[++i], options.adhoc_mac)) std::fprintf(stderr, "[mhfu] --adhoc-mac: not a MAC address, ignored\n");
         }
@@ -233,6 +234,9 @@ int main(int argc, char **argv) {
     }
     options.adhoc_nickname = adhoc_nick.empty() ? options.osk_default_text : adhoc_nick;
     if (!options.adhoc_server.empty()) options.adhoc_product_code = disc_product_code(options.disc_image);
+    // The halls' names start with these (docs/14-rooms-and-friends.md section 1): Freedom Unite's two modes, and the
+    // Japanese release's "集会所" in Shift-JIS. Any other prefix the game uses is learnt when it joins a hall.
+    options.adhoc_hall_prefixes = {"MHP2Q0", "MHP2A0", "\x8F\x57\x89\xEF\x8F\x8A"};
     try {
         Runtime runtime{options};
         runtime.load_elf(exe);

@@ -132,6 +132,15 @@ void SdlHost::set_padmap(const PadBindings &bindings) {
     }
 }
 
+std::string SdlHost::clipboard_text() const {
+    char *text = SDL_GetClipboardText(); // never null; "" when there is no text
+    std::string out = text != nullptr ? text : "";
+    SDL_free(text);
+    return out;
+}
+
+void SdlHost::set_clipboard_text(const std::string &text) { SDL_SetClipboardText(text.c_str()); }
+
 void SdlHost::set_capture(bool on) {
     impl_->capture = on;
     impl_->captured.clear();
@@ -289,6 +298,11 @@ SdlHost::WindowRect SdlHost::window_rect() const {
     SDL_GetWindowSize(impl_->window, &r.width, &r.height);
     r.fullscreen = (SDL_GetWindowFlags(impl_->window) & SDL_WINDOW_FULLSCREEN) != 0;
     return r;
+}
+
+void SdlHost::window_pixel_size(int &width, int &height) const {
+    width = height = 0;
+    if (impl_->window != nullptr) SDL_GetWindowSizeInPixels(impl_->window, &width, &height);
 }
 
 GamepadState SdlHost::input() const {

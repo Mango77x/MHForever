@@ -192,6 +192,11 @@ void Sockets::shut(Socket &s) {
     s.state = PtpState::Closed;
 }
 
+bool Sockets::empty() const {
+    std::lock_guard lock(mutex_);
+    return std::all_of(table_.begin(), table_.end(), [](const std::shared_ptr<Socket> &s) { return s == nullptr; });
+}
+
 void Sockets::close_all() {
     for (int id = 1; id <= kMaxSockets; ++id) {
         if (auto s = find(id)) {

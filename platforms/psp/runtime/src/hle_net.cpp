@@ -10,6 +10,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <random>
 #include <unordered_map>
 
 namespace mhf::psp::hle {
@@ -53,29 +54,79 @@ NetState &net(Runtime &rt) {
         slot = std::make_unique<NetState>();
         slot->rt = &rt;
         slot->mac = make_mac(rt.options());
+        slot->room = ad::normalize_room_code(rt.options().adhoc_room);
+        slot->server = rt.options().adhoc_server;
         slot->adhocctl = std::make_unique<ad::Adhocctl>(nullptr);
     }
     return *slot;
 }
 
+std::unique_ptr<ad::AemuLink> make_link(const NetState &s, const std::string &server) {
+    if (server.empty()) return nullptr;
+    const RuntimeOptions &o = s.rt->options();
+    ad::AemuLink::Config config;
+    config.host = server;
+    config.product_code = o.adhoc_product_code;
+    config.nickname = o.adhoc_nickname;
+    config.mac = s.mac;
+    return std::make_unique<ad::AemuLink>(std::move(config));
+}
+
+// The sockets go through the relay of the server (the next port up, as with PPSSPP's servers); null without one.
+std::unique_ptr<ad::Sockets> make_sockets(const NetState &s) {
+    std::string host;
+    std::uint16_t port = 0;
+    if (!ad::AemuLink::split_address(s.server, host, port)) return nullptr;
+    ad::Sockets::Config config;
+    config.host = host;
+    config.relay_port = static_cast<std::uint16_t>(port + 1);
+    config.mac = s.mac;
+    return std::make_unique<ad::Sockets>(std::move(config));
+}
+
+// Moves to the server Runtime::set_adhoc_server chose once that cannot cut anything off: in no hall, joining or
+// scanning none, no socket open (the village; a hall or a quest has to be left first).
+void apply_server(NetState &s) {
+    if (!s.server_pending) return;
+    if (!s.poller_added) { // nothing contacted yet: start_link uses it
+        s.server = s.next_server;
+        s.server_pending = false;
+        return;
+    }
+    if (!s.adhocctl->idle() || (s.sockets && !s.sockets->empty())) return;
+    std::unique_ptr<ad::AemuLink> link = make_link(s, s.next_server);
+    if (!s.adhocctl->set_link(link.get())) return;
+    s.link = std::move(link); // the old one logs out
+    s.server = s.next_server;
+    s.server_pending = false;
+    if (s.adhoc_inited) s.sockets = make_sockets(s);
+    NET_TRACE("server changed: %s", s.server.c_str());
+}
+
 // Starts talking to the ad hoc server the first time the game uses the ad hoc libraries: nothing is contacted before.
 void start_link(NetState &s) {
     if (s.poller_added) return;
+    apply_server(s);
     s.poller_added = true;
     const RuntimeOptions &o = s.rt->options();
-    if (!o.adhoc_server.empty()) {
-        ad::AemuLink::Config config;
-        config.host = o.adhoc_server;
-        config.product_code = o.adhoc_product_code;
-        config.nickname = o.adhoc_nickname;
-        config.mac = s.mac;
-        s.link = std::make_unique<ad::AemuLink>(std::move(config));
-    }
+    s.link = make_link(s, s.server);
     const bool was_initialized = s.adhocctl->initialized();
     s.adhocctl = std::make_unique<ad::Adhocctl>(s.link.get());
     if (was_initialized) (void)s.adhocctl->init();
+    s.adhocctl->set_room(s.room);
+    for (const std::string &text : o.adhoc_hall_prefixes) {
+        ad::HallPrefix prefix{};
+        std::copy_n(text.begin(), std::min(text.size(), prefix.size()), prefix.begin());
+        s.adhocctl->add_hall_prefix(prefix);
+    }
+    if (!o.adhoc_room.empty()) {
+        NET_TRACE("private room %s", s.room.empty() ? "(not a valid code: public halls)" : s.room.c_str());
+    }
     NetState *state = &s;
-    s.rt->kernel().pollers.push_back([state] { state->deliver(); });
+    s.rt->kernel().pollers.push_back([state] {
+        apply_server(*state);
+        state->deliver();
+    });
 }
 
 void write_mac(Runtime &rt, std::uint32_t address, const ad::Mac &mac) {
@@ -114,16 +165,7 @@ void AdhocInit(Runtime &rt, Context &ctx) {
     if (s.adhoc_inited) return ret(ctx, kErrorAlreadyInitialized);
     s.adhoc_inited = true;
     start_link(s);
-    // The sockets go through the relay of the same server (the next port up, as with PPSSPP's servers).
-    std::string host;
-    std::uint16_t port = 0;
-    if (ad::AemuLink::split_address(rt.options().adhoc_server, host, port)) {
-        ad::Sockets::Config config;
-        config.host = host;
-        config.relay_port = static_cast<std::uint16_t>(port + 1);
-        config.mac = s.mac;
-        s.sockets = std::make_unique<ad::Sockets>(std::move(config));
-    }
+    s.sockets = make_sockets(s);
     ret(ctx, 0);
 }
 void AdhocTerm(Runtime &rt, Context &ctx) {
@@ -187,6 +229,11 @@ void AdhocctlGetScanInfo(Runtime &rt, Context &ctx) {
         write_mac(rt, entry + 16, groups[i].leader); // bssid
     }
     m.store32(size_address, count * kScanInfoSize);
+    if (net_tracing() && count > 0) {
+        std::string names;
+        for (std::uint32_t i = 0; i < count; ++i) names += (i == 0 ? "" : " ") + ad::printable(groups[i].name);
+        NET_TRACE("  groups: %s", names.c_str());
+    }
     ret(ctx, 0);
 }
 
@@ -310,6 +357,7 @@ const HleFunction kFunctions[] = {
 std::span<const HleFunction> net_functions() { return kFunctions; }
 
 NetState &net_state(Runtime &rt) { return net(rt); }
+void net_apply_server(NetState &s) { apply_server(s); }
 
 bool net_tracing() {
     static const bool on = [] {
@@ -347,3 +395,49 @@ adhoc::Adhocctl &net_adhocctl(Runtime &rt) {
 }
 
 } // namespace mhf::psp::hle
+
+namespace mhf::psp {
+
+void Runtime::set_adhoc_room(std::string_view code) {
+    hle::NetState &s = hle::net_state(*this);
+    s.room = adhoc::normalize_room_code(code);
+    s.adhocctl->set_room(s.room);
+    NET_TRACE("room changed: %s", s.room.empty() ? "public halls" : s.room.c_str());
+}
+
+std::string Runtime::adhoc_room() { return hle::net_state(*this).room; }
+
+void Runtime::set_adhoc_server(std::string_view server) {
+    hle::NetState &s = hle::net_state(*this);
+    const std::string text(server);
+    if (text == (s.server_pending ? s.next_server : s.server)) return;
+    s.next_server = text;
+    s.server_pending = text != s.server;
+    NET_TRACE("server chosen: %s%s", text.c_str(), s.server_pending ? " (applies once the game is in no hall)" : "");
+    hle::net_apply_server(s);
+}
+
+std::string Runtime::adhoc_server() {
+    const hle::NetState &s = hle::net_state(*this);
+    return s.server_pending ? s.next_server : s.server;
+}
+
+bool Runtime::adhoc_server_pending() { return hle::net_state(*this).server_pending; }
+
+bool Runtime::adhoc_in_hall() { return hle::net_state(*this).adhocctl->state() == adhoc::State::Connected; }
+
+std::string adhoc_room_code(std::string_view text) { return adhoc::normalize_room_code(text); }
+
+std::string new_adhoc_room_code() {
+    static const char *alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    std::random_device random;
+    std::string code;
+    for (int i = 0; i < 8; ++i) code.push_back(alphabet[random() & 31u]);
+    return code;
+}
+
+std::string format_adhoc_room_code(const std::string &code) {
+    return code.size() == 8 ? code.substr(0, 4) + "-" + code.substr(4) : code;
+}
+
+} // namespace mhf::psp

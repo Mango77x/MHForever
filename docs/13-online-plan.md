@@ -199,6 +199,7 @@ Acceptance: two players on different networks, one on our Windows build and one 
 a quest on a public server, and a third and a fourth join.
 
 ### 0.7 "Friends and private rooms"
+Superseded on 2026-10-29 by `14-rooms-and-friends.md` (private rooms in 0.8, friends over Nostr relays in 0.9).
 Identity backup and friend codes (the launcher already has the identity), presence and invites (DHT, authenticated
 links), room codes as private rooms on public servers (§6.2), our protocol with its version (§6.4).
 Acceptance: a friend added by code sees "in a room" and joins it in one click; a stranger on the same server cannot.

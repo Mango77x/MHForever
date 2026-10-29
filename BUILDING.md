@@ -76,6 +76,8 @@ is set, and nothing is contacted before the game first uses the ad hoc libraries
 
 - `mhfu ... --adhoc-server host[:port] [--adhoc-nick <name>] [--adhoc-mac AA:BB:CC:DD:EE:FF]`, or the environment variable
   `MHF_ADHOC_SERVER`; the launcher passes them from Settings → Online.
+- `--adhoc-room CODE` (8 characters of Crockford base32, e.g. `K7QF-29XM`) plays in a private room: the game's halls are renamed so
+  only players with the same code meet (`docs/14-rooms-and-friends.md` section 3).
 - `MHF_TRACE_ADHOC=1` logs the ad hoc calls and, once a second, the datagrams read and sent; `=2` also dumps the start of every datagram.
 - A local server to test against: build aemu_postoffice's reference server (commit in `third_party/aemu_postoffice/NOTICE.md`, directory
   `server_cpp`, C++20, clang or g++ on Linux or WSL) and run it. Its adhocctl port is 27312, the relay 27313, and `http://127.0.0.1:8888/data.json`

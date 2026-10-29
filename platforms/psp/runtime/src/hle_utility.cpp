@@ -629,7 +629,8 @@ void NetconfInitStart(Runtime &rt, Context &ctx) {
         auto &library = net_adhocctl(rt);
         g_netconf_adhoc = true;
         g_netconf_started = rt.now_us();
-        net_trace("network configuration: join an ad hoc group");
+        net_trace(("network configuration: join the ad hoc group " + adhoc::printable(group) + " (action " +
+                   std::to_string(action) + ")").c_str());
         if (!library.initialized() || !library.online() || library.connect(group) != 0) {
             // No ad hoc library, no server to reach, or already in a group: the dialog reports failure at its first update.
             g_netconf_started = 0;

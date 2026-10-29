@@ -120,6 +120,29 @@ int main() {
         MHF_CHECK(left.size() == 1 && left[0].event == kEventDisconnect);
     }
 
+    // Another server (another link) takes over only while in no group, joining none and not scanning; the handlers stay
+    // and the next join goes to the new one.
+    {
+        FakeLink first, second;
+        Adhocctl c(&first);
+        MHF_CHECK(c.init() == 0);
+        MHF_CHECK(c.add_handler(0x08800000u, 1) == 0);
+        MHF_CHECK(c.idle() && c.set_link(&second));
+        MHF_CHECK(c.connect(group("PSP_GRP")) == 0);
+        MHF_CHECK(first.connects.empty() && second.connects.size() == 1);
+        MHF_CHECK(!c.idle() && !c.set_link(&first)); // joining
+        second.say(LinkEvent::Kind::Connect).mac = mac(1);
+        second.say(LinkEvent::Kind::LeaderMac).mac = mac(1);
+        MHF_CHECK(c.poll().size() == 1 && c.state() == State::Connected);
+        MHF_CHECK(!c.set_link(&first)); // in a group
+        MHF_CHECK(c.disconnect() == 0);
+        MHF_CHECK(c.scan() == 0 && !c.set_link(&first)); // scanning
+        second.say(LinkEvent::Kind::ScanComplete);
+        (void)c.poll();
+        MHF_CHECK(c.idle() && c.set_link(&first) && c.handlers().size() == 1 && c.groups().empty());
+        MHF_CHECK(c.scan() == 0 && first.scans == 1);
+    }
+
     // A scan lists the groups the server knows, once it says it is complete; the group list survives until the next scan.
     {
         FakeLink link;
@@ -181,6 +204,88 @@ int main() {
         MHF_CHECK(!AemuLink::split_address("host:abc", host, port));
         MHF_CHECK(!AemuLink::split_address("host:70000", host, port));
         MHF_CHECK(!AemuLink::split_address("host:0", host, port));
+    }
+
+    // Room codes: Crockford base32, dashes and spaces ignored, letters that look like digits read as those digits.
+    {
+        MHF_CHECK(normalize_room_code("k7qf-29xm") == "K7QF29XM");
+        MHF_CHECK(normalize_room_code("K7QF 29XM") == "K7QF29XM");
+        MHF_CHECK(normalize_room_code("OIL00000") == "01100000");
+        MHF_CHECK(normalize_room_code("K7QF29X").empty());   // too short
+        MHF_CHECK(normalize_room_code("K7QF29XMM").empty()); // too long
+        MHF_CHECK(normalize_room_code("K7QF29XU").empty());  // U is not in the alphabet
+        MHF_CHECK(normalize_room_code("").empty());
+    }
+
+    // A private name: "F", five characters from the code and the game's prefix, then the hall number.
+    {
+        const GroupName name = private_name("K7QF29XM", group("MHP2Q011"));
+        MHF_CHECK(name[0] == 'F' && name[6] == '1' && name[7] == '1');
+        MHF_CHECK(name == private_name("K7QF29XM", group("MHP2Q011")));      // the same for every player
+        MHF_CHECK(name != private_name("K7QF29XN", group("MHP2Q011")));      // another room
+        MHF_CHECK(name != private_name("K7QF29XM", group("MHP2A011")));      // the other mode
+        MHF_CHECK(name != private_name("K7QF29XM", group("MHP2Q012")));      // another hall
+        for (const char ch : name) MHF_CHECK(ch != 0);
+    }
+
+    // In a private room the game joins the renamed hall, and a scan shows only that room's halls, under the game's names.
+    {
+        FakeLink link;
+        Adhocctl c(&link);
+        MHF_CHECK(c.init() == 0);
+        c.set_room("k7qf-29xm");
+        MHF_CHECK(c.room() == "K7QF29XM");
+        c.add_hall_prefix({'M', 'H', 'P', '2', 'Q', '0'});
+        MHF_CHECK(c.scan() == 0);
+        const auto report = [&](const GroupName &name, std::uint8_t leader) {
+            auto &e = link.say(LinkEvent::Kind::Scan);
+            e.group = name;
+            e.mac = mac(leader);
+        };
+        report(group("MHP2Q001"), 1);                                // a public hall
+        report(private_name("K7QF29XM", group("MHP2Q003")), 2);      // our room's hall 3
+        report(private_name("AAAAAAAA", group("MHP2Q004")), 3);      // someone else's room
+        report(private_name("K7QF29XM", group("MHP2A005")), 4);      // our room, a prefix not known yet
+        link.say(LinkEvent::Kind::ScanComplete);
+        MHF_CHECK(c.poll().size() == 1);
+        MHF_CHECK(c.groups().size() == 1 && c.groups()[0].name == group("MHP2Q003") && c.groups()[0].leader == mac(2));
+
+        MHF_CHECK(c.connect(group("MHP2A005")) == 0);
+        MHF_CHECK(link.connects.size() == 1 && link.connects[0] == private_name("K7QF29XM", group("MHP2A005")));
+        link.say(LinkEvent::Kind::LeaderMac).mac = mac(4);
+        MHF_CHECK(c.poll().size() == 1 && c.state() == State::Connected);
+        MHF_CHECK(c.disconnect() == 0);
+        (void)c.poll();
+
+        // The prefix it joined with is known now.
+        MHF_CHECK(c.scan() == 0);
+        report(private_name("K7QF29XM", group("MHP2A005")), 4);
+        link.say(LinkEvent::Kind::ScanComplete);
+        (void)c.poll();
+        MHF_CHECK(c.groups().size() == 1 && c.groups()[0].name == group("MHP2A005"));
+
+        // Back to the public halls: everything the server reports, under its own names.
+        c.set_room("");
+        MHF_CHECK(c.room().empty());
+        MHF_CHECK(c.scan() == 0);
+        report(group("MHP2Q001"), 1);
+        report(private_name("K7QF29XM", group("MHP2Q003")), 2);
+        link.say(LinkEvent::Kind::ScanComplete);
+        (void)c.poll();
+        MHF_CHECK(c.groups().size() == 2 && c.groups()[0].name == group("MHP2Q001"));
+        MHF_CHECK(c.connect(group("MHP2Q001")) == 0 && link.connects.back() == group("MHP2Q001"));
+
+        // A code that is not valid means the public halls.
+        c.set_room("nope");
+        MHF_CHECK(c.room().empty());
+    }
+
+    // Group names in logs: Freedom Unite's halls as they are, the Japanese release's Shift-JIS bytes in hex.
+    {
+        MHF_CHECK(printable(group("MHP2Q011")) == "MHP2Q011");
+        MHF_CHECK(printable(group("")) == "");
+        const GroupName shift_jis = {'\x8F', '\x57', '\x89', '\xEF', '\x8F', '\x8A', '0', '1'};
+        MHF_CHECK(printable(shift_jis) == "\\x8FW\\x89\\xEF\\x8F\\x8A01");
     }
 
     return mhf::test::finish("psp_adhocctl");

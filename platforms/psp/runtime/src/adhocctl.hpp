@@ -7,12 +7,31 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace mhf::psp::adhoc {
 
 using Mac = std::array<std::uint8_t, 6>;
 using GroupName = std::array<char, 8>; // not necessarily NUL-terminated, as on the PSP
+
+// A group name for logs: printable ASCII as it is, any other byte as \xHH (the Japanese release's names are Shift-JIS).
+inline std::string printable(const GroupName &name) {
+    static const char *hex = "0123456789ABCDEF";
+    std::string out;
+    for (const char c : name) {
+        const auto b = static_cast<unsigned char>(c);
+        if (b == 0) break;
+        if (b >= 0x20 && b < 0x7F && b != '\\') {
+            out.push_back(c);
+        } else {
+            out += "\\x";
+            out.push_back(hex[b >> 4]);
+            out.push_back(hex[b & 15]);
+        }
+    }
+    return out;
+}
 
 // What the server (or a test) reports, in the order it happened.
 struct LinkEvent {
@@ -46,6 +65,15 @@ inline constexpr std::uint32_t kNotInitialized = 0x80410B08u;
 inline constexpr std::uint32_t kBusy = 0x80410B10u;
 inline constexpr std::uint32_t kTooManyHandlers = 0x80410B12u;
 } // namespace error
+
+// Private rooms (docs/14-rooms-and-friends.md section 3): a room code renames the groups a game asks for, so only players
+// with the same code meet, on any public server. A game name of 8 bytes keeps its last two (the hall number) and gets
+// the first six from the code and its own first six: "F" and five base32 characters.
+using HallPrefix = std::array<char, 6>;
+// "k7qf-29xm" -> "K7QF29XM" (Crockford base32: O reads as 0, I and L as 1); "" when it is not 8 such characters.
+std::string normalize_room_code(std::string_view text);
+// The name the server sees for `game_name` in room `code` (a normalized code).
+GroupName private_name(const std::string &code, const GroupName &game_name);
 
 enum class State : std::int32_t { Disconnected = 0, Connected = 1, Scanning = 2 };
 
@@ -103,9 +131,24 @@ public:
     [[nodiscard]] const std::vector<ScanGroup> &groups() const noexcept { return groups_; }
     [[nodiscard]] const Mac &leader() const noexcept { return leader_; }
     [[nodiscard]] bool online() const { return link_ != nullptr && link_->online(); }
+    // In no group, joining none and not scanning: the moment another server can take over.
+    [[nodiscard]] bool idle() const noexcept { return state_ == State::Disconnected && !connecting_; }
+    // Another link (another server), only while idle(); false otherwise. What the old one found is forgotten, the
+    // handlers stay. The old link may go once this returned true.
+    bool set_link(AdhocLink *link);
+
+    // The private room the next scan and the next join use; "" (or a code that is not valid) is the public halls. It can
+    // change at any time: a group already joined stays as it is until the game leaves it.
+    void set_room(std::string_view code) { room_ = normalize_room_code(code); }
+    [[nodiscard]] const std::string &room() const noexcept { return room_; }
+    // The first six bytes of the game's hall names, so that a scan in a private room can report the halls under the
+    // names the game knows. A prefix the game joins with is learnt too.
+    void add_hall_prefix(const HallPrefix &prefix);
 
 private:
     AdhocLink *link_;
+    std::string room_;
+    std::vector<HallPrefix> prefixes_;
     bool initialized_ = false;
     State state_ = State::Disconnected;
     std::vector<Handler> handlers_;

@@ -187,6 +187,22 @@ int main(int argc, char **argv) {
         l.set_settings(server_edit);
         CHECK(l.state()["settings"]["adhocServer"].as_string() == "relay.example.org:27400");
 
+        // The private room: a code is kept in the game's form, anything else is refused, "" goes back to the public halls.
+        CHECK(state["settings"]["adhocRoom"].as_string().empty());
+        Json room_edit;
+        room_edit["adhocRoom"] = "k7qf-29xm";
+        l.set_settings(room_edit);
+        CHECK(l.state()["settings"]["adhocRoom"].as_string() == "K7QF29XM");
+        for (const char *bad : {"K7QF29X", "K7QF29XMM", "K7QF29XU", "room"}) {
+            Json bad_edit;
+            bad_edit["adhocRoom"] = bad;
+            l.set_settings(bad_edit);
+            CHECK(l.state()["settings"]["adhocRoom"].as_string() == "K7QF29XM");
+        }
+        room_edit["adhocRoom"] = "";
+        l.set_settings(room_edit);
+        CHECK(l.state()["settings"]["adhocRoom"].as_string().empty());
+
         // Controller bindings: defaults, a change with several sources, an unbound button, and input the launcher ignores.
         CHECK(state["settings"]["pad"]["south"].as_string() == "south");
         CHECK(state["settings"]["pad"]["left_shoulder"].as_string() == "left_shoulder+left_trigger");
@@ -215,7 +231,7 @@ int main(int argc, char **argv) {
         // What the player changed in the game's own menu comes back through a file the game writes.
         {
             std::ofstream(l.controls_file()) << "keymap=south=KeyZ,select=,west=KeyX,start=Space,jump=KeyP,north=" << std::string(40, 'Y')
-                                             << "\npadmap=south=dpad_up+right_trigger,up=south,west=banana,stick=right\nunknown=1\n";
+                                             << "\npadmap=south=dpad_up+right_trigger,up=south,west=banana,stick=right\nunknown=1\nroom=AB12-CD34\nserver=psp.mgn.pub\n";
         }
         l.import_game_controls();
         const Json from_game = l.state();
@@ -225,7 +241,15 @@ int main(int argc, char **argv) {
         CHECK(from_game["settings"]["pad"]["up"].as_string() == "south");
         CHECK(from_game["settings"]["pad"]["west"].as_string() == "west");   // not a source: unchanged
         CHECK(from_game["settings"]["pad"]["stick"].as_string() == "right");
+        CHECK(from_game["settings"]["adhocRoom"].as_string() == "AB12CD34"); // the room chosen in the game's Online tab
+        CHECK(from_game["settings"]["adhocServer"].as_string() == "psp.mgn.pub"); // and the server
         CHECK(!fs::exists(l.controls_file())); // taken over: the file is gone
+        {
+            std::ofstream(l.controls_file()) << "room=\nserver=bad host!\n"; // back to the public halls in the game
+        }
+        l.import_game_controls();
+        CHECK(l.state()["settings"]["adhocRoom"].as_string().empty());
+        CHECK(l.state()["settings"]["adhocServer"].as_string() == "psp.mgn.pub"); // not a server: unchanged
 
         auto plan = l.plan_launch("mhfu");
         CHECK(!plan.error.empty()); // no game files here
