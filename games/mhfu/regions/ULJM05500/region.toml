@@ -1,6 +1,27 @@
-# Japan (Portable 2nd G). Hashes pending: obtain from a dump and cross-check with Redump.
-# FUCTool lists UMD MD5 1f76ee9ccbd6d39158f06e6e5354a5bd and PSN MD5 cc39d070b2d2c44c9ac8187e00b75dc4 [VERIFY].
+# Japan (Portable 2nd G). Identification data only (hashes identify a dump; they contain no game content).
+# Two editions with the same executable: the UMD (Redump disc 25770, "Monster Hunter Portable 2nd G (Japan)") and the
+# PlayStation Store one ("Monster Hunter Portable 2nd G (Japan) (PSP) (PSN)").
 disc_id = "ULJM05500"
+disc_version = "1.01"
 market = "JP"
 languages = ["ja"]
 status = "planned"
+
+# UMD (matches Redump)
+[[accepted_dumps]]
+kind = "iso"
+size = 895582208
+sha1 = "951d1a360eec83af294a7a51ec4bba08f8633a6e"
+md5 = "1f76ee9ccbd6d39158f06e6e5354a5bd"
+
+# PlayStation Store
+[[accepted_dumps]]
+kind = "iso"
+size = 895582208
+sha1 = "9cd281818acdedb18ac133bdfb738561bba57ac1"
+md5 = "cc39d070b2d2c44c9ac8187e00b75dc4"
+
+# The encrypted executable on the disc (PSP_GAME/SYSDIR/EBOOT.BIN), the same in both editions.
+[encrypted_executable]
+size = 1890112
+sha1 = "cc92a52fd80f12a74c32ece488c79334b11fd458"
