@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { selectedGame, type State } from './bridge';
 import { AlertIcon, CheckIcon, FolderIcon, PlayIcon, PlusIcon, SlidersIcon } from './icons';
 import { hours, lastPlayed, resolutions } from './format';
+import { formatRoomCode, newRoomCode, roomCode } from './rooms';
 
 type Props = {
   state: State;
@@ -10,7 +11,9 @@ type Props = {
   onAddCopy: () => void;
   onLocateExecutable: () => void;
   onSettings: () => void;
-  onSoon: (what: string) => void;
+  onOnlineSettings: () => void;
+  onRoom: (code: string) => void; // '' for the public halls
+  onCopy: (text: string) => void;
 };
 
 const rise = (delay: number) => ({
@@ -19,7 +22,7 @@ const rise = (delay: number) => ({
   transition: { duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] as const },
 });
 
-export function Hero({ state, onPlay, onAddCopy, onLocateExecutable, onSettings }: Omit<Props, 'onSoon'>) {
+export function Hero({ state, onPlay, onAddCopy, onLocateExecutable, onSettings }: Omit<Props, 'onOnlineSettings' | 'onRoom' | 'onCopy'>) {
   const [m, setM] = useState({ x: 0, y: 0 });
   const game = selectedGame(state);
   const layer = (k: number, s: number) => ({ transform: `translate3d(${m.x * -k}px, ${m.y * -k * 0.45}px, 0) scale(${s})` });
@@ -99,26 +102,80 @@ export function Hero({ state, onPlay, onAddCopy, onLocateExecutable, onSettings 
   );
 }
 
+// Private rooms (docs/14-rooms-and-friends.md section 3): the game's Gathering Hall for the players who share a code, on
+// the server chosen in Settings → Online. The game can switch too, from its Escape menu (Online tab).
+function RoomCard({ state, onOnlineSettings, onRoom, onCopy }: Pick<Props, 'state' | 'onOnlineSettings' | 'onRoom' | 'onCopy'>) {
+  const [joining, setJoining] = useState(false);
+  const [typed, setTyped] = useState('');
+  const server = state.settings.adhocServer ?? '';
+  const room = state.settings.adhocRoom ?? '';
+  const text = (body: string) => <p style={{ margin: 0, color: 'var(--ink-2)', fontSize: 15, lineHeight: 1.55 }}>{body}</p>;
+  const typedCode = roomCode(typed);
+  const join = () => {
+    if (!typedCode) return;
+    onRoom(typedCode);
+    setJoining(false);
+    setTyped('');
+  };
+  return (
+    <div className="glass lift card">
+      <span className="eyebrow">Play with friends</span>
+      {server === '' ? (
+        <>
+          {text('Online play is off. Choose a server first; then create a room and share its code, or join a friend\'s.')}
+          <div className="row-wrap" style={{ marginTop: 'auto', gap: 10 }}>
+            <button className="ghost mid" onClick={onOnlineSettings}>Choose a server</button>
+          </div>
+        </>
+      ) : room !== '' ? (
+        <>
+          <span className="stat" style={{ letterSpacing: '0.08em' }}>{formatRoomCode(room)}</span>
+          {text(`Your private room on ${server}. Friends who play with this code meet you in the Gathering Hall's halls; nobody else sees them. Only MHForever players can join.`)}
+          <div className="row-wrap" style={{ marginTop: 'auto', gap: 10 }}>
+            <button className="ghost mid" onClick={() => onCopy(formatRoomCode(room))}>Copy code</button>
+            <button className="ghost mid" onClick={() => onRoom('')}>Back to public halls</button>
+          </div>
+        </>
+      ) : joining ? (
+        <>
+          {text('Type or paste the code your friend sent you.')}
+          <input
+            className="text-input"
+            value={typed}
+            placeholder="K7QF-29XM"
+            aria-label="Room code"
+            aria-invalid={typed.trim() !== '' && !typedCode}
+            spellCheck={false}
+            autoFocus
+            onChange={(e) => setTyped(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') join(); if (e.key === 'Escape') setJoining(false); }}
+          />
+          <div className="row-wrap" style={{ marginTop: 'auto', gap: 10 }}>
+            <button className="ghost mid" onClick={join} disabled={!typedCode}>Join room</button>
+            <button className="ghost mid" onClick={() => setJoining(false)}>Cancel</button>
+          </div>
+        </>
+      ) : (
+        <>
+          {text(`You play in the public halls of ${server}, with PPSSPP and PSP players too. A room keeps the halls to you and your friends.`)}
+          <div className="row-wrap" style={{ marginTop: 'auto', gap: 10 }}>
+            <button className="ghost mid" onClick={() => onRoom(newRoomCode())}>Create room</button>
+            <button className="ghost mid" onClick={() => setJoining(true)}>Join with code</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function Home(props: Props) {
-  const { state, onSoon } = props;
+  const { state } = props;
   const s = state.stats;
   return (
     <>
       <Hero {...props} />
       <motion.div className="cards" {...rise(0.16)}>
-        <div className="glass lift card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span className="eyebrow">Play with friends</span>
-            <span className="soon">Soon</span>
-          </div>
-          <p style={{ margin: 0, color: 'var(--ink-2)', fontSize: 15, lineHeight: 1.55 }}>
-            Create a room and share its code, or join a friend's room in one click. No accounts, no servers.
-          </p>
-          <div className="row-wrap" style={{ marginTop: 'auto', gap: 10 }}>
-            <button className="ghost mid" onClick={() => onSoon('Rooms')}>Create room</button>
-            <button className="ghost mid" onClick={() => onSoon('Rooms')}>Join with code</button>
-          </div>
-        </div>
+        <RoomCard {...props} />
         <div className="glass lift card" style={{ gap: 14 }}>
           <span className="eyebrow">Activity</span>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>

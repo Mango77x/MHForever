@@ -86,6 +86,9 @@ public:
     // bindings are: the in-game menu uses it to learn the button a player wants to assign.
     void set_capture(bool on);
     [[nodiscard]] std::vector<CapturedInput> take_captured();
+    // The system clipboard's text ("" when it holds none), and putting text there.
+    [[nodiscard]] std::string clipboard_text() const;
+    void set_clipboard_text(const std::string &text);
     // Shows or hides the mouse cursor over the window.
     void show_cursor(bool show);
     // Text entry (IME, typed characters). While it is on, the keyboard no longer acts as a gamepad.

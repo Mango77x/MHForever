@@ -132,6 +132,15 @@ void SdlHost::set_padmap(const PadBindings &bindings) {
     }
 }
 
+std::string SdlHost::clipboard_text() const {
+    char *text = SDL_GetClipboardText(); // never null; "" when there is no text
+    std::string out = text != nullptr ? text : "";
+    SDL_free(text);
+    return out;
+}
+
+void SdlHost::set_clipboard_text(const std::string &text) { SDL_SetClipboardText(text.c_str()); }
+
 void SdlHost::set_capture(bool on) {
     impl_->capture = on;
     impl_->captured.clear();

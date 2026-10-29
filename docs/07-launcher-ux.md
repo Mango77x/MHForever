@@ -130,7 +130,10 @@ mode, where no second window can be shown.
   button, flips a toggle or steps a choice (left half back, right half forward), a click or drag on a slider's track sets
   its value, and the wheel changes the value under the pointer or else the tab. Positions come from
   `MenuRenderer::layout`, the same ones the menu is drawn at.
-- Not done yet: changes made in the menu are not saved to the launcher's settings; the Online tab.
+- The Online tab (when a server is set; `14-rooms-and-friends.md` section 3.4): Halls Public / Private room, the room
+  code with "Copy the room code", "Use the room code you copied" (from the clipboard) and "New room code", and a line
+  that says when the change applies. The room the player ends with goes back to the launcher through the same file as
+  the bindings (`room=`).
 
 ## 4. Bundled toolchain (only for model B; not needed with model A)
 

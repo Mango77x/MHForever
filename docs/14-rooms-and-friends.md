@@ -102,6 +102,10 @@ start:
   overlay), so no link to the launcher is needed while playing. The game reports the mode it ends with, so the launcher
   offers the last code next time.
 - Public stays the default, and the mode is shown wherever online status is shown (menu, launcher, presence).
+- **Built 2026-10-29:** Home's "Play with friends" card (Create room, Join with code, Copy code, Back to public halls;
+  the setting `adhocRoom`, passed to the game as `--adhoc-room`) and the Escape menu's Online tab (`07-launcher-ux.md`
+  section 3c). The game learns a change through `Runtime::set_adhoc_room`; the launcher reads the room the game ended with
+  from the `room=` line of the file the game writes for it. Codes are typed or pasted: no text field in the game.
 
 ### 3.5 The Japanese bridge (optional, later)
 The same translation can map `集会所NN` and `MHP2Q0NN` to one private name, so our Japanese and international players
@@ -183,7 +187,7 @@ off until the player turns it on.
 |---|---|---|
 | R1 | Trace the group names the game scans and joins (both prefixes, a few halls) | §1 at run time; what `MHP2A0` is. **Done 2026-10-29 for `MHP2Q0`** on socom.cc; `MHP2A0` not reached yet |
 | R2 | Two copies with the same room code on the local reference server: both enter one private hall; a third copy without the code does not see it | §3.1. **Done 2026-10-29 at library level** (`psp_adhocctl_server` against the reference server, 3 of 3 runs): the two with the code meet, the third sees only the renamed group and lands alone in its own hall of the same number. **With the game, 2026-10-29**: two copies with code `K7QF-29XM`; B entered hall 2 first, A's scan then showed exactly one hall, `MHP2Q002` (the private one, under the game's name), A joined it and the two exchanged the Gathering Hall's datagrams |
-| R2b | Switch public → private → public from the Escape menu: in the village (applies at once) and inside a hall (applies after leaving), with a public player present | §3.4 |
+| R2b | Switch public → private → public from the Escape menu: in the village (applies at once) and inside a hall (applies after leaving), with a public player present | §3.4. Built; to try |
 | R3 | R2 on socom.cc, with a PPSSPP player in public halls at the same time | §3.2 on a busy server |
 | R4 | Our Japanese and European copies in one bridged hall, then a quest | §3.5 |
 | R5 | Two launchers add each other by code and see presence through public relays, one of them on mobile data | §4.3 |

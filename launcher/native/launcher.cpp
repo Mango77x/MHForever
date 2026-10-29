@@ -81,7 +81,9 @@ const Json *chosen_copy(const Json &data, const std::string &game_id, const Cata
 }
 
 // The launcher's own settings: everything else is kept per copy of a game.
-bool is_launcher_setting(const std::string &key) { return key == "copyImage" || key == "adhocServer" || key == "checkUpdates"; }
+bool is_launcher_setting(const std::string &key) {
+    return key == "copyImage" || key == "adhocServer" || key == "adhocRoom" || key == "checkUpdates";
+}
 
 // What a copy of a game uses: its own settings, over what the launcher.json "settings" hold (the values every copy started
 // from, and what a launcher.json from before the per-copy settings has).
@@ -138,6 +140,7 @@ Json default_settings() {
     }
     s["pad"] = pad;
     s["adhocServer"] = ""; // PSP ad hoc server for online play ("host" or "host:port"); empty: offline
+    s["adhocRoom"] = "";   // private room code (docs/14-rooms-and-friends.md section 3); empty: the public halls
     return s;
 }
 
@@ -626,7 +629,7 @@ Json Launcher::state() {
 void Launcher::import_game_controls() {
     std::error_code ec;
     if (!fs::is_regular_file(controls_file(), ec)) return;
-    Json keys, pad;
+    Json keys, pad, room;
     {
         std::ifstream in(controls_file());
         for (std::string line; std::getline(in, line);) {
@@ -639,6 +642,8 @@ void Launcher::import_game_controls() {
                 for (const std::string_view action : host::kKeyActions) {
                     if (const std::string *key = host::key_binding(parsed, action)) keys[std::string(action)] = *key;
                 }
+            } else if (name == "room") { // the room the player chose in the game's Online tab
+                room = text;
             } else if (name == "padmap") {
                 const host::PadBindings parsed = host::parse_padmap(text);
                 for (const std::string_view action : host::kPadActions) {
@@ -650,6 +655,7 @@ void Launcher::import_game_controls() {
     Json partial;
     partial["keys"] = keys;
     partial["pad"] = pad;
+    if (room.is_string()) partial["adhocRoom"] = room;
     {
         std::lock_guard lock(mutex_);
         const CatalogEntry *entry = nullptr;
@@ -666,6 +672,26 @@ void Launcher::set_settings(const Json &partial) {
     chosen_copy(data_, "mhfu", &entry);
     apply_settings(entry != nullptr ? entry->disc_id : "", partial);
 }
+
+// A room code as the game takes it: 8 characters of Crockford base32, "K7QF-29XM" -> "K7QF29XM" (O reads as 0, I and L
+// as 1). Empty when the text is not one. The same rule as the game's (platforms/psp/runtime/src/adhocctl.cpp).
+namespace {
+
+std::string room_code(const std::string &text) {
+    static const std::string alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    std::string code;
+    for (const char raw : text) {
+        if (raw == '-' || raw == ' ') continue;
+        char c = static_cast<char>(std::toupper(static_cast<unsigned char>(raw)));
+        if (c == 'O') c = '0';
+        if (c == 'I' || c == 'L') c = '1';
+        if (alphabet.find(c) == std::string::npos) return {};
+        code.push_back(c);
+    }
+    return code.size() == 8 ? code : std::string();
+}
+
+} // namespace
 
 void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     Json &launcher_settings = data_["settings"];
@@ -698,6 +724,10 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     if (partial["copyImage"].is_bool()) launcher_settings["copyImage"] = partial["copyImage"];
     if (partial["checkUpdates"].is_bool()) launcher_settings["checkUpdates"] = partial["checkUpdates"];
     if (partial["adhocServer"].is_string() && valid_server(partial["adhocServer"].as_string())) launcher_settings["adhocServer"] = partial["adhocServer"];
+    if (partial["adhocRoom"].is_string()) { // "" or a valid code; anything else is ignored
+        const std::string text = partial["adhocRoom"].as_string(), code = room_code(text);
+        if (text.empty() || !code.empty()) launcher_settings["adhocRoom"] = code;
+    }
     if (partial["keys"].is_object()) {
         Json &keys = s["keys"];
         for (const auto &[action, value] : partial["keys"].as_object()) {
@@ -925,6 +955,10 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back(server);
         plan.args.push_back("--adhoc-mac");
         plan.args.push_back(mac);
+        if (const std::string room = s["adhocRoom"].as_string(); !room.empty()) {
+            plan.args.push_back("--adhoc-room");
+            plan.args.push_back(room);
+        }
     }
     fs::create_directories(stick, ec);
     return plan;

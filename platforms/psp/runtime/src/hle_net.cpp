@@ -10,6 +10,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <random>
 #include <unordered_map>
 
 namespace mhf::psp::hle {
@@ -53,6 +54,7 @@ NetState &net(Runtime &rt) {
         slot = std::make_unique<NetState>();
         slot->rt = &rt;
         slot->mac = make_mac(rt.options());
+        slot->room = ad::normalize_room_code(rt.options().adhoc_room);
         slot->adhocctl = std::make_unique<ad::Adhocctl>(nullptr);
     }
     return *slot;
@@ -74,14 +76,14 @@ void start_link(NetState &s) {
     const bool was_initialized = s.adhocctl->initialized();
     s.adhocctl = std::make_unique<ad::Adhocctl>(s.link.get());
     if (was_initialized) (void)s.adhocctl->init();
-    s.adhocctl->set_room(o.adhoc_room);
+    s.adhocctl->set_room(s.room);
     for (const std::string &text : o.adhoc_hall_prefixes) {
         ad::HallPrefix prefix{};
         std::copy_n(text.begin(), std::min(text.size(), prefix.size()), prefix.begin());
         s.adhocctl->add_hall_prefix(prefix);
     }
     if (!o.adhoc_room.empty()) {
-        NET_TRACE("private room %s", s.adhocctl->room().empty() ? "(not a valid code: public halls)" : s.adhocctl->room().c_str());
+        NET_TRACE("private room %s", s.room.empty() ? "(not a valid code: public halls)" : s.room.c_str());
     }
     NetState *state = &s;
     s.rt->kernel().pollers.push_back([state] { state->deliver(); });
@@ -361,3 +363,32 @@ adhoc::Adhocctl &net_adhocctl(Runtime &rt) {
 }
 
 } // namespace mhf::psp::hle
+
+namespace mhf::psp {
+
+void Runtime::set_adhoc_room(std::string_view code) {
+    hle::NetState &s = hle::net_state(*this);
+    s.room = adhoc::normalize_room_code(code);
+    s.adhocctl->set_room(s.room);
+    NET_TRACE("room changed: %s", s.room.empty() ? "public halls" : s.room.c_str());
+}
+
+std::string Runtime::adhoc_room() { return hle::net_state(*this).room; }
+
+bool Runtime::adhoc_in_hall() { return hle::net_state(*this).adhocctl->state() == adhoc::State::Connected; }
+
+std::string adhoc_room_code(std::string_view text) { return adhoc::normalize_room_code(text); }
+
+std::string new_adhoc_room_code() {
+    static const char *alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    std::random_device random;
+    std::string code;
+    for (int i = 0; i < 8; ++i) code.push_back(alphabet[random() & 31u]);
+    return code;
+}
+
+std::string format_adhoc_room_code(const std::string &code) {
+    return code.size() == 8 ? code.substr(0, 4) + "-" + code.substr(4) : code;
+}
+
+} // namespace mhf::psp

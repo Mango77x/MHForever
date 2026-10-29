@@ -139,7 +139,6 @@ export default function App() {
     setLaunch({ phase: 'checking', startedAt: Date.now() });
     api.mhf_play(game.id);
   };
-  const soon = (what: string) => say(`${what} arrive with online play`);
 
   const nav: { id: Screen | 'friends'; label: string; icon: React.ReactNode }[] = [
     { id: 'home', label: 'Home', icon: <HomeIcon /> },
@@ -255,7 +254,9 @@ export default function App() {
               exit={{ opacity: 0, y: -10, filter: 'blur(4px)', transition: { duration: 0.18 } }}
             >
               {screen === 'home' && (
-                <Home state={state} onPlay={play} onAddCopy={addCopy} onLocateExecutable={locateExe} onSettings={() => go('game')} onSoon={soon} />
+                <Home state={state} onPlay={play} onAddCopy={addCopy} onLocateExecutable={locateExe} onSettings={() => go('game')}
+                  onOnlineSettings={() => go('settings')} onRoom={(adhocRoom) => setSettings({ adhocRoom })}
+                  onCopy={(text) => api.mhf_copyText(text).then(() => say('Room code copied'))} />
               )}
               {screen === 'library' && <Library games={state.games} onAddCopy={addCopy} selectedDisc={selectedGame(state)?.discId ?? ''} onOpen={(g) => api.mhf_selectGame(g.discId).then((s) => { setState(s); go('home'); })} />}
               {screen === 'settings' && (

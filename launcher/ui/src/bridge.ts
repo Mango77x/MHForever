@@ -32,6 +32,8 @@ export interface Settings {
   pad: Record<string, string>;
   // The PSP ad hoc server used for online play, "host" or "host:port"; '' keeps the game offline.
   adhocServer: string;
+  // The private room's code ("K7QF29XM"), '' for the public halls (docs/14-rooms-and-friends.md section 3).
+  adhocRoom: string;
   checkUpdates: boolean; // ask GitHub for a newer release when the launcher starts
 }
 
@@ -143,7 +145,7 @@ function simulated(): Native {
     friendCode: 'K7Q2-M9XA-4RTD-8PLE',
     settings: {
       scale: 4, fullscreen: false, smoothTextures: false, fps: 30, copyImage: false, musicVolume: 80, sfxVolume: 90,
-      keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '', checkUpdates: true,
+      keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '', adhocRoom: '', checkUpdates: true,
     },
     keyDefaults: defaultKeys,
     padDefaults: defaultPad,

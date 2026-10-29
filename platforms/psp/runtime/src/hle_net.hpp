@@ -38,6 +38,7 @@ struct NetState {
     std::unique_ptr<adhoc::Sockets> sockets; // between sceNetAdhocInit and sceNetAdhocTerm, with a server
     bool adhoc_inited = false;               // sceNetAdhocInit
     bool poller_added = false;
+    std::string room; // the private room (Runtime::set_adhoc_room), kept here until the library exists
     adhoc::Mac mac{};
     std::int32_t discover_status = kDiscoverNone;
     std::uint32_t discover_params = 0;

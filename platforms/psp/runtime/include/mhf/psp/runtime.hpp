@@ -165,6 +165,13 @@ public:
         options_.sfx_volume = sfx;
     }
     void exit_program_from_host(int code);
+    // Online play: the private room the game's next scan and next join use, "" for the public halls
+    // (docs/14-rooms-and-friends.md section 3.4). A code that is not valid means the public halls. Changing it never
+    // takes the player out of a hall: it applies when the game next enters one.
+    void set_adhoc_room(std::string_view code);
+    [[nodiscard]] std::string adhoc_room();
+    // The game is in a hall of the ad hoc network now.
+    [[nodiscard]] bool adhoc_in_hall();
     // Prints the PSP threads and what they wait for to stderr (debugging hangs).
     void dump_threads();
     // Progress marks for the stall watchdog (MHF_WATCHDOG=<seconds>, runtime.cpp): every frame the game presents, and the last
@@ -199,6 +206,12 @@ private:
     std::unordered_map<std::uint64_t, bool> reported_unimplemented_;
     std::uint64_t overlay_activations_{};
 };
+
+// Room codes (docs/14-rooms-and-friends.md section 3): "k7qf-29xm" -> "K7QF29XM", "" when not a valid code; a new
+// random one; and the way players read and type one, "K7QF-29XM".
+[[nodiscard]] std::string adhoc_room_code(std::string_view text);
+[[nodiscard]] std::string new_adhoc_room_code();
+[[nodiscard]] std::string format_adhoc_room_code(const std::string &code);
 
 // Resolves and runs an imported function (also used by generated import wrappers through abi::call_import).
 void call_import(Runtime &rt, Context &ctx, ImportEntry &import);

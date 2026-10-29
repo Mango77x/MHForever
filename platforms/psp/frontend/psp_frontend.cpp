@@ -67,6 +67,10 @@ struct Frontend::Impl {
     host::PadBindings pad;
     int capture_id{};       // the Controls row waiting for a key or a button, 0 when none
     std::filesystem::path controls_file; // where a change is written for the launcher (empty: not at all)
+    // The Online tab (docs/14-rooms-and-friends.md section 3.4): the private room, read from the runtime when the menu
+    // opens. `last_room` brings a code back when the player returns to private halls.
+    bool online{}, room_known{};
+    std::string room, last_room, room_note;
     std::string title;
     LiveSettings live; // what the menu changes while the game runs
     bool open{};
@@ -280,7 +284,10 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
     impl.dialog_cv.notify_one();
 }
 
-enum MenuId { kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kPadStick, kRestoreKeys, kRestorePad };
+enum MenuId {
+    kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kPadStick, kRestoreKeys, kRestorePad,
+    kHalls, kNewRoom, kPasteRoom, kCopyRoom
+};
 
 // The Controls tab: one Binding row per key action (ids from kKeyBase, in the order of host::kKeyActions) and per pad button
 // (from kPadBase, in the order of host::kPadActions).
@@ -301,6 +308,29 @@ overlay::MenuItem menu_item(overlay::MenuItem::Kind kind, int id, std::string la
     item.label = std::move(label);
     item.value = value;
     return item;
+}
+
+// The Online tab: public halls (everyone on the server, PPSSPP and PSP players too) or a private room's halls.
+overlay::MenuTab menu_online(const Frontend::Impl &impl) {
+    using Kind = overlay::MenuItem::Kind;
+    const bool private_room = !impl.room.empty();
+    overlay::MenuTab tab{"Online", {menu_item(Kind::Heading, 0, "Gathering Hall")}};
+    overlay::MenuItem halls = menu_item(Kind::Choice, kHalls, "Halls", private_room ? 1 : 0);
+    halls.options = {"Public", "Private room"};
+    halls.detail = private_room ? "Only players with your room code, on MHForever." : "Everyone on the server, PPSSPP and PSP players too.";
+    tab.items.push_back(halls);
+    if (private_room) {
+        overlay::MenuItem code = menu_item(Kind::Info, 0, "Room code  " + format_adhoc_room_code(impl.room));
+        code.detail = "Friends who play with this code meet you in the same halls.";
+        tab.items.push_back(code);
+        tab.items.push_back(menu_item(Kind::Button, kCopyRoom, "Copy the room code"));
+    }
+    overlay::MenuItem paste = menu_item(Kind::Button, kPasteRoom, "Use the room code you copied");
+    paste.detail = "A friend's code, copied from a message.";
+    tab.items.push_back(paste);
+    tab.items.push_back(menu_item(Kind::Button, kNewRoom, "New room code"));
+    if (!impl.room_note.empty()) tab.items.push_back(menu_item(Kind::Info, 0, impl.room_note));
+    return tab;
 }
 
 overlay::MenuView menu_main(const Frontend::Impl &impl) {
@@ -353,6 +383,7 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
     controls.items.push_back(menu_item(Kind::Button, kRestorePad, "Restore controller defaults"));
     if (impl.capture_id != 0) v.hint = "Press the new key or button  |  Backspace removes it  |  Esc cancels";
     v.tabs = {game, audio, video, controls};
+    if (impl.online) v.tabs.push_back(menu_online(impl));
     return v;
 }
 
@@ -379,10 +410,23 @@ void apply_bindings(Frontend::Impl &impl) {
     {
         std::ofstream out(temp, std::ios::trunc);
         out << "keymap=" << host::format_keymap(impl.keys) << "\npadmap=" << host::format_padmap(impl.pad) << "\n";
+        if (impl.room_known) out << "room=" << impl.room << "\n"; // the launcher offers it next time
         if (!out) return;
     }
     std::filesystem::rename(temp, impl.controls_file, ec); // replaces the previous file in one step
     if (ec) std::fprintf(stderr, "[frontend] could not save the controls: %s\n", ec.message().c_str());
+}
+
+// Gives the game another room ("" for the public halls) and says when it applies.
+void change_room(Frontend::Impl &impl, Runtime &rt, const std::string &room) {
+    impl.room = room;
+    if (!room.empty()) impl.last_room = room;
+    rt.set_adhoc_room(room);
+    const std::string where = room.empty() ? "the public halls" : "the halls of room " + format_adhoc_room_code(room);
+    impl.room_note = rt.adhoc_in_hall() ? "You are in a hall now: you see " + where + " once you leave it and enter again."
+                                        : "Next time you enter the Gathering Hall you see " + where + ".";
+    apply_bindings(impl);
+    impl.menu.set(menu_main(impl));
 }
 
 void end_capture(Frontend::Impl &impl) {
@@ -483,6 +527,22 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             apply_bindings(impl);
             impl.menu.set(menu_main(impl));
             return true;
+        case kNewRoom: change_room(impl, rt, new_adhoc_room_code()); return true;
+        case kCopyRoom:
+            impl.host.set_clipboard_text(format_adhoc_room_code(impl.room));
+            impl.room_note = "Copied: " + format_adhoc_room_code(impl.room) + ". Send it to your friends.";
+            impl.menu.set(menu_main(impl));
+            return true;
+        case kPasteRoom: {
+            const std::string code = adhoc_room_code(impl.host.clipboard_text());
+            if (code.empty()) {
+                impl.room_note = "The clipboard holds no room code (8 letters and digits, like K7QF-29XM).";
+                impl.menu.set(menu_main(impl));
+            } else {
+                change_room(impl, rt, code);
+            }
+            return true;
+        }
         default:
             if (e.id >= kKeyBase && e.id < kPadBase + static_cast<int>(kPadButtons)) { // a Controls row: wait for the new key or button
                 const bool same = impl.capture_id == e.id;
@@ -502,6 +562,10 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             impl.render_scale = e.value + 1;
             impl.live.scale = impl.render_scale; // the drawing thread applies it at the next picture
             impl.menu.set(menu_main(impl));      // the size shown under the row follows
+            break;
+        case kHalls:
+            if (e.value == 0) change_room(impl, rt, "");
+            else change_room(impl, rt, impl.last_room.empty() ? new_adhoc_room_code() : impl.last_room);
             break;
         case kPadStick:
             impl.pad.stick = std::string(kStickChoices[std::clamp(e.value, 0, static_cast<int>(std::size(kStickChoices)) - 1)]);
@@ -565,6 +629,13 @@ void open_menu(Frontend::Impl &impl, Runtime &rt) {
     if (impl.font_directory.empty()) impl.font_directory = rt.options().font_directory;
     if (!impl.dialog_thread.joinable() && impl.gpu_state == 1) impl.dialog_thread = std::thread([&impl] { impl.dialog_worker(); });
     impl.menu_confirming_quit = false;
+    impl.online = !rt.options().adhoc_server.empty();
+    if (impl.online) {
+        impl.room = rt.adhoc_room();
+        if (!impl.room.empty()) impl.last_room = impl.room;
+        impl.room_known = true;
+        impl.room_note.clear();
+    }
     impl.menu.set(menu_main(impl));
     impl.menu_open = true;
     {
