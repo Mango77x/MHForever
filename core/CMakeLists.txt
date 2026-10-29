@@ -38,7 +38,8 @@ if(MHF_BUILD_TESTS)
 
     add_executable(test_menu tests/test_menu.cpp)
     target_include_directories(test_menu PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
-    target_compile_definitions(test_menu PRIVATE MHF_FONT_DIR="${PROJECT_SOURCE_DIR}/third_party/fonts/liberation-sans")
+    target_compile_definitions(test_menu PRIVATE MHF_FONT_DIR="${PROJECT_SOURCE_DIR}/third_party/fonts/liberation-sans"
+                                                 MHF_JAPANESE_FONT="${MHF_NOTO_SANS_JP}")
     target_link_libraries(test_menu PRIVATE mhf_overlay)
     mhf_target_warnings(test_menu)
     add_test(NAME overlay_menu COMMAND test_menu)

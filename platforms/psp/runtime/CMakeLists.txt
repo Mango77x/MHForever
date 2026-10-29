@@ -51,6 +51,10 @@ function(mhf_psp_copy_fonts target)
                 ${PROJECT_SOURCE_DIR}/third_party/fonts/liberation-sans/LiberationSans-Regular.ttf
                 ${PROJECT_SOURCE_DIR}/third_party/fonts/liberation-sans/LICENSE
                 $<TARGET_FILE_DIR:${target}>/fonts/
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MHF_NOTO_SANS_JP}
+                $<TARGET_FILE_DIR:${target}>/fonts/NotoSansJP-Regular.otf
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PROJECT_SOURCE_DIR}/third_party/fonts/noto-sans-jp/LICENSE
+                $<TARGET_FILE_DIR:${target}>/fonts/LICENSE-NotoSansJP
         VERBATIM)
 endfunction()
 

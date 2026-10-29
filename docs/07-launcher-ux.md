@@ -35,7 +35,8 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   `mhf_pickExecutable`, `mhf_selectGame`, `mhf_play`, `mhf_copyText`, `mhf_exportIdentity` (Promises of JSON); events pushed with
   `window.__mhfEvent` (`verify`, `verified`, `verifyFailed`, `launch`, `exited`, `launchFailed`, `state`).
 - **Regions (2026-10-26)**: every region of a game is its own program, because the recompiled code is the release's own:
-  `mhfu` for Europe and `mhfu-us` for North America (CMake `MHF_MHFU_PROGRAM_NAME`; `package_release.py --game-us`).
+  `mhfu` for Europe, `mhfu-us` for North America and `mhfu-jp` for Japan (CMake `MHF_MHFU_PROGRAM_NAME`;
+  `package_release.py --game-us`, `--game-jp`).
   `plan_launch` picks the program by the disc of the chosen copy and names the one that is missing. With several copies in
   the library, the Library chooses which one Home, Game settings, Play and the save import work on (`mhf_selectGame`,
   stored as `selectedDisc` in `launcher.json`); Remove deletes only that copy.

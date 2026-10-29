@@ -59,8 +59,9 @@ This uses your own copy of the game and never produces anything that may be comm
    cmake --build build/game --target mhfu
    ```
    Every region has its own program, because the recompiled code is the release's own. The European one is `mhfu`; for
-   North America generate from `ULUS10391` and configure with `-DMHF_MHFU_PROGRAM_NAME=mhfu-us`, so the launcher finds it
-   (it starts `mhfu` or `mhfu-us` by the disc in the library).
+   North America generate from `ULUS10391` and configure with `-DMHF_MHFU_PROGRAM_NAME=mhfu-us`, for Japan from
+   `ULJM05500` with `-DMHF_MHFU_PROGRAM_NAME=mhfu-jp`, so the launcher finds it (it starts `mhfu`, `mhfu-us` or `mhfu-jp`
+   by the disc in the library).
 4. Run it: `build/game/games/mhfu/mhfu --iso <your.iso> --exe <decrypted EBOOT> --window`
    (`--dump-frames <dir>` saves PNGs of the screen, `--trace` logs every system call, `--seconds N` stops after N s).
 
@@ -113,7 +114,7 @@ The archives are assembled from programs built elsewhere; game data never goes i
    `--ffmpeg-dlls` is the folder CMake copies FFmpeg's DLLs to (`<build folder>/bin`); they go next to `mhfu.exe`, because
    the game loads them from its own folder and a clean Windows install has none. The script refuses to build the
    archive without them. The FFmpeg licence and source note (`third_party/ffmpeg/`) go into the archive as they are.
-   `--game-us <mhfu-us.exe>` adds the North America program to the same archive.
+   `--game-us <mhfu-us.exe>` and `--game-jp <mhfu-jp.exe>` add the North America and Japan programs to the same archive.
    `--version` is optional: it defaults to `project(MHForever VERSION ...)` in `CMakeLists.txt`, which is the only place
    the version is written, so the archive, the launcher and `mhf --version` always agree. Bump it there (and only there)
    when preparing a release; pass `--version` only for a one-off archive.
@@ -126,7 +127,7 @@ The archives are assembled from programs built elsewhere; game data never goes i
 3. Package the programs, the free fonts and the licenses:
    ```sh
    python scripts/package_release.py --platform linux \
-       --launcher <MHForever> --game <mhfu> --game-us <mhfu-us> --fonts <the fonts folder next to mhfu>
+       --launcher <MHForever> --game <mhfu> --game-us <mhfu-us> --game-jp <mhfu-jp> --fonts <the fonts folder next to mhfu>
    ```
    This writes `MHForever-<version>-linux-x64.tar.gz` and its `.sha256`; the execute permission of the programs is
    kept. FFmpeg is inside the programs (static), so the archive carries only its licence and source note

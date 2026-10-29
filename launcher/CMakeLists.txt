@@ -182,6 +182,9 @@ if(UNIX AND NOT APPLE)
         install(DIRECTORY ${PROJECT_SOURCE_DIR}/third_party/fonts/liberation-sans/
                 DESTINATION ${CMAKE_INSTALL_BINDIR}/fonts
                 FILES_MATCHING PATTERN "*.ttf" PATTERN "LICENSE")
+        install(FILES ${MHF_NOTO_SANS_JP} DESTINATION ${CMAKE_INSTALL_BINDIR}/fonts RENAME NotoSansJP-Regular.otf)
+        install(FILES ${PROJECT_SOURCE_DIR}/third_party/fonts/noto-sans-jp/LICENSE
+                DESTINATION ${CMAKE_INSTALL_BINDIR}/fonts RENAME LICENSE-NotoSansJP)
     endif()
     install(FILES ${PROJECT_SOURCE_DIR}/packaging/linux/MHForever.desktop
             DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)

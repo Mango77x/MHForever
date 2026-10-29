@@ -1,4 +1,5 @@
 #include "overlay/menu.hpp"
+#include "overlay/painter.hpp"
 
 #include "check.hpp"
 
@@ -6,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 
 namespace {
 
@@ -248,6 +250,38 @@ int main() {
         MHF_CHECK(selected_id(menu) == 41 && menu.view().items()[1].text == "Space" && menu.view().items()[2].value == 1);
         const auto clicked = menu.click_row(1, 0.5f, false);
         MHF_CHECK(clicked.kind == Kind::Activated && clicked.id == 40);
+    }
+
+    // Japanese text (the Japanese release's save titles) comes from the second font, at the main font's em, and wraps
+    // between characters since it has no spaces.
+    {
+        namespace fs = std::filesystem;
+        const fs::path fonts = fs::temp_directory_path() / "mhf_test_menu_fonts";
+        fs::create_directories(fonts);
+        fs::copy_file(fs::path(MHF_FONT_DIR) / "LiberationSans-Regular.ttf", fonts / "LiberationSans-Regular.ttf",
+                      fs::copy_options::overwrite_existing);
+        fs::copy_file(MHF_JAPANESE_FONT, fonts / "NotoSansJP-Regular.otf", fs::copy_options::overwrite_existing);
+        Painter latin_only(MHF_FONT_DIR), painter(fonts);
+        const std::string kana = "\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86"; // あいう
+        MHF_CHECK(std::abs(latin_only.measure(kana, 20.0f) - latin_only.measure("???", 20.0f)) < 0.01f); // shown as '?'
+        const float width = painter.measure(kana, 20.0f);
+        // Full-width: about one em each; the size is the line height, so the em of Liberation Sans is ~17.4 px at 20.
+        MHF_CHECK(width > 3 * 16.0f && width < 3 * 19.0f);
+        std::vector<std::uint32_t> a, b;
+        painter.begin(a, 120, 40, 1.0f);
+        painter.text(4, 28, kana, 20.0f, kWhite);
+        painter.end();
+        painter.begin(b, 120, 40, 1.0f);
+        painter.text(4, 28, "???", 20.0f, kWhite);
+        painter.end();
+        MHF_CHECK(a != b && std::any_of(a.begin(), a.end(), [](std::uint32_t p) { return p != 0; }));
+        std::string line;
+        for (int i = 0; i < 10; ++i) line += kana;
+        const auto lines = painter.wrap(line, 20.0f, 200.0f);
+        MHF_CHECK(lines.size() >= 3);
+        for (const auto &l : lines) MHF_CHECK(painter.measure(l, 20.0f) <= 200.0f);
+        std::error_code ec;
+        fs::remove_all(fonts, ec);
     }
 
     return mhf::test::finish("test_menu");

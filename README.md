@@ -38,10 +38,10 @@ no piracy talk there. Bugs can also be reported as [issues](https://github.com/M
 |---|---|---|---|
 | **Monster Hunter Freedom Unite** | PSP | Europe (`ULES01213`, v1.01) | **Playable** |
 | **Monster Hunter Freedom Unite** | PSP | North America (`ULUS10391`, v1.01) | **Playable** |
-| Monster Hunter Portable 2nd G | PSP | Japan (`ULJM05500`) | Planned |
+| Monster Hunter Portable 2nd G | PSP | Japan (`ULJM05500`, v1.01) | **Playable** |
 | Other Monster Hunter games | PSP, later PS2 | | Planned, see the [roadmap](docs/10-roadmap.md) |
 
-The first three rows work today (online play is experimental). The others are plans, not promises: they are listed so you know where the project is going.
+The first four rows work today (online play is experimental). The others are plans, not promises: they are listed so you know where the project is going.
 
 ## Where the project is today
 
@@ -54,7 +54,7 @@ The first three rows work today (online play is experimental). The others are pl
 | **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard and controller buttons are changed in Game settings (Home) or from the in-game menu. |
 | **Saves** | Kept in `Documents\MHForever\saves` on Windows and `~/.local/share/MHForever/saves` on Linux, one folder per game; settings in `%APPDATA%\MHForever` or `$XDG_DATA_HOME/MHForever`. Updating never loses them. Saves use the PSP format: import them from a PSP or PPSSPP in Game settings (your own version of the game: a European save only works with the European release, and a North American one with the North American release), or copy MHForever's into PPSSPP. |
 | **Resolution** | Up to several times the original 480x272, with an optional smoother texture filter. |
-| **Other games and regions** | The Japanese release (Portable 2nd G) and other games of the series are planned. |
+| **Other games and regions** | The Japanese release (Portable 2nd G, `ULJM05500`) is playable too, with its Japanese text. Other games of the series are planned. |
 | **Latest release** | [![Latest release](https://img.shields.io/github/v/release/Mango77x/MHForever?label=version)](https://github.com/Mango77x/MHForever/releases/latest) [![Release date](https://img.shields.io/github/release-date/Mango77x/MHForever?label=published)](https://github.com/Mango77x/MHForever/releases/latest) See the [Releases](../../releases) page. |
 
 It is early software: according to the maintainer's testing, single player can be played from start to finish, but expect rough edges and bugs. Reports are welcome.

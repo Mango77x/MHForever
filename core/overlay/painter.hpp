@@ -32,7 +32,8 @@ inline constexpr Color kBlack{0.0f, 0.0f, 0.0f};
 
 class Painter {
 public:
-    // `font_directory` holds LiberationSans-Regular.ttf.
+    // `font_directory` holds LiberationSans-Regular.ttf, and NotoSansJP-Regular.otf for the characters it lacks
+    // (Japanese save titles).
     explicit Painter(const std::filesystem::path &font_directory);
     ~Painter();
     Painter(const Painter &) = delete;
@@ -70,6 +71,13 @@ private:
         int x0, y0, w, h;
         std::vector<unsigned char> bitmap;
     };
+    // The font, glyph and scale that draw `cp` at `pixel_size`: the main font, else the Japanese one, else '?'.
+    struct Source {
+        const stbtt_fontinfo *font;
+        int index;
+        float scale;
+    };
+    [[nodiscard]] Source source(std::uint32_t cp, float pixel_size) const;
     const Glyph &glyph(std::uint32_t cp, float pixel_size, float subx);
     [[nodiscard]] float advance(std::uint32_t cp, float pixel_size) const;
     void blend(int x, int y, Color c, float a);
@@ -77,6 +85,8 @@ private:
     std::vector<unsigned char> font_data_;
     std::unique_ptr<stbtt_fontinfo> font_;
     bool font_ok_ = false;
+    std::vector<unsigned char> japanese_data_;
+    std::unique_ptr<stbtt_fontinfo> japanese_; // null when the file is missing
     std::map<std::tuple<std::uint32_t, int, int>, Glyph> glyphs_; // codepoint, pixel size * 4, subpixel quarter
 
     std::vector<std::uint32_t> *px_ = nullptr;

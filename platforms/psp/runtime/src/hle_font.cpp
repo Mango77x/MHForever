@@ -2,7 +2,8 @@
 //
 // The original system fonts are never used or included (see CONTRIBUTING.md). Instead, one free font (Liberation Sans, from
 // third_party/fonts) is offered as the only installed font, rasterized with stb_truetype at the size of the original
-// Latin system font (10.125 points at 128 dpi, i.e. an 18-pixel em). Metrics follow the library's conventions: 26.6
+// Latin system font (10.125 points at 128 dpi, i.e. an 18-pixel em). Characters it does not have (the kana and kanji
+// of the Japanese release) are drawn with a second free font, Noto Sans JP, at the same em. Metrics follow the library's conventions: 26.6
 // fixed point, glyph bitmaps positioned by the caller with bitmapLeft/bitmapTop, and glyph images drawn with their
 // top-left corner at (xPos64, yPos64) >> 6.
 //
@@ -17,6 +18,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -30,6 +32,7 @@ namespace {
 
 constexpr const char *kFontFile = "LiberationSans-Regular.ttf";
 constexpr const char *kFontName = "Liberation Sans";
+constexpr const char *kJapaneseFontFile = "NotoSansJP-Regular.otf";
 constexpr float kPoints = 10.125f;     // size of the original Latin font
 constexpr float kResolution = 128.0f;  // dpi the library reports by default
 constexpr std::uint32_t kAltCharacter = 0x5Fu;
@@ -51,27 +54,35 @@ struct Face {
 };
 
 std::unique_ptr<Face> g_face;
+std::unique_ptr<Face> g_japanese; // for the characters g_face does not have; may be missing
 bool g_face_tried = false;
 
-Face *face(Runtime &rt) {
-    if (g_face_tried) return g_face.get();
-    g_face_tried = true;
-    const auto path = rt.options().font_directory / kFontFile;
+std::unique_ptr<Face> load_face(const std::filesystem::path &path) {
     std::ifstream f(path, std::ios::binary);
-    if (!f) {
-        std::fprintf(stderr, "[hle] sceLibFont: %s not found; text drawn with the font library will be missing\n",
-                     path.string().c_str());
-        return nullptr;
-    }
+    if (!f) return nullptr;
     auto result = std::make_unique<Face>();
     result->data.assign(std::istreambuf_iterator<char>(f), {});
     if (!stbtt_InitFont(&result->info, result->data.data(), stbtt_GetFontOffsetForIndex(result->data.data(), 0))) {
         std::fprintf(stderr, "[hle] sceLibFont: %s is not a usable TrueType font\n", path.string().c_str());
         return nullptr;
     }
+    result->scale = stbtt_ScaleForMappingEmToPixels(&result->info, kPoints * kResolution / 72.0f);
+    stbtt_GetFontVMetrics(&result->info, &result->ascent, &result->descent, &result->line_gap);
+    return result;
+}
+
+Face *face(Runtime &rt) {
+    if (g_face_tried) return g_face.get();
+    g_face_tried = true;
+    const auto path = rt.options().font_directory / kFontFile;
+    auto result = load_face(path);
+    if (!result) {
+        std::fprintf(stderr, "[hle] sceLibFont: %s not found; text drawn with the font library will be missing\n",
+                     path.string().c_str());
+        return nullptr;
+    }
+    g_japanese = load_face(rt.options().font_directory / kJapaneseFontFile);
     Face &fc = *result;
-    fc.scale = stbtt_ScaleForMappingEmToPixels(&fc.info, kPoints * kResolution / 72.0f);
-    stbtt_GetFontVMetrics(&fc.info, &fc.ascent, &fc.descent, &fc.line_gap);
     const auto measure = [&](std::uint32_t first, std::uint32_t last) {
         for (std::uint32_t c = first; c <= last; ++c) {
             const int glyph = stbtt_FindGlyphIndex(&fc.info, static_cast<int>(c));
@@ -90,7 +101,8 @@ Face *face(Runtime &rt) {
     };
     measure(0x20, 0x7E);
     measure(0xA0, 0x24F);
-    std::fprintf(stderr, "[hle] sceLibFont: using %s (%d glyphs measured)\n", kFontName, fc.glyph_count);
+    std::fprintf(stderr, "[hle] sceLibFont: using %s (%d glyphs measured)%s\n", kFontName, fc.glyph_count,
+                 g_japanese ? ", Japanese from Noto Sans JP" : "");
     g_face = std::move(result);
     return g_face.get();
 }
@@ -191,20 +203,31 @@ std::uint32_t latin_equivalent(std::uint32_t code) {
     return 0;
 }
 
-int glyph_for(const Face &fc, std::uint32_t code) {
+// A glyph and the font it comes from.
+struct Glyph {
+    const Face *face;
+    int index;
+};
+
+Glyph glyph_for(const Face &fc, std::uint32_t code) {
     int glyph = stbtt_FindGlyphIndex(&fc.info, static_cast<int>(code));
     if (glyph == 0) {
         if (const std::uint32_t latin = latin_equivalent(code); latin != 0) glyph = stbtt_FindGlyphIndex(&fc.info, static_cast<int>(latin));
+    }
+    if (glyph == 0 && g_japanese) {
+        if (const int japanese = stbtt_FindGlyphIndex(&g_japanese->info, static_cast<int>(code)); japanese != 0) {
+            return {g_japanese.get(), japanese};
+        }
     }
     if (glyph == 0 && code != 0x20u) {
         // Said once per character, so a report names what is missing.
         static std::set<std::uint32_t> reported;
         if (reported.insert(code).second) {
-            std::fprintf(stderr, "[hle] sceLibFont: %s has no U+%04X, drawn as '_'\n", kFontName, static_cast<unsigned>(code));
+            std::fprintf(stderr, "[hle] sceLibFont: no font has U+%04X, drawn as '_'\n", static_cast<unsigned>(code));
         }
         glyph = stbtt_FindGlyphIndex(&fc.info, static_cast<int>(kAltCharacter));
     }
-    return glyph;
+    return {&fc, glyph};
 }
 
 // ---------------------------------------------------------------- functions
@@ -298,9 +321,10 @@ void FontGetCharInfo(Runtime &rt, Context &ctx) {
         y1 = b.y0 + b.size;
         advance = static_cast<int>(std::lround(b.advance / fc->scale));
     } else {
-        const int glyph = glyph_for(*fc, code);
-        stbtt_GetGlyphBitmapBox(&fc->info, glyph, fc->scale, fc->scale, &x0, &y0, &x1, &y1);
-        stbtt_GetGlyphHMetrics(&fc->info, glyph, &advance, &bearing);
+        const Glyph g = glyph_for(*fc, code);
+        stbtt_GetGlyphBitmapBox(&g.face->info, g.index, g.face->scale, g.face->scale, &x0, &y0, &x1, &y1);
+        stbtt_GetGlyphHMetrics(&g.face->info, g.index, &advance, &bearing);
+        advance = static_cast<int>(std::lround(advance * g.face->scale / fc->scale)); // in units of the main font
     }
     const int width = x1 - x0, height = y1 - y0;
     const float line = static_cast<float>(fc->ascent - fc->descent + fc->line_gap) * fc->scale;
@@ -379,10 +403,11 @@ void draw_glyph(Runtime &rt, Context &ctx, int clip_x, int clip_y, int clip_w, i
         width = height = star_box(*fc).size;
         pixels = star_bitmap(width, code == kBlackStar);
     } else {
-        const int glyph = glyph_for(*fc, code);
+        const Glyph g = glyph_for(*fc, code);
         const float shift_x = static_cast<float>(x64 & 63) / 64.0f, shift_y = static_cast<float>(y64 & 63) / 64.0f;
         int x0, y0, x1, y1;
-        stbtt_GetGlyphBitmapBoxSubpixel(&fc->info, glyph, fc->scale, fc->scale, shift_x, shift_y, &x0, &y0, &x1, &y1);
+        stbtt_GetGlyphBitmapBoxSubpixel(&g.face->info, g.index, g.face->scale, g.face->scale, shift_x, shift_y, &x0, &y0, &x1,
+                                        &y1);
         width = x1 - x0;
         height = y1 - y0;
         if (width <= 0 || height <= 0) {
@@ -390,8 +415,8 @@ void draw_glyph(Runtime &rt, Context &ctx, int clip_x, int clip_y, int clip_w, i
             return;
         }
         pixels.resize(static_cast<std::size_t>(width * height));
-        stbtt_MakeGlyphBitmapSubpixel(&fc->info, pixels.data(), width, height, width, fc->scale, fc->scale, shift_x, shift_y,
-                                      glyph);
+        stbtt_MakeGlyphBitmapSubpixel(&g.face->info, pixels.data(), width, height, width, g.face->scale, g.face->scale, shift_x,
+                                      shift_y, g.index);
     }
     // How many pixels fit in one line of the caller's buffer.
     const int per_line = format <= 1 ? static_cast<int>(pitch * 2u) : static_cast<int>(pitch / (format == 2 ? 1u : format == 3 ? 3u : 4u));
@@ -429,7 +454,8 @@ void FontGetCharImageRect(Runtime &rt, Context &ctx) {
     if (is_star(arg(ctx, 1))) {
         x1 = y1 = star_box(*fc).size;
     } else {
-        stbtt_GetGlyphBitmapBox(&fc->info, glyph_for(*fc, arg(ctx, 1)), fc->scale, fc->scale, &x0, &y0, &x1, &y1);
+        const Glyph g = glyph_for(*fc, arg(ctx, 1));
+        stbtt_GetGlyphBitmapBox(&g.face->info, g.index, g.face->scale, g.face->scale, &x0, &y0, &x1, &y1);
     }
     rt.memory().store16(out, static_cast<std::uint16_t>(x1 - x0));
     rt.memory().store16(out + 2, static_cast<std::uint16_t>(y1 - y0));

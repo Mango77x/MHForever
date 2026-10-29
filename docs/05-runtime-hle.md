@@ -266,8 +266,12 @@ original Latin font (10.125 points at 128 dpi, an 18-pixel em). Glyph images are
 `(xPos64, yPos64) >> 6` in 4/8/24/32-bpp buffers, keeping brighter pixels already there; metrics are in 26.6 fixed
 point. The build copies the font next to each executable (`fonts/`), where the runtime looks for it when the working
 directory has none. Freedom Unite draws its menus and dialog text with it. Open: metrics differ from the original font,
-so some strings may be wider or narrower than their boxes `[VERIFY on more screens]`; Japanese/other scripts need a
-second font. `homebrew/fonttest` covers metrics, drawing and clipping.
+so some strings may be wider or narrower than their boxes `[VERIFY on more screens]`. **(2026-10-29)** Characters
+Liberation Sans lacks (after the full-width-to-ASCII mapping) come from a second free font, Noto Sans JP Regular (OFL 1.1,
+downloaded and checked by `cmake/fonts.cmake`, licence in `third_party/fonts/noto-sans-jp`; OpenType/CFF, which
+stb_truetype reads), at the same em and with its advance in the
+main font's units: the Japanese release draws its kana and kanji with it. A character neither font has is logged once and
+drawn as `_`. `homebrew/fonttest` covers metrics, drawing and clipping.
 
 ## 5f. Fallback interpreter
 

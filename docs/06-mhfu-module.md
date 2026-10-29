@@ -14,7 +14,7 @@
 |---|---|---|---|
 | Europe | **ULES01213** | Freedom Unite | Main development (reference copy, v1.01) |
 | North America | **ULUS10391** | Freedom Unite | Playable (v1.01): its own symbol map, overlay map and program (`mhfu-us`) |
-| Japan | **ULJM05500** | Portable 2nd G | Third region; base of `mhp2g-decomp` and FUComplete |
+| Japan | **ULJM05500** | Portable 2nd G | Playable (v1.01): its own symbol map, overlay map and program (`mhfu-jp`) |
 | Others | PSN, "PSP Essentials"/"The Best", Korea/Asia | — | `[VERIFY]` whether variants with other hashes exist |
 
 Known hashes for 2nd G JP (from FUCTool): UMD MD5 `1f76ee9ccbd6d39158f06e6e5354a5bd`, PSN MD5 `cc39d070b2d2c44c9ac8187e00b75dc4`.
@@ -75,7 +75,7 @@ mh_camera_update    = 0x088xxxxx
 mh_player_state     = 0x09xxxxxx
 ```
 The EU map (`regions/ULES01213/symbols.toml`) currently holds the entry point and the overlay loader (`04-recompiler.md` §4.4).
-The US map (`regions/ULUS10391/`) holds the entry point, the overlay loader and the overlay manifest; the JP map is pending until that dump is available.
+The US map (`regions/ULUS10391/`) holds the entry point, the overlay loader and the overlay manifest; the JP map (`regions/ULJM05500/`) holds the same three files (2026-10-29).
 
 **US release (ULUS10391, measured 2026-10-26).** Up to the overlay manager the code sits where it does in EU; from there on
 everything, code and data, is 0x120 bytes higher, and the overlay groups load 0x100 higher. The 298 overlays carry the same names

@@ -1,0 +1,22 @@
+# Canonical symbol map for ULJM05500 (Japan, Portable 2nd G, DISC_VERSION 1.01). See docs/06-mhfu-module.md section 5.
+# Addresses only; no game code or data. Found on 2026-10-29 by matching the European functions (ULES01213/symbols.toml)
+# in the Japanese executable (SHA-1 988baded88caa3487797fdef0d71d2095de3ec52), ignoring the immediates that hold
+# addresses: each function has exactly one match, and mh_main is the ELF's own entry. mh_overlay_is_active is too short to
+# match alone; it follows mh_overlay_finish as in EU and differs only by the System offset below. The region table was
+# checked by reading it: its values are the overlay group addresses of the Japanese executable's program headers.
+
+[functions]
+mh_main                 = 0x089094D4 # module entry point (the ELF's own entry)
+
+# Overlay manager (docs/04-recompiler.md section 4.4). Groups: 0 eboot, 1 task, 2 sub, 3 em, 4 stage, 5 debug.
+mh_overlay_request      = 0x0888FE4C # (System*, file_id, group): starts an async read of DATA.BIN file `file_id` into the group's region
+mh_overlay_finish       = 0x0888FF00 # (System*, file_id, group): completes the load, calls mh_overlay_prepare, records the active id
+mh_overlay_is_active    = 0x0888FF8C # (System*, group, file_id) -> bool
+mh_overlay_prepare      = 0x0890B844 # (image*, size): cache maintenance, clears .bss after the image, runs its static initializers
+mh_static_init_run      = 0x08909DA4 # (begin, end, ...): runs a static-initializer table (used for overlays and the executable)
+
+[data]
+mh_overlay_region_bases = 0x089C6B40 # u32[6], region base address per group
+
+[offsets]
+system_active_overlays  = 0x00F7A3C0 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none)
