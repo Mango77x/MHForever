@@ -182,7 +182,7 @@ off until the player turns it on.
 | # | Experiment | Decides |
 |---|---|---|
 | R1 | Trace the group names the game scans and joins (both prefixes, a few halls) | §1 at run time; what `MHP2A0` is. **Done 2026-10-29 for `MHP2Q0`** on socom.cc; `MHP2A0` not reached yet |
-| R2 | Two copies with the same room code on the local reference server: both enter one private hall; a third copy without the code does not see it | §3.1. **Done 2026-10-29 at library level** (`psp_adhocctl_server` against the reference server, 3 of 3 runs): the two with the code meet, the third sees only the renamed group and lands alone in its own hall of the same number. With the game itself: to do |
+| R2 | Two copies with the same room code on the local reference server: both enter one private hall; a third copy without the code does not see it | §3.1. **Done 2026-10-29 at library level** (`psp_adhocctl_server` against the reference server, 3 of 3 runs): the two with the code meet, the third sees only the renamed group and lands alone in its own hall of the same number. **With the game, 2026-10-29**: two copies with code `K7QF-29XM`; B entered hall 2 first, A's scan then showed exactly one hall, `MHP2Q002` (the private one, under the game's name), A joined it and the two exchanged the Gathering Hall's datagrams |
 | R2b | Switch public → private → public from the Escape menu: in the village (applies at once) and inside a hall (applies after leaving), with a public player present | §3.4 |
 | R3 | R2 on socom.cc, with a PPSSPP player in public halls at the same time | §3.2 on a busy server |
 | R4 | Our Japanese and European copies in one bridged hall, then a quest | §3.5 |
