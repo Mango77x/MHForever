@@ -37,6 +37,10 @@ struct MenuItem {
     std::vector<std::string> options;
     std::vector<std::string> option_details; // Choice: a line under each option, which turns them into cards
     std::vector<std::string> actions;        // Banner, Text: small buttons on the right
+    // Text: an on-screen keyboard that pops up under the field while this is not empty (for a controller), `key_columns`
+    // keys a row; a last row with fewer keys spreads them across the width.
+    std::vector<std::string> keys;
+    int key_columns = 8;
     int primary_action = -1;                 // the action drawn as the main one (amber), -1 none
     bool danger = false; // a button that ends or deletes something
     bool enabled = true; // disabled rows are shown dim and skipped
@@ -54,6 +58,7 @@ struct MenuView {
     int tab = 0;          // the section shown
     int selected = 0;     // row of that section
     int action = -1;      // the focused action of the selected row (Banner, Text), -1 the row itself
+    int key = 0;          // the focused key of an open on-screen keyboard
     bool tabs_focused = false; // the focus is in the sidebar (Up/Down change the section)
     bool pointer = true;  // the mouse was used last: no focus ring, no key hints
     std::string title, subtitle;          // the sidebar's heading (the program, the game)
@@ -78,12 +83,15 @@ struct MenuLayout {
     std::vector<Rect> bars;   // the track of a slider row (empty for the other rows)
     std::vector<std::vector<Rect>> options; // a Choice row's chips or cards
     std::vector<std::vector<Rect>> actions; // a Banner or Text row's buttons
+    std::vector<Rect> keys;   // the keys of an open on-screen keyboard
+    Rect keypad;              // the panel around them
+    int keypad_row = -1;      // the row it belongs to
     Rect resume, close;       // the sidebar's main button and the panel's ×
 
     struct Hit {
-        enum class Kind { None, Tab, Row, Option, Action, Resume, Close } kind = Kind::None;
-        int index = 0;       // the tab, or the row
-        int sub = 0;         // Option, Action: which one in the row
+        enum class Kind { None, Tab, Row, Option, Action, Resume, Close, Key, Keypad } kind = Kind::None;
+        int index = 0;       // the tab, or the row (Key, Keypad: the keyboard's row)
+        int sub = 0;         // Option, Action, Key: which one in the row
         bool on_bar = false; // a slider's track is under the pointer
         float along = 0;     // across the slider track (on_bar) or across the row: 0..1
     };
@@ -95,9 +103,9 @@ public:
     enum class Key { Up, Down, Left, Right, Accept, Back, PrevTab, NextTab };
 
     struct Event {
-        enum class Kind { None, Activated, Changed, Back } kind = Kind::None;
-        int id = 0;     // the row concerned (Activated, Changed)
-        int value = 0;  // Changed: the new value
+        enum class Kind { None, Activated, Changed, Back, Key } kind = Kind::None;
+        int id = 0;     // the row concerned (Activated, Changed, Key)
+        int value = 0;  // Changed: the new value; Key: the key pressed on the on-screen keyboard
         int action = -1; // Activated: the action pressed (Banner, Text), -1 the row itself
     };
 
@@ -119,6 +127,11 @@ public:
     Event click_action(int row, int action);  // a Banner's or Text's button
     Event drag_slider(int row, float along);  // the button is held on a slider's track
     Event scroll(int direction, int row);     // the wheel (+1 = up): over a slider it moves it, elsewhere it moves the selection
+    void hover_key(int key);                  // the pointer is over a key of the on-screen keyboard
+    Event click_key(int key);
+
+    // The row of the shown section whose on-screen keyboard is open, -1 none. While one is, the keys move across it.
+    [[nodiscard]] int keypad_row() const;
 
     // A row the focus can rest on (not a heading, a note, a disabled row or a banner without actions).
     [[nodiscard]] static bool selectable(const MenuItem &item);

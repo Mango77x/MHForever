@@ -75,7 +75,7 @@ struct Frontend::Impl {
     std::string room, last_room, room_note, server;
     // Joining a friend's room: the code as typed (keyboard) or picked (the code keyboard, for controllers).
     std::string code_typed;
-    bool code_typing{}, code_keyboard{};
+    bool code_typing{}, code_keyboard{}; // the keyboard types into the code field; the on-screen one is up (controller)
     bool menu_pad_used{}; // the last key came from a controller: its hints, and the code keyboard for typing
     std::string title;
     LiveSettings live; // what the menu changes while the game runs
@@ -336,10 +336,9 @@ constexpr std::string_view kStickChoices[] = {"left", "right", ""};
 constexpr int kMaxScale = 10;                 // 1x..10x the PSP's 480x272
 constexpr int kFpsChoices[] = {30, 60, 90, 120, 150, 180}; // whole multiples of the game's 30 fps
 
-// The code keyboard (a friend's room code with a controller): rows of characters from kCodeKeys, then kCodeEnd.
-constexpr int kCodeKeys = 3000, kCodeEnd = 3100;
+// The on-screen keyboard for a friend's room code (with a controller): these characters, then Delete and Join.
 constexpr std::string_view kCodeAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"; // Crockford base32, as room codes
-constexpr std::size_t kCodeKeysPerRow = 8;
+constexpr int kCodeDelete = static_cast<int>(kCodeAlphabet.size()), kCodeJoin = kCodeDelete + 1;
 
 overlay::MenuItem menu_item(overlay::MenuItem::Kind kind, int id, std::string label, int value = 0) {
     overlay::MenuItem item;
@@ -356,6 +355,7 @@ void menu_heading(overlay::MenuView &v, const Frontend::Impl &impl) {
     const std::size_t dash = impl.title.find(" - ");
     v.subtitle = dash == std::string::npos ? std::string() : impl.title.substr(dash + 3);
     if (impl.capture_id != 0) v.hint = "Press the new key or button  |  Backspace removes it  |  Esc cancels";
+    else if (impl.code_keyboard) v.hint = "A types  |  B closes the keyboard  |  Join when the code is complete";
     else if (impl.code_typing) v.hint = "Type the code  |  Enter joins  |  Esc stops typing";
     else if (impl.menu_pad_used) v.hint = "A choose  |  B back  |  LB RB sections";
     else v.hint = "Arrows move  |  Enter choose  |  Q E sections  |  Esc back to the game";
@@ -377,9 +377,14 @@ overlay::MenuTab menu_online(const Frontend::Impl &impl) {
         code.primary_action = 0;
         tab.items.push_back(code);
     }
-    overlay::MenuItem join = menu_item(Kind::Text, kJoinRoom, "Join a friend's room", impl.code_typing ? 1 : 0);
+    overlay::MenuItem join = menu_item(Kind::Text, kJoinRoom, "Join a friend's room", impl.code_typing || impl.code_keyboard ? 1 : 0);
     join.text = impl.code_typed;
-    join.placeholder = impl.menu_pad_used ? "Press A to pick the code of your friend's room" : "Type or paste a code, like K7QF-29XM";
+    join.placeholder = impl.menu_pad_used ? "Press A to enter your friend's code" : "Type or paste a code, like K7QF-29XM";
+    if (impl.code_keyboard) {
+        for (const char c : kCodeAlphabet) join.keys.emplace_back(1, c);
+        join.keys.emplace_back("Delete");
+        join.keys.emplace_back("Join");
+    }
     join.actions = {"Paste", "Join"};
     join.primary_action = adhoc_room_code(impl.code_typed).empty() ? -1 : 1;
     tab.items.push_back(join);
@@ -457,29 +462,6 @@ overlay::MenuView menu_confirm_quit(const Frontend::Impl &impl) {
     return v;
 }
 
-// A friend's room code with a controller: the 32 characters a code can hold, a key at a time.
-overlay::MenuView menu_code_keyboard(const Frontend::Impl &impl) {
-    using Kind = overlay::MenuItem::Kind;
-    overlay::MenuView v;
-    menu_heading(v, impl);
-    v.hint = "A types  |  B back  |  the arrows pick a key";
-    overlay::MenuTab tab{"Room code", {}, "Pick the letters and digits of your friend's code."};
-    overlay::MenuItem shown = menu_item(Kind::Banner, 0, "Your friend's room code");
-    shown.text = impl.code_typed.empty() ? "____-____" : impl.code_typed;
-    tab.items.push_back(shown);
-    for (std::size_t r = 0; r * kCodeKeysPerRow < kCodeAlphabet.size(); ++r) {
-        overlay::MenuItem row = menu_item(Kind::Banner, kCodeKeys + static_cast<int>(r), "");
-        for (std::size_t k = r * kCodeKeysPerRow; k < (r + 1) * kCodeKeysPerRow && k < kCodeAlphabet.size(); ++k) row.actions.push_back(std::string(1, kCodeAlphabet[k]));
-        tab.items.push_back(row);
-    }
-    overlay::MenuItem end = menu_item(Kind::Banner, kCodeEnd, "");
-    end.actions = {"Delete", "Cancel", "Join"};
-    end.primary_action = adhoc_room_code(impl.code_typed).empty() ? -1 : 2;
-    tab.items.push_back(end);
-    v.tabs = {tab};
-    return v;
-}
-
 // Applies the bindings at once and, when the launcher asked for it, writes them where it will find them: the player's
 // choice then survives the session (the launcher folds the file into its settings).
 void apply_bindings(Frontend::Impl &impl) {
@@ -498,16 +480,12 @@ void apply_bindings(Frontend::Impl &impl) {
     if (ec) std::fprintf(stderr, "[frontend] could not save the controls: %s\n", ec.message().c_str());
 }
 
-// Shows the menu's main view again, on the Online section when asked (after the code keyboard).
-void show_main(Frontend::Impl &impl, bool online_section = false) {
-    impl.menu.set(menu_main(impl));
-    if (online_section) impl.menu.click_tab(static_cast<int>(impl.menu.view().tabs.size()) - 1);
-}
+// Shows the menu's main view again.
+void show_main(Frontend::Impl &impl) { impl.menu.set(menu_main(impl)); }
 
 // Builds the view shown again (its hints follow the keyboard or the controller).
 void refresh_menu(Frontend::Impl &impl) {
-    if (impl.code_keyboard) impl.menu.set(menu_code_keyboard(impl));
-    else if (impl.menu_confirming_quit) impl.menu.set(menu_confirm_quit(impl));
+    if (impl.menu_confirming_quit) impl.menu.set(menu_confirm_quit(impl));
     else impl.menu.set(menu_main(impl));
 }
 
@@ -524,8 +502,17 @@ void change_room(Frontend::Impl &impl, Runtime &rt, const std::string &room) {
 }
 
 void set_code_typing(Frontend::Impl &impl, bool on) {
-    if (impl.code_typing == on) return;
+    if (impl.code_typing == on && !impl.code_keyboard) return;
     impl.code_typing = on;
+    impl.code_keyboard = false;
+    impl.host.set_text_input(on);
+    refresh_menu(impl);
+}
+
+// The on-screen keyboard under the code field, for a controller; the keyboard types meanwhile too.
+void set_code_keyboard(Frontend::Impl &impl, bool on) {
+    impl.code_keyboard = on;
+    impl.code_typing = false;
     impl.host.set_text_input(on);
     refresh_menu(impl);
 }
@@ -534,6 +521,7 @@ void set_code_typing(Frontend::Impl &impl, bool on) {
 void join_typed_room(Frontend::Impl &impl, Runtime &rt) {
     const std::string code = adhoc_room_code(impl.code_typed);
     impl.code_typing = false;
+    impl.code_keyboard = false;
     impl.host.set_text_input(false);
     if (code.empty()) {
         impl.room_note = "That is not a room code: 8 letters and digits, like K7QF-29XM.";
@@ -549,6 +537,12 @@ void type_code_char(std::string &typed, char c) {
     if (typed.size() >= 9) return;
     if (c != '-' && typed.size() == 4 && typed.find('-') == std::string::npos) typed.push_back('-');
     typed.push_back(c);
+}
+
+// One character less, and the dash with it.
+void erase_code_char(std::string &typed) {
+    if (!typed.empty()) typed.pop_back();
+    if (!typed.empty() && typed.back() == '-') typed.pop_back();
 }
 
 void end_capture(Frontend::Impl &impl) {
@@ -619,13 +613,8 @@ void handle_capture(Frontend::Impl &impl) {
 bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &e) {
     switch (e.kind) {
     case overlay::Menu::Event::Kind::Back:
-        if (impl.code_typing) {
+        if (impl.code_typing || impl.code_keyboard) {
             set_code_typing(impl, false);
-            return true;
-        }
-        if (impl.code_keyboard) {
-            impl.code_keyboard = false;
-            show_main(impl, true);
             return true;
         }
         if (impl.menu_confirming_quit) {
@@ -676,30 +665,14 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
                 refresh_menu(impl);
             } else if (e.action == 1) {
                 join_typed_room(impl, rt);
-            } else if (impl.menu_pad_used) { // the field, with a controller: the code keyboard
-                impl.code_keyboard = true;
-                impl.menu.set(menu_code_keyboard(impl));
-            } else {
+            } else if (impl.menu_pad_used && !impl.menu.view().pointer) { // the field, with a controller: a keyboard pops up
+                set_code_keyboard(impl, !impl.code_keyboard);
+            } else { // with the keyboard or the mouse: type into it
                 set_code_typing(impl, !impl.code_typing);
             }
             return true;
-        case kCodeEnd:
-            if (e.action == 0) { // Delete
-                if (!impl.code_typed.empty()) impl.code_typed.pop_back();
-                if (!impl.code_typed.empty() && impl.code_typed.back() == '-') impl.code_typed.pop_back();
-                impl.menu.set(menu_code_keyboard(impl));
-            } else {
-                impl.code_keyboard = false;
-                show_main(impl, true);
-                if (e.action == 2) join_typed_room(impl, rt);
-            }
-            return true;
         default:
-            if (e.id >= kCodeKeys && e.id < kCodeEnd && e.action >= 0) { // a key of the code keyboard
-                const std::size_t k = static_cast<std::size_t>(e.id - kCodeKeys) * kCodeKeysPerRow + static_cast<std::size_t>(e.action);
-                if (k < kCodeAlphabet.size()) type_code_char(impl.code_typed, kCodeAlphabet[k]);
-                impl.menu.set(menu_code_keyboard(impl));
-            } else if (e.id >= kKeyBase && e.id < kPadBase + static_cast<int>(kPadButtons)) { // a Controls row: wait for the new key or button
+            if (e.id >= kKeyBase && e.id < kPadBase + static_cast<int>(kPadButtons)) { // a Controls row: wait for the new key or button
                 const bool same = impl.capture_id == e.id;
                 impl.capture_id = same ? 0 : e.id;
                 impl.host.set_capture(!same);
@@ -707,6 +680,15 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             }
             return true;
         }
+    case overlay::Menu::Event::Kind::Key: // the on-screen keyboard of the code field
+        if (e.value == kCodeJoin) {
+            join_typed_room(impl, rt);
+            return true;
+        }
+        if (e.value == kCodeDelete) erase_code_char(impl.code_typed);
+        else if (e.value >= 0 && e.value < kCodeDelete) type_code_char(impl.code_typed, kCodeAlphabet[static_cast<std::size_t>(e.value)]);
+        refresh_menu(impl);
+        return true;
     case overlay::Menu::Event::Kind::Changed:
         switch (e.id) {
         case kMusic: impl.music_volume = e.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); break;
@@ -853,7 +835,7 @@ bool step_menu(Frontend::Impl &impl, Runtime &rt) {
     for (const auto &k : impl.host.take_key_events()) {
         if (capturing) continue;
         using K = host::KeyEvent::Kind;
-        if (impl.code_typing) { // typing a room code: the keyboard writes, Enter joins, Esc stops
+        if (impl.code_typing || impl.code_keyboard) { // typing a room code: the keyboard writes, Enter joins, Esc stops
             if (k.kind == K::Text) {
                 for (const char raw : k.text) {
                     const char c = static_cast<char>(std::toupper(static_cast<unsigned char>(raw)));
@@ -861,7 +843,7 @@ bool step_menu(Frontend::Impl &impl, Runtime &rt) {
                 }
                 typed = true;
             } else if (k.kind == K::Backspace) {
-                if (!impl.code_typed.empty()) impl.code_typed.pop_back();
+                erase_code_char(impl.code_typed);
                 typed = true;
             } else if (k.kind == K::Enter) {
                 join_typed_room(impl, rt);
@@ -924,6 +906,7 @@ bool step_menu(Frontend::Impl &impl, Runtime &rt) {
             if (m.kind == host::MouseEvent::Kind::Move) {
                 impl.menu.set_pointer(true);
                 impl.menu_pointer_row = hit.kind == Hit::Kind::Row || hit.kind == Hit::Kind::Option || hit.kind == Hit::Kind::Action ? hit.index : -1;
+                if (hit.kind == Hit::Kind::Key) impl.menu.hover_key(hit.sub);
                 if (impl.menu_dragging >= 0 && impl.menu_dragging < static_cast<int>(layout.bars.size())) {
                     const auto &bar = layout.bars[static_cast<std::size_t>(impl.menu_dragging)];
                     if (bar.w > 0) open = menu_handle(impl, rt, impl.menu.drag_slider(impl.menu_dragging, (x - bar.x) / bar.w)) && open;
@@ -941,15 +924,20 @@ bool step_menu(Frontend::Impl &impl, Runtime &rt) {
                 const auto &rows = impl.menu.view().items();
                 const bool on_field = hit.kind == Hit::Kind::Row && hit.index >= 0 && hit.index < static_cast<int>(rows.size()) &&
                                       rows[static_cast<std::size_t>(hit.index)].kind == overlay::MenuItem::Kind::Text;
-                if (impl.code_typing && !on_field && hit.kind != Hit::Kind::Action) set_code_typing(impl, false); // a click elsewhere stops typing
+                const bool on_keypad = hit.kind == Hit::Kind::Key || hit.kind == Hit::Kind::Keypad;
+                if ((impl.code_typing || impl.code_keyboard) && !on_field && !on_keypad && hit.kind != Hit::Kind::Action) {
+                    set_code_typing(impl, false); // a click elsewhere stops typing
+                }
                 switch (hit.kind) {
+                case Hit::Kind::Key: open = menu_handle(impl, rt, impl.menu.click_key(hit.sub)) && open; break;
+                case Hit::Kind::Keypad: break;
                 case Hit::Kind::Resume:
                 case Hit::Kind::Close: open = false; break;
                 case Hit::Kind::Tab: impl.menu.click_tab(hit.index); break;
                 case Hit::Kind::Option: open = menu_handle(impl, rt, impl.menu.click_option(hit.index, hit.sub)) && open; break;
                 case Hit::Kind::Action: open = menu_handle(impl, rt, impl.menu.click_action(hit.index, hit.sub)) && open; break;
                 case Hit::Kind::Row:
-                    if (on_field && impl.code_typing) break; // already typing there
+                    if (on_field && (impl.code_typing || impl.code_keyboard)) break; // already typing there
                     open = menu_handle(impl, rt, impl.menu.click_row(hit.index, hit.along, hit.on_bar)) && open;
                     if (hit.on_bar) impl.menu_dragging = hit.index;
                     break;

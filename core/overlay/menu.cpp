@@ -42,9 +42,11 @@ void Menu::set(MenuView view) {
         }
     }
     const bool focus = view_.tabs_focused, pointer = view_.pointer;
+    const int key = keypad_row() >= 0 ? view_.key : 0;
     view_ = std::move(view);
     view_.version = ++version_;
     view_.pointer = pointer;
+    view_.key = key;
     view_.action = -1;
     if (view_.tabs.empty()) {
         view_.tab = 0;
@@ -64,6 +66,10 @@ void Menu::set(MenuView view) {
         if (had_row && rows[i].id == keep_id && selectable(rows[i])) found = static_cast<int>(i);
     }
     view_.selected = found >= 0 ? found : first_selectable();
+    if (const int k = keypad_row(); k >= 0) {
+        view_.selected = k; // the keyboard holds the focus
+        view_.key = std::clamp(view_.key, 0, static_cast<int>(rows[static_cast<std::size_t>(k)].keys.size()) - 1);
+    }
     if (!rows.empty()) {
         const MenuItem &row = rows[static_cast<std::size_t>(view_.selected)];
         view_.action = found >= 0 && keep_action < static_cast<int>(row.actions.size()) && (keep_action >= 0 || first_action(row) < 0)
@@ -108,10 +114,69 @@ void Menu::focus_tabs() {
     view_.version = ++version_;
 }
 
+int Menu::keypad_row() const {
+    const auto &rows = view_.items();
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        if (rows[i].kind == MenuItem::Kind::Text && !rows[i].keys.empty()) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+namespace {
+
+// Where key `k` is on an on-screen keyboard of `count` keys, `columns` a row: its row, and its centre across 0..1.
+void key_place(int k, int count, int columns, int &row, float &centre) {
+    row = k / columns;
+    const int first = row * columns, in_row = std::min(columns, count - first);
+    centre = (static_cast<float>(k - first) + 0.5f) / static_cast<float>(in_row);
+}
+
+} // namespace
+
+void Menu::hover_key(int key) {
+    const int k = keypad_row();
+    if (k < 0 || key < 0 || key >= static_cast<int>(view_.items()[static_cast<std::size_t>(k)].keys.size()) || key == view_.key) return;
+    view_.key = key;
+    view_.version = ++version_;
+}
+
+Menu::Event Menu::click_key(int key) {
+    const int k = keypad_row();
+    if (k < 0 || key < 0 || key >= static_cast<int>(view_.items()[static_cast<std::size_t>(k)].keys.size())) return {};
+    hover_key(key);
+    return {Event::Kind::Key, view_.items()[static_cast<std::size_t>(k)].id, key};
+}
+
 Menu::Event Menu::press(Key key) {
     set_pointer(false);
     if (key == Key::Back) return {Event::Kind::Back, 0, 0};
     if (view_.tabs.empty()) return {};
+    if (const int k = keypad_row(); k >= 0) { // the on-screen keyboard: the arrows move across its keys
+        const MenuItem &item = view_.items()[static_cast<std::size_t>(k)];
+        const int count = static_cast<int>(item.keys.size()), columns = std::max(item.key_columns, 1);
+        const int last_row = (count - 1) / columns;
+        int row = 0, at = view_.key;
+        float centre = 0.0f;
+        key_place(view_.key, count, columns, row, centre);
+        switch (key) {
+        case Key::Accept: return {Event::Kind::Key, item.id, view_.key};
+        case Key::Left: at = std::max(view_.key - 1, row * columns); break;
+        case Key::Right: at = std::min(view_.key + 1, std::min(count, (row + 1) * columns) - 1); break;
+        case Key::Up:
+        case Key::Down: {
+            const int to = key == Key::Up ? (row == 0 ? last_row : row - 1) : (row == last_row ? 0 : row + 1);
+            const int in_row = std::min(columns, count - to * columns);
+            at = to * columns + std::clamp(static_cast<int>(centre * static_cast<float>(in_row)), 0, in_row - 1);
+            break;
+        }
+        default: break;
+        }
+        if (at != view_.key) {
+            view_.key = at;
+            view_.version = ++version_;
+        }
+        return {};
+    }
     if (key == Key::PrevTab || key == Key::NextTab) {
         change_tab(key == Key::PrevTab ? -1 : 1);
         return {};
@@ -190,6 +255,17 @@ Menu::Event Menu::press(Key key) {
 
 MenuLayout::Hit MenuLayout::hit(float x, float y) const {
     Hit h;
+    if (keypad.contains(x, y)) { // an open on-screen keyboard lies over the rows
+        h.kind = Hit::Kind::Keypad;
+        h.index = keypad_row;
+        for (std::size_t k = 0; k < keys.size(); ++k) {
+            if (keys[k].contains(x, y)) {
+                h.kind = Hit::Kind::Key;
+                h.sub = static_cast<int>(k);
+            }
+        }
+        return h;
+    }
     if (close.contains(x, y)) {
         h.kind = Hit::Kind::Close;
         return h;
@@ -462,8 +538,49 @@ struct MenuRenderer::Impl : Painter {
             p.layout.bars.push_back(bar);
             p.layout.options.push_back(std::move(options));
             p.layout.actions.push_back(std::move(actions));
+            if (item.kind == MenuItem::Kind::Text && !item.keys.empty() && p.layout.keypad_row < 0) place_keypad(p, i, item);
         }
         return p;
+    }
+
+    // The on-screen keyboard: a small panel under the field (over it when there is no room below), its keys in rows.
+    static constexpr float kKeyW = 14.0f, kKeyH = 13.0f, kKeyGap = 2.5f, kKeypadPad = 6.0f;
+
+    void place_keypad(Placed &p, std::size_t i, const MenuItem &item) const {
+        const int count = static_cast<int>(item.keys.size()), columns = std::max(item.key_columns, 1);
+        const int rows = (count + columns - 1) / columns;
+        const float inner_w = static_cast<float>(columns) * kKeyW + static_cast<float>(columns - 1) * kKeyGap;
+        const float w = inner_w + 2.0f * kKeypadPad;
+        const float h = static_cast<float>(rows) * kKeyH + static_cast<float>(rows - 1) * kKeyGap + 2.0f * kKeypadPad;
+        const auto &main = p.panels.main;
+        const float field_top = p.row_y[i] + 9.0f, field_bottom = field_top + 17.0f;
+        float y = field_bottom + 3.0f;
+        if (y + h > main.y + main.h - 4.0f) y = std::max(main.y + 4.0f, field_top - 3.0f - h);
+        const float x = p.panels.content.x;
+        p.layout.keypad = {x, y, w, h};
+        p.layout.keypad_row = static_cast<int>(i);
+        for (int k = 0; k < count; ++k) {
+            const int row = k / columns, first = row * columns, in_row = std::min(columns, count - first);
+            const float kw = (inner_w - static_cast<float>(in_row - 1) * kKeyGap) / static_cast<float>(in_row);
+            p.layout.keys.push_back({x + kKeypadPad + static_cast<float>(k - first) * (kw + kKeyGap),
+                                     y + kKeypadPad + static_cast<float>(row) * (kKeyH + kKeyGap), kw, kKeyH});
+        }
+    }
+
+    void keypad(const Placed &p, const MenuItem &item, const MenuView &v) {
+        const auto &pad = p.layout.keypad;
+        rrect(pad.x - 0.5f, pad.y + 1.5f, pad.w + 1.0f, pad.h + 1.0f, 6.0f, kBlack, 0.35f); // a soft shadow
+        rrect(pad.x, pad.y, pad.w, pad.h, 6.0f, kPanel, 0.98f);
+        rrect(pad.x, pad.y, pad.w, pad.h, 6.0f, kAccent, 0.45f, 0.6f);
+        for (std::size_t k = 0; k < p.layout.keys.size() && k < item.keys.size(); ++k) {
+            const auto &r = p.layout.keys[k];
+            const bool focused = static_cast<int>(k) == v.key;
+            const bool last = item.keys.size() > 1 && k + 1 == item.keys.size(); // the last key confirms
+            if (last) rrect(r.x, r.y, r.w, r.h, 3.5f, kAccent, focused ? 1.0f : 0.85f);
+            else rrect(r.x, r.y, r.w, r.h, 3.5f, kWhite, focused ? 0.2f : 0.07f);
+            centered(r, item.keys[k], 5.6f, last ? kInk : kText, 1.0f, true);
+            if (focused && !v.pointer) ring(r, 3.5f);
+        }
     }
 
     void ring(const MenuLayout::Rect &r, float radius) { rrect(r.x - 1.2f, r.y - 1.2f, r.w + 2.4f, r.h + 2.4f, radius + 1.0f, kAccent, 0.95f, 0.8f); }
@@ -668,6 +785,7 @@ struct MenuRenderer::Impl : Painter {
             if (!p.shown[i]) continue;
             row(p, i, rows[i], static_cast<int>(i) == v.selected, v);
         }
+        if (p.layout.keypad_row >= 0) keypad(p, rows[static_cast<std::size_t>(p.layout.keypad_row)], v);
         const auto &c = p.panels.content;
         if (p.total > c.h + 0.5f) { // more rows than room: a thin scroll bar
             const float thumb = std::max(12.0f, c.h * c.h / p.total);

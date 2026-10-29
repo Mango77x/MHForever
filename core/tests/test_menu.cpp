@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <string>
 
 namespace {
 
@@ -261,6 +262,64 @@ int main() {
         MHF_CHECK(m.click_action(2, 5).kind == Kind::None);
     }
 
+    // A text field's on-screen keyboard (a controller): it holds the focus, the arrows move across its keys (a shorter
+    // last row spreads its keys, Up/Down wrap), Accept and a click report the key, Back closes it. It is drawn under
+    // the field, over the rows below.
+    {
+        MenuView v;
+        MenuItem join = item(MenuItem::Kind::Text, 60, "Join a friend's room");
+        join.actions = {"Paste", "Join"};
+        for (const char c : std::string("0123456789ABCDEFGHJKMNPQRSTVWXYZ")) join.keys.emplace_back(1, c);
+        join.keys.emplace_back("Delete");
+        join.keys.emplace_back("Join");
+        MenuItem after = item(MenuItem::Kind::Button, 61, "Below");
+        v.tabs = {MenuTab{"Online", {item(MenuItem::Kind::Button, 59, "Above"), join, after}}};
+        Menu m;
+        m.set(v);
+        MHF_CHECK(m.keypad_row() == 1 && selected_id(m) == 60 && m.view().key == 0);
+        m.press(Key::Right);
+        m.press(Key::Right);
+        auto a = m.press(Key::Accept);
+        MHF_CHECK(a.kind == Kind::Key && a.id == 60 && a.value == 2);
+        m.press(Key::Left);
+        m.press(Key::Left);
+        m.press(Key::Left); // the row's first key: stays
+        MHF_CHECK(m.view().key == 0);
+        m.press(Key::Up); // wraps to the last row: Delete under the left half
+        MHF_CHECK(m.view().key == 32);
+        m.press(Key::Right);
+        MHF_CHECK(m.view().key == 33);
+        m.press(Key::Up); // from Join (the right half) to the row above's right half
+        MHF_CHECK(m.view().key >= 28 && m.view().key <= 31);
+        m.press(Key::NextTab);
+        MHF_CHECK(m.view().tab == 0 && selected_id(m) == 60); // the sections stay while it is up
+        m.press(Key::Accept);
+        // A rebuild keeps the focused key.
+        const int key = m.view().key;
+        m.set(v);
+        MHF_CHECK(m.view().key == key && selected_id(m) == 60);
+        MHF_CHECK(m.press(Key::Back).kind == Kind::Back);
+        // The mouse: the keys are laid out over the rows below the field; a click reports the key.
+        MenuRenderer layouter(MHF_FONT_DIR);
+        const MenuLayout lay = layouter.layout(m.view());
+        MHF_CHECK(lay.keypad_row == 1 && lay.keys.size() == 34);
+        MHF_CHECK(lay.keypad.y > lay.rows[1].y && lay.keypad.w < 200.0f);
+        MHF_CHECK(lay.keys[33].w > lay.keys[0].w * 3.0f);
+        const auto h = lay.hit(lay.keys[5].x + 2.0f, lay.keys[5].y + 2.0f);
+        MHF_CHECK(h.kind == MenuLayout::Hit::Kind::Key && h.sub == 5);
+        const auto between = lay.hit(lay.keypad.x + 1.0f, lay.keypad.y + 1.0f);
+        MHF_CHECK(between.kind == MenuLayout::Hit::Kind::Keypad);
+        a = m.click_key(h.sub);
+        MHF_CHECK(a.kind == Kind::Key && a.value == 5 && m.view().key == 5);
+        // Closed (no keys), the arrows move between the rows again.
+        v.tabs[0].items[1].keys.clear();
+        m.set(v);
+        MHF_CHECK(m.keypad_row() < 0);
+        m.press(Key::Down);
+        MHF_CHECK(selected_id(m) == 61);
+        MHF_CHECK(layouter.layout(m.view()).keys.empty());
+    }
+
     // Nothing to navigate: no crash.
     Menu empty;
     empty.set(MenuView{});
@@ -281,7 +340,8 @@ int main() {
     MHF_CHECK(pixels[0] == 0u && pixels[pixels.size() - 1] == 0u);
 
     // MHF_MENU_DUMP=<file>: also writes pictures (raw premultiplied RGBA, 1920x1088) to look at: <file> the Online
-    // section as the game shows it, <file>.video the Video section with the focus ring of the keys.
+    // section as the game shows it, <file>.video the Video section with the focus ring of the keys, <file>.keypad the
+    // code field's on-screen keyboard.
     if (const char *dump = std::getenv("MHF_MENU_DUMP")) {
         std::vector<std::uint32_t> big;
         MenuView v = sample();
@@ -314,6 +374,20 @@ int main() {
         look.press(Key::Down); // keys: the focus ring on the frame rate
         renderer.render(look.view(), 4, big, false);
         if (std::FILE *f = std::fopen((std::string(dump) + ".video").c_str(), "wb")) {
+            std::fwrite(big.data(), 4, big.size(), f);
+            std::fclose(f);
+        }
+        MenuItem &field = v.tabs[4].items[2];
+        field.text = "K7QF-2";
+        field.value = 1;
+        for (const char c : std::string("0123456789ABCDEFGHJKMNPQRSTVWXYZ")) field.keys.emplace_back(1, c);
+        field.keys.emplace_back("Delete");
+        field.keys.emplace_back("Join");
+        look.click_tab(4);
+        look.set(v);
+        look.press(Key::Right); // keys: the focus ring on a key
+        renderer.render(look.view(), 4, big, false);
+        if (std::FILE *f = std::fopen((std::string(dump) + ".keypad").c_str(), "wb")) {
             std::fwrite(big.data(), 4, big.size(), f);
             std::fclose(f);
         }

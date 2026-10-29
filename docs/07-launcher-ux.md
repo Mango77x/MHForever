@@ -116,8 +116,9 @@ mode, where no second window can be shown.
   and Right goes back; arrows or the D-pad / stick move between rows and through a row's options and buttons, Enter or A
   selects, Esc or B goes back (and, at the top, closes the menu). A focus ring and the key hints show only while keys or a
   controller are used; moving the mouse hides them.
-- Joining a friend's room (Online): with the keyboard the field takes the typed code (Enter joins, Esc stops); with a
-  controller A opens a code keyboard of the 32 characters a room code can hold; Paste takes it from the clipboard.
+- Joining a friend's room (Online): a click in the field (or Enter on it) and the keyboard types the code (Enter joins,
+  Esc stops); with a controller A pops up a small keyboard under the field, the 32 characters a room code can hold plus
+  Delete and Join (B closes it; the keyboard types meanwhile too). Paste takes the code from the clipboard.
 - `core/overlay`: `Painter` (shapes and anti-aliased text with letter spacing, in the launcher's colours, CPU,
   console-independent), `Menu` (sections and rows: button, slider, toggle, choice, binding, banner with buttons, text
   field, note; the navigation, and the mouse targets of `MenuLayout`) and `MenuRenderer`. The system dialogs
