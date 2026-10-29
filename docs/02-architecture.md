@@ -62,7 +62,7 @@ Dependency rule: `games → platforms → core`. Never the other way. `core` and
 │  └─ tests/
 ├─ games/mhfu/
 │  ├─ game.toml              module metadata
-│  ├─ regions/ULES01213/     region.toml, symbols.toml, overlays.toml (ULUS10391: the same files; ULJM05500: region.toml for now)
+│  ├─ regions/ULES01213/     region.toml, symbols.toml, overlays.toml (ULUS10391 and ULJM05500: the same files)
 │  ├─ host/                  game-specific host (command line, overlay hook, integration)
 │  ├─ tools/                 DATA.BIN reader, overlay extractor, prepare.py
 │  └─ tests/

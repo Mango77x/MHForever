@@ -5,7 +5,7 @@ disc_id = "ULJM05500"
 disc_version = "1.01"
 market = "JP"
 languages = ["ja"]
-status = "planned"
+status = "in-development"
 
 # UMD (matches Redump)
 [[accepted_dumps]]

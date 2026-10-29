@@ -88,7 +88,7 @@ def check_inputs(args, launcher_name: str, game_name: str) -> dict[str, pathlib.
         print(f"error: {args.fonts} is not a folder", file=sys.stderr)
         return None
     for font in sorted(args.fonts.iterdir()):
-        if font.suffix.lower() == ".ttf" or font.name == "LICENSE":
+        if font.suffix.lower() in {".ttf", ".otf"} or font.name == "LICENSE" or font.name.startswith("LICENSE-"):
             files[f"fonts/{font.name}"] = font
         else:
             print(f"error: unexpected file in the fonts folder: {font.name}", file=sys.stderr)
@@ -158,6 +158,8 @@ def main() -> int:
     ap.add_argument("--game", required=True, type=pathlib.Path)
     ap.add_argument("--game-us", type=pathlib.Path, default=None,
                     help="the North America program (mhfu-us[.exe]); the archive carries one program per region")
+    ap.add_argument("--game-jp", type=pathlib.Path, default=None,
+                    help="the Japanese program (mhfu-jp[.exe])")
     ap.add_argument("--fonts", required=True, type=pathlib.Path)
     ap.add_argument("--ffmpeg-dlls", type=pathlib.Path, default=None,
                     help="Windows: the folder holding FFmpeg's DLLs (CMake copies them to <build>/bin)")
@@ -176,12 +178,14 @@ def main() -> int:
     if files is None:
         return 2
     programs = {game_name}
-    if args.game_us is not None:
-        us_name = game_name.replace("mhfu", "mhfu-us")
-        files[us_name] = args.game_us
-        programs.add(us_name)
-        if not args.game_us.is_file():
-            print(f"error: missing {us_name}: {args.game_us}", file=sys.stderr)
+    for market, program in (("us", args.game_us), ("jp", args.game_jp)):
+        if program is None:
+            continue
+        name = game_name.replace("mhfu", f"mhfu-{market}")
+        files[name] = program
+        programs.add(name)
+        if not program.is_file():
+            print(f"error: missing {name}: {program}", file=sys.stderr)
             return 2
 
     readme = (ROOT / readme_name).read_text(encoding="utf-8").replace("@VERSION@", args.version)
