@@ -500,6 +500,7 @@ private:
         GLuint fbo{}, color{}, depth{};
         std::uint64_t last_draw{}; // present count when last drawn by the GE
         std::uint64_t last_use{};
+        std::uint64_t copied{}; // present count + 1 when last copied back to VRAM (copy_shown_to_vram), 0: never
         [[nodiscard]] std::uint32_t bytes_per_pixel() const { return format == 3 ? 4u : 2u; }
         [[nodiscard]] std::uint32_t end() const { return address + stride * height * bytes_per_pixel(); }
     };
@@ -583,7 +584,7 @@ private:
     void draw_vertices(const std::vector<GpuVertex> &vertices);
     void show(GLuint texture, float uv_max_x, float uv_max_y);
     void finish_flip();
-    void copy_shown_to_vram(const RenderTarget *shown);
+    void copy_shown_to_vram(RenderTarget *shown);
     bool present_interpolated(RenderTarget &shown, const float uv_max[2]);
     [[nodiscard]] float phase_at(std::chrono::steady_clock::time_point when) const;
     void show_between(float phase);
@@ -654,7 +655,6 @@ private:
     // The shown picture on its way back to guest VRAM (copy_shown_to_vram): a 480x272 target and a pixel buffer read one
     // flip later.
     GLuint readback_texture_{}, readback_fbo_{}, readback_pbo_{};
-    std::uint32_t readback_flips_{};
     struct PendingReadback {
         bool active{};
         GLsync fence{};
@@ -961,6 +961,15 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
     uv_xform[2] = 0.0f;
     uv_xform[3] = 0.0f;
     const bool indexed = info.format >= 4 && info.format <= 7;
+    if (indexed && (info.address & 0x0F000000u) == 0x04000000u && find_target(info.address & 0x001FFFFFu, true) != nullptr) {
+        // A palette texture over a framebuffer the GE drew is read from VRAM, which only holds the screen copy (late, and
+        // at the PSP's resolution). Named once per address, so an effect that looks wrong can be traced to it.
+        static std::set<std::uint32_t> reported;
+        if (reported.insert(info.address).second) {
+            std::fprintf(stderr, "[gl] palette texture read from a drawn framebuffer at %08X (format %u, %ux%u)\n", info.address,
+                         info.format, info.width, info.height);
+        }
+    }
     // A texture inside a framebuffer the GE has drawn: sample the render target itself.
     if ((info.address & 0x0F000000u) == 0x04000000u && !indexed) {
         if (RenderTarget *rt = find_target(info.address & 0x001FFFFFu, true)) {
@@ -1414,10 +1423,10 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
 // Some games read the picture on screen with the CPU: Freedom Unite turns the last hunting picture into the background
 // of the quest rewards that way. The GE draws into render targets at the internal resolution and never into guest
 // VRAM, so the picture shown at each flip is also copied back into its framebuffer at the PSP's 480x272. It is read
-// back through a pixel buffer once the GPU has finished with it (a fence says when), so drawing never waits for it. A
-// copy starts every other flip only, which keeps the cost low on a slow GPU; a game reading the screen finds a picture
-// from a few flips before (a tenth of a second at most), which is what was on display.
-void GlBackend::copy_shown_to_vram(const RenderTarget *shown) {
+// back through a pixel buffer once the GPU has finished with it (a fence says when), so drawing never waits for it. Each
+// framebuffer is copied every fourth flip at most, which keeps the cost low on a slow GPU; a game reading the screen
+// finds a picture from a few flips before (a tenth of a second or so), which is what was on display.
+void GlBackend::copy_shown_to_vram(RenderTarget *shown) {
     constexpr std::uint32_t kWidth = 480, kHeight = 272;
     if (pending_readback_.active) {
         // Not read back yet (a slow GPU, or a software one): try again at the next flip rather than wait here.
@@ -1444,7 +1453,10 @@ void GlBackend::copy_shown_to_vram(const RenderTarget *shown) {
         }
         gl_.BindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     }
-    if (shown == nullptr || ++readback_flips_ % 2u != 0) return;
+    // Each framebuffer is copied at most every fourth flip. Counting flips instead would copy only one framebuffer of a
+    // double-buffered game (they take turns), and the game would read the other one black.
+    if (shown == nullptr || (shown->copied != 0 && frame_ + 1 - shown->copied < 4)) return;
+    shown->copied = frame_ + 1;
     if (readback_fbo_ == 0) {
         gl_.GenTextures(1, &readback_texture_);
         gl_.BindTexture(GL_TEXTURE_2D, readback_texture_);
