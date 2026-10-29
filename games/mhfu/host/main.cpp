@@ -53,6 +53,14 @@ constexpr std::pair<std::string_view, int> kLanguages[] = {
     {"jp", 0}, {"en", 1}, {"fr", 2}, {"es", 3}, {"de", 4}, {"it", 5},
 };
 
+// Where the boot's language screen waits: the region map's data entry (`mh_language_screen_stage` in its
+// symbols.toml), generated into mhfu_region_data.hpp. Never a number here — the same address means something else in
+// another build, so pressing at it there could answer the wrong screen. A release whose map does not name it (the
+// Japanese one, single-language and with no such screen) only gets the language preselected, with no press at all.
+constexpr std::optional<std::uint32_t> kLanguageScreenStageAddress =
+    mhf::psp::generated::mhfu_region_data::mh_language_screen_stage;
+constexpr std::uint32_t kLanguageScreenStageValue = 7u;
+
 namespace mhf::psp::generated {
 std::span<const Program *const> mhfu_programs();
 }
@@ -432,11 +440,11 @@ int main(int argc, char **argv) {
             //
             // Sending the press blind (a fixed time after the boot) races the player's first seconds: on a slow boot
             // it could land before the screen, on a fast one long after. Instead the press waits for the screen: the
-            // boot's scene counter at 0x08B21704 steps through its start-up screens (0 black, 1-2 init, 5 the screen
-            // before, and 7 held while the language screen waits), verified against dumps of the whole guest RAM
-            // paired with the dumped display.
-            constexpr std::uint32_t kLanguageScreenStageAddress = 0x08B21704u;
-            constexpr std::uint32_t kLanguageScreenStageValue = 7u;
+            // boot's scene counter (a data symbol of the region, see kLanguageScreenStageAddress) steps through its
+            // start-up screens and holds a known value while the language screen waits, verified against dumps of the
+            // whole guest RAM paired with the dumped display.
+            // The language is preselected by the runtime's answer either way; the press only happens where the
+            // region's symbol map names that counter.
             // The marker fires while the screen is still fading in and ignoring input, so the cross is pulsed (press
             // and release, each ~150 ms) until the screen answers and the stage moves on. A fresh press is what the
             // screen reads; a cross merely held since the fade-in never counts. The sequence is capped and sent once.
@@ -451,14 +459,16 @@ int main(int argc, char **argv) {
                     rt->dump_threads();
                     rt->exit_program_from_host(0);
                 }
-                const std::uint32_t stage = rt->memory().load32(kLanguageScreenStageAddress);
-                if (language_pick && !language_screen_handled && stage == kLanguageScreenStageValue) {
+                const std::uint32_t stage =
+                    kLanguageScreenStageAddress ? rt->memory().load32(*kLanguageScreenStageAddress) : 0u;
+                const bool language_screen_up =
+                    kLanguageScreenStageAddress.has_value() && stage == kLanguageScreenStageValue;
+                if (language_pick && !language_screen_handled && language_screen_up) {
                     language_screen_handled = true; // one press sequence: the screen answers and the boot continues
                     language_press_deadline = now + kLanguagePressMaxUs;
                 }
                 const bool answering_language_screen =
-                    language_pick && language_screen_handled && stage == kLanguageScreenStageValue &&
-                    now < language_press_deadline;
+                    language_pick && language_screen_handled && language_screen_up && now < language_press_deadline;
                 const bool press_language = answering_language_screen && (now / kLanguagePulseUs) % 2 == 0;
                 // The pad state is refreshed on every poll while answering, including the released half: leaving it
                 // untouched would keep the cross latched and the screen would never see a fresh press. Only while
