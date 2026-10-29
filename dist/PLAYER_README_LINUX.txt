@@ -18,8 +18,9 @@ What you need
   SDL3 is linked into the programs, so it does not need to be installed.
   FFmpeg (the movies and the music) is linked into the programs too, so it does not need to be installed either.
 * A plain (uncompressed) .iso image of your own copy of Monster Hunter Freedom Unite,
-  European (disc ID ULES01213) or North American (disc ID ULUS10391) release, version 1.01.
-  CSO/ZSO compressed images are not supported. You can add both: choose which one to play in the Library.
+  European (disc ID ULES01213) or North American (disc ID ULUS10391) release, or of Monster Hunter Portable 2nd G,
+  the Japanese release (disc ID ULJM05500), version 1.01.
+  CSO/ZSO compressed images are not supported. You can add several: choose which one to play in the Library.
 * A controller is optional. Gamepads work out of the box (tested with a PS5 DualSense).
   Keyboard: arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle,
   Q/E = L/R, Enter = Start, Backspace = Select. Change them, and the controller's buttons, in Game settings -> Controls
@@ -37,6 +38,9 @@ How to play
 3. Add your .iso. The launcher checks your copy and prepares what it needs from it.
    In Settings you can choose to keep a copy of the image in MHForever's own folder.
 4. Press Play.
+
+When a new version is out, the launcher says so: "Update now" downloads it, checks it and restarts.
+Settings > Check for updates turns this off.
 
 Your settings and library live in $XDG_DATA_HOME/MHForever (usually ~/.local/share/MHForever).
 Your saves live in ~/.local/share/MHForever/saves (one folder per game), so updating MHForever never loses them.
