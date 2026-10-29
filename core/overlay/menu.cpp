@@ -687,8 +687,12 @@ MenuRenderer::~MenuRenderer() = default;
 MenuLayout MenuRenderer::layout(const MenuView &view) const { return impl_->place(view).layout; }
 
 bool MenuRenderer::render(const MenuView &view, int scale, std::vector<std::uint32_t> &pixels, bool backdrop) {
+    return render(view, width(scale), height(scale), pixels, backdrop);
+}
+
+bool MenuRenderer::render(const MenuView &view, int width, int height, std::vector<std::uint32_t> &pixels, bool backdrop) {
     Impl &d = *impl_;
-    d.begin(pixels, width(scale), height(scale), static_cast<float>(scale));
+    d.begin(pixels, width, height, static_cast<float>(height) / Impl::kH);
     d.draw(view, backdrop);
     d.end();
     return d.font_ok();

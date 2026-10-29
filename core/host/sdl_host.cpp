@@ -300,6 +300,11 @@ SdlHost::WindowRect SdlHost::window_rect() const {
     return r;
 }
 
+void SdlHost::window_pixel_size(int &width, int &height) const {
+    width = height = 0;
+    if (impl_->window != nullptr) SDL_GetWindowSizeInPixels(impl_->window, &width, &height);
+}
+
 GamepadState SdlHost::input() const {
     GamepadState s;
     static const bool kNoKeys[SDL_SCANCODE_COUNT] = {};

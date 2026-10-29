@@ -51,6 +51,7 @@ struct Frontend::Impl {
     overlay::Menu menu;
     std::unique_ptr<overlay::MenuRenderer> menu_renderer; // worker thread (GL path) or the emulation thread (software)
     std::optional<overlay::MenuView> menu_pending;        // for the worker (guarded by dialog_mutex)
+    int overlay_pixel_w{1920}, overlay_pixel_h{1088};    // the size the menu and the dialogs are shown at (dialog_mutex)
     std::atomic<bool> menu_open{false};
     bool menu_confirming_quit{};
     std::unique_ptr<overlay::MenuRenderer> menu_layouter; // the mouse needs to know where everything is drawn
@@ -117,14 +118,19 @@ struct Frontend::Impl {
             }
             if (menu_view) {
                 if (!menu_renderer) menu_renderer = std::make_unique<overlay::MenuRenderer>(font_directory);
-                constexpr int kMenuScale = 4;
+                int width = 1920, height = 1088;
+                {
+                    std::lock_guard lock(dialog_mutex);
+                    width = overlay_pixel_w;
+                    height = overlay_pixel_h;
+                }
                 std::vector<std::uint32_t> pixels;
-                menu_renderer->render(*menu_view, kMenuScale, pixels, false);
+                menu_renderer->render(*menu_view, width, height, pixels, false);
                 std::lock_guard lock(overlay.mutex);
                 if (menu_open) { // the menu may have been closed while this was drawn
                     overlay.pixels = std::move(pixels);
-                    overlay.width = overlay::MenuRenderer::width(kMenuScale);
-                    overlay.height = overlay::MenuRenderer::height(kMenuScale);
+                    overlay.width = width;
+                    overlay.height = height;
                     if (!overlay.visible) overlay.visible = true;
                     ++overlay.generation;
                 }
@@ -133,13 +139,18 @@ struct Frontend::Impl {
             if (!dialogs) dialogs = std::make_unique<DialogOverlay>(font_directory);
             const bool visible = view.kind != DialogView::Kind::None;
             if (gpu_state == 1) {
-                constexpr int kScale = 4; // 1920x1088: sharp at 1080p, scaled smoothly elsewhere
+                int width = 1920, height = 1088; // the size it is shown at: not stretched, so sharp
+                {
+                    std::lock_guard lock(dialog_mutex);
+                    width = overlay_pixel_w;
+                    height = overlay_pixel_h;
+                }
                 std::vector<std::uint32_t> pixels;
-                if (visible) dialogs->render(view, kScale, pixels);
+                if (visible) dialogs->render(view, width, height, pixels);
                 std::lock_guard lock(overlay.mutex);
                 overlay.pixels = std::move(pixels);
-                overlay.width = DialogOverlay::width(kScale);
-                overlay.height = DialogOverlay::height(kScale);
+                overlay.width = width;
+                overlay.height = height;
                 overlay.visible = visible;
                 ++overlay.generation;
             } else {
@@ -201,6 +212,24 @@ namespace {
 
 std::uint32_t expand(std::uint32_t v, unsigned bits) {
     return bits == 5 ? (v << 3u) | (v >> 2u) : bits == 6 ? (v << 2u) | (v >> 4u) : v | (v << 4u);
+}
+
+// Where the overlays are shown, in pixels: the window letterboxed to the PSP's 480:272, as the GL backend draws them.
+void shown_size(const host::SdlHost &host, int &width, int &height) {
+    int pixel_w = 0, pixel_h = 0;
+    host.window_pixel_size(pixel_w, pixel_h);
+    width = pixel_w;
+    height = pixel_w * 272 / 480;
+    if (height > pixel_h) {
+        height = pixel_h;
+        width = pixel_h * 480 / 272;
+    }
+    if (width < 480 || height < 272) { // no window yet, or a tiny one
+        width = 1920;
+        height = 1088;
+    }
+    width = std::min(width, 7680);
+    height = std::min(height, 4352);
 }
 
 void copy_frame(Runtime &rt, std::vector<std::uint32_t> &out) {
@@ -285,6 +314,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
     {
         std::lock_guard lock(impl.dialog_mutex);
         impl.dialog_pending = view; // only the newest view matters
+        shown_size(impl.host, impl.overlay_pixel_w, impl.overlay_pixel_h);
     }
     impl.dialog_cv.notify_one();
 }
@@ -934,7 +964,16 @@ bool step_menu(Frontend::Impl &impl, Runtime &rt) {
         }
         impl.menu_layout_version = ~0ull; // the rows may have moved
     }
-    if (open && impl.menu.view().version != impl.menu_shown_version) {
+    // The menu is drawn at the size the window shows it (letterboxed to 480:272, in pixels), so it is never stretched:
+    // stretched, its text blurs. A resized window draws it again.
+    bool resized = false;
+    {
+        std::lock_guard lock(impl.dialog_mutex);
+        const int was_w = impl.overlay_pixel_w, was_h = impl.overlay_pixel_h;
+        shown_size(impl.host, impl.overlay_pixel_w, impl.overlay_pixel_h);
+        resized = was_w != impl.overlay_pixel_w || was_h != impl.overlay_pixel_h;
+    }
+    if (open && (resized || impl.menu.view().version != impl.menu_shown_version)) {
         impl.menu_shown_version = impl.menu.view().version;
         if (impl.gpu_state == 1) {
             {

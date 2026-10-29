@@ -104,6 +104,8 @@ public:
         bool fullscreen{};
     };
     [[nodiscard]] WindowRect window_rect() const;
+    // The window's drawing area in pixels (more than window_rect() on a high-DPI display).
+    void window_pixel_size(int &width, int &height) const;
     // Brings the window to the front and gives it the keyboard focus.
     void raise();
 

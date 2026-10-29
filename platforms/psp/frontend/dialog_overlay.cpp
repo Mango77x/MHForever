@@ -222,8 +222,12 @@ DialogOverlay::DialogOverlay(const std::filesystem::path &font_directory)
 DialogOverlay::~DialogOverlay() = default;
 
 bool DialogOverlay::render(const DialogView &view, int scale, std::vector<std::uint32_t> &pixels) {
+    return render(view, width(scale), height(scale), pixels);
+}
+
+bool DialogOverlay::render(const DialogView &view, int width, int height, std::vector<std::uint32_t> &pixels) {
     Impl &d = *impl_;
-    d.begin(pixels, width(scale), height(scale), static_cast<float>(scale));
+    d.begin(pixels, width, height, static_cast<float>(height) / 272.0f);
     using Kind = DialogView::Kind;
     if (view.kind != Kind::None && view.kind != Kind::Toast) d.fill_all(kBlack, 0.55f);
     switch (view.kind) {

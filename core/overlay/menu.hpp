@@ -145,6 +145,9 @@ public:
 
     // `scale` times the 480x272 canvas. Returns false when no font could be loaded.
     bool render(const MenuView &view, int scale, std::vector<std::uint32_t> &pixels, bool backdrop = true);
+    // At `width` x `height` pixels (the 480x272 canvas scaled by height / 272): the size the menu is shown at, so that the
+    // display does not stretch it and its text stays sharp.
+    bool render(const MenuView &view, int width, int height, std::vector<std::uint32_t> &pixels, bool backdrop = true);
 
     // Where the sections and rows of `view` are (the same positions render() draws at).
     [[nodiscard]] MenuLayout layout(const MenuView &view) const;
