@@ -14,7 +14,7 @@
 |---|---|---|---|
 | Europe | **ULES01213** | Freedom Unite | Main development (reference copy, v1.01) |
 | North America | **ULUS10391** | Freedom Unite | Playable (v1.01): its own symbol map, overlay map and program (`mhfu-us`) |
-| Japan | **ULJM05500** | Portable 2nd G | In development (v1.01): its own symbol map, overlay map and program (`mhfu-jp`); starts and reaches character creation |
+| Japan | **ULJM05500** | Portable 2nd G | Playable (v1.01): its own symbol map, overlay map and program (`mhfu-jp`) |
 | Others | PSN, "PSP Essentials"/"The Best", Korea/Asia | — | `[VERIFY]` whether variants with other hashes exist |
 
 Known hashes for 2nd G JP (from FUCTool): UMD MD5 `1f76ee9ccbd6d39158f06e6e5354a5bd`, PSN MD5 `cc39d070b2d2c44c9ac8187e00b75dc4`.

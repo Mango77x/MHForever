@@ -135,8 +135,8 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Launcher: one program per region, a Library that chooses the copy, and video, audio and controls per copy.
 - [x] ULJM05500 (Japan, 2026-10-29): `symbols.toml` and `overlays.toml` (298 overlays); recompiled to its own program
       (`mhfu-jp`); Japanese text through a second free font (Noto Sans JP). Checked headless: intro, title menu and
-      character creation.
-- [ ] ULJM05500 checked by playing (village, quest, save and load); symbol-coverage test.
+      character creation; then checked by playing (2026-10-29): it plays as the European release does.
+- [ ] Symbol-coverage test.
 **Acceptance**: all three regions meet phase 3 criteria.
 
 ## Phase 7 — Optional enhancements

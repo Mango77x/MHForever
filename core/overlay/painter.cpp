@@ -47,6 +47,13 @@ Painter::Painter(const std::filesystem::path &font_directory) : font_(std::make_
     font_ok_ = !font_data_.empty() &&
                stbtt_InitFont(font_.get(), font_data_.data(), stbtt_GetFontOffsetForIndex(font_data_.data(), 0)) != 0;
     if (!font_ok_) std::fprintf(stderr, "[overlay] no font in %s\n", font_directory.string().c_str());
+    std::ifstream j(font_directory / "NotoSansJP-Regular.otf", std::ios::binary);
+    japanese_data_.assign(std::istreambuf_iterator<char>(j), {});
+    if (!japanese_data_.empty()) {
+        japanese_ = std::make_unique<stbtt_fontinfo>();
+        if (stbtt_InitFont(japanese_.get(), japanese_data_.data(), stbtt_GetFontOffsetForIndex(japanese_data_.data(), 0)) == 0)
+            japanese_.reset();
+    }
 }
 
 Painter::~Painter() = default;
@@ -119,17 +126,28 @@ void Painter::fill_all(Color c, float alpha) {
     }
 }
 
+Painter::Source Painter::source(std::uint32_t cp, float pixel_size) const {
+    const float scale = stbtt_ScaleForPixelHeight(font_.get(), pixel_size);
+    if (const int gi = stbtt_FindGlyphIndex(font_.get(), static_cast<int>(cp)); gi != 0 || cp == ' ') return {font_.get(), gi, scale};
+    if (japanese_) {
+        if (const int gi = stbtt_FindGlyphIndex(japanese_.get(), static_cast<int>(cp)); gi != 0) {
+            // The same em as the main font (the two fonts' ascent-to-descent heights differ).
+            const float em = scale / stbtt_ScaleForMappingEmToPixels(font_.get(), 1.0f);
+            return {japanese_.get(), gi, stbtt_ScaleForMappingEmToPixels(japanese_.get(), em)};
+        }
+    }
+    return {font_.get(), stbtt_FindGlyphIndex(font_.get(), '?'), scale};
+}
+
 const Painter::Glyph &Painter::glyph(std::uint32_t cp, float pixel_size, float subx) {
     const int size_key = static_cast<int>(pixel_size * 4.0f + 0.5f);
     const int sub_key = static_cast<int>(subx * 4.0f) & 3;
     const auto key = std::make_tuple(cp, size_key, sub_key);
     if (auto it = glyphs_.find(key); it != glyphs_.end()) return it->second;
     Glyph g{};
-    const float scale = stbtt_ScaleForPixelHeight(font_.get(), static_cast<float>(size_key) / 4.0f);
-    int gi = stbtt_FindGlyphIndex(font_.get(), static_cast<int>(cp));
-    if (gi == 0 && cp != ' ') gi = stbtt_FindGlyphIndex(font_.get(), '?');
+    const auto [font, gi, scale] = source(cp, static_cast<float>(size_key) / 4.0f);
     int x0, y0, x1, y1;
-    stbtt_GetGlyphBitmapBoxSubpixel(font_.get(), gi, scale, scale, static_cast<float>(sub_key) / 4.0f, 0.0f, &x0, &y0,
+    stbtt_GetGlyphBitmapBoxSubpixel(font, gi, scale, scale, static_cast<float>(sub_key) / 4.0f, 0.0f, &x0, &y0,
                                     &x1, &y1);
     g.x0 = x0;
     g.y0 = y0;
@@ -137,17 +155,15 @@ const Painter::Glyph &Painter::glyph(std::uint32_t cp, float pixel_size, float s
     g.h = std::max(0, y1 - y0);
     g.bitmap.resize(static_cast<std::size_t>(g.w) * static_cast<std::size_t>(g.h));
     if (g.w > 0 && g.h > 0)
-        stbtt_MakeGlyphBitmapSubpixel(font_.get(), g.bitmap.data(), g.w, g.h, g.w, scale, scale,
+        stbtt_MakeGlyphBitmapSubpixel(font, g.bitmap.data(), g.w, g.h, g.w, scale, scale,
                                       static_cast<float>(sub_key) / 4.0f, 0.0f, gi);
     return glyphs_.emplace(key, std::move(g)).first->second;
 }
 
 float Painter::advance(std::uint32_t cp, float pixel_size) const {
-    const float scale = stbtt_ScaleForPixelHeight(font_.get(), pixel_size);
-    int gi = stbtt_FindGlyphIndex(font_.get(), static_cast<int>(cp));
-    if (gi == 0 && cp != ' ') gi = stbtt_FindGlyphIndex(font_.get(), '?');
+    const auto [font, gi, scale] = source(cp, pixel_size);
     int adv, lsb;
-    stbtt_GetGlyphHMetrics(font_.get(), gi, &adv, &lsb);
+    stbtt_GetGlyphHMetrics(font, gi, &adv, &lsb);
     return static_cast<float>(adv) * scale;
 }
 
@@ -256,11 +272,24 @@ std::vector<std::string> Painter::wrap(const std::string &str, float size, float
             if (j == std::string::npos) j = para.size();
             const std::string word = para.substr(i, j - i);
             const std::string candidate = line.empty() ? word : line + " " + word;
-            if (!line.empty() && measure(candidate, size) > max_width) {
+            if (measure(candidate, size) <= max_width) {
+                line = candidate;
+            } else if (measure(word, size) <= max_width) {
                 lines.push_back(line);
                 line = word;
             } else {
-                line = candidate;
+                // Too wide for any line (Japanese has no spaces): break it between characters.
+                if (!line.empty()) line += ' ';
+                for (std::size_t k = 0; k < word.size();) {
+                    const std::size_t from = k;
+                    next_codepoint(word, k);
+                    const std::string ch = word.substr(from, k - from);
+                    if (!line.empty() && measure(line + ch, size) > max_width) {
+                        lines.push_back(line);
+                        line.clear();
+                    }
+                    line += ch;
+                }
             }
             i = j + 1;
         }
