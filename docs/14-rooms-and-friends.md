@@ -102,7 +102,8 @@ start:
   launcher's. The game keeps one session with the server and opens its sockets through the server's relay, so another
   server takes over only when that cuts nothing off: no group joined or being joined, no scan under way, no socket
   open (`Runtime::set_adhoc_server`; the control library swaps its link and the handlers stay). In the village that is
-  at once; in a hall or a quest it waits until the game left it.
+  at once; in a hall or a quest it waits until the game left it. Checked in the game the same day: in the village, inside
+  a hall (nobody cut off, the move came after leaving), and the launcher kept the server chosen.
 - **Where the state lives:** in the game process (the runtime's online state, shared by the control library and the
   overlay), so no link to the launcher is needed while playing. The game reports the mode it ends with, so the launcher
   offers the last code next time.
