@@ -74,6 +74,15 @@ void start_link(NetState &s) {
     const bool was_initialized = s.adhocctl->initialized();
     s.adhocctl = std::make_unique<ad::Adhocctl>(s.link.get());
     if (was_initialized) (void)s.adhocctl->init();
+    s.adhocctl->set_room(o.adhoc_room);
+    for (const std::string &text : o.adhoc_hall_prefixes) {
+        ad::HallPrefix prefix{};
+        std::copy_n(text.begin(), std::min(text.size(), prefix.size()), prefix.begin());
+        s.adhocctl->add_hall_prefix(prefix);
+    }
+    if (!o.adhoc_room.empty()) {
+        NET_TRACE("private room %s", s.adhocctl->room().empty() ? "(not a valid code: public halls)" : s.adhocctl->room().c_str());
+    }
     NetState *state = &s;
     s.rt->kernel().pollers.push_back([state] { state->deliver(); });
 }

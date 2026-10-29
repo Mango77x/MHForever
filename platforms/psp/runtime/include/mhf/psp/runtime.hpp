@@ -81,6 +81,12 @@ struct RuntimeOptions {
     std::string adhoc_nickname = "Hunter";   // the name other players see
     std::string adhoc_product_code;          // ULES01213: servers group players by game
     std::array<std::uint8_t, 6> adhoc_mac{}; // this console's virtual MAC; all zeros: made from the nickname
+    // Private room (docs/14-rooms-and-friends.md section 3): with a room code the game's halls are renamed, so only
+    // players with the same code meet. Empty: the public halls.
+    std::string adhoc_room;
+    // The first six bytes of the game's hall names (game data), so that a scan in a private room shows which halls are
+    // taken. Prefixes the game joins with are learnt as well.
+    std::vector<std::string> adhoc_hall_prefixes;
     // Folder with the free fonts served by sceLibFont (third_party/fonts, copied next to the executable).
     std::filesystem::path font_directory = "fonts";
     // Text the on-screen keyboard starts with when the game's field is empty (e.g. the hunter's name, from the

@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace mhf::psp::adhoc {
@@ -65,6 +66,15 @@ inline constexpr std::uint32_t kBusy = 0x80410B10u;
 inline constexpr std::uint32_t kTooManyHandlers = 0x80410B12u;
 } // namespace error
 
+// Private rooms (docs/14-rooms-and-friends.md section 3): a room code renames the groups a game asks for, so only players
+// with the same code meet, on any public server. A game name of 8 bytes keeps its last two (the hall number) and gets
+// the first six from the code and its own first six: "F" and five base32 characters.
+using HallPrefix = std::array<char, 6>;
+// "k7qf-29xm" -> "K7QF29XM" (Crockford base32: O reads as 0, I and L as 1); "" when it is not 8 such characters.
+std::string normalize_room_code(std::string_view text);
+// The name the server sees for `game_name` in room `code` (a normalized code).
+GroupName private_name(const std::string &code, const GroupName &game_name);
+
 enum class State : std::int32_t { Disconnected = 0, Connected = 1, Scanning = 2 };
 
 // What a handler is called with: (event, error, argument).
@@ -122,8 +132,18 @@ public:
     [[nodiscard]] const Mac &leader() const noexcept { return leader_; }
     [[nodiscard]] bool online() const { return link_ != nullptr && link_->online(); }
 
+    // The private room the next scan and the next join use; "" (or a code that is not valid) is the public halls. It can
+    // change at any time: a group already joined stays as it is until the game leaves it.
+    void set_room(std::string_view code) { room_ = normalize_room_code(code); }
+    [[nodiscard]] const std::string &room() const noexcept { return room_; }
+    // The first six bytes of the game's hall names, so that a scan in a private room can report the halls under the
+    // names the game knows. A prefix the game joins with is learnt too.
+    void add_hall_prefix(const HallPrefix &prefix);
+
 private:
     AdhocLink *link_;
+    std::string room_;
+    std::vector<HallPrefix> prefixes_;
     bool initialized_ = false;
     State state_ = State::Disconnected;
     std::vector<Handler> handlers_;

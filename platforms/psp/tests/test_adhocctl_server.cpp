@@ -263,5 +263,50 @@ int main() {
     MHF_CHECK(bob_net.ptp_close(static_cast<int>(accepted)) == 0 && bob_net.ptp_close(static_cast<int>(listener)) == 0);
     MHF_CHECK(alice_net.pdp_delete(static_cast<int>(a_pdp)) == 0 && alice_net.pdp_delete(static_cast<int>(a_pdp)) == sockerr::kInvalidSocketId);
 
+    // ---- a private room (docs/14-rooms-and-friends.md section 3): Alice and Bob share a room code and meet in a hall;
+    // Carol, in the public halls, does not see it, and joining the hall of the same number puts her somewhere else.
+    {
+        const auto now = std::chrono::duration_cast<std::chrono::seconds>(Clock::now().time_since_epoch()).count();
+        const std::string code = "TEST" + std::to_string(1000 + now % 9000);
+        const std::string hall = "MHP2Q0" + std::to_string(10 + now % 14);
+        const HallPrefix prefix = {'M', 'H', 'P', '2', 'Q', '0'};
+        MHF_CHECK(alice.library.disconnect() == 0 && bob.library.disconnect() == 0); // both left the group of the sockets
+        (void)alice.wait([&] { return false; }, 1);
+        (void)bob.wait([&] { return false; }, 1);
+        for (Player *p : {&alice, &bob}) {
+            p->library.set_room(code);
+            p->library.add_hall_prefix(prefix);
+        }
+        MHF_CHECK(alice.library.room() == code);
+
+        MHF_CHECK(alice.library.connect(group(hall.c_str())) == 0);
+        MHF_CHECK(alice.wait([&] { return alice.library.state() == State::Connected; }));
+
+        MHF_CHECK(bob.library.scan() == 0);
+        MHF_CHECK(bob.wait([&] { return bob.library.state() == State::Disconnected && !bob.library.groups().empty(); }));
+        MHF_CHECK(bob.library.groups().size() == 1 && bob.library.groups()[0].name == group(hall.c_str()));
+        MHF_CHECK(bob.library.connect(group(hall.c_str())) == 0);
+        MHF_CHECK(bob.wait([&] { return bob.library.state() == State::Connected && bob.library.peers().size() == 1; }));
+        MHF_CHECK(!bob.library.peers().empty() && bob.library.peers()[0].nickname == "Alice");
+
+        Player carol(server, "Carol", 3);
+        MHF_CHECK(carol.wait([&] { return carol.library.online(); }));
+        carol.library.add_hall_prefix(prefix);
+        MHF_CHECK(carol.library.scan() == 0);
+        MHF_CHECK(carol.wait([&] { return carol.library.state() == State::Disconnected && !carol.library.groups().empty(); }));
+        bool sees_hall = false, sees_private = false;
+        for (const ScanGroup &g : carol.library.groups()) {
+            sees_hall = sees_hall || g.name == group(hall.c_str());
+            sees_private = sees_private || g.name == private_name(code, group(hall.c_str()));
+        }
+        MHF_CHECK(!sees_hall && sees_private); // the server has the group, under a name her game never asks for
+        MHF_CHECK(carol.library.connect(group(hall.c_str())) == 0);
+        MHF_CHECK(carol.wait([&] { return carol.library.state() == State::Connected; }));
+        MHF_CHECK(carol.wait([&] { return false; }, 2) || carol.library.peers().empty());
+        MHF_CHECK(alice.wait([&] { return alice.library.peers().size() == 1; })); // Bob, and not Carol
+        MHF_CHECK(!alice.library.peers().empty() && alice.library.peers()[0].nickname == "Bob");
+        MHF_CHECK(carol.library.disconnect() == 0 && alice.library.disconnect() == 0 && bob.library.disconnect() == 0);
+    }
+
     return mhf::test::finish("psp_adhocctl_server");
 }

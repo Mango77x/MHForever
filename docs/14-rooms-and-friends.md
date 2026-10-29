@@ -51,19 +51,22 @@ Their game never lists it and never joins it. A private room needs nothing from 
 ### 3.1 How it works
 - The player creates a **room code** in the launcher, e.g. `K7QF-29XM` (8 characters of Crockford base32, 40 bits),
   or types a friend's. The game starts with it, or gets it while running from the in-game menu (§3.4).
-- Our control library (`platforms/psp/runtime/src/adhocctl.cpp`) renames every hall the game asks for:
-  game name `MHP2Q0NN` ↔ server name `F` + 7 base32 characters of `SHA-256(room code ‖ game name)`.
-  Each of the 24 halls (and each prefix) gets its own private name, so the game's hall list keeps working inside the
-  private room: a friend sees "hall 3 occupied" and walks in.
+- Our control library (`platforms/psp/runtime/src/adhocctl.cpp`) renames every hall the game asks for: game name
+  `MHP2Q0NN` → server name `F` + 5 base32 characters of a hash (FNV-1a) of the room code and the game's six-byte
+  prefix + the hall's own two characters `NN`. Each of the 24 halls (and each prefix) gets its own private name, so the
+  game's hall list keeps working inside the private room: a friend sees "hall 3 occupied" and walks in. The hall number
+  stays readable on status pages; the code does not (25 bits of hash cannot give it back).
 - In scan results the library translates the private names back to the game's names and **drops every public group**,
-  so the game shows only the private room's halls. Connect, disconnect, peer lists and the network dialog use the
+  so the game shows only the private room's halls. To translate back it needs the game's prefixes: the game module
+  gives them (`MHP2Q0`, `MHP2A0` and the Japanese `集会所`), and any prefix the game joins with is learnt. A hall with an
+  unknown prefix is only missing from the list; joining it still works, because joining needs no translation back. Connect, disconnect, peer lists and the network dialog use the
   game's name on the game's side and the private one on the server's side.
 - Nothing else changes: PDP, PTP and the relay are untouched.
 
 ### 3.2 What it gives and what it does not
 - Works on every aemu server today, with no server of ours and nothing for the operators to do.
 - Strangers cannot see or join the room: their game ignores the name (§1), and finding the name from the status page
-  does not give the code (the name is a hash of it).
+  does not give the code (the name is a short hash of it).
 - Only MHForever players can enter: a PPSSPP or PSP friend cannot type a room code. Public halls stay the default, and
   the launcher says so next to the option.
 - **Not a lock.** Someone with a modified client could copy a private name from a status page and join that hall. The
@@ -179,7 +182,7 @@ off until the player turns it on.
 | # | Experiment | Decides |
 |---|---|---|
 | R1 | Trace the group names the game scans and joins (both prefixes, a few halls) | §1 at run time; what `MHP2A0` is. **Done 2026-10-29 for `MHP2Q0`** on socom.cc; `MHP2A0` not reached yet |
-| R2 | Two copies with the same room code on the local reference server: both enter one private hall; a third copy without the code does not see it | §3.1 |
+| R2 | Two copies with the same room code on the local reference server: both enter one private hall; a third copy without the code does not see it | §3.1. **Done 2026-10-29 at library level** (`psp_adhocctl_server` against the reference server, 3 of 3 runs): the two with the code meet, the third sees only the renamed group and lands alone in its own hall of the same number. With the game itself: to do |
 | R2b | Switch public → private → public from the Escape menu: in the village (applies at once) and inside a hall (applies after leaving), with a public player present | §3.4 |
 | R3 | R2 on socom.cc, with a PPSSPP player in public halls at the same time | §3.2 on a busy server |
 | R4 | Our Japanese and European copies in one bridged hall, then a quest | §3.5 |
