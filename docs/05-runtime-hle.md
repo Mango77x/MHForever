@@ -333,7 +333,11 @@ one ubershader (texture functions, fog, alpha test, depth range) and fixed-funct
   position of every vertex (the GE keeps it, `Vertex::world`) through a camera interpolated between the previous flip's
   view/projection and this one's; vertices that were drawn in the previous flip too (same guest address and same
   drawing command, so a repeated model is told apart) are first moved back toward where they were, so objects that move
-  on their own are interpolated as well. Placing the points again, instead of moving the screen-space vertices of
+  on their own are interpolated as well. In effects (blended, not writing depth), a piece of triangles joined by
+  shared points in which a triangle jumped more than twice its own size in one flip is not moved back: a particle system
+  reuses the memory of a particle that ended for a new one elsewhere, and moving it back drew the new particle on its way
+  from the old one (fragments around footsteps). Layers such as the snow over the terrain never jump like that and keep
+  their pairing. Placing the points again, instead of moving the screen-space vertices of
   paired triangles, matters for terrain: the GE clips and culls it differently every flip, so triangle lists never
   match. 2D batches (through mode) are paired with the previous flip's only when they have exactly the same draw state
   (the game alternates two draw buffers, so which one a batch went to does not count), texture object and vertex count (looking ahead up to four batches), and a triangle is moved in screen space only when

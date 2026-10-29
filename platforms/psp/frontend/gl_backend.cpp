@@ -395,6 +395,75 @@ struct Origin {
     float x_before[3]{}, y_before[3]{};
 };
 
+// Where a register sits in a DrawKey.
+constexpr std::size_t state_index(std::uint32_t reg) {
+    for (std::size_t i = 0; i < kStateRegs.size(); ++i) {
+        if (kStateRegs[i] == reg) return i;
+    }
+    return kStateRegs.size();
+}
+
+// Effects: blended and not writing depth (particles such as dust and smoke, but also layers such as the snow over the
+// terrain).
+bool is_effect(const DrawKey &key) {
+    return (key[state_index(kAlphaBlendEnable)] & 1u) != 0 && (key[state_index(kZWriteDisable)] & 1u) != 0;
+}
+
+// A particle system reuses the memory of a particle that ended for a new one somewhere else, and the points are paired
+// by that memory: moving them back drew the new particle on its way from the old one (fragments around the footsteps at
+// 180 fps). A triangle of a reused particle jumps several times its own size in one flip, which the triangles of a layer
+// such as the snow over the terrain never do (measured: none in a run through the village), although their points shift
+// a little every flip and need their pairing. So in an effect, a piece (triangles joined by shared points) in which any
+// fully paired triangle jumped more than twice its own size is drawn where this flip put it, through the interpolated
+// camera, as a whole so that no shared point is torn apart. Everything else keeps its pairing.
+void unpair_jumping_particles(std::vector<Origin> &origins) {
+    for (const Origin &o : origins) {
+        if (o.sprite) return; // triangles only (sprites take x and y from different points)
+    }
+    const std::size_t count = origins.size() / 3;
+    if (count == 0) return;
+    const auto distance = [](const float *a, const float *b) {
+        const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+        return std::sqrt(dx * dx + dy * dy + dz * dz);
+    };
+    // Triangles that jumped.
+    std::vector<bool> jumped(count, false);
+    bool any = false;
+    for (std::size_t t = 0; t < count; ++t) {
+        const Origin *p = &origins[t * 3];
+        if (!p[0].x_moved || !p[1].x_moved || !p[2].x_moved) continue;
+        const float size = std::max({distance(p[0].x_world, p[1].x_world), distance(p[1].x_world, p[2].x_world),
+                                     distance(p[0].x_world, p[2].x_world)});
+        const float jump = std::max({distance(p[0].x_world, p[0].x_before), distance(p[1].x_world, p[1].x_before),
+                                     distance(p[2].x_world, p[2].x_before)});
+        jumped[t] = jump > 2.0f * size;
+        any = any || jumped[t];
+    }
+    if (!any) return;
+    // Pieces: triangles that share a point (the same key) are joined.
+    std::vector<std::size_t> parent(count);
+    for (std::size_t i = 0; i < count; ++i) parent[i] = i;
+    const auto root = [&](std::size_t i) {
+        while (parent[i] != i) i = parent[i] = parent[parent[i]];
+        return i;
+    };
+    std::unordered_map<std::uint64_t, std::size_t> owner;
+    owner.reserve(origins.size());
+    for (std::size_t i = 0; i < origins.size(); ++i) {
+        if (origins[i].x_key == 0) continue;
+        const auto [it, fresh] = owner.emplace(origins[i].x_key, i / 3);
+        if (!fresh) parent[root(i / 3)] = root(it->second);
+    }
+    std::vector<bool> piece_jumped(count, false);
+    for (std::size_t t = 0; t < count; ++t) {
+        if (jumped[t]) piece_jumped[root(t)] = true;
+    }
+    for (std::size_t t = 0; t < count; ++t) {
+        if (!piece_jumped[root(t)]) continue;
+        for (std::size_t a = t * 3; a < t * 3 + 3; ++a) origins[a].x_moved = origins[a].y_moved = false;
+    }
+}
+
 // One batch of primitives as it was drawn, kept to draw it again between two flips (frame interpolation).
 struct TapeEntry {
     DrawSetup setup;
@@ -2074,6 +2143,7 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
                     if (o.y_moved) std::copy(was, was + 3, o.y_before);
                 }
             }
+            if (is_effect(e.setup.key)) unpair_jumping_particles(e.origins);
         }
         flip_.address = shown.address;
         flip_.width = shown.width;
