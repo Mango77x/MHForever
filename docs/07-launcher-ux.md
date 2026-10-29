@@ -119,6 +119,9 @@ mode, where no second window can be shown.
 - Joining a friend's room (Online): a click in the field (or Enter on it) and the keyboard types the code (Enter joins,
   Esc stops); with a controller A pops up a small keyboard under the field, the 32 characters a room code can hold plus
   Delete and Join (B closes it; the keyboard types meanwhile too). Paste takes the code from the clipboard.
+- The server (Online): chips for the servers the launcher offers (and the one typed there, if another). The change
+  waits until it cuts nobody off: at once in the village, after leaving the hall or the quest otherwise
+  (`14-rooms-and-friends.md` §3.4). A room code works on any server, so friends in a room pick the same one.
 - `core/overlay`: `Painter` (shapes and anti-aliased text with letter spacing, in the launcher's colours, CPU,
   console-independent), `Menu` (sections and rows: button, slider, toggle, choice, binding, banner with buttons, text
   field, note; the navigation, and the mouse targets of `MenuLayout`) and `MenuRenderer`. The system dialogs
@@ -141,8 +144,8 @@ mode, where no second window can be shown.
   `MenuRenderer::layout`, the same ones the menu is drawn at.
 - The Online tab (when a server is set; `14-rooms-and-friends.md` section 3.4): Halls Public / Private room, the room
   code with "Copy the room code", "Use the room code you copied" (from the clipboard) and "New room code", and a line
-  that says when the change applies. The room the player ends with goes back to the launcher through the same file as
-  the bindings (`room=`).
+  that says when the change applies, and the server. The room and the server the player ends with go back to the
+  launcher through the same file as the bindings (`room=`, `server=`).
 
 ## 4. Bundled toolchain (only for model B; not needed with model A)
 

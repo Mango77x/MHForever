@@ -39,6 +39,9 @@ struct NetState {
     bool adhoc_inited = false;               // sceNetAdhocInit
     bool poller_added = false;
     std::string room; // the private room (Runtime::set_adhoc_room), kept here until the library exists
+    std::string server;      // the ad hoc server in use ("" none)
+    std::string next_server; // Runtime::set_adhoc_server, waiting for the game to be in no hall (server_pending)
+    bool server_pending = false;
     adhoc::Mac mac{};
     std::int32_t discover_status = kDiscoverNone;
     std::uint32_t discover_params = 0;
@@ -87,5 +90,7 @@ struct NetState {
 };
 
 [[nodiscard]] NetState &net_state(Runtime &rt);
+// Moves to the server Runtime::set_adhoc_server chose, when nothing would be cut off by it.
+void net_apply_server(NetState &s);
 
 } // namespace mhf::psp::hle

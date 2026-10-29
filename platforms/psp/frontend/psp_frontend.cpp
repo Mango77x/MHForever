@@ -321,7 +321,19 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom
+    kHalls, kRoomCode, kJoinRoom, kServer
+};
+
+// The ad hoc servers the Online section offers: the launcher's list (launcher/ui/src/servers.ts, keep the two alike).
+struct AdhocServerChoice {
+    std::string_view host, name, location;
+};
+constexpr AdhocServerChoice kServers[] = {
+    {"socom.cc", "Socom", "France, PPSSPP's default and the busiest"},
+    {"psp.mgn.pub", "MGN", "United States, has a Monster Hunter community"},
+    {"adhoc.gamesnexus.ovh", "Games Nexus", "Italy"},
+    {"psi-hate.com", "Psi-Hate", "United States"},
+    {"cat.wjg.jp", "Neko PSP", "Japan"},
 };
 
 // The Controls tab: one Binding row per key action (ids from kKeyBase, in the order of host::kKeyActions) and per pad button
@@ -388,8 +400,20 @@ overlay::MenuTab menu_online(const Frontend::Impl &impl) {
     join.actions = {"Paste", "Join"};
     join.primary_action = adhoc_room_code(impl.code_typed).empty() ? -1 : 1;
     tab.items.push_back(join);
+    overlay::MenuItem server = menu_item(Kind::Choice, kServer, "Server", -1);
+    for (std::size_t i = 0; i < std::size(kServers); ++i) {
+        server.options.emplace_back(kServers[i].name);
+        if (kServers[i].host == impl.server) {
+            server.value = static_cast<int>(i);
+            server.detail = std::string(kServers[i].location);
+        }
+    }
+    if (server.value < 0) { // one typed in the launcher
+        server.value = static_cast<int>(server.options.size());
+        server.options.push_back(impl.server);
+    }
+    tab.items.push_back(server);
     if (!impl.room_note.empty()) tab.items.push_back(menu_item(Kind::Info, 0, impl.room_note));
-    tab.items.push_back(menu_item(Kind::Info, 0, impl.server + ". Change the server in the launcher, Settings > Online."));
     return tab;
 }
 
@@ -473,7 +497,7 @@ void apply_bindings(Frontend::Impl &impl) {
     {
         std::ofstream out(temp, std::ios::trunc);
         out << "keymap=" << host::format_keymap(impl.keys) << "\npadmap=" << host::format_padmap(impl.pad) << "\n";
-        if (impl.room_known) out << "room=" << impl.room << "\n"; // the launcher offers it next time
+        if (impl.room_known) out << "room=" << impl.room << "\n" << "server=" << impl.server << "\n"; // the launcher offers them next time
         if (!out) return;
     }
     std::filesystem::rename(temp, impl.controls_file, ec); // replaces the previous file in one step
@@ -700,6 +724,20 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             impl.live.scale = impl.render_scale; // the drawing thread applies it at the next picture
             refresh_menu(impl);                  // the size shown beside the label follows
             break;
+        case kServer:
+            if (e.value >= 0 && e.value < static_cast<int>(std::size(kServers))) {
+                const AdhocServerChoice &chosen = kServers[static_cast<std::size_t>(e.value)];
+                impl.server = std::string(chosen.host);
+                rt.set_adhoc_server(impl.server);
+                const std::string name(chosen.name);
+                impl.room_note = rt.adhoc_server_pending()
+                                     ? "You are in a hall or a quest now: you move to " + name + " once you leave it."
+                                     : "Next time you enter the Gathering Hall you meet the players on " + name + ".";
+                if (!impl.room.empty()) impl.room_note += " Your friends have to choose " + name + " too.";
+                apply_bindings(impl);
+                refresh_menu(impl);
+            }
+            break;
         case kHalls:
             if (e.value == 0) change_room(impl, rt, "");
             else change_room(impl, rt, impl.last_room.empty() ? new_adhoc_room_code() : impl.last_room);
@@ -767,7 +805,7 @@ void open_menu(Frontend::Impl &impl, Runtime &rt) {
     if (!impl.dialog_thread.joinable() && impl.gpu_state == 1) impl.dialog_thread = std::thread([&impl] { impl.dialog_worker(); });
     impl.menu_confirming_quit = false;
     impl.online = !rt.options().adhoc_server.empty();
-    impl.server = rt.options().adhoc_server;
+    impl.server = rt.adhoc_server();
     impl.code_keyboard = false;
     impl.code_typing = false;
     if (impl.online) {

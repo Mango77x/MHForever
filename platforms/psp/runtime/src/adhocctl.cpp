@@ -65,6 +65,15 @@ std::uint32_t Adhocctl::init() {
     return 0;
 }
 
+bool Adhocctl::set_link(AdhocLink *link) {
+    if (!idle()) return false;
+    link_ = link;
+    peers_.clear();
+    groups_.clear();
+    scan_in_progress_.clear();
+    return true;
+}
+
 std::uint32_t Adhocctl::term() {
     if (!initialized_) return 0;
     if (link_ != nullptr && (state_ == State::Connected || connecting_)) link_->request_disconnect();

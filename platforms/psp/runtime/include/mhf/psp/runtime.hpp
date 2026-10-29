@@ -172,6 +172,12 @@ public:
     [[nodiscard]] std::string adhoc_room();
     // The game is in a hall of the ad hoc network now.
     [[nodiscard]] bool adhoc_in_hall();
+    // Online play: another ad hoc server ("host" or "host:port"). It takes over as soon as that cuts nothing off: at
+    // once in the village, after the game left the hall or the quest it is in otherwise. adhoc_server() is the one
+    // chosen; adhoc_server_pending() says it is still waiting.
+    void set_adhoc_server(std::string_view server);
+    [[nodiscard]] std::string adhoc_server();
+    [[nodiscard]] bool adhoc_server_pending();
     // Prints the PSP threads and what they wait for to stderr (debugging hangs).
     void dump_threads();
     // Progress marks for the stall watchdog (MHF_WATCHDOG=<seconds>, runtime.cpp): every frame the game presents, and the last

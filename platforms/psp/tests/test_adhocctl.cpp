@@ -120,6 +120,29 @@ int main() {
         MHF_CHECK(left.size() == 1 && left[0].event == kEventDisconnect);
     }
 
+    // Another server (another link) takes over only while in no group, joining none and not scanning; the handlers stay
+    // and the next join goes to the new one.
+    {
+        FakeLink first, second;
+        Adhocctl c(&first);
+        MHF_CHECK(c.init() == 0);
+        MHF_CHECK(c.add_handler(0x08800000u, 1) == 0);
+        MHF_CHECK(c.idle() && c.set_link(&second));
+        MHF_CHECK(c.connect(group("PSP_GRP")) == 0);
+        MHF_CHECK(first.connects.empty() && second.connects.size() == 1);
+        MHF_CHECK(!c.idle() && !c.set_link(&first)); // joining
+        second.say(LinkEvent::Kind::Connect).mac = mac(1);
+        second.say(LinkEvent::Kind::LeaderMac).mac = mac(1);
+        MHF_CHECK(c.poll().size() == 1 && c.state() == State::Connected);
+        MHF_CHECK(!c.set_link(&first)); // in a group
+        MHF_CHECK(c.disconnect() == 0);
+        MHF_CHECK(c.scan() == 0 && !c.set_link(&first)); // scanning
+        second.say(LinkEvent::Kind::ScanComplete);
+        (void)c.poll();
+        MHF_CHECK(c.idle() && c.set_link(&first) && c.handlers().size() == 1 && c.groups().empty());
+        MHF_CHECK(c.scan() == 0 && first.scans == 1);
+    }
+
     // A scan lists the groups the server knows, once it says it is complete; the group list survives until the next scan.
     {
         FakeLink link;

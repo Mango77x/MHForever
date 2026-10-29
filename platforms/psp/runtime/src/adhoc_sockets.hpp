@@ -89,6 +89,8 @@ public:
 
     // Closes everything (the game left the ad hoc library, or the server was lost).
     void close_all();
+    // No socket is open.
+    [[nodiscard]] bool empty() const;
 
     struct Socket;
 

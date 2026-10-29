@@ -629,7 +629,7 @@ Json Launcher::state() {
 void Launcher::import_game_controls() {
     std::error_code ec;
     if (!fs::is_regular_file(controls_file(), ec)) return;
-    Json keys, pad, room;
+    Json keys, pad, room, server;
     {
         std::ifstream in(controls_file());
         for (std::string line; std::getline(in, line);) {
@@ -644,6 +644,8 @@ void Launcher::import_game_controls() {
                 }
             } else if (name == "room") { // the room the player chose in the game's Online tab
                 room = text;
+            } else if (name == "server") { // and the server
+                server = text;
             } else if (name == "padmap") {
                 const host::PadBindings parsed = host::parse_padmap(text);
                 for (const std::string_view action : host::kPadActions) {
@@ -656,6 +658,7 @@ void Launcher::import_game_controls() {
     partial["keys"] = keys;
     partial["pad"] = pad;
     if (room.is_string()) partial["adhocRoom"] = room;
+    if (server.is_string() && !server.as_string().empty()) partial["adhocServer"] = server; // the game never turns online play off
     {
         std::lock_guard lock(mutex_);
         const CatalogEntry *entry = nullptr;

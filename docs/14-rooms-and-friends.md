@@ -98,6 +98,11 @@ start:
   once; switching while inside a hall (or a quest) never disconnects anyone: it applies the next time the player leaves
   the hall and enters again. The menu says which one happened: "Next time you enter the Gathering Hall you will see the
   halls of room K7QF-29XM" or "... the public halls, with PPSSPP and PSP players".
+- **The server too** (added 2026-10-29, at the owner's request): the Online tab also picks the ad hoc server among the
+  launcher's. The game keeps one session with the server and opens its sockets through the server's relay, so another
+  server takes over only when that cuts nothing off: no group joined or being joined, no scan under way, no socket
+  open (`Runtime::set_adhoc_server`; the control library swaps its link and the handlers stay). In the village that is
+  at once; in a hall or a quest it waits until the game left it.
 - **Where the state lives:** in the game process (the runtime's online state, shared by the control library and the
   overlay), so no link to the launcher is needed while playing. The game reports the mode it ends with, so the launcher
   offers the last code next time.

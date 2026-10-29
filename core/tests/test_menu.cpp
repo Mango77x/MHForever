@@ -358,9 +358,11 @@ int main() {
         join.placeholder = "Type or paste a code, like K7QF-29XM";
         join.actions = {"Paste", "Join"};
         join.primary_action = 1;
-        MenuItem server = item(MenuItem::Kind::Info, 0, "socom.cc. Change the server in the launcher, Settings > Online.");
-        v.tabs.push_back(MenuTab{"Online", {halls, code, join,
-                                            item(MenuItem::Kind::Info, 0, "Next time you enter the Gathering Hall you see the halls of your room."), server},
+        MenuItem server = item(MenuItem::Kind::Choice, 94, "Server");
+        server.options = {"Socom", "MGN", "Games Nexus", "Psi-Hate", "Neko PSP"};
+        server.detail = "France, PPSSPP's default and the busiest";
+        v.tabs.push_back(MenuTab{"Online", {halls, code, join, server,
+                                            item(MenuItem::Kind::Info, 0, "Next time you enter the Gathering Hall you see the halls of your room.")},
                                  "Who you meet in the Gathering Hall.", "Private"});
         Menu look;
         look.set(v);

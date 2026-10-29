@@ -131,6 +131,11 @@ public:
     [[nodiscard]] const std::vector<ScanGroup> &groups() const noexcept { return groups_; }
     [[nodiscard]] const Mac &leader() const noexcept { return leader_; }
     [[nodiscard]] bool online() const { return link_ != nullptr && link_->online(); }
+    // In no group, joining none and not scanning: the moment another server can take over.
+    [[nodiscard]] bool idle() const noexcept { return state_ == State::Disconnected && !connecting_; }
+    // Another link (another server), only while idle(); false otherwise. What the old one found is forgotten, the
+    // handlers stay. The old link may go once this returned true.
+    bool set_link(AdhocLink *link);
 
     // The private room the next scan and the next join use; "" (or a code that is not valid) is the public halls. It can
     // change at any time: a group already joined stays as it is until the game leaves it.
