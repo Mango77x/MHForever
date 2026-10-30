@@ -426,6 +426,23 @@ bool Runtime::adhoc_server_pending() { return hle::net_state(*this).server_pendi
 
 bool Runtime::adhoc_in_hall() { return hle::net_state(*this).adhocctl->state() == adhoc::State::Connected; }
 
+Runtime::AdhocHall Runtime::adhoc_hall() {
+    const adhoc::Adhocctl &c = *hle::net_state(*this).adhocctl;
+    AdhocHall hall;
+    if (c.state() != adhoc::State::Connected) return hall;
+    hall.in = true;
+    hall.room = c.joined_room();
+    for (const adhoc::Peer &p : c.peers()) {
+        std::string name; // printable, as the menu draws it
+        for (const char ch : p.nickname) {
+            if (static_cast<unsigned char>(ch) >= 0x20 && ch != 0x7F) name.push_back(ch);
+        }
+        hall.players.push_back(name.substr(0, 32));
+        if (hall.players.size() == 16) break;
+    }
+    return hall;
+}
+
 std::string adhoc_room_code(std::string_view text) { return adhoc::normalize_room_code(text); }
 
 std::string new_adhoc_room_code() {

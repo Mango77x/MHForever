@@ -200,6 +200,11 @@ the browser and supports NIP-44 and relay pools.
   (`invite <key>`, `dismiss <key>`) to `game_friend_actions.txt`, which the launcher takes every 2 s. Join in the game
   uses the live switch of §3.4: the friend's server and room apply as soon as that cuts nobody off. Offline friends are
   only counted.
+- The Online tab, top to bottom (the owner's layout, 2026-10-30): Public halls / Private room; Friends (invites, then
+  who is online, five unless "Show all"); in a private room only, the Current room (code, Copy, New code, Leave), the
+  players in it (the player first, then the others in the same hall as the server reports them, then friends whose
+  presence says they are in the room elsewhere), where the player stands (village, the room's hall, still a public
+  hall) and Join another room; the Server last. In the public halls the room part is not shown.
 
 ### 4.4 Discord, as an extra
 Most of the community is on Discord. Rich Presence over Discord's local IPC can show "Hunting in Freedom Unite · room

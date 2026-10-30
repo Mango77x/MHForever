@@ -114,6 +114,7 @@ std::uint32_t Adhocctl::connect(const GroupName &group) {
     if (link_ == nullptr) return 0; // nothing will ever answer
     peers_.clear();
     connecting_ = true;
+    joined_room_ = room_;
     add_hall_prefix(prefix_of(group));
     link_->request_connect(room_.empty() ? group : private_name(room_, group));
     return 0;
