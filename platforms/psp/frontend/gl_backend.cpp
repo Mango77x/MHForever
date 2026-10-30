@@ -632,6 +632,14 @@ private:
         std::uint64_t checked_clut{~0ull};
         std::uint64_t last_use{};
         bool mipmapped{}; // uploaded with a mip chain (a texture pack image)
+        bool shared{};    // texture belongs to pack_textures_ (not owned by this slot): never delete or overwrite it here
+        std::uint32_t pack_hash{}; // when shared: the replacement hash it was uploaded for
+    };
+    // A texture pack image on the GPU with its mip chain, kept per image so that the game rewriting an address (or two
+    // textures alternating on it) does not upload the image and rebuild its mip chain again every frame.
+    struct PackTexture {
+        GLuint texture{};
+        std::uint64_t last_use{};
     };
 
     void prepare(const gpu::Ge &ge) {
@@ -775,6 +783,8 @@ private:
     // Textures replaced by new content while a recorded batch (frame interpolation) may still draw with them; they
     // are deleted a few flips later.
     std::vector<std::pair<std::uint64_t, GLuint>> retired_textures_;
+    std::unordered_map<std::uint32_t, PackTexture> pack_textures_;
+    std::uint64_t pack_uploads_ = 0, pack_reuses_ = 0; // MHF_TEXTURE_DEBUG: counted per 300 frames
     GLuint copy_texture_{}, copy_fbo_{};               // for sampling the target being drawn
     std::uint32_t copy_width_{}, copy_height_{};
     GLuint upload_texture_{};                          // CPU pixels on their way to a target or the screen
@@ -1206,14 +1216,53 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
         if (t.texture == 0 || hash != t.hash) {
             t.hash = hash;
             const mhf::psp::frontend::TextureReplacer::Image *repl = nullptr;
+            std::uint32_t rh = 0;
+            static const bool no_mipmaps = std::getenv("MHF_TEXTURE_NOMIPMAPS") != nullptr;
             if (replacer_.size() != 0) {
-                const std::uint32_t rh = ge.replacement_hash();
+                rh = ge.replacement_hash();
                 static const bool debug_tex = std::getenv("MHF_TEXTURE_DEBUG") != nullptr;
                 static std::set<std::uint32_t> seen;
                 if (debug_tex && seen.insert(rh).second)
                     std::fprintf(stderr, "[tex] %08x %ux%u fmt %u %s\n", rh, info.width, info.height, info.format,
                                  replacer_.find(rh) ? "HIT" : "miss");
+                if (!no_mipmaps) {
+                    if (const auto p = pack_textures_.find(rh); p != pack_textures_.end()) {
+                        // Already on the GPU with its mip chain: use it as it is.
+                        p->second.last_use = frame_;
+                        if (t.texture != 0 && !t.shared) retired_textures_.emplace_back(frame_, t.texture);
+                        t.texture = p->second.texture;
+                        t.shared = true;
+                        t.pack_hash = rh;
+                        t.mipmapped = true;
+                        ++pack_reuses_;
+                        last_texture_mipmapped_ = true;
+                        return t.texture;
+                    }
+                }
                 repl = replacer_.image(rh);
+            }
+            if (t.shared) { // leave the shared texture alone: it is not this slot's to overwrite or delete
+                t.texture = 0;
+                t.shared = false;
+            }
+            if (repl && !no_mipmaps) {
+                // First time this pack image is needed: upload it once, with its mip chain, and keep it per image.
+                if (t.texture != 0) retired_textures_.emplace_back(frame_, t.texture);
+                GLuint tex = 0;
+                gl_.GenTextures(1, &tex);
+                gl_.BindTexture(GL_TEXTURE_2D, tex);
+                gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(repl->width),
+                               static_cast<GLsizei>(repl->height), 0, GL_RGBA, GL_UNSIGNED_BYTE, repl->rgba.data());
+                // Pack images are much larger than the originals: without a mip chain they shimmer when small or moving.
+                gl_.GenerateMipmap(GL_TEXTURE_2D);
+                pack_textures_[rh] = PackTexture{tex, frame_};
+                t.texture = tex;
+                t.shared = true;
+                t.pack_hash = rh;
+                t.mipmapped = true;
+                ++pack_uploads_;
+                last_texture_mipmapped_ = true;
+                return t.texture;
             }
             if (!repl) {
                 pixels_.resize(static_cast<std::size_t>(info.width) * info.height);
@@ -1227,12 +1276,9 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
             if (t.texture == 0) gl_.GenTextures(1, &t.texture);
             gl_.BindTexture(GL_TEXTURE_2D, t.texture);
             t.mipmapped = false;
-            if (repl) {
+            if (repl) { // mip chain switched off with MHF_TEXTURE_NOMIPMAPS
                 gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(repl->width),
                                static_cast<GLsizei>(repl->height), 0, GL_RGBA, GL_UNSIGNED_BYTE, repl->rgba.data());
-                // Pack images are much larger than the originals: without a mip chain they shimmer when small or moving.
-                gl_.GenerateMipmap(GL_TEXTURE_2D);
-                t.mipmapped = true;
             } else {
                 gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(info.width), static_cast<GLsizei>(info.height),
                                0, GL_RGBA, GL_UNSIGNED_BYTE, pixels_.data());
@@ -1786,12 +1832,32 @@ void GlBackend::finish_flip() {
         }
     }
 
+    static const bool debug_tex = std::getenv("MHF_TEXTURE_DEBUG") != nullptr;
+    if (debug_tex && frame_ % 300 == 0) {
+        std::fprintf(stderr, "[tex] last 300 frames: %llu pack uploads, %llu reused, %zu pack textures on the GPU\n",
+                     static_cast<unsigned long long>(pack_uploads_), static_cast<unsigned long long>(pack_reuses_),
+                     pack_textures_.size());
+        pack_uploads_ = pack_reuses_ = 0;
+    }
+
     // Forget textures not used for a while.
     if ((frame_ & 255u) == 0) {
         for (auto i = textures_.begin(); i != textures_.end();) {
             if (i->second.last_use + 600 < frame_) {
-                gl_.DeleteTextures(1, &i->second.texture);
+                if (!i->second.shared) gl_.DeleteTextures(1, &i->second.texture);
                 i = textures_.erase(i);
+            } else {
+                if (i->second.shared) {
+                    if (const auto p = pack_textures_.find(i->second.pack_hash); p != pack_textures_.end())
+                        p->second.last_use = frame_; // a slot still draws with it
+                }
+                ++i;
+            }
+        }
+        for (auto i = pack_textures_.begin(); i != pack_textures_.end();) {
+            if (i->second.last_use + 600 < frame_) {
+                retired_textures_.emplace_back(frame_, i->second.texture);
+                i = pack_textures_.erase(i);
             } else {
                 ++i;
             }
