@@ -350,9 +350,7 @@ one ubershader (texture functions, fog, alpha test, depth range) and fixed-funct
   jump would show twice for a moment (item icons, lists): when more than 6 of them change in a flip that does not clear
   the color buffer, that flip is shown as the game drew it (`menus` in the log). A flip that clears first (every 3D
   scene with its HUD) is never skipped for this. Textures are never overwritten in place while recorded batches may still use them (the old one is retired
-  and deleted four flips later). Not interpolated, and shown as before: points behind the camera (a point just behind the near plane is placed, its
-  depth clamped: the points the GE made by clipping lie on the flip's near plane, and refusing them once left the whole
-  triangle where the flip drew it while its neighbours moved, which opened dark wedges in the terrain, 2026-10-30), a camera that
+  and deleted four flips later). Not interpolated, and shown as before: points behind the near plane, a camera that
   turned too much (cuts), batches without a partner, flips whose render target was copied into or sampled while
   being drawn, flips at an already fast pace (< 22 ms) or after a stall (> 150 ms), and the first flip after any of
   those. The in-between pictures are made only while the GE has no display list to run (`Backend::next_wakeup`/`tick`,
