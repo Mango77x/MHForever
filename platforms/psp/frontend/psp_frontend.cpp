@@ -506,7 +506,9 @@ overlay::MenuTab menu_online(const Frontend::Impl &impl) {
         const std::string title = owner == impl.room_owner.end() ? "Private room" : owner->second.empty() ? "Your room" : owner->second + "'s room";
         overlay::MenuItem code = menu_item(Kind::Banner, kRoomCode, title);
         code.text = format_adhoc_room_code(impl.room);
-        code.actions = {"Copy", "New code", "Leave"};
+        // Someone else's room: Leave makes a room of the player's own. Their own: New code does the same.
+        const bool mine = owner != impl.room_owner.end() && owner->second.empty();
+        code.actions = {"Copy", mine ? "New code" : "Leave"};
         code.primary_action = 0;
         tab.items.push_back(code);
         const bool in_room = impl.hall.in && impl.hall.room == impl.room;
@@ -896,12 +898,14 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             refresh_menu(impl);
             return true;
         case kRoomCode:
-            if (e.action == 2) {
-                change_room(impl, rt, ""); // Leave: back to the public halls
-            } else if (e.action == 1) {
+            if (e.action == 1) { // New code, or Leave someone's room: a private room of the player's own
+                const auto owner = impl.room_owner.find(room_key(impl.server, impl.room));
+                const std::string left = owner == impl.room_owner.end() || owner->second.empty() ? std::string() : owner->second + "'s room";
                 const std::string fresh = new_adhoc_room_code();
                 impl.room_owner[room_key(impl.server, fresh)] = "";
                 change_room(impl, rt, fresh);
+                if (!left.empty()) impl.room_note = "You left " + left + ". This room is yours: only those you give its code to come in.";
+                refresh_menu(impl);
             } else {
                 impl.host.set_clipboard_text(format_adhoc_room_code(impl.room));
                 impl.room_note = "Copied " + format_adhoc_room_code(impl.room) + ". Send it to your friends.";
