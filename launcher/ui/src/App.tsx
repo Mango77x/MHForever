@@ -291,6 +291,11 @@ export default function App() {
                     if (r.error) say(r.error);
                     else if (r.picked) say(r.copied ? `Saves folder changed, saves of ${r.copied} game${r.copied === 1 ? '' : 's'} copied` : 'Saves folder changed');
                   })}
+                  onTexturePack={(mode) => api.mhf_texturePack(mode).then((r) => {
+                    setState(r.state);
+                    if (r.error) say(r.error);
+                    else if (mode === '' && r.picked) say('Texture pack chosen');
+                  })}
                 />
               )}
               {screen === 'game' && (

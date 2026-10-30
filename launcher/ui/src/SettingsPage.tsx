@@ -353,9 +353,10 @@ function Controls({ keys, pad, keyDefaults, padDefaults, onChange }: {
   );
 }
 
-export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendCode, onSavesFolder }: Pick<Props, 'state' | 'onChange' | 'onPseudonym' | 'onCopyCode'> & {
+export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendCode, onSavesFolder, onTexturePack }: Pick<Props, 'state' | 'onChange' | 'onPseudonym' | 'onCopyCode'> & {
   friendCode: string;
   onSavesFolder: (backToDefault: boolean) => void;
+  onTexturePack: (mode: '' | 'on' | 'off' | 'none') => void;
 }) {
   const s = state.settings;
   const [name, setName] = useState(state.pseudonym);
@@ -418,6 +419,21 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
           <div className="row-actions">
             <button className="ghost mid" onClick={() => onSavesFolder(false)}>Change…</button>
             {state.savesFolderCustom && <button className="ghost mid" onClick={() => onSavesFolder(true)}>Use default</button>}
+          </div>
+        </div>
+        <div className="srow">
+          <div className="slabel">
+            <b>Texture pack</b>
+            <span className="prose">
+              Optional, for developers: a folder with a texture pack in PPSSPP format (it holds textures_FU_EU.ini). The game then shows
+              the pack's textures instead of the original ones.
+            </span>
+            <span className="path">{state.texturePack || 'No pack chosen'}</span>
+          </div>
+          <div className="row-actions">
+            <button className="ghost mid" onClick={() => onTexturePack('')}>{state.texturePack ? 'Change…' : 'Choose…'}</button>
+            {state.texturePack && <button className="ghost mid" onClick={() => onTexturePack('none')}>Remove</button>}
+            {state.texturePack && <Toggle on={state.texturePackEnabled} onToggle={() => onTexturePack(state.texturePackEnabled ? 'off' : 'on')} label="Use the texture pack" />}
           </div>
         </div>
       </motion.div>

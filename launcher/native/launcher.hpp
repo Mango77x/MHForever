@@ -116,6 +116,10 @@ public:
         std::string error;
     };
     SavesFolderChange set_saves_folder(const std::filesystem::path &folder);
+    // Developer texture pack: a folder holding textures_FU_EU.ini (empty = remove it), and whether the game gets it.
+    // set_texture_pack returns false (and changes nothing) when the folder has no such file.
+    bool set_texture_pack(const std::filesystem::path & folder);
+    void set_texture_pack_enabled(bool enabled);
 
     // Saves used to live in <launcher folder>/memstick, which an update (a new folder) leaves behind. Copies what is
     // there into the memory stick of `disc_id` once per source folder, never overwriting and never deleting the old files.
