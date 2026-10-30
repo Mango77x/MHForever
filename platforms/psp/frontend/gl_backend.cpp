@@ -110,6 +110,7 @@ using MhfReadPixels = void(APIENTRY *)(GLint, GLint, GLsizei, GLsizei, GLenum, G
     X(MhfTexImage2D, TexImage2D, glTexImage2D)                                                               \
     X(MhfTexSubImage2D, TexSubImage2D, glTexSubImage2D)                                                      \
     X(MhfTexParameteri, TexParameteri, glTexParameteri)                                                      \
+    X(PFNGLGENERATEMIPMAPPROC, GenerateMipmap, glGenerateMipmap)                                                 \
     X(PFNGLACTIVETEXTUREPROC, ActiveTexture, glActiveTexture)                                                      \
     X(MhfPixelStorei, PixelStorei, glPixelStorei)                                                            \
     X(PFNGLGENFRAMEBUFFERSPROC, GenFramebuffers, glGenFramebuffers)                                                \
@@ -376,6 +377,7 @@ struct DrawSetup {
     float tex_width{1}, tex_height{1};
     std::uint32_t target{}; // VRAM offset of the render target
     bool self_sampled{};    // the texture is a copy of the target being drawn: it cannot be replayed later
+    bool mipmapped{};       // the texture has a mip chain (a texture pack image), so it is sampled with mip filtering
 };
 
 // The camera a vertex was placed with: view and projection matrices, viewport and screen offset.
@@ -629,6 +631,7 @@ private:
         std::uint64_t checked_frame{~0ull};
         std::uint64_t checked_clut{~0ull};
         std::uint64_t last_use{};
+        bool mipmapped{}; // uploaded with a mip chain (a texture pack image)
     };
 
     void prepare(const gpu::Ge &ge) {
@@ -726,7 +729,7 @@ private:
                      std::uint32_t dst_stride, std::uint32_t dx, std::uint32_t dy, std::uint32_t width, std::uint32_t height);
     GLuint compile(const char *vertex, const char *fragment);
     GLint uniform(GLuint program, const char *name) { return gl_.GetUniformLocation(program, name); }
-    void set_texture_params(bool linear, bool clamp_s, bool clamp_t);
+    void set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mipmapped = false);
     // Debugging: MHF_GL_DUMP=<folder> writes every MHF_GL_DUMP_EVERY-th (default 60) presented frame as a PPM image,
     // starting at presented frame MHF_GL_DUMP_FROM (default 0).
     void dump_window(int w, int h);
@@ -768,6 +771,7 @@ private:
     std::unordered_map<std::uint64_t, CachedTexture> textures_;
     mhf::psp::frontend::TextureReplacer replacer_;
     bool replacer_tried_ = false;
+    bool last_texture_mipmapped_ = false; // texture_for: the texture it returned has a mip chain
     // Textures replaced by new content while a recorded batch (frame interpolation) may still draw with them; they
     // are deleted a few flips later.
     std::vector<std::pair<std::uint64_t, GLuint>> retired_textures_;
@@ -1128,14 +1132,17 @@ GlBackend::RenderTarget *GlBackend::find_target(std::uint32_t vram_offset, bool 
 
 // ---------------------------------------------------------------- state
 
-void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t) {
-    gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mipmapped) {
+    GLint min_filter = linear ? GL_LINEAR : GL_NEAREST;
+    if (mipmapped) min_filter = linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST;
+    gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, clamp_s ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, clamp_t ? GL_CLAMP_TO_EDGE : GL_REPEAT);
 }
 
 GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
+    last_texture_mipmapped_ = false;
     if (!replacer_tried_) {
         replacer_tried_ = true;
         if (const char *dir = std::getenv("MHF_TEXTURE_PACK")) replacer_.load(dir);
@@ -1201,8 +1208,9 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
             const mhf::psp::frontend::TextureReplacer::Image *repl = nullptr;
             if (replacer_.size() != 0) {
                 const std::uint32_t rh = ge.replacement_hash();
+                static const bool debug_tex = std::getenv("MHF_TEXTURE_DEBUG") != nullptr;
                 static std::set<std::uint32_t> seen;
-                if (seen.insert(rh).second)
+                if (debug_tex && seen.insert(rh).second)
                     std::fprintf(stderr, "[tex] %08x %ux%u fmt %u %s\n", rh, info.width, info.height, info.format,
                                  replacer_.find(rh) ? "HIT" : "miss");
                 repl = replacer_.image(rh);
@@ -1218,14 +1226,20 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
             }
             if (t.texture == 0) gl_.GenTextures(1, &t.texture);
             gl_.BindTexture(GL_TEXTURE_2D, t.texture);
-            if (repl)
+            t.mipmapped = false;
+            if (repl) {
                 gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(repl->width),
                                static_cast<GLsizei>(repl->height), 0, GL_RGBA, GL_UNSIGNED_BYTE, repl->rgba.data());
-            else
+                // Pack images are much larger than the originals: without a mip chain they shimmer when small or moving.
+                gl_.GenerateMipmap(GL_TEXTURE_2D);
+                t.mipmapped = true;
+            } else {
                 gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(info.width), static_cast<GLsizei>(info.height),
                                0, GL_RGBA, GL_UNSIGNED_BYTE, pixels_.data());
+            }
         }
     }
+    last_texture_mipmapped_ = t.mipmapped;
     return t.texture;
 }
 
@@ -1270,6 +1284,7 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
     if (textured) {
         gl_.ActiveTexture(GL_TEXTURE0);
         setup.texture = texture_for(ge, setup.uv_xform);
+        setup.mipmapped = last_texture_mipmapped_;
         setup.self_sampled = setup.texture == copy_texture_;
     }
     setup.tex_width = tex_width_;
@@ -1295,7 +1310,7 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
         gl_.BindTexture(GL_TEXTURE_2D, setup.texture);
         // Enhancement (off by default): bilinear filtering for 3D textures; 2D (through-mode) art stays as drawn.
         const bool linear = (R(kTexFilter) & 0x100u) != 0 || (live_->smooth_textures.load(std::memory_order_relaxed) && !through);
-        set_texture_params(linear, (R(kTexWrap) & 1u) != 0, (R(kTexWrap) & 0x100u) != 0);
+        set_texture_params(linear, (R(kTexWrap) & 1u) != 0, (R(kTexWrap) & 0x100u) != 0, setup.mipmapped);
     }
 
     gl_.BindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
