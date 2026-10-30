@@ -119,6 +119,15 @@ struct Frontend::Impl {
     std::mutex dialog_mutex;
     std::condition_variable dialog_cv;
     std::optional<DialogView> dialog_pending;
+    // A notice over the game (friends who came into the player's room or left it), drawn by the worker: a title and a
+    // line, or an empty title to take it down; shown for a few seconds while no menu or system dialog is up.
+    struct Notice {
+        std::string title, detail;
+    };
+    std::optional<Notice> notice_pending;
+    std::chrono::steady_clock::time_point notice_until{};
+    bool notice_shown{};
+    std::vector<std::string> in_my_room; // the keys of the friends playing in the player's room, last time looked
     bool dialog_stop{};
     std::filesystem::path font_directory;
 
@@ -128,8 +137,30 @@ struct Frontend::Impl {
             std::optional<overlay::MenuView> menu_view;
             {
                 std::unique_lock lock(dialog_mutex);
-                dialog_cv.wait(lock, [&] { return dialog_stop || dialog_pending.has_value() || menu_pending.has_value(); });
+                dialog_cv.wait(lock, [&] {
+                    return dialog_stop || dialog_pending.has_value() || menu_pending.has_value() || notice_pending.has_value();
+                });
                 if (dialog_stop) return;
+                if (notice_pending && !menu_pending && !dialog_pending) {
+                    const Notice notice = std::move(*notice_pending);
+                    notice_pending.reset();
+                    const int width = overlay_pixel_w, height = overlay_pixel_h;
+                    lock.unlock();
+                    std::vector<std::uint32_t> pixels;
+                    if (!notice.title.empty()) {
+                        if (!menu_renderer) menu_renderer = std::make_unique<overlay::MenuRenderer>(font_directory);
+                        menu_renderer->render_notice(notice.title, notice.detail, width, height, pixels);
+                    }
+                    std::lock_guard overlay_lock(overlay.mutex);
+                    if (!menu_open && !dialog_visible) { // a menu or a dialog that came meanwhile keeps the screen
+                        overlay.pixels = std::move(pixels);
+                        overlay.width = width;
+                        overlay.height = height;
+                        overlay.visible = !notice.title.empty();
+                        ++overlay.generation;
+                    }
+                    continue;
+                }
                 if (menu_pending) { // the menu first: it covers the game
                     menu_view = std::move(menu_pending);
                     menu_pending.reset();
@@ -305,6 +336,69 @@ void blend_over(std::vector<std::uint32_t> &frame, const std::vector<std::uint32
         }
         frame[i] = out;
     }
+}
+
+bool look_at_friends(Frontend::Impl &impl);
+
+// While the game runs (no menu): a notice when friends come into the player's private room or leave it, so that
+// joining someone's room, or a friend joining the player's, says so at once instead of only once both are in the
+// Gathering Hall. The friends are the launcher's (look_at_friends); the room and the server are the game's own.
+void watch_friends(Frontend::Impl &impl, Runtime &rt) {
+    const auto now = std::chrono::steady_clock::now();
+    if (impl.notice_shown && now >= impl.notice_until) {
+        impl.notice_shown = false;
+        std::lock_guard lock(impl.dialog_mutex);
+        impl.notice_pending = Frontend::Impl::Notice{};
+        impl.dialog_cv.notify_one();
+    }
+    const bool changed = look_at_friends(impl);
+    const std::string room = rt.adhoc_room(), server = rt.adhoc_server();
+    std::vector<std::string> here;
+    std::vector<std::string> names;
+    if (!room.empty()) {
+        for (const auto &f : impl.friends) {
+            if (!f.invite && f.state == "playing" && f.room == room && f.server == server) here.push_back(f.key);
+        }
+    }
+    if (!changed && here == impl.in_my_room) return;
+    std::vector<std::string> came, left;
+    const auto name_of = [&](const std::string &key) {
+        for (const auto &f : impl.friends) {
+            if (f.key == key && !f.name.empty()) return f.name;
+        }
+        return std::string("A friend");
+    };
+    for (const auto &k : here) {
+        if (std::find(impl.in_my_room.begin(), impl.in_my_room.end(), k) == impl.in_my_room.end()) came.push_back(name_of(k));
+    }
+    for (const auto &k : impl.in_my_room) {
+        if (std::find(here.begin(), here.end(), k) == here.end()) left.push_back(name_of(k));
+    }
+    impl.in_my_room = here;
+    if ((came.empty() && left.empty()) || impl.gpu_state != 1 || impl.dialog_visible) return;
+    const auto names_of = [](const std::vector<std::string> &list) {
+        std::string out = list.front();
+        for (std::size_t i = 1; i < list.size(); ++i) out += (i + 1 == list.size() ? " and " : ", ") + list[i];
+        return out;
+    };
+    Frontend::Impl::Notice notice;
+    if (!came.empty()) {
+        notice.title = names_of(came) + (came.size() == 1 ? " is in your room" : " are in your room");
+        notice.detail = rt.adhoc_in_hall() ? "Private room " + format_adhoc_room_code(room) + ": you meet in the Gathering Hall."
+                                           : "Private room " + format_adhoc_room_code(room) + ": enter the Gathering Hall to meet.";
+    } else {
+        notice.title = names_of(left) + " left your room";
+        notice.detail = "Private room " + format_adhoc_room_code(room) + ".";
+    }
+    impl.notice_shown = true;
+    impl.notice_until = now + std::chrono::seconds(5);
+    if (!impl.dialog_thread.joinable()) {
+        impl.font_directory = rt.options().font_directory;
+        impl.dialog_thread = std::thread([&impl] { impl.dialog_worker(); });
+    }
+    std::lock_guard lock(impl.dialog_mutex);
+    impl.notice_pending = std::move(notice);
+    impl.dialog_cv.notify_one();
 }
 
 // Keys, text and the redraw of the system dialogs (mhf/psp/dialog.hpp).
@@ -1335,6 +1429,7 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
             } else {
                 set_controller_state(*runtime, map_input(pad));
                 update_dialogs(*impl, *runtime);
+                watch_friends(*impl, *runtime);
                 if (pad.guide && !impl->guide_down) impl->menu_requested = true;
                 impl->guide_down = pad.guide;
                 if (impl->menu_requested && current_dialog(*runtime).kind == DialogView::Kind::None) {

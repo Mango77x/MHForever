@@ -394,6 +394,14 @@ int main() {
     MHF_CHECK(renderer.render(shown.view(), 2, pixels));
     MHF_CHECK(pixels.size() == static_cast<std::size_t>(MenuRenderer::width(2)) * static_cast<std::size_t>(MenuRenderer::height(2)));
     MHF_CHECK(std::any_of(pixels.begin(), pixels.end(), [](std::uint32_t p) { return (p >> 24u) != 0; }));
+    // A notice: a card at the top centre, the rest of the picture clear.
+    {
+        std::vector<std::uint32_t> notice;
+        MHF_CHECK(renderer.render_notice("Rathian is in your room", "Private room AB12-CD34: you meet in the Gathering Hall.", 960, 544, notice));
+        MHF_CHECK(notice.size() == 960u * 544u);
+        MHF_CHECK((notice[static_cast<std::size_t>(40 * 960 + 480)] >> 24u) != 0);    // the card
+        MHF_CHECK(notice[static_cast<std::size_t>(400 * 960 + 480)] == 0u && notice[0] == 0u); // the game shows through
+    }
     // Without the backdrop (the display blurs the game behind it) the corners stay clear.
     MHF_CHECK(renderer.render(shown.view(), 2, pixels, false));
     MHF_CHECK(pixels[0] == 0u && pixels[pixels.size() - 1] == 0u);

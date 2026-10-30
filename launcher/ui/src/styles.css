@@ -431,3 +431,5 @@ button { -webkit-tap-highlight-color: transparent; }
 .f-row.online .f-text .marquee.place, .f-row.online .f-text .marquee.place > span { color: var(--ink-2); }
 @keyframes sign-board { 0%, 18% { transform: translateX(0); } 82%, 100% { transform: translateX(var(--shift)); } }
 @media (prefers-reduced-motion: reduce) { .f-text .marquee > span.moving { animation: none; } .f-text .marquee { text-overflow: ellipsis; } }
+.f-row.together { border-color: rgba(111, 209, 139, 0.45); background: rgba(111, 209, 139, 0.06); }
+.f-row.together .f-text .marquee.place, .f-row.together .f-text .marquee.place > span { color: var(--ok); }
