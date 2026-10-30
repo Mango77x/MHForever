@@ -62,7 +62,18 @@ servers PPSSPP uses, so you meet other MHForever players and PPSSPP players in t
 Gathering Hall and hunt together. Offline is the default: then nothing is contacted. The server
 shows your name and your game on its public status page; in their usual mode,
 servers do not show your address to other players.
-Escape opens the menu without pausing the game, so you do not drop out of a quest.
+Private rooms: on the Home screen, "Create room" gives you a code (like K7QF-29XM) to send to your
+friends, and "Join with code" takes theirs. Only players with the same code and the same server meet
+in the Gathering Hall; "Back to public halls" brings you back to everyone. You can also switch, copy, type or
+paste a code, leave a room and change the server in the game (Escape > Online).
+Friends: in the launcher, Friends shows your friend code. Your friend presses "Let friends add me",
+you type their code, they accept. You then see who is online and where, and can invite them or join
+their room in one click, from the launcher or from the game's Online tab. Friends meet through public
+Nostr relays: no account, and your friends never see your address (the relays do, as game servers do).
+Escape opens the menu without pausing the game, so you do not drop out of a quest. It works with the
+mouse, the keyboard or a controller.
+
+Rooms and friends are new: tell us how they work for you on Discord, https://discord.gg/6xrxY2buDf
 
 
 Source code and licenses

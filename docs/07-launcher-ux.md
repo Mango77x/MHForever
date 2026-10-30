@@ -79,7 +79,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
 - **Release packaging (2026-10-19, Linux 2026-10-22)**: `scripts/package_release.py` assembles the Windows zip and the Linux
   tarball (launcher, game program, free fonts, licenses and the platform's player README) and refuses anything that looks
   like game data. Windows archives keep `dist/PLAYER_README.txt`; Linux archives use `dist/PLAYER_README_LINUX.txt` and
-  keep the execute permission of the programs (launcher, `mhfu`, `mhfu-us`, `mhfu-jp`). 0.1.0, 0.2.0, 0.2.1, 0.2.2, 0.2.3, 0.3.0, 0.4.0, 0.4.1, 0.4.2, 0.5.0, 0.6.0, 0.6.1, 0.6.2 and 0.7.0 were published as Windows
+  keep the execute permission of the programs (launcher, `mhfu`, `mhfu-us`, `mhfu-jp`). 0.1.0, 0.2.0, 0.2.1, 0.2.2, 0.2.3, 0.3.0, 0.4.0, 0.4.1, 0.4.2, 0.5.0, 0.6.0, 0.6.1, 0.6.2, 0.7.0 and 0.8.0 were published as Windows
   zips this way (0.4.1 together with the first Linux tarball).
 - **Linux integration**: `cmake --install build/linux-clang --prefix ~/.local` installs the launcher and the game (when it
   was built) in `bin/`, the fonts next to them, and `packaging/linux/MHForever.desktop` plus the icon in the desktop's
