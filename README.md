@@ -107,7 +107,7 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
   came with them (pull request #7).
 - **[ibonplix](https://github.com/ibonplix)**, for the first texture pack support (pull request #39): the PPSSPP quick hash, the
   KTX2 decoding and the launcher setting that the HD textures are built on.
-- **Mobilozor** (Pharoah on Discord), for proving HD texture packs on MHForever first, on the Steam Deck, and for the audit and
+- **Mobilozor**, for proving HD texture packs on MHForever first, on the Steam Deck, and for the audit and
   test logs shared with the project.
 - **[TeamGDB's Yakumo](https://github.com/TeamGDB/Yakumo)** (MIT), whose frame interpolation MHForever's is ported from, and
   whose texture packs showed how to load them without holding the game up.
