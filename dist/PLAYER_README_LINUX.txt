@@ -88,6 +88,10 @@ Nostr relays: no account, and your friends never see your address (the relays do
 Escape opens the menu without pausing the game, so you do not drop out of a quest. It works with the
 mouse, the keyboard or a controller.
 
+HD textures: texture packs made for PPSSPP, such as KHD, work too. Download one, unzip it, and choose its
+folder in Settings > Texture pack: the launcher shows what it holds for each release, then copies it into
+MHForever's folder or uses it where it is. Escape > Video turns it off and on while you play.
+
 Rooms and friends are new: tell us how they work for you on Discord, https://discord.gg/6xrxY2buDf
 
 

@@ -394,6 +394,41 @@ Remaining components for a fuller hardware backend (Vulkan or extending this one
 
 Behavior references: PPSSPP docs, ACX recomp's `runtime/gpu` (respect its license).
 
+### Texture packs (`frontend/texture_pack.*`, `frontend/texture_images.*`)
+
+HD texture packs in PPSSPP's format: a folder with a `textures.ini` naming PNG or KTX2 images by key. Nothing of a pack is
+shipped; the player downloads one (KHD for this game: one ini per release, in its `MAIN` folder) and the launcher passes
+its folder (`--texture-pack`, or `MHF_TEXTURE_PACK`).
+
+- **Which ini.** `textures.ini`, plus the override its `[games]` names for the release being played; or, for packs with one
+  ini per release instead, the one named for the release's region (`textures_FU_EU.ini` for `ULES01213`, `*_US*`, `*_JP*`).
+  `Pack::locate` finds the pack inside a chosen folder: itself, a single sub-folder with an ini (or `MAIN`), or PPSSPP's
+  `PSP/TEXTURES/<id>`.
+- **Keys.** As PPSSPP makes them: the texture's address (28 bits) shifted up, its dimension word, and for CLUT formats
+  XXH32 of the palette as the last load left it (plus the entries the index offset reaches, up to the most any load wrote)
+  xored with the CLUT format command word; then the data hash (`quick`, `xxh32` or the low half of `xxh64`) of the texels
+  the texture uses (the buffer width rounded to 16-byte units; rows narrower than the buffer hashed one by one and folded;
+  512-tall textures drawn in through mode only down to the lowest row drawn; `[hashranges]`, `reduceHash`,
+  `[reducehashranges]` and the DXT1 skips honoured). `ignoreAddress` and `reduceHash` are turned off with `quick`, as
+  PPSSPP does. Lookups try the full key, then the wildcard forms in PPSSPP's order; an empty entry keeps the game's texture;
+  images in the pack's top folder named by their key count too; names leaving the pack (`..`) are refused, and a name in
+  another case is found again (Linux).
+- **When.** A key is made only when the backend uploads a texture (its content changed), never per draw. Until the pack's
+  image is decoded the game's own texture is drawn; loader threads (a third of the cores, 1 to 3) decode KTX2 through Basis
+  Universal (UASTC/ETC1S, zstd) and PNG through stb_image, with the mip levels a file or the pack (`_1`, `_2`...) gives.
+  At most 6 images reach the GPU a flip, each with a full mip chain (made by `glGenerateMipmap` when the pack has none),
+  sampled with mipmapped filtering; `[filtering]` overrides the game's filter. A `[hashranges]` image covers part of the
+  texture, so its coordinates are scaled. Pack images on the GPU are kept within 1 GB (`MHF_TEXTURE_PACK_MEMORY` in MB):
+  past it, those drawn least recently go and are loaded again when drawn. Decoded images nobody took are dropped past
+  512 MB. A failed image is not retried.
+- **Measured** (village, KHD, EU, 180 fps): 74 textures replaced, 13 not in the pack, 74 images decoded at about 13 ms each
+  on the loader threads, about 250 to 370 MB on the GPU, the game's own drawing time unchanged (about 15 ms a frame).
+- The in-game menu's Video tab turns the pack off and on (every texture is uploaded again). `MHF_TEXTURE_LOG=1` logs each
+  texture's key and what the pack does with it, and a summary every 300 flips; `MHF_TEXTURE_DUMP=<folder>` writes every
+  texture the game uploads, once, as `<key>.png` with a `textures.ini`, which makes the folder a pack to edit (an edited
+  image is never written over).
+- Not supported: zipped packs (unzip them), DDS and ZIM images, and `[indexed]` (palette-index images).
+
 ## 7. Debugging
 
 - Overlay (ImGui, F4 like ACX) showing: FPS, threads, recent HLE calls, unimplemented NIDs, fallback-interpreter counters, active

@@ -54,6 +54,7 @@ The first four rows work today (online play is experimental). The others are pla
 | **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard and controller buttons are changed in Game settings (Home) or from the in-game menu. |
 | **Saves** | Kept in `Documents\MHForever\saves` on Windows and `~/.local/share/MHForever/saves` on Linux, one folder per game; settings in `%APPDATA%\MHForever` or `$XDG_DATA_HOME/MHForever`. Updating never loses them. Saves use the PSP format: import them from a PSP or PPSSPP in Game settings (your own version of the game: a European save only works with the European release, and a North American one with the North American release), or copy MHForever's into PPSSPP. |
 | **Resolution** | Up to several times the original 480x272, with an optional smoother texture filter. |
+| **HD textures** | Texture packs made for PPSSPP (a folder with a `textures.ini`, PNG or KTX2 images), such as KHD: choose one in Settings → Texture pack. None is included: download a pack yourself. |
 | **Other games and regions** | The Japanese release (Portable 2nd G, `ULJM05500`) is playable too, with its Japanese text. Other games of the series are planned. |
 | **Latest release** | [![Latest release](https://img.shields.io/github/v/release/Mango77x/MHForever?label=version)](https://github.com/Mango77x/MHForever/releases/latest) [![Release date](https://img.shields.io/github/release-date/Mango77x/MHForever?label=published)](https://github.com/Mango77x/MHForever/releases/latest) See the [Releases](../../releases) page. |
 
@@ -104,8 +105,14 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
   format comes from his project, shared with his permission, along with his time and advice.
 - **[sodomon2](https://github.com/sodomon2)**, for the Linux packaging, the desktop integration and the launcher fixes that
   came with them (pull request #7).
+- **[ibonplix](https://github.com/ibonplix)**, for the first texture pack support (pull request #39): the PPSSPP quick hash, the
+  KTX2 decoding and the launcher setting that the HD textures are built on.
+- **Mobilozor** (Pharoah on Discord), for proving HD texture packs on MHForever first, on the Steam Deck, and for the audit and
+  test logs shared with the project.
+- **[TeamGDB's Yakumo](https://github.com/TeamGDB/Yakumo)** (MIT), whose frame interpolation MHForever's is ported from, and
+  whose texture packs showed how to load them without holding the game up.
 - **[PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp)**, the static recompiler framework this project is built on.
-- **[PPSSPP](https://github.com/hrydgard/ppsspp)**, for the executable decryption, as the reference for how the PSP behaves, and for the
+- **[PPSSPP](https://github.com/hrydgard/ppsspp)**, for the executable decryption, the texture pack format, as the reference for how the PSP behaves, and for the
   ad hoc online play its players keep alive: MHForever plays on the same servers, and the launcher's list of servers comes
   from the one PPSSPP publishes.
 - **[FFmpeg](https://ffmpeg.org)**, whose libavcodec decodes the movie pictures and sound and the game's music.

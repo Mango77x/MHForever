@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { api, regionTag, selectedGame, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
 import { CopyIcon } from './icons';
 import { OnlineSettings } from './OnlineSettings';
+import { TexturePackSection } from './TexturePack';
 import { frameRates, resolutions } from './format';
 import { setNavigationPaused } from './gamepad';
 import { keyGroups, keyLabel, reservedKeys } from './keys';
@@ -353,10 +354,11 @@ function Controls({ keys, pad, keyDefaults, padDefaults, onChange }: {
   );
 }
 
-export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendCode, onSavesFolder, onTexturePack }: Pick<Props, 'state' | 'onChange' | 'onPseudonym' | 'onCopyCode'> & {
+export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendCode, onSavesFolder, onState, say }: Pick<Props, 'state' | 'onChange' | 'onPseudonym' | 'onCopyCode'> & {
   friendCode: string;
   onSavesFolder: (backToDefault: boolean) => void;
-  onTexturePack: (mode: '' | 'on' | 'off' | 'none') => void;
+  onState: (s: State) => void;
+  say: (text: string) => void;
 }) {
   const s = state.settings;
   const [name, setName] = useState(state.pseudonym);
@@ -421,21 +423,10 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
             {state.savesFolderCustom && <button className="ghost mid" onClick={() => onSavesFolder(true)}>Use default</button>}
           </div>
         </div>
-        <div className="srow">
-          <div className="slabel">
-            <b>Texture pack</b>
-            <span className="prose">
-              Optional, for developers: a folder with a texture pack in PPSSPP format (it holds textures_FU_EU.ini). The game then shows
-              the pack's textures instead of the original ones.
-            </span>
-            <span className="path">{state.texturePack || 'No pack chosen'}</span>
-          </div>
-          <div className="row-actions">
-            <button className="ghost mid" onClick={() => onTexturePack('')}>{state.texturePack ? 'Change…' : 'Choose…'}</button>
-            {state.texturePack && <button className="ghost mid" onClick={() => onTexturePack('none')}>Remove</button>}
-            {state.texturePack && <Toggle on={state.texturePackEnabled} onToggle={() => onTexturePack(state.texturePackEnabled ? 'off' : 'on')} label="Use the texture pack" />}
-          </div>
-        </div>
+      </motion.div>
+      <motion.div className="glass section" {...rise(0.25)}>
+        <h3>Texture pack</h3>
+        <TexturePackSection state={state} onState={onState} say={say} toggle={(p) => <Toggle {...p} />} />
       </motion.div>
       <motion.div className="glass section" {...rise(0.3)}>
         <h3>About</h3>
