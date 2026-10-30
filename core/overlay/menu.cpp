@@ -855,6 +855,22 @@ bool MenuRenderer::render(const MenuView &view, int scale, std::vector<std::uint
     return render(view, width(scale), height(scale), pixels, backdrop);
 }
 
+bool MenuRenderer::render_notice(const std::string &title, const std::string &detail, int width, int height,
+                                 std::vector<std::uint32_t> &pixels) {
+    Impl &d = *impl_;
+    d.begin(pixels, width, height, static_cast<float>(height) / Impl::kH);
+    const float w = std::min(Impl::kW - 40.0f, std::max(d.measure(title, 6.2f, true), d.measure(detail, 5.0f)) + 40.0f);
+    const float x = Impl::kW - w - 10.0f, y = 10.0f, h = 30.0f; // the top right corner
+    d.rrect(x, y + 1.5f, w, h, 7.0f, kBlack, 0.35f); // a soft shadow
+    d.rrect(x, y, w, h, 7.0f, kPanel, 0.94f);
+    d.rrect(x, y, w, h, 7.0f, kAccent, 0.7f, 0.6f);
+    d.rrect(x + 9.0f, y + 11.0f, 7.0f, 7.0f, 3.5f, kGreen, 1.0f);
+    d.text(x + 22.0f, y + 13.0f, d.fit(title, 6.2f, w - 30.0f), 6.2f, kText, 1.0f, true);
+    d.text(x + 22.0f, y + 22.5f, d.fit(detail, 5.0f, w - 30.0f), 5.0f, kSoft, 1.0f);
+    d.end();
+    return d.font_ok();
+}
+
 bool MenuRenderer::render(const MenuView &view, int width, int height, std::vector<std::uint32_t> &pixels, bool backdrop) {
     Impl &d = *impl_;
     d.begin(pixels, width, height, static_cast<float>(height) / Impl::kH);

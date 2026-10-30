@@ -170,6 +170,11 @@ public:
     // display does not stretch it and its text stays sharp.
     bool render(const MenuView &view, int width, int height, std::vector<std::uint32_t> &pixels, bool backdrop = true);
 
+    // A notice over the game, at `width` x `height` pixels: a card in the top right corner with a title and a line
+    // under it, the rest transparent (a friend came into the player's room, for instance).
+    bool render_notice(const std::string &title, const std::string &detail, int width, int height,
+                       std::vector<std::uint32_t> &pixels);
+
     // Where the sections and rows of `view` are (the same positions render() draws at).
     [[nodiscard]] MenuLayout layout(const MenuView &view) const;
 

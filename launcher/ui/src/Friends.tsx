@@ -12,12 +12,20 @@ import { CloseIcon, CopyIcon, FriendsIcon } from './icons';
 
 const serverName = (host: string) => adhocServers.find((s) => s.host === host)?.name ?? host;
 
+// The player's own place: the server and the private room ('' for the public halls).
+type Place = { server: string; room: string };
+
+// The friend plays in the player's private room (the same code on the same server).
+const together = (p: Presence | undefined, mine: Place | undefined) =>
+  !!p && !!mine && p.playing && p.room !== '' && p.room === mine.room && p.server === mine.server;
+
 // Where a friend is: what they do, and where (a second line while they play).
-function where(p: Presence | undefined, now: number): { online: boolean; text: string; place?: string } {
+function where(p: Presence | undefined, now: number, mine?: Place): { online: boolean; text: string; place?: string; together?: boolean } {
   if (!p || now - p.seen > offlineAfterMs) return { online: false, text: 'Offline' };
   if (!p.playing) return { online: true, text: 'In the launcher' };
   const text = `Playing ${p.game || 'Freedom Unite'}`;
   if (p.server === '') return { online: true, text, place: 'Offline, on their own' };
+  if (together(p, mine)) return { online: true, text, place: `In your room · ${serverName(p.server)}`, together: true };
   return { online: true, text, place: `${p.room !== '' ? 'Private room' : 'Public halls'} · ${serverName(p.server)}` };
 }
 
@@ -58,6 +66,10 @@ export function useFriends(state: State | null, playing: boolean, say: (text: st
   blockedRef.current = state?.blocked ?? [];
   const sayRef = useRef(say);
   sayRef.current = say;
+  // The player's place, and the friends playing in their private room: one coming in is said at once.
+  const mineRef = useRef<Place | undefined>(undefined);
+  mineRef.current = state ? { server: state.settings.adhocServer, room: state.settings.adhocServer ? state.settings.adhocRoom : '' } : undefined;
+  const togetherRef = useRef(new Set<string>());
 
   const onStateRef = useRef(onState);
   onStateRef.current = onState;
@@ -71,12 +83,21 @@ export function useFriends(state: State | null, playing: boolean, say: (text: st
   useEffect(() => {
     if (!key) return;
     const n = new FriendsNetwork(key, [], {
-      presence: (k, p) => setPresence((all) => {
-        const next = { ...all };
-        if (p) next[k] = p;
-        else delete next[k];
-        return next;
-      }),
+      presence: (k, p) => {
+        setPresence((all) => {
+          const next = { ...all };
+          if (p) next[k] = p;
+          else delete next[k];
+          return next;
+        });
+        const now = together(p ?? undefined, mineRef.current);
+        if (now && !togetherRef.current.has(k)) {
+          const name = friendsRef.current.find((f) => f.key === k)?.name || 'A friend';
+          sayRef.current(`${name} is in your room`);
+        }
+        if (now) togetherRef.current.add(k);
+        else togetherRef.current.delete(k);
+      },
       request: (r) => setRequests((all) => (all.some((x) => x.key === r.key) || all.length >= 20 ? all : [...all, r])),
       accepted: (f) => {
         setSearches((all) => { const next = { ...all }; delete next[friendCodeOf(f.key)]; return next; });
@@ -340,10 +361,10 @@ export function FriendsDrawer({ model, state, playing, onClose, onCopy, onJoin }
         )}
         {sorted.map((f) => {
           const p = model.presence[f.key];
-          const w = where(p, now);
-          const canJoin = w.online && !!p && p.playing && p.server !== '';
+          const w = where(p, now, { server, room: server ? state.settings.adhocRoom : '' });
+          const canJoin = w.online && !!p && p.playing && p.server !== '' && !w.together;
           return (
-            <div key={f.key} className={'f-row' + (w.online ? ' online' : '')}>
+            <div key={f.key} className={'f-row' + (w.online ? ' online' : '') + (w.together ? ' together' : '')}>
               <span className="avatar">{(f.name || '?').slice(0, 1).toUpperCase()}{w.online && <span className="online" />}</span>
               <div className="f-text">
                 <b>{f.name || 'Friend'}</b>
@@ -360,7 +381,7 @@ export function FriendsDrawer({ model, state, playing, onClose, onCopy, onJoin }
                   <>
                     {canJoin && <button className="play small" disabled={playing} title={playing ? 'Close the game first' : `Join them on ${serverName(p!.server)}`}
                       onClick={() => onJoin(p!.server, p!.room)}>Join</button>}
-                    {w.online && server !== '' && (
+                    {w.online && server !== '' && !w.together && (
                       <button className="ghost f-btn" title={`Send them your ${state.settings.adhocRoom ? 'room' : 'server'}`} onClick={() => model.invite(f.key)}>Invite</button>
                     )}
                     <button className="ghost f-btn more" aria-label={`More for ${f.name}`} onClick={() => setMenu(f.key)}>···</button>
