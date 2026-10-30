@@ -799,16 +799,17 @@ private:
     std::uint16_t camera_{kNoCamera};       // the last one found
     std::uint64_t camera_generation_{};     // Ge::camera_generation() when it was found
     std::unordered_map<std::uint32_t, std::uint32_t> draw_uses_; // drawing commands per vertex address since the flip
-    // The second design of frame interpolation (frame_matching.hpp), measured alongside the first for now: the draws
-    // of the flip being drawn and of the one before, and how they match (MHF_INTERP_V2_LOG=1 reports it).
+    // The second design of frame interpolation (frame_matching.hpp): the draws of the flip being drawn and of the one
+    // before, and how they match (MHF_INTERP_V2_LOG=1 reports it).
     std::vector<interpolation::DrawSummary> recording_, summaries_before_;
     interpolation::Matcher matcher_;
     interpolation::CutThresholds cut_thresholds_;
     void match_v2(std::uint32_t shown);
-    // Interpolation v2 (MHF_INTERP_V2=1 for now): the batch's triangles before clipping, the viewports of the draws,
+    // Interpolation v2 (the default; MHF_INTERP_V1=1 goes back to placing the recorded points again for every batch):
+    // the batch's triangles before clipping, the viewports of the draws,
     // and for the flip being shown: the previous flip's draws, how they match, the camera's motion, and per draw of
     // this flip its partner in the previous one (-1 none).
-    const bool v2_enabled_ = std::getenv("MHF_INTERP_V2") != nullptr;
+    const bool v2_enabled_ = std::getenv("MHF_INTERP_V1") == nullptr;
     std::vector<RawTriangle> raw_batch_;
     bool raw_complete_ = true;
     std::uint64_t draw_serial_ = 0, prepared_serial_ = ~0ull;
@@ -2494,7 +2495,7 @@ void GlBackend::flush_pictures() {
 // Schedules the in-between pictures, the first one due at once, ending with the flip's own picture. Returns false
 // (nothing scheduled) when this flip cannot be interpolated; the caller then shows it as usual. Either way the picture
 // is kept for the next flip.
-// Matches the draws of this flip with the previous flip's (the second design; nothing drawn with it yet) and, with
+// Matches the draws of this flip with the previous flip's (the second design) and, with
 // MHF_INTERP_V2_LOG=1, reports once a second how the matching went: draws, matched, repaired instances, rejected
 // pairs, the camera's turn and move, and the cuts.
 void GlBackend::match_v2(std::uint32_t shown) {

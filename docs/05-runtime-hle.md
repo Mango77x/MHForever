@@ -333,7 +333,16 @@ one ubershader (texture functions, fog, alpha test, depth range) and fixed-funct
   game's logic runs once per flip at 30 fps, so a higher rate can only come from the renderer. `N` is rounded to a whole
   multiple k of 30, from 1 to 6 (30, 60, 90, 120, 150, 180). The backend keeps the batches of each flip (draw state +
   final vertices). At the next flip it draws that flip's batches again into a scratch target, starting from the previous
-  picture, at phase j/k for j = 1 .. k-1, and then shows the flip itself. 3D batches are placed again from the world
+  picture, at phase j/k for j = 1 .. k-1, and then shows the flip itself. 3D batches are made again by the second
+  design (`frontend/frame_matching.*`, after Yakumo's, MIT, see `THIRD_PARTY.md`): the GE hands the backend every 3D
+  triangle before clipping (`Backend::triangle_unclipped`) and the state of every draw (`DrawInfo`: vertex, index and
+  texture addresses, vertex type, count, matrices, viewport). Whole draws are matched between flips by that identity;
+  instances of one mesh (the terrain is one mesh drawn many times, in an order that changes as the camera moves) are
+  paired by where they are once the camera's motion is taken out; the camera's motion is the one most single objects
+  agree on, followed along its arc; draws without a partner follow the camera, and a camera that moved too much is a
+  cut. Each in-between picture moves each draw's triangles with its transforms blended to that moment and clips and
+  places them as the GE does, so the ground cannot tear; animated (skinned) models blend each point between its two
+  flips. 3D batches with sprites or lines, and every batch with `MHF_INTERP_V1=1`, use the first design: they are placed again from the world
   position of every vertex (the GE keeps it, `Vertex::world`) through a camera interpolated between the previous flip's
   view/projection and this one's; vertices that were drawn in the previous flip too (same guest address and same
   drawing command, so a repeated model is told apart) are first moved back toward where they were, so objects that move
