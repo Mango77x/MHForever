@@ -82,7 +82,7 @@ const Json *chosen_copy(const Json &data, const std::string &game_id, const Cata
 
 // The launcher's own settings: everything else is kept per copy of a game.
 bool is_launcher_setting(const std::string &key) {
-    return key == "copyImage" || key == "adhocServer" || key == "adhocRoom" || key == "checkUpdates";
+    return key == "copyImage" || key == "adhocServer" || key == "adhocRoom" || key == "checkUpdates" || key == "friendRelays";
 }
 
 // What a copy of a game uses: its own settings, over what the launcher.json "settings" hold (the values every copy started
@@ -141,6 +141,13 @@ Json default_settings() {
     s["pad"] = pad;
     s["adhocServer"] = ""; // PSP ad hoc server for online play ("host" or "host:port"); empty: offline
     s["adhocRoom"] = "";   // private room code (docs/14-rooms-and-friends.md section 3); empty: the public halls
+    // The public Nostr relays friends meet through (docs/14 section 4.3): each forwards the ephemeral events the friends
+    // list uses (checked 2026-10-30) and says in its NIP-11 document that it takes public notes.
+    Json relays(Json::Array{});
+    for (const char *url : {"wss://nos.lol", "wss://relay.primal.net", "wss://nostr.mom", "wss://offchain.pub", "wss://relay.nostr.net"}) {
+        relays.array().push_back(url);
+    }
+    s["friendRelays"] = relays;
     return s;
 }
 
@@ -462,7 +469,8 @@ void Launcher::load() {
     }
     if (!data_.is_object()) data_ = Json(Json::Object{});
     bool changed = false;
-    if (data_["identitySeed"].as_string().size() != 64) {
+    const std::string seed_hex = data_["identitySeed"].as_string();
+    if (seed_hex.size() != 64 || !std::all_of(seed_hex.begin(), seed_hex.end(), [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; })) {
         std::uint8_t seed[32];
         platform::random_bytes(seed, sizeof seed);
         data_["identitySeed"] = to_hex(seed, sizeof seed);
@@ -525,27 +533,17 @@ void Launcher::save() {
     fs::remove(backup, ec);
 }
 
-// Friend code: 80 bits of SHA-256(identity seed) in Crockford base32, XXXX-XXXX-XXXX-XXXX. Provisional until online
-// play derives it from the Ed25519 public key (docs/08-multiplayer.md §4.1).
-std::string Launcher::friend_code() const {
-    const std::string seed_hex = data_["identitySeed"].as_string();
-    Sha256 sha;
-    sha.update(seed_hex.data(), seed_hex.size());
-    const auto d = sha.finish();
-    static const char *alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-    std::string code;
-    std::uint64_t acc = 0;
-    int bits = 0;
-    std::size_t byte = 0;
-    while (code.size() < 16) {
-        if (bits < 5) {
-            acc = (acc << 8) | d[byte++];
-            bits += 8;
-        }
-        code.push_back(alphabet[(acc >> (bits - 5)) & 31]);
-        bits -= 5;
+// The secret key of the player's Nostr identity (docs/14-rooms-and-friends.md section 4.3), derived from the identity
+// seed so that the identity backup covers it. The UI makes the public key and the friend code from it.
+std::string Launcher::nostr_key() const {
+    std::uint8_t seed[32] = {};
+    const std::string hex = data_["identitySeed"].as_string(); // 64 hex digits (load() makes sure)
+    const auto digit = [](char c) { return c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10; };
+    for (std::size_t i = 0; i < sizeof seed && i * 2 + 1 < hex.size(); ++i) {
+        seed[i] = static_cast<std::uint8_t>(digit(hex[i * 2]) << 4 | digit(hex[i * 2 + 1]));
     }
-    return code.substr(0, 4) + "-" + code.substr(4, 4) + "-" + code.substr(8, 4) + "-" + code.substr(12, 4);
+    const auto key = hkdf_sha256(seed, sizeof seed, "mhf-nostr");
+    return to_hex(key.data(), key.size());
 }
 
 const CatalogEntry *Launcher::entry_for(const std::string &disc_id) const {
@@ -589,7 +587,9 @@ Json Launcher::state() {
     s["platform"] = "linux";
 #endif
     s["pseudonym"] = data_["pseudonym"];
-    s["friendCode"] = friend_code();
+    s["nostrKey"] = nostr_key();
+    s["friends"] = data_["friends"].is_array() ? data_["friends"] : Json(Json::Array{});
+    s["blocked"] = data_["blocked"].is_array() ? data_["blocked"] : Json(Json::Array{});
     const CatalogEntry *shown = nullptr;
     chosen_copy(data_, "mhfu", &shown);
     s["settings"] = settings_for(data_, shown != nullptr ? shown->disc_id : "");
@@ -731,6 +731,15 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
         const std::string text = partial["adhocRoom"].as_string(), code = room_code(text);
         if (text.empty() || !code.empty()) launcher_settings["adhocRoom"] = code;
     }
+    if (partial["friendRelays"].is_array()) { // wss:// addresses only, at most 8; a list with any other is ignored
+        const auto &list = partial["friendRelays"].as_array();
+        const bool valid = list.size() <= 8 && std::all_of(list.begin(), list.end(), [](const Json &r) {
+            const std::string url = r.as_string();
+            return url.size() > 6 && url.size() <= 200 && url.rfind("wss://", 0) == 0 &&
+                   std::all_of(url.begin(), url.end(), [](char c) { return c > 0x20 && c < 0x7F && c != '"' && c != '\\'; });
+        });
+        if (valid) launcher_settings["friendRelays"] = partial["friendRelays"];
+    }
     if (partial["keys"].is_object()) {
         Json &keys = s["keys"];
         for (const auto &[action, value] : partial["keys"].as_object()) {
@@ -751,6 +760,95 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
             pad[action] = value.as_string();
         }
     }
+    save();
+}
+
+namespace {
+
+bool public_key(const std::string &text) {
+    return text.size() == 64 && std::all_of(text.begin(), text.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
+}
+
+// Printable text, at most `bytes` long (UTF-8 bytes; cut at a character boundary).
+std::string printable(const std::string &text, std::size_t bytes) {
+    std::string out;
+    for (const char c : text) {
+        if (static_cast<unsigned char>(c) >= 0x20 && c != 0x7F) out.push_back(c);
+    }
+    if (out.size() > bytes) {
+        out.resize(bytes);
+        while (!out.empty() && (static_cast<unsigned char>(out.back()) & 0xC0) == 0x80) out.pop_back();
+        if (!out.empty() && static_cast<unsigned char>(out.back()) >= 0xC0) out.pop_back();
+    }
+    return out;
+}
+
+} // namespace
+
+void Launcher::write_game_friends(const Json &entries) {
+    std::string out;
+    std::size_t lines = 0;
+    for (const auto &e : entries.as_array()) {
+        if (lines >= 64) break; // the menu shows far fewer
+        const std::string kind = e["kind"].as_string(), key = e["key"].as_string(), state = e["state"].as_string();
+        const std::string server = e["server"].as_string(), room = e["room"].as_string();
+        if ((kind != "friend" && kind != "invite") || !public_key(key)) continue;
+        if (state != "offline" && state != "launcher" && state != "playing") continue;
+        if (!valid_server(server) || (!room.empty() && room_code(room) != room)) continue;
+        out += kind + "\t" + key + "\t" + state + "\t" + server + "\t" + room + "\t" + printable(e["name"].as_string(), 48) + "\n";
+        ++lines;
+    }
+    std::error_code ec;
+    const fs::path file = game_friends_file(), temp = file.string() + ".tmp";
+    {
+        std::ofstream f(temp, std::ios::binary | std::ios::trunc);
+        f << out;
+        if (!f) return;
+    }
+    fs::rename(temp, file, ec); // in one step: the game never reads half a file
+}
+
+std::vector<std::pair<std::string, std::string>> Launcher::take_friend_actions() {
+    std::vector<std::pair<std::string, std::string>> actions;
+    std::error_code ec;
+    const fs::path file = friend_actions_file(), taking = file.string() + ".taking";
+    if (!fs::exists(file, ec)) return actions;
+    fs::rename(file, taking, ec); // the game appends to a new file meanwhile; if it holds this one now, next time
+    if (ec) return actions;
+    std::ifstream in(taking, std::ios::binary);
+    for (std::string line; std::getline(in, line) && actions.size() < 32;) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const std::size_t space = line.find(' ');
+        if (space == std::string::npos) continue;
+        const std::string action = line.substr(0, space), key = line.substr(space + 1);
+        if ((action == "invite" || action == "dismiss") && public_key(key)) actions.emplace_back(action, key);
+    }
+    in.close();
+    fs::remove(taking, ec);
+    return actions;
+}
+
+void Launcher::set_friends(const Json &friends, const Json &blocked) {
+    constexpr std::size_t kMaxFriends = 200, kMaxBlocked = 500;
+    Json kept(Json::Array{}), kept_blocked(Json::Array{});
+    for (const auto &f : friends.as_array()) {
+        if (kept.array().size() >= kMaxFriends) break;
+        const std::string key = f["key"].as_string();
+        if (!public_key(key)) continue;
+        const bool twice = std::any_of(kept.array().begin(), kept.array().end(), [&](const Json &k) { return k["key"].as_string() == key; });
+        if (twice) continue;
+        Json friend_entry;
+        friend_entry["key"] = key;
+        friend_entry["name"] = printable(f["name"].as_string(), 48);
+        friend_entry["added"] = f["added"].is_number() ? f["added"] : Json(0.0);
+        kept.array().push_back(friend_entry);
+    }
+    for (const auto &b : blocked.as_array()) {
+        if (kept_blocked.array().size() < kMaxBlocked && public_key(b.as_string())) kept_blocked.array().push_back(b);
+    }
+    std::lock_guard lock(mutex_);
+    data_["friends"] = kept;
+    data_["blocked"] = kept_blocked;
     save();
 }
 
@@ -962,6 +1060,12 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
             plan.args.push_back("--adhoc-room");
             plan.args.push_back(room);
         }
+        // Friends in the game's Online tab (the launcher keeps the first file current while the game runs).
+        fs::remove(friend_actions_file(), ec);
+        plan.args.push_back("--friends-file");
+        plan.args.push_back(platform::to_utf8(game_friends_file()));
+        plan.args.push_back("--friend-actions-file");
+        plan.args.push_back(platform::to_utf8(friend_actions_file()));
     }
     fs::create_directories(stick, ec);
     return plan;
@@ -984,7 +1088,6 @@ Json Launcher::identity_backup() {
     b["version"] = 1;
     b["pseudonym"] = data_["pseudonym"];
     b["identitySeed"] = data_["identitySeed"];
-    b["friendCode"] = friend_code();
     b["warning"] = "Keep this file private: it is your identity. Anyone with it can pretend to be you.";
     return b;
 }

@@ -353,7 +353,8 @@ function Controls({ keys, pad, keyDefaults, padDefaults, onChange }: {
   );
 }
 
-export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onSavesFolder }: Pick<Props, 'state' | 'onChange' | 'onPseudonym' | 'onCopyCode'> & {
+export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendCode, onSavesFolder }: Pick<Props, 'state' | 'onChange' | 'onPseudonym' | 'onCopyCode'> & {
+  friendCode: string;
   onSavesFolder: (backToDefault: boolean) => void;
 }) {
   const s = state.settings;
@@ -389,7 +390,7 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, onSaves
         <div className="srow">
           <div className="slabel"><b>Friend code</b><span>Stored only on this computer. Back it up from the profile menu.</span></div>
           <div className="code-box" style={{ minWidth: 300 }}>
-            <span className="code">{state.friendCode}</span>
+            <span className="code">{friendCode}</span>
             <button className="copy" onClick={onCopyCode} aria-label="Copy friend code"><CopyIcon /> Copy</button>
           </div>
         </div>

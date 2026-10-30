@@ -38,6 +38,9 @@ public:
     // Where the bindings changed in the in-game menu are written ("keymap=...\npadmap=...\n"), for the launcher to keep.
     // Empty (the default): changes last for the session.
     void set_controls_file(const std::string &path);
+    // Friends in the Online tab (docs/14-rooms-and-friends.md section 4.3): the launcher keeps `friends` current while the
+    // game runs; what the player does with them (invite, dismiss an invite) goes to `actions`.
+    void set_friends_files(const std::string &friends, const std::string &actions);
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
     void attach(Runtime &rt, std::function<void()> extra = {});

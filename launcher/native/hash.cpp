@@ -130,6 +130,39 @@ std::array<std::uint8_t, 32> Sha256::finish() {
     return out;
 }
 
+std::array<std::uint8_t, 32> hmac_sha256(const void *key, std::size_t key_size, const void *data, std::size_t size) {
+    std::uint8_t block[64] = {};
+    if (key_size > sizeof block) {
+        Sha256 k;
+        k.update(key, key_size);
+        const auto digest = k.finish();
+        std::copy(digest.begin(), digest.end(), block);
+    } else if (key_size > 0) {
+        std::memcpy(block, key, key_size);
+    }
+    std::uint8_t inner_pad[64], outer_pad[64];
+    for (std::size_t i = 0; i < sizeof block; ++i) {
+        inner_pad[i] = static_cast<std::uint8_t>(block[i] ^ 0x36);
+        outer_pad[i] = static_cast<std::uint8_t>(block[i] ^ 0x5c);
+    }
+    Sha256 inner;
+    inner.update(inner_pad, sizeof inner_pad);
+    inner.update(data, size);
+    const auto inner_digest = inner.finish();
+    Sha256 outer;
+    outer.update(outer_pad, sizeof outer_pad);
+    outer.update(inner_digest.data(), inner_digest.size());
+    return outer.finish();
+}
+
+std::array<std::uint8_t, 32> hkdf_sha256(const void *secret, std::size_t size, const std::string &info) {
+    const std::uint8_t zeros[32] = {};
+    const auto prk = hmac_sha256(zeros, sizeof zeros, secret, size); // extract, with the RFC's default salt
+    std::string expand = info;
+    expand.push_back('\x01');
+    return hmac_sha256(prk.data(), prk.size(), expand.data(), expand.size()); // the first block is all 32 bytes
+}
+
 std::string to_hex(const std::uint8_t *data, std::size_t size) {
     static const char *digits = "0123456789abcdef";
     std::string out;

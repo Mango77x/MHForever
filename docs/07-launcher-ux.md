@@ -193,6 +193,11 @@ mode, where no second window can be shown.
   name while the menu waits for one (`SdlHost::set_capture`). The game writes every change to the file the launcher gave it
   (`--controls-file`, `game_controls.txt` in the data folder) and the launcher folds it into `launcher.json` when it starts,
   before a launch and when the game ends, so a change made while playing is kept.
+- **Friends** (the drawer from the top bar; `14-rooms-and-friends.md` section 4.3): the friend code, "Let friends add
+  me" (ten minutes), "Add by code", requests (Accept, Decline, Block), invites (Join, Not now) and the list: who is
+  online and where ("Playing · private room on Socom"), with Join, Invite and Remove. The top bar's button counts
+  waiting requests and invites, else friends online. While the game runs, the same friends and invites are in its
+  Escape menu (Online, Friends), with Join, Invite and Not now.
 - Online play (experimental, off by default): **Settings → Online** picks the PSP ad hoc server: Offline, one of a short
   built-in list of community servers from PPSSPP's published list (`launcher/ui/src/servers.ts`), or another one typed as
   "host" or "host:port" (`settings.adhocServer`, checked on write). When it is not empty the launcher passes

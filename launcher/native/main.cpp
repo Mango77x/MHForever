@@ -245,6 +245,17 @@ void on_probe_server(const char *id, const Json &args) {
     }).detach();
 }
 
+void on_set_friends(const char *id, const Json &args) {
+    const auto &a = args.as_array();
+    if (a.size() >= 2) g_app.launcher->set_friends(a[0], a[1]);
+    reply(id, g_app.launcher->state());
+}
+
+void on_set_game_friends(const char *id, const Json &args) {
+    if (!args.as_array().empty()) g_app.launcher->write_game_friends(args.as_array()[0]);
+    reply(id, Json(true));
+}
+
 void on_export_identity(const char *id, const Json &) {
     Json r;
     r["saved"] = false;
@@ -400,12 +411,30 @@ void on_play(const char *id, const Json &args) {
         if (!process) return fail(error);
         phase("starting");
         const auto started = std::chrono::steady_clock::now();
+        auto looked = started;
         bool running = false;
         int code = 0;
         while (true) {
             if (auto exited = process->poll()) {
                 code = *exited;
                 break;
+            }
+            // What the player changes in the game's menu (the room, the server) reaches the UI while they play: friends
+            // see where they are.
+            if (std::chrono::steady_clock::now() - looked > std::chrono::seconds(2)) {
+                looked = std::chrono::steady_clock::now();
+                std::error_code ec;
+                if (fs::exists(g_app.launcher->controls_file(), ec)) {
+                    g_app.launcher->import_game_controls();
+                    g_app.emit_state();
+                }
+                for (const auto &[action, key] : g_app.launcher->take_friend_actions()) { // Invite, Not now in the game's menu
+                    Json e;
+                    e["type"] = "gameFriend";
+                    e["action"] = action;
+                    e["key"] = key;
+                    g_app.emit(e);
+                }
             }
             if (!running && std::chrono::steady_clock::now() - started > std::chrono::milliseconds(1500)) {
                 running = true;
@@ -570,6 +599,8 @@ int main(int argc, char **argv) {
     bind("mhf_play", on_play);
     bind("mhf_copyText", on_copy_text);
     bind("mhf_exportIdentity", on_export_identity);
+    bind("mhf_setFriends", on_set_friends);
+    bind("mhf_setGameFriends", on_set_game_friends);
     bind("mhf_probeServer", on_probe_server);
 
     update::remove_old(platform::executable_dir()); // what the last update replaced, now that it is not running

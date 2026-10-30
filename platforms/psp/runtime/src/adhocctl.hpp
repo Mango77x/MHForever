@@ -141,13 +141,15 @@ public:
     // change at any time: a group already joined stays as it is until the game leaves it.
     void set_room(std::string_view code) { room_ = normalize_room_code(code); }
     [[nodiscard]] const std::string &room() const noexcept { return room_; }
+    // The room of the group joined last ("" the public halls): the one the game is in while state() is Connected.
+    [[nodiscard]] const std::string &joined_room() const noexcept { return joined_room_; }
     // The first six bytes of the game's hall names, so that a scan in a private room can report the halls under the
     // names the game knows. A prefix the game joins with is learnt too.
     void add_hall_prefix(const HallPrefix &prefix);
 
 private:
     AdhocLink *link_;
-    std::string room_;
+    std::string room_, joined_room_;
     std::vector<HallPrefix> prefixes_;
     bool initialized_ = false;
     State state_ = State::Disconnected;

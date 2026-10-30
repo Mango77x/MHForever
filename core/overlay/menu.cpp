@@ -13,10 +13,12 @@ namespace mhf::overlay {
 
 bool Menu::selectable(const MenuItem &item) {
     if (!item.enabled || item.kind == MenuItem::Kind::Info || item.kind == MenuItem::Kind::Heading) return false;
-    return item.kind != MenuItem::Kind::Banner || !item.actions.empty();
+    return (item.kind != MenuItem::Kind::Banner && item.kind != MenuItem::Kind::Person) || !item.actions.empty();
 }
 
-int Menu::first_action(const MenuItem &item) { return item.kind == MenuItem::Kind::Banner && !item.actions.empty() ? 0 : -1; }
+int Menu::first_action(const MenuItem &item) {
+    return (item.kind == MenuItem::Kind::Banner || item.kind == MenuItem::Kind::Person) && !item.actions.empty() ? 0 : -1;
+}
 
 std::vector<MenuItem> &Menu::items() { return view_.tabs[static_cast<std::size_t>(view_.tab)].items; }
 
@@ -41,12 +43,14 @@ void Menu::set(MenuView view) {
             had_row = true;
         }
     }
-    const bool focus = view_.tabs_focused, pointer = view_.pointer;
+    const bool focus = view_.tabs_focused, pointer = view_.pointer, follow = view_.follow;
     const int key = keypad_row() >= 0 ? view_.key : 0;
+    const float scroll = view_.scroll;
     view_ = std::move(view);
     view_.version = ++version_;
     view_.pointer = pointer;
     view_.key = key;
+    view_.follow = follow;
     view_.action = -1;
     if (view_.tabs.empty()) {
         view_.tab = 0;
@@ -58,6 +62,7 @@ void Menu::set(MenuView view) {
     for (std::size_t i = 0; i < view_.tabs.size(); ++i) {
         if (!keep_tab.empty() && view_.tabs[i].name == keep_tab) tab = static_cast<int>(i);
     }
+    if (!keep_tab.empty() && view_.tabs[static_cast<std::size_t>(tab)].name == keep_tab) view_.scroll = scroll; // the same section
     view_.tab = tab;
     view_.tabs_focused = focus && view_.tabs.size() > 1;
     int found = -1;
@@ -79,8 +84,9 @@ void Menu::set(MenuView view) {
 }
 
 void Menu::set_pointer(bool on) {
-    if (view_.pointer == on) return;
+    if (view_.pointer == on && view_.follow == !on) return;
     view_.pointer = on;
+    view_.follow = !on; // keys bring the selection into view; the mouse leaves the rows where the wheel put them
     view_.version = ++version_;
 }
 
@@ -231,8 +237,9 @@ Menu::Event Menu::press(Key key) {
         return {};
     }
     case MenuItem::Kind::Banner:
+    case MenuItem::Kind::Person:
     case MenuItem::Kind::Text: {
-        const int lowest = item.kind == MenuItem::Kind::Banner ? 0 : -1; // a field is focused before its actions
+        const int lowest = item.kind == MenuItem::Kind::Text ? -1 : 0; // a field is focused before its actions
         if (key == Key::Accept) return activated(view_.action);
         if (key == Key::Left) {
             if (view_.action <= lowest) {
@@ -281,6 +288,7 @@ MenuLayout::Hit MenuLayout::hit(float x, float y) const {
             return h;
         }
     }
+    if (!content.contains(x, y)) return h; // above or below the rows: the header, the hints
     for (std::size_t i = 0; i < rows.size(); ++i) {
         if (!rows[i].contains(x, y)) continue;
         h.index = static_cast<int>(i);
@@ -389,7 +397,7 @@ Menu::Event Menu::drag_slider(int row, float along) {
     return set_value(item, std::clamp(snapped, item.min, item.max));
 }
 
-Menu::Event Menu::scroll(int direction, int row) {
+Menu::Event Menu::scroll(int direction, int row, const MenuLayout &layout) {
     if (view_.tabs.empty() || direction == 0) return {};
     if (row >= 0 && row < static_cast<int>(items().size())) {
         MenuItem &item = items()[static_cast<std::size_t>(row)];
@@ -397,7 +405,13 @@ Menu::Event Menu::scroll(int direction, int row) {
             return set_value(item, std::clamp(item.value + direction * std::max(item.step, 1), item.min, item.max));
         }
     }
-    if (!items().empty()) move(-direction); // the wheel up selects the row above, and the list follows
+    constexpr float kWheelStep = 28.0f; // about a row a notch
+    const float to = std::clamp(layout.scroll - static_cast<float>(direction) * kWheelStep, 0.0f, layout.max_scroll);
+    if (to != view_.scroll || view_.follow) {
+        view_.scroll = to;
+        view_.follow = false;
+        view_.version = ++version_;
+    }
     return {};
 }
 
@@ -445,12 +459,13 @@ struct MenuRenderer::Impl : Painter {
     float row_height(const MenuItem &item, float w) const {
         const bool detail = !item.detail.empty();
         switch (item.kind) {
-        case MenuItem::Kind::Heading: return 12.0f;
+        case MenuItem::Kind::Heading: return item.label.empty() ? 9.0f : 19.0f; // a line, then the title
         case MenuItem::Kind::Info: return static_cast<float>(std::max<std::size_t>(1, wrap(item.label, 5.2f, w - 22.0f).size())) * 7.2f + 8.0f;
         case MenuItem::Kind::Choice:
             if (!item.option_details.empty()) return item.label.empty() ? 30.0f : 40.0f;
             return 31.0f;
         case MenuItem::Kind::Banner: return 30.0f;
+        case MenuItem::Kind::Person: return 24.0f;
         case MenuItem::Kind::Text: return 28.0f;
         default: return detail ? 26.0f : 20.0f;
         }
@@ -492,16 +507,24 @@ struct MenuRenderer::Impl : Painter {
         std::vector<float> offsets(rows.size() + 1, 0.0f);
         for (std::size_t i = 0; i < rows.size(); ++i) offsets[i + 1] = offsets[i] + row_height(rows[i], c.w) + kRowGap;
         p.total = offsets.back();
-        if (v.selected >= 0 && v.selected < static_cast<int>(rows.size()) && p.total > c.h) {
+        const float max_scroll = std::max(0.0f, p.total - kRowGap - c.h);
+        p.scroll = v.scroll;
+        if (v.follow && v.selected >= 0 && v.selected < static_cast<int>(rows.size())) { // keys: the selection stays in view
             const auto s = static_cast<std::size_t>(v.selected);
-            if (offsets[s + 1] - kRowGap > c.h) p.scroll = offsets[s + 1] - kRowGap - c.h;
-            if (s > 0 && rows[s - 1].kind == MenuItem::Kind::Heading && offsets[s - 1] < p.scroll) p.scroll = offsets[s - 1];
+            const float top = s > 0 && rows[s - 1].kind == MenuItem::Kind::Heading ? offsets[s - 1] : offsets[s];
+            const float bottom = offsets[s + 1] - kRowGap;
+            if (bottom > p.scroll + c.h) p.scroll = bottom - c.h;
+            if (top < p.scroll) p.scroll = top;
         }
+        p.scroll = std::clamp(p.scroll, 0.0f, max_scroll);
+        p.layout.content = c;
+        p.layout.scroll = p.scroll;
+        p.layout.max_scroll = max_scroll;
         for (std::size_t i = 0; i < rows.size(); ++i) {
             const MenuItem &item = rows[i];
             const float h = row_height(item, c.w);
             const float y = c.y + offsets[i] - p.scroll;
-            const bool visible = y >= c.y - 0.5f && y + h <= c.y + c.h + 0.5f;
+            const bool visible = y + h > c.y && y < c.y + c.h; // drawn, clipped to the content, even when partly out
             p.row_y.push_back(y);
             p.shown.push_back(visible);
             const bool pickable = visible && Menu::selectable(item);
@@ -531,6 +554,7 @@ struct MenuRenderer::Impl : Painter {
                     }
                     break;
                 case MenuItem::Kind::Banner: actions = buttons(item.actions, c.x + c.w - 8.0f, y + 7.0f, 16.0f); break;
+                case MenuItem::Kind::Person: actions = buttons(item.actions, c.x + c.w - 6.0f, y + 4.0f, 16.0f); break;
                 case MenuItem::Kind::Text: actions = buttons(item.actions, c.x + c.w, y + 9.0f, 17.0f); break;
                 default: break;
                 }
@@ -609,8 +633,9 @@ struct MenuRenderer::Impl : Painter {
         const bool hover = selected && v.pointer;  // the pointer is over it
         const MenuLayout::Rect card{x, y, w, h};
         switch (item.kind) {
-        case MenuItem::Kind::Heading:
-            text(x + 2.0f, y + 9.0f, upper(item.label), kSmall, kAccent, 0.95f, true, 0.6f);
+        case MenuItem::Kind::Heading: // a hairline between parts (not above the first row), then the title if any
+            if (i > 0) rect(x, y + 3.5f, w, 0.5f, kWhite, 0.14f);
+            if (!item.label.empty()) text(x + 2.0f, y + 15.5f, upper(item.label), kSmall, kAccent, 0.95f, true, 0.6f);
             return;
         case MenuItem::Kind::Info: {
             rrect(x, y, w, h, kCard, kWhite, 0.04f);
@@ -620,6 +645,26 @@ struct MenuRenderer::Impl : Painter {
                 text(x + 15.0f, base, line, 5.2f, kSoft, 0.95f);
                 base += 7.2f;
             }
+            return;
+        }
+        case MenuItem::Kind::Person: { // a friend: the initial, a dot when online, the name, where they are, the buttons
+            const auto &acts = p.layout.actions[i];
+            const float right = acts.empty() ? x + w - 8.0f : acts.front().x - 5.0f;
+            const bool online = item.value != 0;
+            rrect(x, y, w, h, kCard, kWhite, hover ? 0.075f : 0.04f);
+            if (focus && v.action < 0) ring(card, kCard);
+            const MenuLayout::Rect avatar{x + 6.0f, y + 4.0f, 16.0f, 16.0f};
+            rrect(avatar.x, avatar.y, avatar.w, avatar.h, 4.5f, kAccent, online ? 0.9f : 0.3f);
+            const std::string initial = item.label.empty() ? std::string("?") : upper(item.label.substr(0, 1));
+            centered(avatar, initial, 7.0f, kInk, 1.0f, true);
+            if (online) {
+                rrect(avatar.x + avatar.w - 4.0f, avatar.y + avatar.h - 4.0f, 5.5f, 5.5f, 2.75f, kPanel, 1.0f);
+                rrect(avatar.x + avatar.w - 3.0f, avatar.y + avatar.h - 3.0f, 3.5f, 3.5f, 1.75f, kGreen, 1.0f);
+            }
+            const float tx = avatar.x + avatar.w + 6.0f, tw = right - tx;
+            text(tx, y + 10.0f, fit(item.label, kLabel, tw), kLabel, kText, alpha, true);
+            text(tx, y + 18.5f, fit(item.detail, kDetail, tw), kDetail, online ? kGreen : kDim, 0.95f);
+            action_buttons(acts, item, focus ? v.action : -1, alpha);
             return;
         }
         case MenuItem::Kind::Banner: {
@@ -781,10 +826,12 @@ struct MenuRenderer::Impl : Painter {
             if (!tab.subtitle.empty()) text(main.x + 14.0f, main.y + 27.5f, fit(tab.subtitle, 5.2f, main.w - 46.0f), 5.2f, kDim, 1.0f);
         }
         const auto &rows = v.items();
+        clip(p.panels.content.y - 2.0f, p.panels.content.y + p.panels.content.h + 2.0f); // room for the focus ring
         for (std::size_t i = 0; i < rows.size(); ++i) {
             if (!p.shown[i]) continue;
             row(p, i, rows[i], static_cast<int>(i) == v.selected, v);
         }
+        unclip();
         if (p.layout.keypad_row >= 0) keypad(p, rows[static_cast<std::size_t>(p.layout.keypad_row)], v);
         const auto &c = p.panels.content;
         if (p.total > c.h + 0.5f) { // more rows than room: a thin scroll bar

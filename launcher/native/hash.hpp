@@ -39,4 +39,8 @@ private:
 
 std::string to_hex(const std::uint8_t *data, std::size_t size);
 
+std::array<std::uint8_t, 32> hmac_sha256(const void *key, std::size_t key_size, const void *data, std::size_t size);
+// HKDF-SHA256 (RFC 5869) with an empty salt, for 32 bytes: a key of its own for each `info` from one secret.
+std::array<std::uint8_t, 32> hkdf_sha256(const void *secret, std::size_t size, const std::string &info);
+
 } // namespace mhf::launcher

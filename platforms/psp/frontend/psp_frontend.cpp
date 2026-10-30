@@ -22,6 +22,8 @@
 #include <condition_variable>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <set>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -69,10 +71,30 @@ struct Frontend::Impl {
     host::PadBindings pad;
     int capture_id{};       // the Controls row waiting for a key or a button, 0 when none
     std::filesystem::path controls_file; // where a change is written for the launcher (empty: not at all)
+    // Friends in the Online tab, as the launcher writes them (friends_file) and what the player does with them
+    // (friend_actions_file); empty: no friends shown.
+    struct Friend {
+        bool invite{};       // an invite from this friend, else the friend and where they are
+        std::string key, name, state, server, room;
+    };
+    std::filesystem::path friends_file, friend_actions_file;
+    std::vector<Friend> friends;
+    bool friends_expanded{}; // the Online tab shows every friend online, not five
+    // The hall the game is in (Runtime::adhoc_hall), looked at once a second while the menu is open, and the player's name.
+    Runtime::AdhocHall hall;
+    std::string nickname;
+    std::chrono::steady_clock::time_point hall_looked{};
+    std::filesystem::file_time_type friends_time{};
+    std::chrono::steady_clock::time_point friends_looked{};
     // The Online tab (docs/14-rooms-and-friends.md section 3.4): the private room, read from the runtime when the menu
     // opens. `last_room` brings a code back when the player returns to private halls.
     bool online{}, room_known{};
     std::string room, last_room, room_note, server;
+    // Whose room is whose, as far as this session knows: the codes the player made are theirs on any server (nobody
+    // else has them); a friend's room is theirs only on the server it was joined on (room_key), as elsewhere the same
+    // code is another room, without them.
+    std::set<std::string> own_rooms;
+    std::map<std::string, std::string> friend_rooms;
     // Joining a friend's room: the code as typed (keyboard) or picked (the code keyboard, for controllers).
     std::string code_typed;
     bool code_typing{}, code_keyboard{}; // the keyboard types into the code field; the on-screen one is up (controller)
@@ -196,6 +218,11 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
 }
 
 void Frontend::set_controls_file(const std::string &path) { impl_->controls_file = std::filesystem::path(path); }
+
+void Frontend::set_friends_files(const std::string &friends, const std::string &actions) {
+    impl_->friends_file = std::filesystem::path(friends);
+    impl_->friend_actions_file = std::filesystem::path(actions);
+}
 
 template <typename KeyBindings, typename PadBindings>
 void Frontend::set_bindings(const KeyBindings &keys, const PadBindings &pad) {
@@ -321,8 +348,9 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore
 };
+constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
 
 // The ad hoc servers the Online section offers: the launcher's list (launcher/ui/src/servers.ts, keep the two alike).
 struct AdhocServerChoice {
@@ -335,6 +363,65 @@ constexpr AdhocServerChoice kServers[] = {
     {"psi-hate.com", "Psi-Hate", "United States"},
     {"cat.wjg.jp", "Neko PSP", "Japan"},
 };
+
+// A private room is a code on a server: the same code elsewhere is another room.
+std::string room_key(const std::string &server, const std::string &room) { return server + " " + room; }
+
+// Whose the current room is: "" the player's own, else the friend's name; nothing when the game does not know.
+std::optional<std::string> room_owner(const Frontend::Impl &impl) {
+    if (impl.own_rooms.contains(impl.room)) return std::string();
+    const auto f = impl.friend_rooms.find(room_key(impl.server, impl.room));
+    if (f != impl.friend_rooms.end()) return f->second;
+    return std::nullopt;
+}
+
+// A server's name in the list, else its address.
+std::string server_name(const std::string &host) {
+    for (const AdhocServerChoice &s : kServers) {
+        if (s.host == host) return std::string(s.name);
+    }
+    return host;
+}
+
+// The friends the launcher wrote: "friend|invite <tab> key <tab> state <tab> server <tab> room <tab> name" per line.
+// Anything that does not read as one is skipped.
+std::vector<Frontend::Impl::Friend> read_friends(const std::filesystem::path &file) {
+    std::vector<Frontend::Impl::Friend> out;
+    std::ifstream in(file, std::ios::binary);
+    for (std::string line; std::getline(in, line) && out.size() < 64;) {
+        std::vector<std::string> field;
+        std::size_t start = 0;
+        for (int n = 0; n < 5; ++n) {
+            const std::size_t tab = line.find('\t', start);
+            if (tab == std::string::npos) break;
+            field.push_back(line.substr(start, tab - start));
+            start = tab + 1;
+        }
+        if (field.size() != 5) continue;
+        Frontend::Impl::Friend f;
+        f.invite = field[0] == "invite";
+        f.key = field[1];
+        f.state = field[2];
+        f.server = field[3];
+        f.room = field[4];
+        f.name = line.substr(start, 48);
+        const bool key_ok = f.key.size() == 64 && std::all_of(f.key.begin(), f.key.end(), [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; });
+        const bool server_ok = f.server.size() <= 253 && std::all_of(f.server.begin(), f.server.end(), [](char c) {
+            return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '.' || c == '-' || c == '_' || c == ':';
+        });
+        const bool room_ok = f.room.empty() || adhoc_room_code(f.room) == f.room;
+        const bool state_ok = f.state == "offline" || f.state == "launcher" || f.state == "playing";
+        if ((field[0] == "friend" || f.invite) && key_ok && server_ok && room_ok && state_ok) out.push_back(std::move(f));
+    }
+    return out;
+}
+
+// Tells the launcher what the player did with a friend ("invite" or "dismiss").
+void friend_action(const std::filesystem::path &file, const char *action, const std::string &key) {
+    if (file.empty()) return;
+    std::ofstream out(file, std::ios::binary | std::ios::app);
+    out << action << ' ' << key << '\n';
+}
 
 // The Controls tab: one Binding row per key action (ids from kKeyBase, in the order of host::kKeyActions) and per pad button
 // (from kPadBase, in the order of host::kPadActions).
@@ -382,24 +469,111 @@ overlay::MenuTab menu_online(const Frontend::Impl &impl) {
     halls.options = {"Public halls", "Private room"};
     halls.option_details = {"Everyone on the server, PPSSPP and PSP players too.", "Only friends with your room code, on MHForever."};
     tab.items.push_back(halls);
+
+    // Friends: invites first, then who is online; five at most unless the player asks for all.
+    if (!impl.friends_file.empty()) {
+        tab.items.push_back(menu_item(Kind::Heading, 0, "Friends"));
+        std::vector<overlay::MenuItem> rows;
+        int offline = 0;
+        for (std::size_t i = 0; i < impl.friends.size(); ++i) {
+            const Frontend::Impl::Friend &f = impl.friends[i];
+            if (!f.invite && f.state == "offline") {
+                ++offline;
+                continue;
+            }
+            const std::string place = f.server.empty() ? "offline, on their own"
+                                                       : (f.room.empty() ? "public halls on " : "private room " + format_adhoc_room_code(f.room) + " on ") +
+                                                             server_name(f.server);
+            overlay::MenuItem row = menu_item(Kind::Person, kFriendBase + static_cast<int>(i), f.name.empty() ? "Friend" : f.name, 1);
+            if (f.invite) {
+                row.detail = "Invites you: " + place;
+                row.actions = {"Join", "Not now"};
+                row.primary_action = 0;
+            } else {
+                const bool here = f.server == impl.server && f.room == impl.room;
+                row.detail = f.state == "launcher" ? "In the launcher" : here ? "Playing, with you: " + place : "Playing, " + place;
+                if (f.state == "playing" && !f.server.empty() && !here) row.actions.push_back("Join");
+                if (!impl.server.empty() && !here) row.actions.push_back("Invite");
+            }
+            rows.push_back(std::move(row));
+        }
+        constexpr std::size_t kShown = 5;
+        for (std::size_t i = 0; i < rows.size() && (impl.friends_expanded || i < kShown); ++i) tab.items.push_back(rows[i]);
+        if (rows.size() > kShown) {
+            overlay::MenuItem more = menu_item(Kind::Button, kFriendsMore, impl.friends_expanded ? "Show fewer friends" : "Show all friends online (" + std::to_string(rows.size()) + ")");
+            tab.items.push_back(more);
+        }
+        if (impl.friends.empty()) {
+            tab.items.push_back(menu_item(Kind::Info, 0, "Add friends in the launcher (Friends): here you see where they play, join them and invite them."));
+        } else if (offline > 0) {
+            tab.items.push_back(menu_item(Kind::Info, 0, std::to_string(offline) + (offline == 1 ? " friend is" : " friends are") + " offline."));
+        }
+    }
+
+    // The private room: its code, who is in it, where the player stands, and joining another one by code.
     if (private_room) {
-        overlay::MenuItem code = menu_item(Kind::Banner, kRoomCode, "Your room code");
+        tab.items.push_back(menu_item(Kind::Heading, 0, "")); // a line between the parts
+        const std::optional<std::string> owner = room_owner(impl);
+        const std::string title = !owner ? "Private room" : owner->empty() ? "Your room" : *owner + "'s room";
+        overlay::MenuItem code = menu_item(Kind::Banner, kRoomCode, title);
         code.text = format_adhoc_room_code(impl.room);
-        code.actions = {"Copy", "New code"};
+        // Someone else's room: Leave makes a room of the player's own. Their own: New code does the same.
+        const bool mine = owner && owner->empty();
+        code.actions = {"Copy", mine ? "New code" : "Leave"};
         code.primary_action = 0;
         tab.items.push_back(code);
+        const bool in_room = impl.hall.in && impl.hall.room == impl.room;
+        overlay::MenuItem you = menu_item(Kind::Person, 0, impl.nickname, 1);
+        you.detail = in_room ? "You, in the Gathering Hall" : "You";
+        tab.items.push_back(you);
+        std::vector<std::string> listed{impl.nickname};
+        if (in_room) {
+            for (const std::string &name : impl.hall.players) {
+                overlay::MenuItem player = menu_item(Kind::Person, 0, name.empty() ? "Hunter" : name, 1);
+                player.detail = "In your hall";
+                tab.items.push_back(player);
+                listed.push_back(name);
+            }
+        }
+        for (const Frontend::Impl::Friend &f : impl.friends) { // friends in the room, in another hall or in the village
+            if (f.invite || f.state != "playing" || f.server != impl.server || f.room != impl.room) continue;
+            if (std::find(listed.begin(), listed.end(), f.name) != listed.end()) continue;
+            overlay::MenuItem player = menu_item(Kind::Person, 0, f.name.empty() ? "Friend" : f.name, 1);
+            player.detail = "In this room, not in your hall";
+            tab.items.push_back(player);
+            listed.push_back(f.name);
+        }
+        std::string status;
+        if (in_room) {
+            const std::size_t others = impl.hall.players.size();
+            status = others == 0 ? "In the Gathering Hall, alone so far. Friends join with the code " + format_adhoc_room_code(impl.room) + "."
+                                 : "In the Gathering Hall with " + std::to_string(others) + (others == 1 ? " other player." : " other players.");
+        } else if (impl.hall.in) {
+            status = "You are still in a public hall: you enter room " + format_adhoc_room_code(impl.room) + " once you leave it and enter again.";
+        } else {
+            status = "In the village. Enter the Gathering Hall to meet the players of this room.";
+        }
+        tab.items.push_back(menu_item(Kind::Info, 0, status));
+        // The note change_room() leaves ("... you see the halls of room X") says what the status above says already.
+        if (!impl.room_note.empty() && impl.room_note.find("halls of room") == std::string::npos) {
+            tab.items.push_back(menu_item(Kind::Info, 0, impl.room_note));
+        }
+        overlay::MenuItem join = menu_item(Kind::Text, kJoinRoom, "Join another room", impl.code_typing || impl.code_keyboard ? 1 : 0);
+        join.text = impl.code_typed;
+        join.placeholder = impl.menu_pad_used ? "Press A to enter a room code" : "Type or paste a code, like K7QF-29XM";
+        if (impl.code_keyboard) {
+            for (const char c : kCodeAlphabet) join.keys.emplace_back(1, c);
+            join.keys.emplace_back("Delete");
+            join.keys.emplace_back("Join");
+        }
+        join.actions = {"Paste", "Join"};
+        join.primary_action = adhoc_room_code(impl.code_typed).empty() ? -1 : 1;
+        tab.items.push_back(join);
+    } else if (!impl.room_note.empty()) {
+        tab.items.push_back(menu_item(Kind::Info, 0, impl.room_note));
     }
-    overlay::MenuItem join = menu_item(Kind::Text, kJoinRoom, "Join a friend's room", impl.code_typing || impl.code_keyboard ? 1 : 0);
-    join.text = impl.code_typed;
-    join.placeholder = impl.menu_pad_used ? "Press A to enter your friend's code" : "Type or paste a code, like K7QF-29XM";
-    if (impl.code_keyboard) {
-        for (const char c : kCodeAlphabet) join.keys.emplace_back(1, c);
-        join.keys.emplace_back("Delete");
-        join.keys.emplace_back("Join");
-    }
-    join.actions = {"Paste", "Join"};
-    join.primary_action = adhoc_room_code(impl.code_typed).empty() ? -1 : 1;
-    tab.items.push_back(join);
+
+    tab.items.push_back(menu_item(Kind::Heading, 0, ""));
     overlay::MenuItem server = menu_item(Kind::Choice, kServer, "Server", -1);
     for (std::size_t i = 0; i < std::size(kServers); ++i) {
         server.options.emplace_back(kServers[i].name);
@@ -413,7 +587,6 @@ overlay::MenuTab menu_online(const Frontend::Impl &impl) {
         server.options.push_back(impl.server);
     }
     tab.items.push_back(server);
-    if (!impl.room_note.empty()) tab.items.push_back(menu_item(Kind::Info, 0, impl.room_note));
     return tab;
 }
 
@@ -522,6 +695,66 @@ void change_room(Frontend::Impl &impl, Runtime &rt, const std::string &room) {
     impl.room_note = rt.adhoc_in_hall() ? "You are in a hall now: you see " + where + " once you leave it and enter again."
                                         : "Next time you enter the Gathering Hall you see " + where + ".";
     apply_bindings(impl);
+    refresh_menu(impl);
+}
+
+// Reads the launcher's friends file again when it changed (at most once a second). True when the list changed.
+bool look_at_friends(Frontend::Impl &impl) {
+    if (impl.friends_file.empty()) return false;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - impl.friends_looked < std::chrono::seconds(1)) return false;
+    impl.friends_looked = now;
+    std::error_code ec;
+    const auto time = std::filesystem::last_write_time(impl.friends_file, ec);
+    if (ec || time == impl.friends_time) return false;
+    impl.friends_time = time;
+    impl.friends = read_friends(impl.friends_file);
+    return true;
+}
+
+// Looks at the hall the game is in (at most once a second). True when who is there changed.
+bool look_at_hall(Frontend::Impl &impl, Runtime &rt) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now - impl.hall_looked < std::chrono::seconds(1)) return false;
+    impl.hall_looked = now;
+    Runtime::AdhocHall hall = rt.adhoc_hall();
+    if (hall.in == impl.hall.in && hall.room == impl.hall.room && hall.players == impl.hall.players) return false;
+    impl.hall = std::move(hall);
+    return true;
+}
+
+// Gives the game another ad hoc server and says when it applies.
+void change_server(Frontend::Impl &impl, Runtime &rt, const std::string &host) {
+    impl.server = host;
+    rt.set_adhoc_server(host);
+    const std::string name = server_name(host);
+    impl.room_note = rt.adhoc_server_pending() ? "You are in a hall or a quest now: you move to " + name + " once you leave it."
+                                               : "Next time you enter the Gathering Hall you meet the players on " + name + ".";
+    apply_bindings(impl);
+}
+
+// A friend's row in the Online tab: Join their room (or their invite), Invite them to the player's, or put an invite away.
+void friend_pressed(Frontend::Impl &impl, Runtime &rt, std::size_t index, const std::string &action) {
+    if (index >= impl.friends.size()) return;
+    const Frontend::Impl::Friend f = impl.friends[index];
+    const std::string name = f.name.empty() ? "your friend" : f.name;
+    if (action == "Join") {
+        if (f.invite) friend_action(impl.friend_actions_file, "dismiss", f.key);
+        if (f.server != impl.server) change_server(impl, rt, f.server);
+        const std::string server_note = impl.room_note;
+        const std::string room = room_key(f.server, f.room);
+        if (!f.room.empty() && !impl.friend_rooms.contains(room)) impl.friend_rooms[room] = f.name.empty() ? "Your friend" : f.name;
+        change_room(impl, rt, f.room);
+        if (rt.adhoc_server_pending()) impl.room_note = server_note;
+        impl.room_note = "Joining " + name + ". " + impl.room_note;
+        std::erase_if(impl.friends, [&](const Frontend::Impl::Friend &x) { return x.invite && x.key == f.key; });
+    } else if (action == "Invite") {
+        friend_action(impl.friend_actions_file, "invite", f.key);
+        impl.room_note = "Invite sent to " + name + ".";
+    } else if (action == "Not now") {
+        friend_action(impl.friend_actions_file, "dismiss", f.key);
+        std::erase_if(impl.friends, [&](const Frontend::Impl::Friend &x) { return x.invite && x.key == f.key; });
+    }
     refresh_menu(impl);
 }
 
@@ -671,9 +904,19 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             apply_bindings(impl);
             refresh_menu(impl);
             return true;
+        case kFriendsMore:
+            impl.friends_expanded = !impl.friends_expanded;
+            refresh_menu(impl);
+            return true;
         case kRoomCode:
-            if (e.action == 1) {
-                change_room(impl, rt, new_adhoc_room_code());
+            if (e.action == 1) { // New code, or Leave someone's room: a private room of the player's own
+                const std::optional<std::string> owner = room_owner(impl);
+                const std::string left = !owner || owner->empty() ? std::string() : *owner + "'s room";
+                const std::string fresh = new_adhoc_room_code();
+                impl.own_rooms.insert(fresh);
+                change_room(impl, rt, fresh);
+                if (!left.empty()) impl.room_note = "You left " + left + ". This room is yours: only those you give its code to come in.";
+                refresh_menu(impl);
             } else {
                 impl.host.set_clipboard_text(format_adhoc_room_code(impl.room));
                 impl.room_note = "Copied " + format_adhoc_room_code(impl.room) + ". Send it to your friends.";
@@ -696,7 +939,13 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             }
             return true;
         default:
-            if (e.id >= kKeyBase && e.id < kPadBase + static_cast<int>(kPadButtons)) { // a Controls row: wait for the new key or button
+            if (e.id >= kFriendBase && e.id < kFriendBase + 1000 && e.action >= 0) {
+                const auto &rows = impl.menu.view().items();
+                const auto row = std::find_if(rows.begin(), rows.end(), [&](const overlay::MenuItem &m) { return m.id == e.id; });
+                if (row != rows.end() && e.action < static_cast<int>(row->actions.size())) {
+                    friend_pressed(impl, rt, static_cast<std::size_t>(e.id - kFriendBase), row->actions[static_cast<std::size_t>(e.action)]);
+                }
+            } else if (e.id >= kKeyBase && e.id < kPadBase + static_cast<int>(kPadButtons)) { // a Controls row: wait for the new key or button
                 const bool same = impl.capture_id == e.id;
                 impl.capture_id = same ? 0 : e.id;
                 impl.host.set_capture(!same);
@@ -726,21 +975,19 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             break;
         case kServer:
             if (e.value >= 0 && e.value < static_cast<int>(std::size(kServers))) {
-                const AdhocServerChoice &chosen = kServers[static_cast<std::size_t>(e.value)];
-                impl.server = std::string(chosen.host);
-                rt.set_adhoc_server(impl.server);
-                const std::string name(chosen.name);
-                impl.room_note = rt.adhoc_server_pending()
-                                     ? "You are in a hall or a quest now: you move to " + name + " once you leave it."
-                                     : "Next time you enter the Gathering Hall you meet the players on " + name + ".";
-                if (!impl.room.empty()) impl.room_note += " Your friends have to choose " + name + " too.";
-                apply_bindings(impl);
+                change_server(impl, rt, std::string(kServers[static_cast<std::size_t>(e.value)].host));
+                if (!impl.room.empty()) impl.room_note += " Your friends have to choose " + server_name(impl.server) + " too.";
                 refresh_menu(impl);
             }
             break;
         case kHalls:
             if (e.value == 0) change_room(impl, rt, "");
-            else change_room(impl, rt, impl.last_room.empty() ? new_adhoc_room_code() : impl.last_room);
+            else if (!impl.last_room.empty()) change_room(impl, rt, impl.last_room);
+            else {
+                const std::string fresh = new_adhoc_room_code();
+                impl.own_rooms.insert(fresh);
+                change_room(impl, rt, fresh);
+            }
             break;
         case kPadStick:
             impl.pad.stick = std::string(kStickChoices[std::clamp(e.value, 0, static_cast<int>(std::size(kStickChoices)) - 1)]);
@@ -814,6 +1061,11 @@ void open_menu(Frontend::Impl &impl, Runtime &rt) {
         impl.room_known = true;
         impl.room_note.clear();
     }
+    impl.friends_looked = {};
+    look_at_friends(impl);
+    impl.nickname = rt.options().adhoc_nickname;
+    impl.hall_looked = {};
+    if (impl.online) look_at_hall(impl, rt);
     impl.menu.set(menu_main(impl));
     impl.menu_open = true;
     {
@@ -867,6 +1119,9 @@ void close_menu(Frontend::Impl &impl) {
 bool step_menu(Frontend::Impl &impl, Runtime &rt) {
     using Key = overlay::Menu::Key;
     bool open = true;
+    const bool friends_changed = look_at_friends(impl);
+    const bool hall_changed = impl.online && look_at_hall(impl, rt);
+    if ((friends_changed || hall_changed) && impl.capture_id == 0) refresh_menu(impl); // who is online and in the hall, as it changes
     const bool capturing = impl.capture_id != 0; // a Controls row waits for a key or a button: nothing else acts
     std::vector<Key> keys;
     bool typed = false;
@@ -934,6 +1189,7 @@ bool step_menu(Frontend::Impl &impl, Runtime &rt) {
         if (impl.menu.view().version != impl.menu_layout_version) {
             layout = impl.menu_layouter->layout(impl.menu.view());
             impl.menu_layout_version = impl.menu.view().version;
+            impl.menu.sync_scroll(layout.scroll);
         }
         const host::SdlHost::WindowRect window = impl.host.window_rect();
         for (const auto &m : mouse) {
@@ -984,7 +1240,9 @@ bool step_menu(Frontend::Impl &impl, Runtime &rt) {
             } else if (m.kind == host::MouseEvent::Kind::Up) {
                 impl.menu_dragging = -1;
             } else if (m.kind == host::MouseEvent::Kind::Wheel) {
-                open = menu_handle(impl, rt, impl.menu.scroll(m.wheel, impl.menu_pointer_row)) && open;
+                open = menu_handle(impl, rt, impl.menu.scroll(m.wheel, impl.menu_pointer_row, layout)) && open;
+                layout = impl.menu_layouter->layout(impl.menu.view()); // the next notch scrolls from here
+                impl.menu_layout_version = impl.menu.view().version;
             }
             if (!open) break;
         }

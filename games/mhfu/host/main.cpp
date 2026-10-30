@@ -184,6 +184,7 @@ int main(int argc, char **argv) {
     mhf::host::KeyBindings keyboard; // --keymap: the launcher's keyboard bindings
     mhf::host::PadBindings controller; // --padmap: the launcher's controller bindings
     std::string controls_file;         // --controls-file: where the in-game menu writes the bindings the player changes
+    std::string friends_file, friend_actions_file; // --friends-file, --friend-actions-file: friends in the Online tab
     std::string adhoc_nick;            // --adhoc-nick: the name other players see online (default: --name)
     std::vector<ScriptedPress> script;
     for (int i = 1; i < argc; ++i) {
@@ -208,6 +209,8 @@ int main(int argc, char **argv) {
         else if (a == "--keymap" && i + 1 < argc) keyboard = mhf::host::parse_keymap(argv[++i]);
         else if (a == "--padmap" && i + 1 < argc) controller = mhf::host::parse_padmap(argv[++i]);
         else if (a == "--controls-file" && i + 1 < argc) controls_file = argv[++i];
+        else if (a == "--friends-file" && i + 1 < argc) friends_file = argv[++i];
+        else if (a == "--friend-actions-file" && i + 1 < argc) friend_actions_file = argv[++i];
         else if (a == "--adhoc-server" && i + 1 < argc) options.adhoc_server = argv[++i]; // online play: an ad hoc server (PPSSPP's)
         else if (a == "--adhoc-nick" && i + 1 < argc) adhoc_nick = argv[++i];
         else if (a == "--adhoc-room" && i + 1 < argc) options.adhoc_room = argv[++i]; // a private room's code
@@ -282,6 +285,7 @@ int main(int argc, char **argv) {
         mhf::psp::Frontend frontend;
         if (window && frontend.open(window_title(options.disc_image).c_str(), false, 2, !software, render_scale, fullscreen, smooth_textures, target_fps, keyboard, controller)) {
             frontend.set_controls_file(controls_file);
+            frontend.set_friends_files(friends_file, friend_actions_file);
             frontend.attach(runtime, extra);
         } else if (window) {
             // A player asked for a window: never keep running invisibly.
@@ -294,6 +298,8 @@ int main(int argc, char **argv) {
         (void)keyboard; // only the windowed frontend maps the keyboard and the controller
         (void)controller;
         (void)controls_file;
+        (void)friends_file;
+        (void)friend_actions_file;
         if (window) std::fprintf(stderr, "[mhfu] built without the SDL frontend; running headless\n");
         if (extra) runtime.kernel_host_poll(extra);
 #endif

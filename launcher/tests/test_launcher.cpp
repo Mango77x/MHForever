@@ -121,12 +121,46 @@ int main(int argc, char **argv) {
         CHECK(line == "child ran");
     }
 
+    // HKDF-SHA256 with an empty salt: RFC 5869 test case 3 (the first 32 bytes of its output).
+    {
+        const std::string ikm(22, '\x0b');
+        const auto okm = hkdf_sha256(ikm.data(), ikm.size(), "");
+        CHECK(to_hex(okm.data(), okm.size()) == "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d");
+    }
+
     std::string code;
     {
         Launcher l(dir, dir);
         Json s = l.state();
-        code = s["friendCode"].as_string();
-        CHECK(std::regex_match(code, std::regex("^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$")));
+        code = s["nostrKey"].as_string(); // the friends identity, derived from the seed
+        CHECK(std::regex_match(code, std::regex("^[0-9a-f]{64}$")));
+        CHECK(s["friends"].as_array().empty() && s["blocked"].as_array().empty());
+        CHECK(s["settings"]["friendRelays"].as_array().size() == 5);
+        // Friends: what is not a friend is dropped, a key listed twice is kept once, the list survives a restart.
+        Json friends(Json::Array{}), blocked(Json::Array{});
+        Json one;
+        one["key"] = std::string(64, 'a');
+        one["name"] = "Rathalos\x01 rider";
+        one["added"] = 1761800000;
+        friends.array().push_back(one);
+        friends.array().push_back(one);
+        Json bad;
+        bad["key"] = std::string(64, 'G');
+        friends.array().push_back(bad);
+        blocked.array().push_back(std::string(64, 'b'));
+        blocked.array().push_back("not a key");
+        l.set_friends(friends, blocked);
+        const Json after = l.state();
+        CHECK(after["friends"].as_array().size() == 1 && after["friends"].as_array()[0]["name"].as_string() == "Rathalos rider");
+        CHECK(after["blocked"].as_array().size() == 1);
+        // Relays: wss:// only, else the list is ignored.
+        Json relays;
+        relays["friendRelays"] = Json(Json::Array{Json("wss://relay.example.org")});
+        l.set_settings(relays);
+        CHECK(l.state()["settings"]["friendRelays"].as_array().size() == 1);
+        relays["friendRelays"] = Json(Json::Array{Json("http://relay.example.org")});
+        l.set_settings(relays);
+        CHECK(l.state()["settings"]["friendRelays"].as_array()[0].as_string() == "wss://relay.example.org");
         CHECK(s["pseudonym"].as_string() == "Hunter");
         Json partial;
         partial["scale"] = 11;
@@ -256,7 +290,8 @@ int main(int argc, char **argv) {
     }
     {
         Launcher again(dir, dir); // reloads launcher.json
-        CHECK(again.state()["friendCode"].as_string() == code);
+        CHECK(again.state()["nostrKey"].as_string() == code);
+        CHECK(again.state()["friends"].as_array().size() == 1);
         CHECK(again.state()["settings"]["fullscreen"].as_bool());
         CHECK(again.state()["settings"]["fps"].as_number() == 90);
         CHECK(again.state()["settings"]["keys"]["south"].as_string() == "KeyZ");
@@ -505,6 +540,50 @@ int main(int argc, char **argv) {
         CHECK(l.disc_id_for("mhfu").empty());
     }
 
+    // Friends in the game's Online tab: the launcher writes only what reads as a friend or an invite; the game's actions
+    // come back once, and only "invite" or "dismiss" with a key.
+    {
+        const fs::path g = dir / "game_friends";
+        fs::create_directories(g);
+        Launcher l(g, g);
+        Json entries(Json::Array{});
+        Json good;
+        good["kind"] = "friend";
+        good["key"] = std::string(64, 'c');
+        good["name"] = "Rath\tian";
+        good["state"] = "playing";
+        good["server"] = "socom.cc";
+        good["room"] = "K7QF29XM";
+        entries.array().push_back(good);
+        Json bad = good;
+        bad["room"] = "K7QF-29XM"; // not the stored form
+        entries.array().push_back(bad);
+        Json invite = good;
+        invite["kind"] = "invite";
+        entries.array().push_back(invite);
+        l.write_game_friends(entries);
+        std::ifstream in(l.game_friends_file());
+        std::string line1, line2, line3;
+        std::getline(in, line1);
+        std::getline(in, line2);
+        CHECK(line1 == "friend\t" + std::string(64, 'c') + "\tplaying\tsocom.cc\tK7QF29XM\tRathian");
+        CHECK(line2.rfind("invite\t", 0) == 0 && !std::getline(in, line3));
+        in.close();
+        std::ofstream(l.friend_actions_file()) << "invite " << std::string(64, 'c') << "\nrm -rf /\ndismiss nothex\n";
+        const auto actions = l.take_friend_actions();
+        CHECK(actions.size() == 1 && actions[0].first == "invite");
+        CHECK(l.take_friend_actions().empty() && !fs::exists(l.friend_actions_file()));
+    }
+
+    // An identity seed that is not 64 hex digits (a launcher.json edited by hand) is replaced, never read as one.
+    {
+        const fs::path broken = dir / "broken_seed";
+        fs::create_directories(broken);
+        std::ofstream(broken / "launcher.json") << "{\"identitySeed\": \"" << std::string(64, 'z') << "\"}";
+        Launcher l(broken, broken);
+        CHECK(std::regex_match(l.state()["nostrKey"].as_string(), std::regex("^[0-9a-f]{64}$")));
+    }
+
     // A failed write must never destroy the saved state. Putting a directory where save() wants its temporary file makes
     // the write fail the same way a full disk does.
     {
@@ -513,7 +592,7 @@ int main(int argc, char **argv) {
         std::string blocked_code;
         {
             Launcher l(blocked, blocked);
-            blocked_code = l.state()["friendCode"].as_string();
+            blocked_code = l.state()["nostrKey"].as_string();
         }
         fs::create_directories(blocked / "launcher.json.tmp");
         {
@@ -523,7 +602,7 @@ int main(int argc, char **argv) {
         fs::remove_all(blocked / "launcher.json.tmp");
         CHECK(fs::is_regular_file(blocked / "launcher.json"));
         Launcher after(blocked, blocked);
-        CHECK(after.state()["friendCode"].as_string() == blocked_code); // same identity, not a fresh one
+        CHECK(after.state()["nostrKey"].as_string() == blocked_code); // same identity, not a fresh one
         CHECK(after.state()["pseudonym"].as_string() == "Hunter");      // the previous file is intact
     }
 

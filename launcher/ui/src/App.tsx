@@ -2,8 +2,9 @@ import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { api, onEvent, selectedGame, type Game, type LauncherEvent, type Settings, type State, type UpdateInfo } from './bridge';
-import { AlertIcon, CheckIcon, ChevronIcon, CloseIcon, CopyIcon, FriendsIcon, HomeIcon, LibraryIcon, SlidersIcon } from './icons';
+import { AlertIcon, CheckIcon, ChevronIcon, CopyIcon, FriendsIcon, HomeIcon, LibraryIcon, SlidersIcon } from './icons';
 import logoUrl from '../../../assets/branding/icon-128.png';
+import { FriendsDrawer, useFriends } from './Friends';
 import { Home } from './Home';
 import { Library } from './Library';
 import { GameSettingsPage, SettingsPage } from './SettingsPage';
@@ -82,6 +83,7 @@ export default function App() {
   }, []);
 
   useEffect(() => { api.mhf_getState().then(setState); }, []);
+  const friends = useFriends(state, !!launch && (launch.phase === 'starting' || launch.phase === 'running'), say, setState);
   useEffect(() => { api.mhf_updateInfo().then((u) => { if (u) setUpdate(u); }); }, []);
   useEffect(() => startNavigation(setPadMode), []);
 
@@ -132,13 +134,30 @@ export default function App() {
   };
   const addCopy = () => { setProfileOpen(false); api.mhf_addGame(); };
   const locateExe = () => api.mhf_pickExecutable().then((s) => { setState(s); if (s.executable.found) say('Executable found'); });
-  const copyCode = () => api.mhf_copyText(state.friendCode).then(() => say('Friend code copied'));
+  const copyCode = () => api.mhf_copyText(friends.code).then(() => say('Friend code copied'));
   const play = () => {
     const game = selectedGame(state);
     if (!game) return;
     setLaunch({ phase: 'checking', startedAt: Date.now() });
     api.mhf_play(game.id);
   };
+  // A friend's room (or their server's public halls): the game starts there.
+  const join = (adhocServer: string, adhocRoom: string) => {
+    if (!selectedGame(state)) {
+      say('Add your copy of the game first');
+      return;
+    }
+    setFriendsOpen(false);
+    api.mhf_setSettings({ adhocServer, adhocRoom }).then((s) => {
+      setState(s);
+      play();
+    });
+  };
+  const waiting = friends.requests.length + friends.invites.length;
+  const online = friends.friends.filter((f) => {
+    const p = friends.presence[f.key];
+    return p && Date.now() - p.seen < 3 * 60 * 1000;
+  }).length;
 
   const nav: { id: Screen | 'friends'; label: string; icon: React.ReactNode }[] = [
     { id: 'home', label: 'Home', icon: <HomeIcon /> },
@@ -191,7 +210,8 @@ export default function App() {
             </div>
             <div className="top-actions">
               <button className="ghost top friends-btn" onClick={() => { setFriendsOpen(true); setProfileOpen(false); }}>
-                <FriendsIcon size={18} /> Friends <span className="badge">Soon</span>
+                <FriendsIcon size={18} /> Friends
+                {waiting > 0 ? <span className="badge hot">{waiting}</span> : online > 0 ? <span className="badge live">{online} online</span> : null}
               </button>
               <div style={{ position: 'relative' }}>
                 <button className={'profile' + (profileOpen ? ' open' : '')} onClick={() => setProfileOpen(!profileOpen)} aria-label="Your profile" aria-expanded={profileOpen}>
@@ -219,7 +239,7 @@ export default function App() {
                       </div>
                       <span className="eyebrow" style={{ fontSize: 12 }}>Your friend code</span>
                       <div className="code-box">
-                        <span className="code">{state.friendCode}</span>
+                        <span className="code">{friends.code}</span>
                         <button className="copy" onClick={copyCode} aria-label="Copy friend code" data-nav-default><CopyIcon /> Copy</button>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
@@ -265,6 +285,7 @@ export default function App() {
                   onChange={setSettings}
                   onPseudonym={(n) => api.mhf_setPseudonym(n).then((s) => { setState(s); say('Name saved'); })}
                   onCopyCode={copyCode}
+                  friendCode={friends.code}
                   onSavesFolder={(backToDefault) => api.mhf_savesFolder(backToDefault ? 'default' : '').then((r) => {
                     setState(r.state);
                     if (r.error) say(r.error);
@@ -290,40 +311,9 @@ export default function App() {
           {friendsOpen && (
             <>
               <motion.div className="scrim" onClick={() => setFriendsOpen(false)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} aria-hidden="true" />
-              <motion.aside
-                className="drawer"
-                aria-label="Friends"
-                data-nav-scope
-                initial={{ x: '105%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '105%' }}
-                transition={{ type: 'spring', stiffness: 300, damping: 34 }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <h2>Friends</h2>
-                  <button className="rail-btn" onClick={() => setFriendsOpen(false)} aria-label="Close" style={{ width: 44, height: 44 }}><CloseIcon /></button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <span className="eyebrow">Your friend code</span>
-                  <div className="code-box">
-                    <span className="code">{state.friendCode}</span>
-                    <button className="copy" onClick={copyCode} aria-label="Copy friend code" data-nav-default><CopyIcon /> Copy</button>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <label htmlFor="add-code" className="eyebrow">Add by code</label>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <input id="add-code" className="text-input code" placeholder="XXXX-XXXX-XXXX-XXXX" disabled style={{ flex: 1, minWidth: 0, opacity: 0.6 }} />
-                    <button className="play small" disabled>Send</button>
-                  </div>
-                </div>
-                <div className="empty">
-                  <FriendsIcon size={34} color="var(--accent)" />
-                  <b>Online play is on its way</b>
-                  Friends, rooms and invites arrive with online play. No accounts and no servers: you will connect directly
-                  with the people you add.
-                </div>
-              </motion.aside>
+              <FriendsDrawer model={friends} state={state} playing={!!launch && launch.phase !== 'exited' && launch.phase !== 'failed'}
+                onClose={() => setFriendsOpen(false)} onCopy={(text, what) => api.mhf_copyText(text).then(() => say(`${what} copied`))}
+                onJoin={join} />
             </>
           )}
         </AnimatePresence>

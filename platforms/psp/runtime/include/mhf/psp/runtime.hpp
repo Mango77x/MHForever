@@ -172,6 +172,14 @@ public:
     [[nodiscard]] std::string adhoc_room();
     // The game is in a hall of the ad hoc network now.
     [[nodiscard]] bool adhoc_in_hall();
+    // The hall the game is in: whether it is in one, the room it belongs to ("" the public halls) and the names of the
+    // other players there, as the server reports them.
+    struct AdhocHall {
+        bool in = false;
+        std::string room;
+        std::vector<std::string> players;
+    };
+    [[nodiscard]] AdhocHall adhoc_hall();
     // Online play: another ad hoc server ("host" or "host:port"). It takes over as soon as that cuts nothing off: at
     // once in the village, after the game left the hall or the quest it is in otherwise. adhoc_server() is the one
     // chosen; adhoc_server_pending() says it is still waiting.

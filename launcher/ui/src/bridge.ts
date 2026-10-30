@@ -35,6 +35,24 @@ export interface Settings {
   // The private room's code ("K7QF29XM"), '' for the public halls (docs/14-rooms-and-friends.md section 3).
   adhocRoom: string;
   checkUpdates: boolean; // ask GitHub for a newer release when the launcher starts
+  friendRelays: string[]; // the public Nostr relays friends meet through (wss:// addresses)
+}
+
+// A line of the game's Online tab: a friend and where they are, or an invite from one.
+export interface GameFriend {
+  kind: 'friend' | 'invite';
+  key: string;
+  name: string;
+  state: 'offline' | 'launcher' | 'playing';
+  server: string;
+  room: string;
+}
+
+// A friend, as the launcher keeps them (docs/14-rooms-and-friends.md section 4.3).
+export interface FriendEntry {
+  key: string; // their public key (hex)
+  name: string;
+  added: number; // unix seconds
 }
 
 export interface Stats {
@@ -47,7 +65,9 @@ export interface State {
   version: string;
   platform: string;
   pseudonym: string;
-  friendCode: string;
+  nostrKey: string; // the secret key of the player's friends identity (hex), derived from the identity seed
+  friends: FriendEntry[];
+  blocked: string[]; // keys whose friend requests are ignored
   settings: Settings;
   keyDefaults: Record<string, string>; // what "Restore defaults" puts back (Settings → Controls)
   padDefaults: Record<string, string>;
@@ -80,6 +100,7 @@ export type LauncherEvent =
   | { type: 'exited'; code: number; seconds: number }
   | { type: 'launchFailed'; message: string }
   | { type: 'state'; state: State }
+  | { type: 'gameFriend'; action: 'invite' | 'dismiss'; key: string } // the player's choice in the game's Online tab
   | ({ type: 'update' } & UpdateInfo)
   | { type: 'updateProgress'; phase: 'downloading' | 'verifying' | 'installing'; progress: number }
   | { type: 'updateReady'; version: string }
@@ -103,6 +124,9 @@ type Native = {
   mhf_play(id: string): Promise<{ started: boolean }>;
   mhf_copyText(text: string): Promise<boolean>;
   mhf_exportIdentity(): Promise<{ saved: boolean }>;
+  mhf_setFriends(friends: FriendEntry[], blocked: string[]): Promise<State>;
+  // Who is where, and the invites, for the game's Online tab while it runs.
+  mhf_setGameFriends(entries: GameFriend[]): Promise<boolean>;
   mhf_scanSaves(gameId: string): Promise<SaveScan>; // asks for a folder, looks for the saves of that game in it
   mhf_importSaves(): Promise<SaveImportResult>; // imports what the last scan found
   mhf_probeServer(server: string): Promise<number | null>; // milliseconds to connect to an ad hoc server, null when it cannot
@@ -142,10 +166,13 @@ function simulated(): Native {
     version: '0.7.0-dev',
     platform: 'browser',
     pseudonym: 'Hunter',
-    friendCode: 'K7Q2-M9XA-4RTD-8PLE',
+    nostrKey: Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, '0')).join(''),
+    friends: [],
+    blocked: [],
     settings: {
       scale: 4, fullscreen: false, smoothTextures: false, fps: 30, copyImage: false, musicVolume: 80, sfxVolume: 90,
       keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '', adhocRoom: '', checkUpdates: true,
+      friendRelays: ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom', 'wss://offchain.pub', 'wss://relay.nostr.net'],
     },
     keyDefaults: defaultKeys,
     padDefaults: defaultPad,
@@ -196,6 +223,8 @@ function simulated(): Native {
     },
     async mhf_copyText(text) { try { await navigator.clipboard.writeText(text); } catch { /* not allowed here */ } return true; },
     async mhf_exportIdentity() { return { saved: true }; },
+    async mhf_setFriends(friends, blocked) { state.friends = friends; state.blocked = blocked; return copy(); },
+    async mhf_setGameFriends() { return true; },
     async mhf_scanSaves() { return { picked: true, found: [{ folder: 'ULES01213', title: 'Game Data', exists: true }], note: '' }; },
     async mhf_importSaves() { return { imported: 1, backup: 'C:\\Users\\Hunter\\Documents\\MHForever\\saves\\ULES01213\\backups\\20261022-170000', error: '' }; },
     async mhf_probeServer(server) { await new Promise((r) => setTimeout(r, 300 + Math.random() * 700)); return server.includes('nowhere') ? null : 20 + Math.round(Math.random() * 250); },

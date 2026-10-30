@@ -61,6 +61,17 @@ public:
     void import_game_controls();
     [[nodiscard]] std::filesystem::path controls_file() const { return data_dir_ / "game_controls.txt"; }
     void set_pseudonym(const std::string &name);
+    // Friends (docs/14-rooms-and-friends.md section 4): the UI keeps the list and replaces it whole; what is not a friend
+    // (a 64-digit public key, a name) is dropped. `blocked` holds the keys of players whose requests are ignored.
+    void set_friends(const Json &friends, const Json &blocked);
+    // Friends in the game's Online tab while it runs: the launcher writes who is where and the invites to
+    // game_friends_file() (the UI calls write_game_friends with {kind: "friend" | "invite", key, name, state: "offline" |
+    // "launcher" | "playing", server, room}; anything else is dropped), and the game writes what the player did there
+    // ("invite <key>", "dismiss <key>") to friend_actions_file(), which take_friend_actions() empties.
+    [[nodiscard]] std::filesystem::path game_friends_file() const { return data_dir_ / "game_friends.txt"; }
+    [[nodiscard]] std::filesystem::path friend_actions_file() const { return data_dir_ / "game_friend_actions.txt"; }
+    void write_game_friends(const Json &entries);
+    std::vector<std::pair<std::string, std::string>> take_friend_actions();
 
     // Identifies a disc image (PARAM.SFO + SHA-1 against known good dumps) and adds it to the library.
     // Returns the game object for the UI, or an error message. Thread-safe; slow (hashes the whole image).
@@ -142,7 +153,7 @@ private:
     void apply_settings(const std::string &disc_id, const Json &partial); // mutex_ held; "" = no copy yet
     std::filesystem::path find_executable(const CatalogEntry &entry);
     const CatalogEntry *entry_for(const std::string &disc_id) const;
-    std::string friend_code() const;
+    std::string nostr_key() const;
 
     std::filesystem::path base_;
     std::filesystem::path file_;

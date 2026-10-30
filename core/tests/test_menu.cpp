@@ -192,9 +192,9 @@ int main() {
         MHF_CHECK(m.drag_slider(1, 0.123f).value == 10); // snapped to the step of 5
         MHF_CHECK(m.drag_slider(1, 1.5f).value == 100);  // and kept in range
         MHF_CHECK(m.drag_slider(1, -1.0f).value == 0);
-        MHF_CHECK(m.scroll(1, 1).value == 5);
+        MHF_CHECK(m.scroll(1, 1, layouter.layout(m.view())).value == 5);
         MHF_CHECK(m.view().tab == 1 && selected_id(m) == kMusic);
-        MHF_CHECK(m.scroll(-1, -1).kind == Kind::None && m.view().tab == 1 && selected_id(m) == kSfx); // down: the next row
+        MHF_CHECK(m.scroll(-1, -1, layouter.layout(m.view())).kind == Kind::None && selected_id(m) == kMusic); // elsewhere: no selection change
 
         // Out of range is ignored.
         m.hover_row(99);
@@ -320,6 +320,65 @@ int main() {
         MHF_CHECK(layouter.layout(m.view()).keys.empty());
     }
 
+    // A friend's row: picked only when it has buttons, its buttons focused from the first one, a click reports the one.
+    {
+        MenuView v;
+        MenuItem away = item(MenuItem::Kind::Person, 70, "Away");
+        MenuItem here = item(MenuItem::Kind::Person, 71, "Rathian", 1);
+        here.detail = "Playing, private room K7QF-29XM on Socom";
+        here.actions = {"Join", "Invite"};
+        v.tabs = {MenuTab{"Online", {away, here}}};
+        Menu m;
+        m.set(v);
+        MHF_CHECK(selected_id(m) == 71 && m.view().action == 0);
+        m.press(Key::Right);
+        auto a = m.press(Key::Accept);
+        MHF_CHECK(a.kind == Kind::Activated && a.id == 71 && a.action == 1);
+        MenuRenderer layouter(MHF_FONT_DIR);
+        const MenuLayout lay = layouter.layout(m.view());
+        MHF_CHECK(lay.rows[0].w == 0 && lay.actions[1].size() == 2);
+        const auto h = lay.hit(lay.actions[1][0].x + 2.0f, lay.actions[1][0].y + 2.0f);
+        MHF_CHECK(h.kind == MenuLayout::Hit::Kind::Action && h.index == 1 && h.sub == 0);
+    }
+
+    // A long section scrolls: the wheel moves the rows by a step (never past either end) and leaves the selection, rows
+    // partly out of view are drawn clipped and picked only where they show, and keys bring the selection back into view.
+    {
+        MenuView v;
+        MenuTab longer{"Long", {}};
+        for (int i = 0; i < 30; ++i) longer.items.push_back(item(MenuItem::Kind::Button, 100 + i, "Row"));
+        v.tabs = {longer};
+        Menu m;
+        m.set(v);
+        MenuRenderer layouter(MHF_FONT_DIR);
+        MenuLayout lay = layouter.layout(m.view());
+        MHF_CHECK(lay.scroll == 0.0f && lay.max_scroll > 100.0f);
+        m.set_pointer(true);
+        m.scroll(-1, -1, lay);
+        lay = layouter.layout(m.view());
+        const float one = lay.scroll;
+        MHF_CHECK(one > 10.0f && one < 40.0f && selected_id(m) == 100);
+        for (int i = 0; i < 100; ++i) {
+            m.scroll(-1, -1, lay);
+            lay = layouter.layout(m.view());
+        }
+        MHF_CHECK(lay.scroll == lay.max_scroll);
+        bool partly = false; // a row cut by the top edge: picked only below it
+        for (const auto &r : lay.rows) {
+            if (r.w > 0 && r.y < lay.content.y) {
+                partly = true;
+                MHF_CHECK(lay.hit(r.x + 2.0f, r.y + 0.5f).kind == MenuLayout::Hit::Kind::None);
+            }
+        }
+        (void)partly;
+        m.press(Key::Down); // keys: the selection (the second row) comes into view again
+        lay = layouter.layout(m.view());
+        MHF_CHECK(selected_id(m) == 101 && lay.scroll < one + 1.0f);
+        m.sync_scroll(lay.scroll);
+        m.set_pointer(true); // the mouse takes over where the keys left the rows
+        MHF_CHECK(layouter.layout(m.view()).scroll == lay.scroll);
+    }
+
     // Nothing to navigate: no crash.
     Menu empty;
     empty.set(MenuView{});
@@ -361,8 +420,13 @@ int main() {
         MenuItem server = item(MenuItem::Kind::Choice, 94, "Server");
         server.options = {"Socom", "MGN", "Games Nexus", "Psi-Hate", "Neko PSP"};
         server.detail = "France, PPSSPP's default and the busiest";
+        MenuItem rathian = item(MenuItem::Kind::Person, 95, "Rathian", 1);
+        rathian.detail = "Playing, private room AB12-CD34 on Socom";
+        rathian.actions = {"Join", "Invite"};
+        rathian.primary_action = 0;
         v.tabs.push_back(MenuTab{"Online", {halls, code, join, server,
-                                            item(MenuItem::Kind::Info, 0, "Next time you enter the Gathering Hall you see the halls of your room.")},
+                                            item(MenuItem::Kind::Info, 0, "Next time you enter the Gathering Hall you see the halls of your room."),
+                                            item(MenuItem::Kind::Heading, 0, "Friends"), rathian},
                                  "Who you meet in the Gathering Hall.", "Private"});
         Menu look;
         look.set(v);
