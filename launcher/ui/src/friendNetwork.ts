@@ -73,8 +73,10 @@ const isKey = (text: unknown): text is string => typeof text === 'string' && /^[
 const isRoom = (text: unknown): text is string => typeof text === 'string' && (text === '' || new RegExp(`^[${alphabet}]{8}$`).test(text));
 const isServer = (text: unknown): text is string =>
   typeof text === 'string' && text.length <= 253 && /^([A-Za-z0-9._-]+(:[0-9]{1,5})?)?$/.test(text);
+// Names and labels from other players: no control characters and no bidirectional overrides (a name that reads as
+// another), cut to `max` characters.
 const cleanText = (text: unknown, max: number) =>
-  typeof text === 'string' ? Array.from(text.replace(/[\u0000-\u001f\u007f]/g, '')).slice(0, max).join('') : '';
+  typeof text === 'string' ? Array.from(text.replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')).slice(0, max).join('') : '';
 
 // ---------------------------------------------------------------- what friends tell each other
 
@@ -227,6 +229,9 @@ export class FriendsNetwork {
     this.searches.delete(code);
   }
 
+  // Leaving (the launcher closes): friends see the player offline at once instead of after three minutes.
+  sayGoodbye() { this.sayToAll({ t: 'bye' }); }
+
   // Answers a request: they become a friend (the caller adds them to the list).
   accept(key: string) {
     this.request(key, { t: 'accept', name: this.status?.name ?? '' });
@@ -334,7 +339,9 @@ export class FriendsNetwork {
     const name = cleanText(m.name, 24);
     if (m.t === 'request') {
       if (this.friends.has(e.pubkey)) this.accept(e.pubkey); // they lost us (a new computer): just answer
-      else this.on.request({ key: e.pubkey, name, code: friendCodeOf(e.pubkey) });
+      // Only while "Let friends add me" is open: the key was public for those ten minutes, and nobody can pester the
+      // player with requests afterwards.
+      else if (this.announcing) this.on.request({ key: e.pubkey, name, code: friendCodeOf(e.pubkey) });
     } else if (m.t === 'accept' && this.outgoing.has(e.pubkey)) {
       this.outgoing.delete(e.pubkey);
       this.on.accepted({ key: e.pubkey, name, added: now() });

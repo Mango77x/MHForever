@@ -183,7 +183,11 @@ the browser and supports NIP-44 and relay pools.
 - Every event is checked before use: signature (nostr-tools), at most 4 KB, created within 5 minutes of now, at most 30
   a minute per sender, the same event once even when several relays carry it, and each field validated (names cut to
   24 characters, servers as the launcher checks them, room codes as 8 Crockford characters). A friend that is already
-  in the list and sends a request again (a new computer) gets an answer at once; a blocked key is ignored.
+  in the list and sends a request again (a new computer) gets an answer at once; a blocked key is ignored. Requests
+  from anyone else are shown only while "Let friends add me" is open (at most 20), so a key seen during those ten
+  minutes cannot be used to pester the player later. Names lose control characters and bidirectional overrides.
+- Closing the launcher says goodbye (friends see the player offline at once); a launcher that dies without it is
+  offline for its friends after three minutes.
 - Default relays (NIP-11 read 2026-10-30, all public, each forwarded the ephemeral kinds in a test): nos.lol,
   relay.primal.net, nostr.mom, offchain.pub, relay.nostr.net (`friendRelays` in the launcher's settings).
 - While the game runs the launcher folds the game's room and server into its settings every 2 s, so friends see a

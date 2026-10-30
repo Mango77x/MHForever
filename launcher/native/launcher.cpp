@@ -469,7 +469,8 @@ void Launcher::load() {
     }
     if (!data_.is_object()) data_ = Json(Json::Object{});
     bool changed = false;
-    if (data_["identitySeed"].as_string().size() != 64) {
+    const std::string seed_hex = data_["identitySeed"].as_string();
+    if (seed_hex.size() != 64 || !std::all_of(seed_hex.begin(), seed_hex.end(), [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; })) {
         std::uint8_t seed[32];
         platform::random_bytes(seed, sizeof seed);
         data_["identitySeed"] = to_hex(seed, sizeof seed);
@@ -536,9 +537,10 @@ void Launcher::save() {
 // seed so that the identity backup covers it. The UI makes the public key and the friend code from it.
 std::string Launcher::nostr_key() const {
     std::uint8_t seed[32] = {};
-    const std::string hex = data_["identitySeed"].as_string();
+    const std::string hex = data_["identitySeed"].as_string(); // 64 hex digits (load() makes sure)
+    const auto digit = [](char c) { return c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10; };
     for (std::size_t i = 0; i < sizeof seed && i * 2 + 1 < hex.size(); ++i) {
-        seed[i] = static_cast<std::uint8_t>(std::stoi(hex.substr(i * 2, 2), nullptr, 16));
+        seed[i] = static_cast<std::uint8_t>(digit(hex[i * 2]) << 4 | digit(hex[i * 2 + 1]));
     }
     const auto key = hkdf_sha256(seed, sizeof seed, "mhf-nostr");
     return to_hex(key.data(), key.size());

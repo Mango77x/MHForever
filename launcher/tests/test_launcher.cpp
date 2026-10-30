@@ -540,6 +540,15 @@ int main(int argc, char **argv) {
         CHECK(l.disc_id_for("mhfu").empty());
     }
 
+    // An identity seed that is not 64 hex digits (a launcher.json edited by hand) is replaced, never read as one.
+    {
+        const fs::path broken = dir / "broken_seed";
+        fs::create_directories(broken);
+        std::ofstream(broken / "launcher.json") << "{\"identitySeed\": \"" << std::string(64, 'z') << "\"}";
+        Launcher l(broken, broken);
+        CHECK(std::regex_match(l.state()["nostrKey"].as_string(), std::regex("^[0-9a-f]{64}$")));
+    }
+
     // A failed write must never destroy the saved state. Putting a directory where save() wants its temporary file makes
     // the write fail the same way a full disk does.
     {

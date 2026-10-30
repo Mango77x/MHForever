@@ -143,6 +143,10 @@ export default function App() {
   };
   // A friend's room (or their server's public halls): the game starts there.
   const join = (adhocServer: string, adhocRoom: string) => {
+    if (!selectedGame(state)) {
+      say('Add your copy of the game first');
+      return;
+    }
     setFriendsOpen(false);
     api.mhf_setSettings({ adhocServer, adhocRoom }).then((s) => {
       setState(s);

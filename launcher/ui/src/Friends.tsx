@@ -77,7 +77,7 @@ export function useFriends(state: State | null, playing: boolean, say: (text: st
         else delete next[k];
         return next;
       }),
-      request: (r) => setRequests((all) => (all.some((x) => x.key === r.key) ? all : [...all, r])),
+      request: (r) => setRequests((all) => (all.some((x) => x.key === r.key) || all.length >= 20 ? all : [...all, r])),
       accepted: (f) => {
         setSearches((all) => { const next = { ...all }; delete next[friendCodeOf(f.key)]; return next; });
         if (!friendsRef.current.some((x) => x.key === f.key)) save([...friendsRef.current, f], blockedRef.current);
@@ -94,7 +94,10 @@ export function useFriends(state: State | null, playing: boolean, say: (text: st
     net.current = n;
     setCode(formatFriendCode(n.code));
     n.start();
+    const leaving = () => n.sayGoodbye();
+    window.addEventListener('pagehide', leaving);
     return () => {
+      window.removeEventListener('pagehide', leaving);
       n.stop();
       net.current = null;
     };
