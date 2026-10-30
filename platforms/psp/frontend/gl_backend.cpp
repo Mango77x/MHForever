@@ -1314,7 +1314,7 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
 // ---------------------------------------------------------------- texture packs
 
 void GlBackend::open_texture_pack() {
-    pack_log_ = std::getenv("MHF_TEXTURE_LOG") != nullptr;
+    pack_log_ = std::getenv("MHF_TEXTURE_LOG") != nullptr || std::getenv("MHF_TEXTURE_DEBUG") != nullptr; // the latter: PR #39's name
     if (const char *mb = std::getenv("MHF_TEXTURE_PACK_MEMORY")) pack_budget_ = std::size_t(std::max(64L, std::atol(mb))) << 20;
     std::string folder = live_->texture_pack_folder;
     if (folder.empty()) {
