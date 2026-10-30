@@ -184,6 +184,7 @@ int main(int argc, char **argv) {
     mhf::host::KeyBindings keyboard; // --keymap: the launcher's keyboard bindings
     mhf::host::PadBindings controller; // --padmap: the launcher's controller bindings
     std::string controls_file;         // --controls-file: where the in-game menu writes the bindings the player changes
+    std::string texture_pack; // --texture-pack: folder of a texture pack (developer feature)
     std::string friends_file, friend_actions_file; // --friends-file, --friend-actions-file: friends in the Online tab
     std::string adhoc_nick;            // --adhoc-nick: the name other players see online (default: --name)
     std::vector<ScriptedPress> script;
@@ -209,6 +210,7 @@ int main(int argc, char **argv) {
         else if (a == "--keymap" && i + 1 < argc) keyboard = mhf::host::parse_keymap(argv[++i]);
         else if (a == "--padmap" && i + 1 < argc) controller = mhf::host::parse_padmap(argv[++i]);
         else if (a == "--controls-file" && i + 1 < argc) controls_file = argv[++i];
+        else if (a == "--texture-pack" && i + 1 < argc) texture_pack = argv[++i];
         else if (a == "--friends-file" && i + 1 < argc) friends_file = argv[++i];
         else if (a == "--friend-actions-file" && i + 1 < argc) friend_actions_file = argv[++i];
         else if (a == "--adhoc-server" && i + 1 < argc) options.adhoc_server = argv[++i]; // online play: an ad hoc server (PPSSPP's)
@@ -232,6 +234,13 @@ int main(int argc, char **argv) {
     }
     // In a window the player answers the system dialogs (messages, keyboard, save/load) on screen.
     options.interactive_dialogs = window && !auto_dialogs;
+    if (!texture_pack.empty()) { // --texture-pack: a texture pack folder (the same as setting MHF_TEXTURE_PACK)
+#ifdef _WIN32
+        _putenv_s("MHF_TEXTURE_PACK", texture_pack.c_str());
+#else
+        setenv("MHF_TEXTURE_PACK", texture_pack.c_str(), 1);
+#endif
+    }
     if (options.adhoc_server.empty()) {
         if (const char *server = std::getenv("MHF_ADHOC_SERVER")) options.adhoc_server = server; // until the launcher sets it
     }
