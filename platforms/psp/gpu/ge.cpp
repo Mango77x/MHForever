@@ -522,7 +522,24 @@ void Ge::draw_primitive(std::uint32_t data) {
     ++stats_.primitives;
     stats_.vertices += count;
 
-    if (backend_ != nullptr) backend_->draw_started(vaddr);
+    if (backend_ != nullptr) {
+        DrawInfo draw;
+        draw.vertex_address = vaddr;
+        draw.index_address = index_format != 0 ? iaddr : 0u;
+        draw.vertex_type = vt;
+        draw.texture_address = (regs_[kTextureMapEnable] & 1u) != 0
+                                   ? (regs_[kTexAddr0] & 0xFFFFF0u) | ((regs_[kTexBufWidth0] & 0x0F0000u) << 8u)
+                                   : 0u;
+        draw.count = count;
+        draw.primitive = static_cast<std::uint8_t>(type);
+        draw.through = through;
+        draw.clear = (regs_[kClearMode] & 1u) != 0;
+        draw.target = regs_[kFramebufPtr] & 0x1FFFF0u;
+        draw.world = world_.m;
+        draw.view = view_.m;
+        draw.projection = proj_.m;
+        backend_->draw_started(draw);
+    }
     // Timing the drawing commands costs a clock read each; only when the interpolation log is on.
     static const bool timed = std::getenv("MHF_INTERP_LOG") != nullptr;
     const auto t_start = timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};

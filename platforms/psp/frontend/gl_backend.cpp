@@ -8,6 +8,7 @@
 // game flips; one the GE has not drawn (CPU-made screens, movies) is uploaded from guest memory instead.
 
 #include "gl_backend.hpp"
+#include "frame_matching.hpp"
 
 #include "ge.hpp"
 
@@ -29,6 +30,7 @@
 #include <cstring>
 #include <map>
 #include <unordered_map>
+#include <string>
 #include <vector>
 
 namespace mhf::psp {
@@ -510,8 +512,10 @@ public:
         }
     }
 
-    void draw_started(std::uint32_t vertex_address) override {
-        if (interpolate_) draw_use_ = ++draw_uses_[vertex_address];
+    void draw_started(const gpu::DrawInfo &draw) override {
+        if (!interpolate_) return;
+        draw_use_ = ++draw_uses_[draw.vertex_address];
+        recording_.push_back(interpolation::summarize(draw));
     }
 
     void sprite(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b) override {
@@ -749,6 +753,12 @@ private:
     std::uint16_t camera_{kNoCamera};       // the last one found
     std::uint64_t camera_generation_{};     // Ge::camera_generation() when it was found
     std::unordered_map<std::uint32_t, std::uint32_t> draw_uses_; // drawing commands per vertex address since the flip
+    // The second design of frame interpolation (frame_matching.hpp), measured alongside the first for now: the draws
+    // of the flip being drawn and of the one before, and how they match (MHF_INTERP_V2_LOG=1 reports it).
+    std::vector<interpolation::DrawSummary> recording_, summaries_before_;
+    interpolation::Matcher matcher_;
+    interpolation::CutThresholds cut_thresholds_;
+    void match_v2(std::uint32_t shown);
     std::uint32_t draw_use_{};              // of the current drawing command: tells repeated draws of a model apart
     struct PointSlot {
         std::uint64_t key{};
@@ -2051,6 +2061,61 @@ void GlBackend::flush_pictures() {
 // Schedules the in-between pictures, the first one due at once, ending with the flip's own picture. Returns false
 // (nothing scheduled) when this flip cannot be interpolated; the caller then shows it as usual. Either way the picture
 // is kept for the next flip.
+// Matches the draws of this flip with the previous flip's (the second design; nothing drawn with it yet) and, with
+// MHF_INTERP_V2_LOG=1, reports once a second how the matching went: draws, matched, repaired instances, rejected
+// pairs, the camera's turn and move, and the cuts.
+void GlBackend::match_v2(std::uint32_t shown) {
+    interpolation::mark_eligible(recording_, shown);
+    static const bool log = std::getenv("MHF_INTERP_V2_LOG") != nullptr;
+    struct Totals {
+        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+        unsigned flips = 0, cuts = 0, continued = 0;
+        std::uint64_t eligible = 0, matched = 0, repaired = 0, rejected = 0, crowded = 0;
+        float max_angle = 0, max_distance = 0;
+        double us = 0;
+        std::map<std::string, unsigned> why;
+    };
+    static Totals totals;
+    if (!summaries_before_.empty()) {
+        const auto t0 = std::chrono::steady_clock::now();
+        const interpolation::Matching &m = matcher_.match(summaries_before_, recording_, cut_thresholds_);
+        if (log) {
+            totals.us += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
+            ++totals.flips;
+            totals.eligible += m.eligible_newer;
+            totals.matched += m.matched;
+            totals.repaired += m.repaired;
+            totals.rejected += m.rejected;
+            totals.crowded += m.too_many_instances;
+            if (m.continued) ++totals.continued;
+            if (m.cut != nullptr) {
+                ++totals.cuts;
+                ++totals.why[m.cut];
+            }
+            if (m.camera_found) {
+                totals.max_angle = std::max(totals.max_angle, m.camera_angle_degrees);
+                totals.max_distance = std::max(totals.max_distance, m.camera_distance);
+            }
+        }
+    } else {
+        matcher_.forget_motion();
+    }
+    summaries_before_ = std::move(recording_);
+    recording_.clear();
+    if (!log || std::chrono::steady_clock::now() - totals.start < std::chrono::seconds(1) || totals.flips == 0) return;
+    std::string why;
+    for (const auto &[reason, count] : totals.why) why += " " + reason + " x" + std::to_string(count);
+    std::fprintf(stderr, "[interp2] %u flips: %.0f eligible draws, %.1f%% matched, %llu instances repaired (%llu meshes over the cap), %llu rejected, "
+                         "camera up to %.1f deg %.1f units, %u continued, %u cuts%s, matching %.0f us a flip\n",
+                 totals.flips, static_cast<double>(totals.eligible) / totals.flips,
+                 totals.eligible != 0 ? 100.0 * static_cast<double>(totals.matched) / static_cast<double>(totals.eligible) : 0.0,
+                 static_cast<unsigned long long>(totals.repaired), static_cast<unsigned long long>(totals.crowded),
+                 static_cast<unsigned long long>(totals.rejected),
+                 static_cast<double>(totals.max_angle), static_cast<double>(totals.max_distance), totals.continued, totals.cuts,
+                 why.c_str(), totals.us / totals.flips);
+    totals = Totals{};
+}
+
 bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2]) {
     const auto now = std::chrono::steady_clock::now();
     const auto interval = now - last_flip_;
@@ -2059,6 +2124,8 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
     const GLsizei w = static_cast<GLsizei>(shown.width) * scale_, h = static_cast<GLsizei>(shown.height) * scale_;
     ensure_slot(slots_[0], w, h);
     ensure_slot(slots_[1], w, h);
+
+    match_v2(shown.address);
 
     // The batches that drew to the picture being shown, and whether anything else wrote to it.
     std::vector<TapeEntry> mine;
