@@ -354,11 +354,9 @@ function Controls({ keys, pad, keyDefaults, padDefaults, onChange }: {
   );
 }
 
-export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendCode, onSavesFolder, onState, say }: Pick<Props, 'state' | 'onChange' | 'onPseudonym' | 'onCopyCode'> & {
+export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendCode, onSavesFolder }: Pick<Props, 'state' | 'onChange' | 'onPseudonym' | 'onCopyCode'> & {
   friendCode: string;
   onSavesFolder: (backToDefault: boolean) => void;
-  onState: (s: State) => void;
-  say: (text: string) => void;
 }) {
   const s = state.settings;
   const [name, setName] = useState(state.pseudonym);
@@ -424,10 +422,6 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
           </div>
         </div>
       </motion.div>
-      <motion.div className="glass section" {...rise(0.25)}>
-        <h3>Texture pack</h3>
-        <TexturePackSection state={state} onState={onState} say={say} toggle={(p) => <Toggle {...p} />} />
-      </motion.div>
       <motion.div className="glass section" {...rise(0.3)}>
         <h3>About</h3>
         <div className="srow">
@@ -448,7 +442,10 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
   );
 }
 
-export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, onLocateExecutable }: Omit<Props, 'onPseudonym' | 'onCopyCode'>) {
+export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, onLocateExecutable, onState, say }: Omit<Props, 'onPseudonym' | 'onCopyCode'> & {
+  onState: (s: State) => void;
+  say: (text: string) => void;
+}) {
   const s = state.settings;
   const game = selectedGame(state) ?? state.games[0];
   return (
@@ -486,6 +483,10 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           <div className="slabel"><b>Smooth texture filtering</b><span>Optional enhancement: softens pixelated textures. Off is faithful to the original.</span></div>
           <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
         </div>
+      </motion.div>
+      <motion.div className="glass section" {...rise(0.07)}>
+        <h3>Texture pack</h3>
+        <TexturePackSection state={state} onState={onState} say={say} toggle={(p) => <Toggle {...p} />} />
       </motion.div>
       <motion.div className="glass section" {...rise(0.08)}>
         <h3>Controls</h3>

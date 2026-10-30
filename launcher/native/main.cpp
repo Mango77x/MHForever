@@ -215,12 +215,13 @@ void on_saves_folder(const char *id, const Json &args) {
     reply(id, r);
 }
 
-// Texture packs (Settings > Texture pack). mode: "review" asks for a folder and reviews the pack in it (nothing changes),
+// Texture packs (Game settings > Texture pack), for the copy of the game Game settings shows. mode: "review" asks for a folder and reviews the pack in it (nothing changes),
 // "use" uses the reviewed pack where it is, "copy" copies it into the data folder on a thread of its own
 // (texturePackProgress events, then texturePackDone or texturePackFailed), "cancel" stops a copy, "on" / "off" switch
 // the pack, "none" forgets it (deleting the copy in the data folder).
 std::mutex g_pack_mutex;
 fs::path g_pack_reviewed;               // the folder the last review was of
+std::string g_pack_disc;                // and the copy it was for
 std::atomic<bool> g_pack_cancel{false}; // a copy should stop
 std::atomic<bool> g_pack_copying{false};
 
@@ -228,36 +229,42 @@ void on_texture_pack(const char *id, const Json &args) {
     Json r;
     const auto &a = args.as_array();
     const std::string mode = a.empty() ? std::string() : a[0].as_string();
+    const std::string disc = g_app.launcher->disc_id_for("mhfu");
     r["error"] = std::string();
-    if (mode == "on" || mode == "off") {
-        g_app.launcher->set_texture_pack_enabled(mode == "on");
+    if (disc.empty() && mode != "cancel") {
+        r["error"] = std::string("Add your copy of the game first.");
+    } else if (mode == "on" || mode == "off") {
+        g_app.launcher->set_texture_pack_enabled(disc, mode == "on");
     } else if (mode == "none") {
-        if (!g_pack_copying) g_app.launcher->set_texture_pack(fs::path());
+        if (!g_pack_copying) g_app.launcher->set_texture_pack(disc, fs::path());
     } else if (mode == "review") {
         r["picked"] = false;
         if (const std::optional<fs::path> folder = platform::open_folder(native_window(), "Choose the texture pack's folder")) {
             r["picked"] = true;
-            r["review"] = g_app.launcher->review_texture_pack(*folder);
+            r["review"] = g_app.launcher->review_texture_pack(disc, *folder);
             std::lock_guard lock(g_pack_mutex);
             g_pack_reviewed = platform::from_utf8(r["review"]["folder"].as_string());
+            g_pack_disc = disc;
         }
     } else if (mode == "use") {
         std::lock_guard lock(g_pack_mutex);
-        if (g_pack_reviewed.empty() || !g_app.launcher->set_texture_pack(g_pack_reviewed)) r["error"] = std::string("That folder holds no usable pack.");
+        if (g_pack_reviewed.empty() || g_pack_disc != disc || !g_app.launcher->set_texture_pack(disc, g_pack_reviewed)) {
+            r["error"] = std::string("That folder holds no usable pack.");
+        }
     } else if (mode == "copy") {
         fs::path folder;
         {
             std::lock_guard lock(g_pack_mutex);
-            folder = g_pack_reviewed;
+            if (g_pack_disc == disc) folder = g_pack_reviewed;
         }
         if (folder.empty() || g_pack_copying.exchange(true)) {
             r["error"] = std::string(folder.empty() ? "Choose a pack first." : "A pack is being copied already.");
         } else {
             g_pack_cancel = false;
-            std::thread([folder] {
+            std::thread([folder, disc] {
                 std::string error;
                 auto last = std::chrono::steady_clock::now() - std::chrono::seconds(1);
-                const bool ok = g_app.launcher->install_texture_pack(folder, [&last](double share, const std::string &file) {
+                const bool ok = g_app.launcher->install_texture_pack(disc, folder, [&last](double share, const std::string &file) {
                     const auto now = std::chrono::steady_clock::now();
                     if (now - last >= std::chrono::milliseconds(100) || share >= 1.0) {
                         last = now;

@@ -562,42 +562,48 @@ int main(int argc, char **argv) {
         put(base / "nothing" / "readme.txt", "-");
 
         Launcher l(base / "app", base / "data", base / "saves");
-        const Json none = l.review_texture_pack(base / "nothing");
+        const std::string eu = "ULES01213", us = "ULUS10391";
+        const Json none = l.review_texture_pack(eu, base / "nothing");
         CHECK(!none["ok"].as_bool() && !none["error"].as_string().empty());
-        const Json review = l.review_texture_pack(download);
+        // Each release gets the ini for it.
+        const Json review = l.review_texture_pack(eu, download);
         CHECK(review["ok"].as_bool() && fs::path(review["folder"].as_string()) == download / "MAIN");
-        bool eu = false;
-        for (const Json &r : review["regions"].as_array()) {
-            if (r["game"].as_string() == "ULES01213") {
-                eu = true;
-                CHECK(r["ini"].as_string() == "textures_FU_EU.ini" && r["keys"].as_number() == 2 && r["missing"].as_number() == 1);
-            }
-        }
-        CHECK(eu);
+        CHECK(review["ini"].as_string() == "textures_FU_EU.ini" && review["keys"].as_number() == 2 && review["missing"].as_number() == 1);
+        CHECK(l.review_texture_pack(us, download)["ini"].as_string() == "textures_FU_US.ini");
 
-        CHECK(!l.set_texture_pack(base / "nothing"));
-        CHECK(l.set_texture_pack(download));
-        Json s = l.state();
-        CHECK(fs::path(s["texturePack"].as_string()) == download / "MAIN" && s["texturePackEnabled"].as_bool());
-        CHECK(!s["texturePackInstalled"].as_bool() && s["texturePackSummary"].as_string().find("Europe") != std::string::npos);
+        // One pack per copy, kept in its own settings.
+        const auto pack_of = [&](const std::string &disc) {
+            const Json data = *Json::parse([&] {
+                std::ifstream in(base / "data" / "launcher.json", std::ios::binary);
+                return std::string(std::istreambuf_iterator<char>(in), {});
+            }());
+            return data["gameSettings"][disc];
+        };
+        CHECK(!l.set_texture_pack(eu, base / "nothing"));
+        CHECK(l.set_texture_pack(eu, download));
+        CHECK(fs::path(pack_of(eu)["texturePack"].as_string()) == download / "MAIN" && pack_of(eu)["texturePackEnabled"].as_bool());
+        CHECK(pack_of(eu)["texturePackSummary"].as_string().find("textures_FU_EU.ini") != std::string::npos);
+        CHECK(!pack_of(us)["texturePack"].is_string());
+        l.set_texture_pack_enabled(eu, false);
+        CHECK(!pack_of(eu)["texturePackEnabled"].as_bool());
 
         std::string error;
         double last = 0;
-        CHECK(l.install_texture_pack(download, [&last](double share, const std::string &) { last = share; return true; }, error));
-        CHECK(error.empty() && last == 1.0 && fs::exists(l.installed_texture_pack() / "textures_FU_EU.ini"));
-        s = l.state();
-        CHECK(s["texturePackInstalled"].as_bool());
+        CHECK(l.install_texture_pack(eu, download, [&last](double share, const std::string &) { last = share; return true; }, error));
+        CHECK(error.empty() && last == 1.0 && fs::exists(l.installed_texture_pack(eu) / "textures_FU_EU.ini"));
+        CHECK(fs::path(pack_of(eu)["texturePack"].as_string()) == l.installed_texture_pack(eu));
         // A second copy keeps the first as a backup; a cancelled one leaves the pack in use as it was.
-        CHECK(l.install_texture_pack(download, [](double, const std::string &) { return true; }, error));
+        CHECK(l.install_texture_pack(eu, download, [](double, const std::string &) { return true; }, error));
         CHECK(fs::exists(base / "data" / "textures" / ".backup"));
-        CHECK(!l.install_texture_pack(download, [](double, const std::string &) { return false; }, error) && error == "Cancelled");
-        CHECK(fs::exists(l.installed_texture_pack() / "eu.png"));
-        // Removing the copy deletes it; the download is untouched.
-        CHECK(l.set_texture_pack({}));
-        CHECK(!fs::exists(l.installed_texture_pack()) && fs::exists(download / "MAIN" / "eu.png"));
-        CHECK(l.state()["texturePack"].as_string().empty());
+        CHECK(!l.install_texture_pack(eu, download, [](double, const std::string &) { return false; }, error) && error == "Cancelled");
+        CHECK(fs::exists(l.installed_texture_pack(eu) / "eu.png"));
+        // Removing MHForever's copy deletes it; the download is untouched, and the other copy's settings too.
+        CHECK(l.set_texture_pack(us, download));
+        CHECK(l.set_texture_pack(eu, {}));
+        CHECK(!fs::exists(l.installed_texture_pack(eu)) && fs::exists(download / "MAIN" / "eu.png"));
+        CHECK(!pack_of(eu)["texturePack"].is_string() && pack_of(us)["texturePack"].is_string());
         // A pack used where it is is only forgotten.
-        CHECK(l.set_texture_pack(download / "MAIN") && l.set_texture_pack({}) && fs::exists(download / "MAIN" / "textures.ini"));
+        CHECK(l.set_texture_pack(us, {}) && fs::exists(download / "MAIN" / "textures.ini"));
     }
 
     // Friends in the game's Online tab: the launcher writes only what reads as a friend or an invite; the game's actions

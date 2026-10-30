@@ -291,8 +291,6 @@ export default function App() {
                     if (r.error) say(r.error);
                     else if (r.picked) say(r.copied ? `Saves folder changed, saves of ${r.copied} game${r.copied === 1 ? '' : 's'} copied` : 'Saves folder changed');
                   })}
-                  onState={setState}
-                  say={say}
                 />
               )}
               {screen === 'game' && (
@@ -302,6 +300,8 @@ export default function App() {
                   onChangeCopy={addCopy}
                   onRemoveCopy={(id) => api.mhf_removeGame(id).then((s) => { setState(s); say('Copy removed from the library'); })}
                   onLocateExecutable={locateExe}
+                  onState={setState}
+                  say={say}
                 />
               )}
             </motion.div>

@@ -116,20 +116,21 @@ public:
         std::string error;
     };
     SavesFolderChange set_saves_folder(const std::filesystem::path &folder);
-    // Texture packs in PPSSPP's format (platforms/psp/frontend/texture_pack.hpp). review_texture_pack() finds the pack
-    // in a folder the player chose (itself, a MAIN inside it, PPSSPP's PSP/TEXTURES/<id>) and says, per release in the
-    // catalog, which ini it uses, how many textures it names and how many of their images are missing; nothing changes.
-    [[nodiscard]] Json review_texture_pack(const std::filesystem::path &chosen) const;
-    // Uses the pack in `folder` (a pack's own folder, as the review found it) where it is; empty forgets the pack, and
-    // deletes it when it is the copy in the data folder. False (nothing changed) when there is no pack there.
-    bool set_texture_pack(const std::filesystem::path &folder);
-    void set_texture_pack_enabled(bool enabled);
-    // Copies the pack in `folder` into the data folder and uses it from there. The copy goes to a hidden folder first:
-    // the pack in use stays until the copy is complete, and a copy already there is kept in textures/.backup/<time>.
-    // `progress` gets the share done and the file being copied, and stops the copy by returning false.
-    bool install_texture_pack(const std::filesystem::path &folder, const std::function<bool(double, const std::string &)> &progress,
-                              std::string &error);
-    [[nodiscard]] std::filesystem::path installed_texture_pack() const { return data_dir_ / "textures" / "pack"; }
+    // Texture packs in PPSSPP's format (platforms/psp/frontend/texture_pack.hpp), one per copy of a game, kept in its
+    // settings (Game settings). review_texture_pack() finds the pack in a folder the player chose (itself, a MAIN inside
+    // it, PPSSPP's PSP/TEXTURES/<id>) and says which ini the release `disc_id` uses, how many textures it names and how
+    // many of their images are missing; nothing changes.
+    [[nodiscard]] Json review_texture_pack(const std::string &disc_id, const std::filesystem::path &chosen) const;
+    // Uses the pack in `folder` for the copy `disc_id`, where it is; empty forgets it, and deletes it when it is
+    // MHForever's copy. False (nothing changed) when there is no pack there for that release.
+    bool set_texture_pack(const std::string &disc_id, const std::filesystem::path &folder);
+    void set_texture_pack_enabled(const std::string &disc_id, bool enabled);
+    // Copies the pack in `folder` into the data folder (textures/<disc_id>) and uses it from there. The copy goes to a
+    // hidden folder first: the pack in use stays until the copy is complete, and the copy before is kept in
+    // textures/.backup/<time>. `progress` gets the share done and the file being copied, and stops the copy by returning false.
+    bool install_texture_pack(const std::string &disc_id, const std::filesystem::path &folder,
+                              const std::function<bool(double, const std::string &)> &progress, std::string &error);
+    [[nodiscard]] std::filesystem::path installed_texture_pack(const std::string &disc_id) const;
 
     // Saves used to live in <launcher folder>/memstick, which an update (a new folder) leaves behind. Copies what is
     // there into the memory stick of `disc_id` once per source folder, never overwriting and never deleting the old files.

@@ -4,10 +4,10 @@ import { api, onEvent, type PackReview, type State } from './bridge';
 const bytes = (n: number) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : `${Math.max(1, Math.round(n / (1 << 20)))} MB`);
 const count = (n: number) => n.toLocaleString('en');
 
-// Settings > Texture pack: HD texture packs in PPSSPP's format (a folder with textures.ini, such as KHD). Choosing a
-// folder reviews the pack first (which ini each release uses, how many textures, missing images, size); nothing is used
-// or copied until the player says how: copied into MHForever's folder (it keeps working if the download is deleted), or
-// used where it is (no space taken, but it must stay there).
+// Game settings > Texture pack: an HD texture pack in PPSSPP's format (a folder with textures.ini, such as KHD) for this
+// copy of the game. Choosing a folder reviews the pack first (the ini this release uses, how many textures, missing
+// images, size); nothing is used or copied until the player says how: copied into MHForever's folder (it keeps working
+// if the download is deleted), or used where it is (no space taken, but it must stay there).
 export function TexturePackSection({ state, onState, say, toggle }: {
   state: State;
   onState: (s: State) => void;
@@ -17,6 +17,8 @@ export function TexturePackSection({ state, onState, say, toggle }: {
   const [review, setReview] = useState<PackReview | null>(null);
   const [copying, setCopying] = useState<{ progress: number; file: string } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const s = state.settings;
+  const pack = s.texturePack ?? '';
 
   useEffect(() => onEvent((e) => {
     if (e.type === 'texturePackProgress') setCopying({ progress: e.progress, file: e.file });
@@ -49,20 +51,20 @@ export function TexturePackSection({ state, onState, say, toggle }: {
           <b>HD textures</b>
           <span className="prose">
             Texture packs made for PPSSPP (a folder with a textures.ini), such as KHD, replace the game's textures with sharper
-            ones. None is included: download one, unzip it, and choose its folder. Each release uses the pack's textures for it.
+            ones. None is included: download one, unzip it, and choose its folder. This copy uses the pack's textures for its release.
           </span>
-          {state.texturePack ? (
+          {pack ? (
             <>
-              <span className="path">{state.texturePack}</span>
-              <span>{state.texturePackSummary}{state.texturePackInstalled ? ' · copied into MHForever' : ' · used where it is'}</span>
+              <span className="path">{pack}</span>
+              <span>{s.texturePackSummary ?? ''}{state.texturePackInstalled ? ' · copied into MHForever' : ' · used where it is'}</span>
             </>
           ) : (
             <span className="path">No pack chosen</span>
           )}
         </div>
         <div className="row-actions">
-          {!copying && <button className="ghost mid" onClick={choose}>{state.texturePack ? 'Change…' : 'Choose a pack…'}</button>}
-          {state.texturePack && !copying && !confirmRemove && (
+          {!copying && <button className="ghost mid" onClick={choose}>{pack ? 'Change…' : 'Choose a pack…'}</button>}
+          {pack && !copying && !confirmRemove && (
             <button className="ghost mid" onClick={() => (state.texturePackInstalled ? setConfirmRemove(true) : run('none'))}>Remove</button>
           )}
           {confirmRemove && (
@@ -71,7 +73,7 @@ export function TexturePackSection({ state, onState, say, toggle }: {
               <button className="ghost mid" onClick={() => setConfirmRemove(false)}>Keep it</button>
             </>
           )}
-          {state.texturePack && toggle({ on: state.texturePackEnabled, onToggle: () => run(state.texturePackEnabled ? 'off' : 'on'), label: 'Use the texture pack' })}
+          {pack && toggle({ on: !!s.texturePackEnabled, onToggle: () => run(s.texturePackEnabled ? 'off' : 'on'), label: 'Use the texture pack' })}
         </div>
       </div>
 
@@ -80,11 +82,10 @@ export function TexturePackSection({ state, onState, say, toggle }: {
           <div className="slabel">
             <b>Pack found</b>
             <span className="path">{review.folder}</span>
-            {review.regions.map((r) => (
-              <span key={r.game}>
-                {r.label}: {r.error ? r.error : `${count(r.keys)} textures (${r.ini})${r.missing ? `, ${count(r.missing)} image${r.missing === 1 ? '' : 's'} missing: the game's own texture stays for ${r.missing === 1 ? 'it' : 'those'}` : ''}`}
-              </span>
-            ))}
+            <span>
+              {review.label}: {count(review.keys)} textures ({review.ini})
+              {review.missing ? `, ${count(review.missing)} image${review.missing === 1 ? '' : 's'} missing: the game's own texture stays for ${review.missing === 1 ? 'it' : 'those'}` : ''}
+            </span>
             <span>{count(review.images)} images, {bytes(review.bytes)}.{review.installed ? ' This is the copy MHForever already has.' : ''}</span>
             {review.warnings.map((w) => <span key={w} className="prose">{w}</span>)}
           </div>

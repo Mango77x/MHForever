@@ -36,6 +36,11 @@ export interface Settings {
   adhocRoom: string;
   checkUpdates: boolean; // ask GitHub for a newer release when the launcher starts
   friendRelays: string[]; // the public Nostr relays friends meet through (wss:// addresses)
+  // This copy's texture pack (Game settings > Texture pack): its folder ('' or missing: none), whether the game gets
+  // it, and "6124 textures (textures_FU_EU.ini)".
+  texturePack?: string;
+  texturePackEnabled?: boolean;
+  texturePackSummary?: string;
 }
 
 // A line of the game's Online tab: a friend and where they are, or an invite from one.
@@ -77,23 +82,24 @@ export interface State {
   executable: { path: string; found: boolean };
   savesFolder: string; // where the saves are kept (Settings > Storage)
   savesFolderCustom: boolean; // the player chose it; false: the default one
-  texturePack: string; // the texture pack's folder, '' when none (Settings > Texture pack)
-  texturePackEnabled: boolean; // the game is started with it
-  texturePackSummary: string; // "6124 textures for Europe, ..."
-  texturePackInstalled: boolean; // it is the copy in MHForever's folder (removing it deletes it)
+  texturePackInstalled: boolean; // the shown copy's texture pack is MHForever's copy of it (removing it deletes it)
 }
 
-// What a texture pack in a chosen folder holds (Settings > Texture pack), before it is used.
+// What a texture pack in a chosen folder holds for the shown copy of the game (Game settings > Texture pack), before
+// it is used.
 export interface PackReview {
   chosen: string;
   folder: string; // the pack's own folder (KHD's MAIN, PPSSPP's PSP/TEXTURES/<id>...)
+  game: string; // the copy's disc id
+  label: string; // its region
   ok: boolean;
   error: string;
-  regions: { game: string; label: string; ini: string; keys: number; missing: number; error: string }[];
-  warnings: string[];
+  ini: string; // the ini it uses for this release
+  keys: number;
   images: number;
   missing: number;
   bytes: number;
+  warnings: string[];
   installed: boolean; // the copy MHForever already has
 }
 
@@ -207,7 +213,7 @@ function simulated(): Native {
     executable: { path: '', found: true },
     savesFolder: 'C:\\Users\\Hunter\\Documents\\MHForever\\saves',
     savesFolderCustom: false,
-    texturePack: '', texturePackEnabled: false, texturePackSummary: '', texturePackInstalled: false,
+    texturePackInstalled: false,
   };
   const copy = () => JSON.parse(JSON.stringify(state)) as State;
   return {
@@ -277,22 +283,18 @@ function simulated(): Native {
     async mhf_texturePack(mode) {
       const folder = 'D:\\Mods\\MH2G_KHD 1.3\\MAIN';
       const review: PackReview = {
-        chosen: 'D:\\Mods\\MH2G_KHD 1.3', folder, ok: true, error: '', images: 6101, missing: 1, bytes: 2.62e9, installed: false,
+        chosen: 'D:\\Mods\\MH2G_KHD 1.3', folder, game: 'ULES01213', label: 'Europe', ok: true, error: '', ini: 'textures_FU_EU.ini',
+        keys: 6124, images: 6101, missing: 1, bytes: 2.62e9, installed: false,
         warnings: ['5 lines under [hashes] are not keys and were skipped'],
-        regions: [
-          { game: 'ULES01213', label: 'Europe', ini: 'textures_FU_EU.ini', keys: 6124, missing: 1, error: '' },
-          { game: 'ULUS10391', label: 'North America', ini: 'textures_FU_US.ini', keys: 6113, missing: 0, error: '' },
-          { game: 'ULJM05500', label: 'Japan', ini: 'textures.ini', keys: 6121, missing: 0, error: '' },
-        ],
       };
       const use = (where: string, installed: boolean) => {
-        state.texturePack = where;
-        state.texturePackEnabled = true;
+        state.settings.texturePack = where;
+        state.settings.texturePackEnabled = true;
+        state.settings.texturePackSummary = '6124 textures (textures_FU_EU.ini)';
         state.texturePackInstalled = installed;
-        state.texturePackSummary = '6124 textures for Europe, 6113 for North America, 6121 for Japan';
       };
-      if (mode === 'on' || mode === 'off') state.texturePackEnabled = mode === 'on';
-      else if (mode === 'none') { state.texturePack = ''; state.texturePackEnabled = false; state.texturePackInstalled = false; }
+      if (mode === 'on' || mode === 'off') state.settings.texturePackEnabled = mode === 'on';
+      else if (mode === 'none') { state.settings.texturePack = ''; state.settings.texturePackEnabled = false; state.texturePackInstalled = false; }
       else if (mode === 'review') return { picked: true, review, state: copy() };
       else if (mode === 'use') use(folder, false);
       else if (mode === 'copy') {
@@ -302,7 +304,7 @@ function simulated(): Native {
           emit({ type: 'texturePackProgress', progress: p, file: `${Math.round(p * 6101)}.ktx2` });
           if (p >= 1) {
             clearInterval(tick);
-            use('C:\\Users\\Hunter\\AppData\\Roaming\\MHForever\\textures\\pack', true);
+            use('C:\\Users\\Hunter\\AppData\\Roaming\\MHForever\\textures\\ULES01213', true);
             emit({ type: 'texturePackDone' });
             emit({ type: 'state', state: copy() });
           }
