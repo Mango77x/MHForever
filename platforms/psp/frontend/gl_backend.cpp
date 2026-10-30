@@ -32,6 +32,8 @@
 #include <unordered_map>
 #include <string>
 #include <vector>
+#include <cstdlib>
+#include "texture_replacer.hpp"
 
 namespace mhf::psp {
 
@@ -764,6 +766,8 @@ private:
     std::map<std::uint32_t, RenderTarget> targets_; // by VRAM offset
     RenderTarget *current_{};
     std::unordered_map<std::uint64_t, CachedTexture> textures_;
+    mhf::psp::frontend::TextureReplacer replacer_;
+    bool replacer_tried_ = false;
     // Textures replaced by new content while a recorded batch (frame interpolation) may still draw with them; they
     // are deleted a few flips later.
     std::vector<std::pair<std::uint64_t, GLuint>> retired_textures_;
@@ -1132,6 +1136,10 @@ void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t) {
 }
 
 GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
+    if (!replacer_tried_) {
+        replacer_tried_ = true;
+        if (const char *dir = std::getenv("MHF_TEXTURE_PACK")) replacer_.load(dir);
+    }
     const auto info = ge.texture_info();
     tex_width_ = static_cast<float>(info.width);
     tex_height_ = static_cast<float>(info.height);
@@ -1190,8 +1198,19 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
         t.checked_clut = ge.clut_generation();
         if (t.texture == 0 || hash != t.hash) {
             t.hash = hash;
-            pixels_.resize(static_cast<std::size_t>(info.width) * info.height);
-            ge.decode_texture(pixels_.data());
+            const mhf::psp::frontend::TextureReplacer::Image *repl = nullptr;
+            if (replacer_.size() != 0) {
+                const std::uint32_t rh = ge.replacement_hash();
+                static std::set<std::uint32_t> seen;
+                if (seen.insert(rh).second)
+                    std::fprintf(stderr, "[tex] %08x %ux%u fmt %u %s\n", rh, info.width, info.height, info.format,
+                                 replacer_.find(rh) ? "HIT" : "miss");
+                repl = replacer_.image(rh);
+            }
+            if (!repl) {
+                pixels_.resize(static_cast<std::size_t>(info.width) * info.height);
+                ge.decode_texture(pixels_.data());
+            }
             if (interpolate_ && t.texture != 0) {
                 // A recorded batch may replay with the old content: never overwrite a texture in place.
                 retired_textures_.emplace_back(frame_, t.texture);
@@ -1199,8 +1218,12 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
             }
             if (t.texture == 0) gl_.GenTextures(1, &t.texture);
             gl_.BindTexture(GL_TEXTURE_2D, t.texture);
-            gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(info.width), static_cast<GLsizei>(info.height),
-                           0, GL_RGBA, GL_UNSIGNED_BYTE, pixels_.data());
+            if (repl)
+                gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(repl->width),
+                               static_cast<GLsizei>(repl->height), 0, GL_RGBA, GL_UNSIGNED_BYTE, repl->rgba.data());
+            else
+                gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(info.width), static_cast<GLsizei>(info.height),
+                               0, GL_RGBA, GL_UNSIGNED_BYTE, pixels_.data());
         }
     }
     return t.texture;

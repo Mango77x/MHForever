@@ -30,7 +30,8 @@ target_include_directories(mhf_psp_interpolation PUBLIC ${CMAKE_CURRENT_SOURCE_D
 mhf_target_warnings(mhf_psp_interpolation)
 
 if(MHF_WITH_SDL)
-    add_library(mhf_psp_frontend STATIC frontend/psp_frontend.cpp frontend/gl_backend.cpp frontend/dialog_overlay.cpp)
+    add_library(mhf_psp_frontend STATIC frontend/psp_frontend.cpp frontend/gl_backend.cpp frontend/dialog_overlay.cpp frontend/texture_replacer.cpp)
+target_link_libraries(mhf_psp_frontend PRIVATE mhf_basisu)
     target_include_directories(mhf_psp_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/frontend
                                PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/gpu)
     target_link_libraries(mhf_psp_frontend PUBLIC mhf_psp_runtime PRIVATE mhf_core_host mhf_overlay mhf_stb_truetype mhf_psp_interpolation)
