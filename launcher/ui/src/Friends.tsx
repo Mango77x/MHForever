@@ -1,6 +1,7 @@
 // The Friends drawer and the friends network behind it (docs/14-rooms-and-friends.md section 4.3; the protocol is in
 // friendNetwork.ts): your friend code, adding a friend by code, requests, who is online and where, invites and joining.
 
+import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { api, selectedGame, type State } from './bridge';
@@ -159,6 +160,28 @@ export function useFriends(state: State | null, playing: boolean, say: (text: st
   };
 }
 
+// Text that does not fit glides slowly to its end and back, like a sign board; text that fits stays still.
+function Marquee({ text, className }: { text: string; className?: string }) {
+  const box = useRef<HTMLSpanElement>(null);
+  const inner = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState(0);
+  useEffect(() => {
+    const measure = () => {
+      if (box.current && inner.current) setShift(Math.max(0, inner.current.scrollWidth - box.current.clientWidth));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (box.current) observer.observe(box.current);
+    return () => observer.disconnect();
+  }, [text]);
+  const style = shift > 0 ? ({ '--shift': `-${shift}px`, animationDuration: `${4 + shift / 18}s` } as React.CSSProperties) : undefined;
+  return (
+    <span ref={box} className={'marquee' + (className ? ' ' + className : '')} title={text}>
+      <span ref={inner} className={shift > 0 ? 'moving' : undefined} style={style}>{text}</span>
+    </span>
+  );
+}
+
 function Countdown({ until }: { until: number }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -285,8 +308,8 @@ export function FriendsDrawer({ model, state, playing, onClose, onCopy, onJoin }
               <span className="avatar">{(f.name || '?').slice(0, 1).toUpperCase()}{w.online && <span className="online" />}</span>
               <div className="f-text">
                 <b>{f.name || 'Friend'}</b>
-                <span>{w.text}</span>
-                {w.place && <span className="place">{w.place}</span>}
+                <Marquee text={w.text} />
+                {w.place && <Marquee text={w.place} className="place" />}
               </div>
               <div className="f-actions">
                 {menu === f.key ? (
