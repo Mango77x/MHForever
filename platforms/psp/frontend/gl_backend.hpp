@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
 
 struct SDL_Window;
@@ -39,6 +40,10 @@ struct LiveSettings {
     // multiplier (1..10) and the output rate in fps (a multiple of 30 up to 180).
     std::atomic<int> scale{0};
     std::atomic<int> fps{0};
+    // Texture pack (frontend/texture_pack.hpp): drawn or not while the game runs; and, set before the backend is made,
+    // the pack's folder (empty: none, or MHF_TEXTURE_PACK) and the release it is drawn for ("ULES01213").
+    std::atomic<bool> texture_pack{true};
+    std::string texture_pack_folder, texture_pack_game;
 };
 
 // Creates the context on the calling thread. Returns nullptr (after logging why) when OpenGL 3.3 is unavailable.

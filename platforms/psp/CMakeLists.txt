@@ -29,11 +29,23 @@ add_library(mhf_psp_interpolation STATIC frontend/frame_matching.cpp)
 target_include_directories(mhf_psp_interpolation PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/frontend ${CMAKE_CURRENT_SOURCE_DIR}/gpu)
 mhf_target_warnings(mhf_psp_interpolation)
 
+# Texture packs in PPSSPP's format (frontend/texture_pack.*: the ini, keys and lookups; frontend/texture_images.*: the
+# images and their loader). The launcher reviews packs with the first; neither needs SDL.
+add_library(mhf_texture_pack STATIC frontend/texture_pack.cpp)
+target_include_directories(mhf_texture_pack PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/frontend)
+target_link_libraries(mhf_texture_pack PRIVATE mhf_xxhash)
+mhf_target_warnings(mhf_texture_pack)
+add_library(mhf_texture_images STATIC frontend/texture_images.cpp)
+target_include_directories(mhf_texture_images PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/frontend)
+target_link_libraries(mhf_texture_images PRIVATE mhf_basisu mhf_stb_image)
+mhf_target_warnings(mhf_texture_images)
+
 if(MHF_WITH_SDL)
     add_library(mhf_psp_frontend STATIC frontend/psp_frontend.cpp frontend/gl_backend.cpp frontend/dialog_overlay.cpp)
     target_include_directories(mhf_psp_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/frontend
                                PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/gpu)
-    target_link_libraries(mhf_psp_frontend PUBLIC mhf_psp_runtime PRIVATE mhf_core_host mhf_overlay mhf_stb_truetype mhf_psp_interpolation)
+    target_link_libraries(mhf_psp_frontend PUBLIC mhf_psp_runtime PRIVATE mhf_core_host mhf_overlay mhf_stb_truetype mhf_psp_interpolation
+                                                                    mhf_texture_pack mhf_texture_images)
     target_compile_definitions(mhf_psp_frontend PUBLIC MHF_HAS_FRONTEND=1)
     mhf_target_warnings(mhf_psp_frontend)
 endif()
@@ -59,6 +71,12 @@ if(MHF_BUILD_TESTS)
     target_link_libraries(test_frame_matching PRIVATE mhf_psp_interpolation)
     mhf_target_warnings(test_frame_matching)
     add_test(NAME psp_frame_matching COMMAND test_frame_matching)
+
+    add_executable(test_texture_pack tests/test_texture_pack.cpp)
+    target_include_directories(test_texture_pack PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+    target_link_libraries(test_texture_pack PRIVATE mhf_texture_pack mhf_texture_images mhf_xxhash)
+    mhf_target_warnings(test_texture_pack)
+    add_test(NAME psp_texture_pack COMMAND test_texture_pack)
 
     add_executable(test_adhocctl tests/test_adhocctl.cpp)
     target_include_directories(test_adhocctl PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src)

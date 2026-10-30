@@ -300,6 +300,8 @@ export default function App() {
                   onChangeCopy={addCopy}
                   onRemoveCopy={(id) => api.mhf_removeGame(id).then((s) => { setState(s); say('Copy removed from the library'); })}
                   onLocateExecutable={locateExe}
+                  onState={setState}
+                  say={say}
                 />
               )}
             </motion.div>

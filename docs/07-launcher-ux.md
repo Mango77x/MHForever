@@ -85,6 +85,17 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   was built) in `bin/`, the fonts next to them, and `packaging/linux/MHForever.desktop` plus the icon in the desktop's
   folders. The launcher embeds the icon and sets its application name, so the task bar and alt-tab show MHForever even
   when the archive is run without installing it.
+- **Texture packs (2026-10-30)**: Home's **Game settings → Texture pack** takes an HD texture pack in PPSSPP's format
+  (`platforms/psp/frontend/texture_pack.hpp`) for that copy of the game, kept with its other settings
+  (`gameSettings.<DISC_ID>`: `texturePack`, `texturePackEnabled`, a one-line summary). *Choose a pack…* reviews the folder
+  first (`review_texture_pack`): the pack inside it (its own folder, a `MAIN` inside it, PPSSPP's `PSP/TEXTURES/<id>`), the
+  ini the copy's release uses, its textures and missing images, the images' size and the pack's warnings; nothing changes
+  until the player chooses **Copy into MHForever** (to `<data>/textures/<DISC_ID>`, through a hidden `.incomplete-...`
+  folder so the pack in use stays until the copy is complete; the copy before is kept in `textures/.backup/<time>`; it needs
+  the pack's size plus 64 MB free, shows its progress and can be cancelled) or **Use it where it is** (nothing copied; if the
+  folder moves, the game is started without it). A switch turns it off and on; *Remove* forgets a pack used where it is
+  and, after a confirmation, deletes MHForever's copy. The game gets `--texture-pack <folder>` and chooses the ini for its
+  own release.
 - **Updates (2026-10-29)**: when the launcher starts (Settings > About > Check for updates, on by default) it asks GitHub for
   the latest release; when it is newer, Home offers "Update now". The launcher downloads the archive for its system with the
   system's `curl`, checks it against the SHA-256 GitHub computes for every release asset (nothing to publish besides the

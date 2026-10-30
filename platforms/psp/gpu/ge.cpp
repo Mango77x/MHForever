@@ -974,6 +974,8 @@ void Ge::load_clut(std::uint32_t data) {
     ++clut_generation_;
     const std::uint32_t address = (regs_[kClutAddr] & 0xFFFFF0u) | ((regs_[kClutAddrUpper] & 0x0F0000u) << 8u);
     const std::uint32_t bytes = std::min<std::uint32_t>((data & 0x3Fu) * 32u, 1024u);
+    clut_last_bytes_ = bytes;
+    clut_max_bytes_ = std::max(clut_max_bytes_, bytes);
     for (std::uint32_t i = 0; i < bytes / 4u; ++i) {
         clut_[i] = rd32(address + i * 4u);
     }

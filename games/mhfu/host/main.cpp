@@ -184,6 +184,7 @@ int main(int argc, char **argv) {
     mhf::host::KeyBindings keyboard; // --keymap: the launcher's keyboard bindings
     mhf::host::PadBindings controller; // --padmap: the launcher's controller bindings
     std::string controls_file;         // --controls-file: where the in-game menu writes the bindings the player changes
+    std::string texture_pack;          // --texture-pack: a texture pack's folder (MHF_TEXTURE_PACK too; the argument wins)
     std::string friends_file, friend_actions_file; // --friends-file, --friend-actions-file: friends in the Online tab
     std::string adhoc_nick;            // --adhoc-nick: the name other players see online (default: --name)
     std::vector<ScriptedPress> script;
@@ -209,6 +210,7 @@ int main(int argc, char **argv) {
         else if (a == "--keymap" && i + 1 < argc) keyboard = mhf::host::parse_keymap(argv[++i]);
         else if (a == "--padmap" && i + 1 < argc) controller = mhf::host::parse_padmap(argv[++i]);
         else if (a == "--controls-file" && i + 1 < argc) controls_file = argv[++i];
+        else if (a == "--texture-pack" && i + 1 < argc) texture_pack = argv[++i];
         else if (a == "--friends-file" && i + 1 < argc) friends_file = argv[++i];
         else if (a == "--friend-actions-file" && i + 1 < argc) friend_actions_file = argv[++i];
         else if (a == "--adhoc-server" && i + 1 < argc) options.adhoc_server = argv[++i]; // online play: an ad hoc server (PPSSPP's)
@@ -232,6 +234,9 @@ int main(int argc, char **argv) {
     }
     // In a window the player answers the system dialogs (messages, keyboard, save/load) on screen.
     options.interactive_dialogs = window && !auto_dialogs;
+    if (texture_pack.empty()) {
+        if (const char *pack = std::getenv("MHF_TEXTURE_PACK")) texture_pack = pack;
+    }
     if (options.adhoc_server.empty()) {
         if (const char *server = std::getenv("MHF_ADHOC_SERVER")) options.adhoc_server = server; // until the launcher sets it
     }
@@ -286,6 +291,7 @@ int main(int argc, char **argv) {
         if (window && frontend.open(window_title(options.disc_image).c_str(), false, 2, !software, render_scale, fullscreen, smooth_textures, target_fps, keyboard, controller)) {
             frontend.set_controls_file(controls_file);
             frontend.set_friends_files(friends_file, friend_actions_file);
+            if (!texture_pack.empty()) frontend.set_texture_pack(texture_pack, disc_product_code(options.disc_image));
             frontend.attach(runtime, extra);
         } else if (window) {
             // A player asked for a window: never keep running invisibly.

@@ -8,6 +8,7 @@
 #include "iso9660.hpp"
 #include "param_sfo.hpp"
 #include "platform.hpp"
+#include "texture_pack.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -269,6 +270,175 @@ Launcher::SavesFolderChange Launcher::set_saves_folder(const fs::path &folder) {
     save();
     result.changed = true;
     return result;
+}
+
+namespace {
+
+// The settings a copy keeps for itself (launcher.json "gameSettings"), started from the launcher's "settings" as
+// apply_settings() starts them.
+Json &own_settings(Json &data, const std::string &disc_id) {
+    Json &all = data["gameSettings"];
+    if (!all[disc_id].is_object()) {
+        Json seed = data["settings"];
+        if (seed.is_object()) {
+            for (const auto &[k, v] : data["settings"].as_object()) {
+                if (is_launcher_setting(k)) seed.object().erase(k);
+            }
+        } else {
+            seed = Json(Json::Object{});
+        }
+        all[disc_id] = seed;
+    }
+    return all[disc_id];
+}
+
+} // namespace
+
+fs::path Launcher::installed_texture_pack(const std::string &disc_id) const { return data_dir_ / "textures" / disc_id; }
+
+Json Launcher::review_texture_pack(const std::string &disc_id, const fs::path &chosen) const {
+    Json out;
+    const fs::path folder = mhf::psp::textures::Pack::locate(chosen, disc_id);
+    out["chosen"] = platform::to_utf8(chosen);
+    out["folder"] = platform::to_utf8(folder);
+    out["game"] = disc_id;
+    const CatalogEntry *entry = entry_for(disc_id);
+    out["label"] = std::string(entry != nullptr ? region_name(entry->market) : "this release");
+    out["ok"] = false;
+    out["error"] = std::string();
+    out["ini"] = std::string();
+    out["keys"] = 0;
+    out["images"] = 0;
+    out["missing"] = 0;
+    out["bytes"] = 0;
+    out["installed"] = false;
+    Json warnings(Json::Array{});
+    if (folder.empty()) {
+        std::error_code ec;
+        const bool zip = fs::is_regular_file(chosen, ec) || chosen.extension() == ".zip";
+        out["error"] = std::string(zip ? "Unzip the pack first, then choose its folder."
+                                       : "No texture pack here: choose the folder that holds textures.ini (or the pack's main folder).");
+        out["warnings"] = warnings;
+        return out;
+    }
+    mhf::psp::textures::Review review;
+    std::string error;
+    if (!mhf::psp::textures::Pack::review(folder, disc_id, review, error)) {
+        out["error"] = error;
+        out["warnings"] = warnings;
+        return out;
+    }
+    for (const std::string &w : review.warnings) warnings.array().push_back(Json(w));
+    out["ok"] = true;
+    out["ini"] = platform::to_utf8(review.ini.filename());
+    out["keys"] = static_cast<double>(review.keys);
+    out["images"] = static_cast<double>(review.images);
+    out["missing"] = static_cast<double>(review.missing);
+    out["bytes"] = static_cast<double>(review.bytes);
+    out["installed"] = folder == installed_texture_pack(disc_id);
+    out["warnings"] = warnings;
+    return out;
+}
+
+bool Launcher::set_texture_pack(const std::string &disc_id, const fs::path &folder) {
+    if (disc_id.empty()) return false;
+    std::lock_guard lock(mutex_);
+    std::error_code ec;
+    Json &own = own_settings(data_, disc_id);
+    if (folder.empty()) {
+        // The copy in the data folder goes with it; a pack used where it is stays where it is.
+        const std::string current = own["texturePack"].is_string() ? own["texturePack"].as_string() : std::string();
+        if (!current.empty() && platform::from_utf8(current) == installed_texture_pack(disc_id)) fs::remove_all(installed_texture_pack(disc_id), ec);
+        own.object().erase("texturePack");
+        own.object().erase("texturePackSummary");
+        own["texturePackEnabled"] = false;
+        save();
+        return true;
+    }
+    const Json review = review_texture_pack(disc_id, folder);
+    if (!review["ok"].as_bool()) return false;
+    own["texturePack"] = review["folder"].as_string();
+    own["texturePackSummary"] = std::to_string(static_cast<long long>(review["keys"].as_number())) + " textures (" + review["ini"].as_string() + ")";
+    own["texturePackEnabled"] = true;
+    save();
+    return true;
+}
+
+void Launcher::set_texture_pack_enabled(const std::string &disc_id, bool enabled) {
+    if (disc_id.empty()) return;
+    std::lock_guard lock(mutex_);
+    own_settings(data_, disc_id)["texturePackEnabled"] = enabled;
+    save();
+}
+
+bool Launcher::install_texture_pack(const std::string &disc_id, const fs::path &folder,
+                                    const std::function<bool(double, const std::string &)> &progress, std::string &error) {
+    std::error_code ec;
+    const fs::path pack = mhf::psp::textures::Pack::locate(folder, disc_id);
+    if (pack.empty() || disc_id.empty()) {
+        error = "No texture pack in that folder.";
+        return false;
+    }
+    // What to copy, and whether it fits (with 64 MB to spare).
+    std::vector<std::pair<fs::path, std::uintmax_t>> files;
+    std::uintmax_t total = 0;
+    for (auto it = fs::recursive_directory_iterator(pack, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        const std::string name = platform::to_utf8(it->path().filename());
+        if (!name.empty() && name.front() == '.') continue; // .DS_Store and the like
+        const std::uintmax_t size = it->file_size(ec);
+        files.emplace_back(it->path(), size);
+        total += size;
+    }
+    if (ec) {
+        error = "Cannot read the pack's folder: " + ec.message();
+        return false;
+    }
+    const fs::path textures = data_dir_ / "textures";
+    fs::create_directories(textures, ec);
+    const fs::space_info space = fs::space(textures, ec);
+    if (!ec && space.available < total + (std::uintmax_t(64) << 20)) {
+        error = "Not enough free space: the pack needs " + std::to_string(total >> 20) + " MB.";
+        return false;
+    }
+    char stamp[32];
+    const std::time_t now = std::time(nullptr);
+    std::strftime(stamp, sizeof stamp, "%Y-%m-%d_%H-%M-%S", std::localtime(&now));
+    const fs::path incomplete = textures / (std::string(".incomplete-") + disc_id + "-" + stamp);
+    std::uintmax_t done = 0;
+    for (const auto &[file, size] : files) {
+        const fs::path to = incomplete / fs::relative(file, pack, ec);
+        fs::create_directories(to.parent_path(), ec);
+        if (ec || !fs::copy_file(file, to, fs::copy_options::overwrite_existing, ec)) {
+            error = "Copying " + platform::to_utf8(file.filename()) + " failed: " + ec.message();
+            fs::remove_all(incomplete, ec);
+            return false;
+        }
+        done += size;
+        if (!progress(total != 0 ? static_cast<double>(done) / static_cast<double>(total) : 1.0, platform::to_utf8(file.filename()))) {
+            fs::remove_all(incomplete, ec);
+            error = "Cancelled";
+            return false;
+        }
+    }
+    // Complete: this copy's pack there before is kept as a backup, and the new one takes its place.
+    const fs::path installed = installed_texture_pack(disc_id);
+    if (fs::exists(installed, ec)) {
+        const fs::path backup = textures / ".backup" / stamp;
+        fs::create_directories(backup, ec);
+        fs::rename(installed, backup / disc_id, ec);
+        if (ec) {
+            error = "Cannot move the previous pack aside: " + ec.message();
+            fs::remove_all(incomplete, ec);
+            return false;
+        }
+    }
+    fs::rename(incomplete, installed, ec);
+    if (ec) {
+        error = "Cannot put the pack in place: " + ec.message();
+        return false;
+    }
+    return set_texture_pack(disc_id, installed);
 }
 
 void Launcher::import_legacy_saves(const std::string &disc_id) {
@@ -598,6 +768,9 @@ Json Launcher::state() {
     s["stats"] = data_["stats"];
     s["savesFolder"] = platform::to_utf8(saves_dir_);
     s["savesFolderCustom"] = !data_["savesFolder"].as_string().empty();
+    // The shown copy's texture pack is in its settings; whether it is MHForever's copy of it (removing deletes that).
+    const std::string pack = s["settings"]["texturePack"].is_string() ? s["settings"]["texturePack"].as_string() : std::string();
+    s["texturePackInstalled"] = shown != nullptr && !pack.empty() && platform::from_utf8(pack) == installed_texture_pack(shown->disc_id);
     Json games(Json::Array{});
     const CatalogEntry *playable = nullptr;
     for (const auto &g : data_["games"].as_array()) {
@@ -1032,6 +1205,15 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
                  data_["pseudonym"].as_string(), "--music-volume", num("musicVolume"), "--sfx-volume", num("sfxVolume")};
     if (s["fullscreen"].as_bool()) plan.args.push_back("--fullscreen");
     if (s["smoothTextures"].as_bool()) plan.args.push_back("--smooth-textures");
+    if (s["texturePackEnabled"].is_bool() && s["texturePackEnabled"].as_bool() && s["texturePack"].is_string()) {
+        // This copy's pack, used only while its folder is still there (a pack used where it is may have moved).
+        std::error_code pack_ec;
+        const std::string pack = s["texturePack"].as_string();
+        if (!pack.empty() && fs::is_directory(platform::from_utf8(pack), pack_ec)) {
+            plan.args.push_back("--texture-pack");
+            plan.args.push_back(pack);
+        }
+    }
     if (s["fps"].as_number() > 30) {
         plan.args.push_back("--fps");
         plan.args.push_back(num("fps"));

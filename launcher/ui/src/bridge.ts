@@ -36,6 +36,11 @@ export interface Settings {
   adhocRoom: string;
   checkUpdates: boolean; // ask GitHub for a newer release when the launcher starts
   friendRelays: string[]; // the public Nostr relays friends meet through (wss:// addresses)
+  // This copy's texture pack (Game settings > Texture pack): its folder ('' or missing: none), whether the game gets
+  // it, and "6124 textures (textures_FU_EU.ini)".
+  texturePack?: string;
+  texturePackEnabled?: boolean;
+  texturePackSummary?: string;
 }
 
 // A line of the game's Online tab: a friend and where they are, or an invite from one.
@@ -77,6 +82,25 @@ export interface State {
   executable: { path: string; found: boolean };
   savesFolder: string; // where the saves are kept (Settings > Storage)
   savesFolderCustom: boolean; // the player chose it; false: the default one
+  texturePackInstalled: boolean; // the shown copy's texture pack is MHForever's copy of it (removing it deletes it)
+}
+
+// What a texture pack in a chosen folder holds for the shown copy of the game (Game settings > Texture pack), before
+// it is used.
+export interface PackReview {
+  chosen: string;
+  folder: string; // the pack's own folder (KHD's MAIN, PPSSPP's PSP/TEXTURES/<id>...)
+  game: string; // the copy's disc id
+  label: string; // its region
+  ok: boolean;
+  error: string;
+  ini: string; // the ini it uses for this release
+  keys: number;
+  images: number;
+  missing: number;
+  bytes: number;
+  warnings: string[];
+  installed: boolean; // the copy MHForever already has
 }
 
 export interface SaveScan {
@@ -104,7 +128,10 @@ export type LauncherEvent =
   | ({ type: 'update' } & UpdateInfo)
   | { type: 'updateProgress'; phase: 'downloading' | 'verifying' | 'installing'; progress: number }
   | { type: 'updateReady'; version: string }
-  | { type: 'updateFailed'; message: string };
+  | { type: 'updateFailed'; message: string }
+  | { type: 'texturePackProgress'; progress: number; file: string }
+  | { type: 'texturePackDone' }
+  | { type: 'texturePackFailed'; message: string };
 
 // A newer release of MHForever on GitHub.
 export interface UpdateInfo {
@@ -134,6 +161,10 @@ type Native = {
   mhf_updateInfo(): Promise<UpdateInfo | null>; // the newer release the start-up check found, if any
   mhf_installUpdate(): Promise<{ started: boolean }>; // download, check, install and restart (events: updateProgress...)
   mhf_savesFolder(mode: '' | 'default'): Promise<{ picked: boolean; copied?: number; error?: string; state: State }>;
+  // Texture packs: 'review' asks for a folder and reviews the pack in it, 'use' uses it where it is, 'copy' copies it
+  // into MHForever's folder (events: texturePackProgress, then texturePackDone or texturePackFailed), 'cancel' stops the
+  // copy, 'on'/'off' switch it, 'none' forgets it (deleting MHForever's copy).
+  mhf_texturePack(mode: 'review' | 'use' | 'copy' | 'cancel' | 'on' | 'off' | 'none'): Promise<{ picked?: boolean; review?: PackReview; error?: string; state: State }>;
 };
 
 const listeners = new Set<(e: LauncherEvent) => void>();
@@ -182,6 +213,7 @@ function simulated(): Native {
     executable: { path: '', found: true },
     savesFolder: 'C:\\Users\\Hunter\\Documents\\MHForever\\saves',
     savesFolderCustom: false,
+    texturePackInstalled: false,
   };
   const copy = () => JSON.parse(JSON.stringify(state)) as State;
   return {
@@ -247,6 +279,38 @@ function simulated(): Native {
       state.savesFolderCustom = mode !== 'default';
       state.savesFolder = mode === 'default' ? 'C:\\Users\\Hunter\\Documents\\MHForever\\saves' : 'D:\\Games\\MHForever saves';
       return { picked: true, copied: mode === 'default' ? 0 : 1, error: '', state: copy() };
+    },
+    async mhf_texturePack(mode) {
+      const folder = 'D:\\Mods\\MH2G_KHD 1.3\\MAIN';
+      const review: PackReview = {
+        chosen: 'D:\\Mods\\MH2G_KHD 1.3', folder, game: 'ULES01213', label: 'Europe', ok: true, error: '', ini: 'textures_FU_EU.ini',
+        keys: 6124, images: 6101, missing: 1, bytes: 2.62e9, installed: false,
+        warnings: ['5 lines under [hashes] are not keys and were skipped'],
+      };
+      const use = (where: string, installed: boolean) => {
+        state.settings.texturePack = where;
+        state.settings.texturePackEnabled = true;
+        state.settings.texturePackSummary = '6124 textures (textures_FU_EU.ini)';
+        state.texturePackInstalled = installed;
+      };
+      if (mode === 'on' || mode === 'off') state.settings.texturePackEnabled = mode === 'on';
+      else if (mode === 'none') { state.settings.texturePack = ''; state.settings.texturePackEnabled = false; state.texturePackInstalled = false; }
+      else if (mode === 'review') return { picked: true, review, state: copy() };
+      else if (mode === 'use') use(folder, false);
+      else if (mode === 'copy') {
+        let p = 0;
+        const tick = setInterval(() => {
+          p = Math.min(1, p + 0.07);
+          emit({ type: 'texturePackProgress', progress: p, file: `${Math.round(p * 6101)}.ktx2` });
+          if (p >= 1) {
+            clearInterval(tick);
+            use('C:\\Users\\Hunter\\AppData\\Roaming\\MHForever\\textures\\ULES01213', true);
+            emit({ type: 'texturePackDone' });
+            emit({ type: 'state', state: copy() });
+          }
+        }, 150);
+      }
+      return { error: '', state: copy() };
     },
   };
 }

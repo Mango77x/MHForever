@@ -41,6 +41,9 @@ public:
     // Friends in the Online tab (docs/14-rooms-and-friends.md section 4.3): the launcher keeps `friends` current while the
     // game runs; what the player does with them (invite, dismiss an invite) goes to `actions`.
     void set_friends_files(const std::string &friends, const std::string &actions);
+    // A texture pack (frontend/texture_pack.hpp): its folder, and the release being played ("ULES01213"), which
+    // chooses the pack's ini. Before attach(). The Video tab of the in-game menu then turns it on and off.
+    void set_texture_pack(const std::string &folder, const std::string &game_id);
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
     void attach(Runtime &rt, std::function<void()> extra = {});
