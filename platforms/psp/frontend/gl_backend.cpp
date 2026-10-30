@@ -635,10 +635,10 @@ private:
         std::uint64_t checked_frame{~0ull};
         std::uint64_t checked_clut{~0ull};
         std::uint64_t last_use{};
-        // Texture pack: the image drawn instead of the game's (its GPU bytes), the one being decoded for it (its name and
-        // files, and the loader generation last looked at), the part of the texture it covers, its [filtering], and
-        // the lowest row drawn in through mode (512-tall textures are hashed down to it).
-        std::size_t pack_bytes{};
+        // Texture pack: the image drawn instead of the game's (`shown`: its texture is then pack_images_'s, not this
+        // slot's), the one being decoded for it (its name and files, and the loader generation last looked at), the
+        // part of the texture it covers, its [filtering], and the lowest row drawn in through mode (512-tall textures
+        // are hashed down to it).
         bool mips{};
         std::uint8_t filter{};
         float uv_scale[2]{1.0f, 1.0f};
@@ -751,7 +751,9 @@ private:
     // keeping pack images within their memory budget.
     void open_texture_pack();
     void look_up_pack(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, CachedTexture &t);
-    void upload_pack_image(CachedTexture &t, const textures::Image &image);
+    void upload_pack_image(CachedTexture &t, const std::string &name, const textures::Image &image);
+    void use_pack_image(CachedTexture &t, const std::string &name);
+    void release_texture(CachedTexture &t);
     void dump_texture(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, const std::uint32_t *pixels);
     void drop_textures();
     void trim_pack_memory();
@@ -798,6 +800,16 @@ private:
     std::unique_ptr<textures::Loader> loader_; // decodes its images
     bool pack_on_ = false;                     // drawing it (the player can turn it off in the menu)
     std::size_t pack_bytes_ = 0, pack_budget_ = std::size_t(1024) << 20; // pack images on the GPU, and their limit
+    // Pack images on the GPU, one texture (with its mip levels) per image, shared by every cached texture drawn with it:
+    // the game putting another texture at an address and back, or two keys naming one image, do not upload it again
+    // (ibonplix's idea in pull request #39).
+    struct PackImage {
+        GLuint texture{};
+        std::size_t bytes{};
+        std::uint64_t last_use{};
+    };
+    std::unordered_map<std::string, PackImage> pack_images_;
+    std::uint64_t pack_reused_ = 0;
     std::uint16_t *seen_v_ = nullptr;          // the lowest through-mode row drawn of the bound texture (packs)
     // Pack images put on the GPU this flip: a scene arriving with dozens of them spreads them over a few flips instead
     // of holding one up (each is an upload and its mip levels).
@@ -1254,8 +1266,9 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
             bool kept = false;
             if (pack_on_) {
                 look_up_pack(ge, info, t);
-                if (!t.pending.empty() && t.pending == t.shown && t.texture != 0) {
-                    t.pending.clear(); // the same image is on the GPU already
+                if (!t.pending.empty() && pack_images_.count(t.pending) != 0) {
+                    use_pack_image(t, t.pending); // on the GPU already: no decoding, no upload
+                    t.pending.clear();
                     kept = true;
                 } else if (!t.pending.empty() && (pack_uploads_ >= kPackUploadsPerFlip ||
                                                   loader_->get(t.pending, t.pending_files, image) != textures::Loader::State::Ready)) {
@@ -1264,25 +1277,17 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
             }
             if (kept) {
             } else if (image) {
-                upload_pack_image(t, *image);
+                upload_pack_image(t, t.pending, *image);
                 loader_->forget(t.pending);
-                t.shown = std::move(t.pending);
                 t.pending.clear();
             } else {
                 // The game's own texture: until the pack's image is decoded, or for good.
                 pixels_.resize(static_cast<std::size_t>(info.width) * info.height);
                 ge.decode_texture(pixels_.data());
                 if (!dump_folder_.empty()) dump_texture(ge, info, pixels_.data());
-                if (interpolate_ && t.texture != 0) {
-                    // A recorded batch may replay with the old content: never overwrite a texture in place.
-                    retired_textures_.emplace_back(frame_, t.texture);
-                    t.texture = 0;
-                }
+                if (!t.shown.empty() || interpolate_) release_texture(t); // a pack image's, or one a batch may replay
                 if (t.texture == 0) gl_.GenTextures(1, &t.texture);
-                pack_bytes_ -= std::min(pack_bytes_, t.pack_bytes);
-                t.pack_bytes = 0;
                 t.mips = false;
-                t.shown.clear();
                 gl_.BindTexture(GL_TEXTURE_2D, t.texture);
                 gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(info.width), static_cast<GLsizei>(info.height),
                                0, GL_RGBA, GL_UNSIGNED_BYTE, pixels_.data());
@@ -1293,11 +1298,11 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
     if (!t.pending.empty() && pack_on_ && loader_->generation() != t.pending_generation && pack_uploads_ < kPackUploadsPerFlip) {
         t.pending_generation = loader_->generation();
         std::shared_ptr<const textures::Image> image;
-        const auto state = loader_->get(t.pending, t.pending_files, image);
+        const auto state = pack_images_.count(t.pending) != 0 ? textures::Loader::State::Ready : loader_->get(t.pending, t.pending_files, image);
         if (state == textures::Loader::State::Ready) {
-            upload_pack_image(t, *image);
+            if (image) upload_pack_image(t, t.pending, *image);
+            else use_pack_image(t, t.pending); // another texture brought it to the GPU meanwhile
             loader_->forget(t.pending);
-            t.shown = std::move(t.pending);
             t.pending.clear();
         } else if (state == textures::Loader::State::Failed) {
             t.pending.clear(); // the game's texture stays
@@ -1397,28 +1402,50 @@ void GlBackend::look_up_pack(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info
     for (const auto &[level, name] : m.entry->levels) t.pending_files.push_back(pack_->path_of(name));
 }
 
-void GlBackend::upload_pack_image(CachedTexture &t, const textures::Image &image) {
-    if (interpolate_ && t.texture != 0) {
-        // A recorded batch may replay with the old content: never overwrite a texture in place.
-        retired_textures_.emplace_back(frame_, t.texture);
-        t.texture = 0;
+// The cached texture lets go of its texture: its own is deleted (or retired, when a recorded batch may replay with it);
+// a pack image's stays with the image.
+void GlBackend::release_texture(CachedTexture &t) {
+    if (t.texture != 0 && t.shown.empty()) {
+        if (interpolate_) retired_textures_.emplace_back(frame_, t.texture);
+        else gl_.DeleteTextures(1, &t.texture);
     }
-    if (t.texture == 0) gl_.GenTextures(1, &t.texture);
-    gl_.BindTexture(GL_TEXTURE_2D, t.texture);
-    gl_.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
-    for (std::size_t level = 0; level < image.levels.size(); ++level) {
-        const auto w = static_cast<GLsizei>(std::max(1u, image.width >> level)), h = static_cast<GLsizei>(std::max(1u, image.height >> level));
-        gl_.TexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.levels[level].data());
-    }
-    // An image without its own mip levels gets them made here; a full chain either way.
-    if (image.levels.size() == 1) gl_.GenerateMipmap(GL_TEXTURE_2D);
-    gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, image.levels.size() == 1 ? 1000 : static_cast<GLint>(image.levels.size() - 1));
-    pack_bytes_ -= std::min(pack_bytes_, t.pack_bytes);
-    t.pack_bytes = std::size_t(image.width) * image.height * 4u * 4u / 3u;
-    pack_bytes_ += t.pack_bytes;
+    t.texture = 0;
+    t.shown.clear();
+    t.mips = false;
+}
+
+void GlBackend::use_pack_image(CachedTexture &t, const std::string &name) {
+    PackImage &image = pack_images_.at(name);
+    if (t.shown != name) release_texture(t);
+    t.texture = image.texture;
+    t.shown = name;
     t.mips = true;
-    ++pack_replaced_;
-    ++pack_uploads_;
+    image.last_use = frame_;
+    ++pack_reused_;
+}
+
+// Puts a decoded image on the GPU, once, with its mip levels, and draws the cached texture with it.
+void GlBackend::upload_pack_image(CachedTexture &t, const std::string &name, const textures::Image &image) {
+    if (pack_images_.count(name) == 0) {
+        GLuint texture = 0;
+        gl_.GenTextures(1, &texture);
+        gl_.BindTexture(GL_TEXTURE_2D, texture);
+        gl_.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        for (std::size_t level = 0; level < image.levels.size(); ++level) {
+            const auto w = static_cast<GLsizei>(std::max(1u, image.width >> level)), h = static_cast<GLsizei>(std::max(1u, image.height >> level));
+            gl_.TexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.levels[level].data());
+        }
+        // An image without its own mip levels gets them made here; a full chain either way.
+        if (image.levels.size() == 1) gl_.GenerateMipmap(GL_TEXTURE_2D);
+        gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, image.levels.size() == 1 ? 1000 : static_cast<GLint>(image.levels.size() - 1));
+        const std::size_t bytes = std::size_t(image.width) * image.height * 4u * 4u / 3u;
+        pack_images_[name] = PackImage{texture, bytes, frame_};
+        pack_bytes_ += bytes;
+        ++pack_replaced_;
+        ++pack_uploads_;
+    }
+    use_pack_image(t, name);
+    --pack_reused_; // counted as an upload, not a reuse
 }
 
 // The game's texture as a PNG named by its key, once: with a textures.ini next to them the folder is a pack (named
@@ -1440,33 +1467,47 @@ void GlBackend::dump_texture(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info
 
 // Every cached texture uploaded again at its next use (the pack was turned on or off).
 void GlBackend::drop_textures() {
-    for (auto &[key, t] : textures_) {
-        if (t.texture == 0) continue;
-        if (interpolate_) retired_textures_.emplace_back(frame_, t.texture);
-        else gl_.DeleteTextures(1, &t.texture);
-    }
+    for (auto &[key, t] : textures_) release_texture(t);
     textures_.clear();
+    for (auto &[name, image] : pack_images_) {
+        if (interpolate_) retired_textures_.emplace_back(frame_, image.texture);
+        else gl_.DeleteTextures(1, &image.texture);
+    }
+    pack_images_.clear();
     pack_bytes_ = 0;
     seen_v_ = nullptr;
 }
 
-// Past the budget, the pack images drawn least recently go (not those of this flip or the one before): their textures
-// are made again, as the game's first, when next drawn.
+// Pack images go when nothing drew with them for a while, or, past the budget, those drawn least recently (not in this
+// flip or the one before); the cached textures drawn with them are made again, as the game's first, when next drawn.
 void GlBackend::trim_pack_memory() {
-    if (pack_bytes_ <= pack_budget_) return;
-    std::vector<std::pair<std::uint64_t, std::uint64_t>> by_age; // last use, key
-    for (const auto &[key, t] : textures_) {
-        if (t.pack_bytes != 0 && t.last_use + 1 < frame_) by_age.emplace_back(t.last_use, key);
+    const bool over = pack_bytes_ > pack_budget_;
+    if (!over && (frame_ & 255u) != 0) return;
+    for (const auto &[key, t] : textures_) { // an image is in use while a cached texture draws with it
+        if (!t.shown.empty()) {
+            if (const auto it = pack_images_.find(t.shown); it != pack_images_.end()) it->second.last_use = std::max(it->second.last_use, t.last_use);
+        }
+    }
+    std::vector<std::pair<std::uint64_t, std::string>> by_age;
+    for (const auto &[name, image] : pack_images_) {
+        if (image.last_use + 600 < frame_ || (over && image.last_use + 1 < frame_)) by_age.emplace_back(image.last_use, name);
     }
     std::sort(by_age.begin(), by_age.end());
     const std::size_t goal = pack_budget_ / 10u * 9u;
-    for (const auto &[use, key] : by_age) {
-        if (pack_bytes_ <= goal) break;
-        const auto it = textures_.find(key);
-        pack_bytes_ -= std::min(pack_bytes_, it->second.pack_bytes);
+    std::set<std::string> gone;
+    for (const auto &[use, name] : by_age) {
+        if (use + 600 >= frame_ && pack_bytes_ <= goal) break;
+        const auto it = pack_images_.find(name);
+        pack_bytes_ -= std::min(pack_bytes_, it->second.bytes);
         if (interpolate_) retired_textures_.emplace_back(frame_, it->second.texture);
         else gl_.DeleteTextures(1, &it->second.texture);
-        textures_.erase(it);
+        pack_images_.erase(it);
+        gone.insert(name);
+    }
+    if (gone.empty()) return;
+    for (auto i = textures_.begin(); i != textures_.end();) {
+        if (gone.count(i->second.shown) != 0) i = textures_.erase(i);
+        else ++i;
     }
 }
 
@@ -2024,8 +2065,9 @@ void GlBackend::finish_flip() {
     if (pack_log_ && loader_ && frame_ >= pack_logged_at_ + 300) {
         pack_logged_at_ = frame_;
         const auto c = loader_->counters();
-        std::fprintf(stderr, "[textures] %llu replaced, %llu not in the pack; %llu images decoded (%.1f ms each), %llu failed; %zu MB on the GPU\n",
-                     static_cast<unsigned long long>(pack_replaced_), static_cast<unsigned long long>(pack_missed_),
+        std::fprintf(stderr, "[textures] %llu images on the GPU (%zu now, %llu reused), %llu not in the pack; %llu images decoded (%.1f ms each), %llu failed; %zu MB on the GPU\n",
+                     static_cast<unsigned long long>(pack_replaced_), pack_images_.size(), static_cast<unsigned long long>(pack_reused_),
+                     static_cast<unsigned long long>(pack_missed_),
                      static_cast<unsigned long long>(c.decoded), c.decoded + c.failed != 0 ? c.decode_us / 1000.0 / double(c.decoded + c.failed) : 0.0,
                      static_cast<unsigned long long>(c.failed), pack_bytes_ >> 20);
     }
@@ -2034,8 +2076,7 @@ void GlBackend::finish_flip() {
     if ((frame_ & 255u) == 0) {
         for (auto i = textures_.begin(); i != textures_.end();) {
             if (i->second.last_use + 600 < frame_) {
-                pack_bytes_ -= std::min(pack_bytes_, i->second.pack_bytes);
-                gl_.DeleteTextures(1, &i->second.texture);
+                if (i->second.shown.empty()) gl_.DeleteTextures(1, &i->second.texture); // a pack image's stays with it
                 i = textures_.erase(i);
             } else {
                 ++i;
