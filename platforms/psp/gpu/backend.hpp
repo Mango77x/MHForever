@@ -27,6 +27,7 @@ struct DrawInfo {
     std::uint32_t target{}; // the framebuffer drawn into (its offset in VRAM)
     std::array<float, 12> world{}, view{};
     std::array<float, 16> projection{};
+    std::array<float, 8> viewport{}; // x, y, z scale; x, y, z centre; the screen offset x, y
 };
 
 class Backend {
@@ -36,6 +37,14 @@ public:
     // Screen-space vertices: x, y in framebuffer pixels, z in 0..65535, w = 1/w for perspective correction (1 in
     // through mode), u, v normalized (through mode: texels), colors 0..255, fog 0..1.
     virtual void triangle(const Ge &ge, const Vertex &a, const Vertex &b, const Vertex &c) = 0;
+    // A 3D triangle as the GE has it before clipping and culling (clip-space vertices, with their world positions),
+    // for frame interpolation; triangle() follows for what of it reaches the screen.
+    virtual void triangle_unclipped(const Ge &ge, const Vertex &a, const Vertex &b, const Vertex &c) {
+        (void)ge;
+        (void)a;
+        (void)b;
+        (void)c;
+    }
     // A drawing command starts (called even when nothing of it reaches the screen).
     virtual void draw_started(const DrawInfo &draw) { (void)draw; }
     // Axis-aligned rectangle between two corners; color, depth and fog come from `b`.

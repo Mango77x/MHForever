@@ -466,11 +466,26 @@ void unpair_jumping_particles(std::vector<Origin> &origins) {
     }
 }
 
+// Interpolation v2: a 3D triangle as the GE had it before clipping, to be moved, clipped and placed again for each
+// in-between picture: its points in the world (after the world matrix), what the vertices carry, and its draw.
+struct RawVertex {
+    float world[3];
+    float u, v;
+    std::uint8_t color[4], spec[4];
+    float fog;
+};
+struct RawTriangle {
+    RawVertex v[3];
+    std::uint32_t draw; // index into the flip's draw summaries
+};
+
 // One batch of primitives as it was drawn, kept to draw it again between two flips (frame interpolation).
 struct TapeEntry {
     DrawSetup setup;
     std::vector<GpuVertex> vertices;
     std::vector<Origin> origins; // one per vertex
+    std::vector<RawTriangle> raw; // interpolation v2: the batch's 3D triangles before clipping
+    bool raw_complete = true;     // every primitive of the batch is among them (no 3D sprite, no point without a world)
 };
 
 // A copy of a finished picture (the last two are kept).
@@ -500,6 +515,7 @@ public:
 
     void triangle(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b, const gpu::Vertex &c) override {
         prepare(ge);
+        if (!through_ && !(a.has_world && b.has_world && c.has_world)) raw_complete_ = false; // a 3D line, say
         const bool flat = (ge.reg(kShadeMode) & 1u) == 0;
         push(a, flat ? &c : nullptr);
         push(b, flat ? &c : nullptr);
@@ -516,10 +532,37 @@ public:
         if (!interpolate_) return;
         draw_use_ = ++draw_uses_[draw.vertex_address];
         recording_.push_back(interpolation::summarize(draw));
+        recording_viewports_.push_back(draw.viewport);
+    }
+
+    void triangle_unclipped(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b, const gpu::Vertex &c) override {
+        if (!interpolate_ || !v2_enabled_ || recording_.empty()) return;
+        prepare(ge);
+        if (!a.has_world || !b.has_world || !c.has_world) {
+            raw_complete_ = false;
+            return;
+        }
+        const bool flat = (ge.reg(kShadeMode) & 1u) == 0;
+        RawTriangle t;
+        t.draw = static_cast<std::uint32_t>(recording_.size() - 1);
+        const gpu::Vertex *in[3] = {&a, &b, &c};
+        for (int i = 0; i < 3; ++i) {
+            const gpu::Vertex &v = *in[i];
+            const gpu::Vertex &col = flat ? c : v; // flat shading: the last vertex's colour
+            RawVertex &r = t.v[i];
+            std::copy(v.world, v.world + 3, r.world);
+            r.u = v.u;
+            r.v = v.v;
+            r.color[0] = to_byte(col.r); r.color[1] = to_byte(col.g); r.color[2] = to_byte(col.b); r.color[3] = to_byte(col.a);
+            r.spec[0] = to_byte(col.sr); r.spec[1] = to_byte(col.sg); r.spec[2] = to_byte(col.sb); r.spec[3] = 0;
+            r.fog = v.fog;
+        }
+        raw_batch_.push_back(t);
     }
 
     void sprite(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b) override {
         prepare(ge);
+        if (!through_) raw_complete_ = false; // a 3D sprite: interpolation v2 draws this batch as it was
         gpu::Vertex tl = b, tr = b, bl = b, br = b;
         tl.x = a.x; tl.y = a.y; tl.u = a.u; tl.v = a.v;
         tr.x = b.x; tr.y = a.y; tr.u = b.u; tr.v = a.v;
@@ -759,6 +802,20 @@ private:
     interpolation::Matcher matcher_;
     interpolation::CutThresholds cut_thresholds_;
     void match_v2(std::uint32_t shown);
+    // Interpolation v2 (MHF_INTERP_V2=1 for now): the batch's triangles before clipping, the viewports of the draws,
+    // and for the flip being shown: the previous flip's draws, how they match, the camera's motion, and per draw of
+    // this flip its partner in the previous one (-1 none).
+    const bool v2_enabled_ = std::getenv("MHF_INTERP_V2") != nullptr;
+    std::vector<RawTriangle> raw_batch_;
+    bool raw_complete_ = true;
+    std::vector<std::array<float, 8>> recording_viewports_, viewports_now_;
+    std::vector<interpolation::DrawSummary> v2_older_;
+    std::vector<std::int32_t> v2_older_of_;
+    interpolation::RigidMotion v2_camera_;
+    bool v2_ready_ = false; // the flip being shown matched the one before, without a cut
+    std::vector<std::vector<GpuVertex>> v2_out_; // per batch of the picture being made
+    std::vector<interpolation::Matrix> v2_transforms_; // per draw: world point to clip space at the picture's moment
+    void place_v2(const TapeEntry &entry, std::vector<GpuVertex> &out) const;
     std::uint32_t draw_use_{};              // of the current drawing command: tells repeated draws of a model apart
     struct PointSlot {
         std::uint64_t key{};
@@ -1308,17 +1365,20 @@ void GlBackend::read_back() {
 }
 
 void GlBackend::draw_batch() {
-    if (batch_.empty()) return;
+    if (batch_.empty() && raw_batch_.empty()) return;
     if (interpolate_) {
         if (tape_.size() >= 20000) { // a game that never flips: do not keep everything
             tape_.clear();
             touched_.insert(~0u);
         }
-        tape_.push_back({setup_, batch_, batch_origins_});
+        // A batch culled whole in this flip is kept for its triangles before clipping: in between it may show.
+        tape_.push_back({setup_, batch_, batch_origins_, std::move(raw_batch_), raw_complete_});
     }
-    draw_vertices(batch_);
+    if (!batch_.empty()) draw_vertices(batch_);
     batch_.clear();
     batch_origins_.clear();
+    raw_batch_.clear();
+    raw_complete_ = true;
 }
 
 void GlBackend::draw_vertices(const std::vector<GpuVertex> &vertices) {
@@ -1902,6 +1962,107 @@ void GlBackend::place_again(const TapeEntry &entry, const std::vector<Camera> &c
     }
 }
 
+// Interpolation v2: the batch's triangles before clipping, each moved by its draw's transform at this moment
+// (v2_transforms_), clipped against the near plane, dropped when a point leaves the GE's 4096x4096 space, and placed on
+// the screen through its draw's viewport, as Ge::draw_triangle does for the flip itself.
+void GlBackend::place_v2(const TapeEntry &entry, std::vector<GpuVertex> &out) const {
+    struct Clip {
+        float x, y, z, w;
+        const RawVertex *r;
+        float u, v, fog, color[4], spec[3];
+    };
+    const auto lerp = [](const Clip &p, const Clip &q, float s) {
+        Clip c = p;
+        const auto l = [s](float a, float b) { return a + (b - a) * s; };
+        c.x = l(p.x, q.x); c.y = l(p.y, q.y); c.z = l(p.z, q.z); c.w = l(p.w, q.w);
+        c.u = l(p.u, q.u); c.v = l(p.v, q.v); c.fog = l(p.fog, q.fog);
+        for (int k = 0; k < 4; ++k) c.color[k] = l(p.color[k], q.color[k]);
+        for (int k = 0; k < 3; ++k) c.spec[k] = l(p.spec[k], q.spec[k]);
+        return c;
+    };
+    for (const RawTriangle &tri : entry.raw) {
+        if (tri.draw >= v2_transforms_.size() || tri.draw >= viewports_now_.size()) continue;
+        const interpolation::Matrix &m = v2_transforms_[tri.draw];
+        const std::array<float, 8> &vp = viewports_now_[tri.draw];
+        Clip in[3];
+        for (int i = 0; i < 3; ++i) {
+            const RawVertex &r = tri.v[i];
+            const float x = r.world[0], y = r.world[1], z = r.world[2];
+            Clip &c = in[i];
+            c.x = m[0] * x + m[4] * y + m[8] * z + m[12];
+            c.y = m[1] * x + m[5] * y + m[9] * z + m[13];
+            c.z = m[2] * x + m[6] * y + m[10] * z + m[14];
+            c.w = m[3] * x + m[7] * y + m[11] * z + m[15];
+            c.r = &r;
+            c.u = r.u;
+            c.v = r.v;
+            c.fog = r.fog;
+            for (int k = 0; k < 4; ++k) c.color[k] = r.color[k];
+            for (int k = 0; k < 3; ++k) c.spec[k] = r.spec[k];
+        }
+        const auto to_screen = [&](const Clip &c, GpuVertex &g) {
+            const float inv_w = c.w != 0.0f ? 1.0f / c.w : 1.0f;
+            g.x = c.x * inv_w * vp[0] + vp[3] - vp[6];
+            g.y = c.y * inv_w * vp[1] + vp[4] - vp[7];
+            g.z = c.z * inv_w * vp[2] + vp[5];
+            g.inv_w = inv_w > 0.0f ? inv_w : 1.0f;
+            g.u = c.u;
+            g.v = c.v;
+            for (int k = 0; k < 4; ++k) g.color[k] = to_byte(c.color[k]);
+            for (int k = 0; k < 3; ++k) g.spec[k] = to_byte(c.spec[k]);
+            g.spec[3] = 0;
+            g.fog = c.fog;
+        };
+        // The guard band, for the points in front of the near plane.
+        bool any_clipped = false, outside = false;
+        for (const Clip &c : in) {
+            if (!(c.z > -c.w && c.w > 0.0f)) {
+                any_clipped = true;
+                continue;
+            }
+            const float inv_w = 1.0f / c.w;
+            const float sx = c.x * inv_w * vp[0] + vp[3], sy = c.y * inv_w * vp[1] + vp[4];
+            if (!(sx >= 0.0f && sx < 4096.0f && sy >= 0.0f && sy < 4096.0f)) {
+                outside = true;
+                break;
+            }
+        }
+        if (outside) continue;
+        if (!any_clipped) {
+            for (const Clip &c : in) {
+                GpuVertex g{};
+                to_screen(c, g);
+                out.push_back(g);
+            }
+            continue;
+        }
+        Clip poly[4];
+        int n = 0;
+        for (int i = 0; i < 3; ++i) {
+            const Clip &p = in[i], &q = in[(i + 1) % 3];
+            const float dp = p.z + p.w, dq = q.z + q.w;
+            const bool pin = dp > 0.0f && p.w > 0.0f, qin = dq > 0.0f && q.w > 0.0f;
+            if (pin) poly[n++] = p;
+            if (pin != qin && dp != dq) {
+                const Clip c = lerp(p, q, dp / (dp - dq));
+                if (c.w <= 0.0f) continue;
+                poly[n++] = c;
+            }
+        }
+        if (n < 3) continue;
+        GpuVertex s[4]{};
+        for (int i = 0; i < n; ++i) to_screen(poly[i], s[i]);
+        out.push_back(s[0]);
+        out.push_back(s[1]);
+        out.push_back(s[2]);
+        if (n == 4) {
+            out.push_back(s[0]);
+            out.push_back(s[2]);
+            out.push_back(s[3]);
+        }
+    }
+}
+
 void GlBackend::render_between(const RenderTarget &shown, const std::vector<TapeEntry> &now,
                                const std::vector<TapeEntry> &before_batches, const Slot &before_slot, float t) {
     const GLsizei w = static_cast<GLsizei>(shown.width) * scale_, h = static_cast<GLsizei>(shown.height) * scale_;
@@ -1935,12 +2096,57 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
     };
     // All the vertices of the picture first (one upload), then the batches draw from ranges of them.
     const auto t_calc = Clock::now();
+    // Interpolation v2: the 3D batches are made again from their triangles before clipping, moved with their draw's
+    // transforms blended to this moment, then clipped and placed as the GE does (place_v2).
+    const bool v2 = v2_enabled_ && v2_ready_ && !summaries_before_.empty();
+    if (v2) {
+        const std::vector<interpolation::DrawSummary> &newer = summaries_before_;
+        v2_transforms_.assign(newer.size(), interpolation::Matrix{});
+        for (std::size_t n = 0; n < newer.size(); ++n) {
+            const interpolation::DrawSummary &d = newer[n];
+            const interpolation::Matrix eye = interpolation::multiply(d.view, d.world);
+            interpolation::Matrix eye_inverse{};
+            if (!interpolation::affine_inverse(eye, eye_inverse)) {
+                v2_transforms_[n] = interpolation::multiply(d.projection, d.view); // as drawn
+                continue;
+            }
+            interpolation::Matrix eye_t = eye, projection_t = d.projection;
+            const std::int32_t o = n < v2_older_of_.size() ? v2_older_of_[n] : -1;
+            if (o >= 0 && static_cast<std::size_t>(o) < v2_older_.size()) {
+                const interpolation::DrawSummary &from = v2_older_[static_cast<std::size_t>(o)];
+                eye_t = interpolation::blend_eye(interpolation::multiply(from.view, from.world), eye, v2_camera_, t);
+                projection_t = interpolation::blend_linear(from.projection, d.projection, t);
+            } else if (v2_camera_.valid && d.eligible) {
+                // No partner (drawn only in this flip): it moves with the camera only.
+                eye_t = interpolation::multiply(interpolation::rigid_at(v2_camera_, t), interpolation::multiply(v2_camera_.inverse, eye));
+            }
+            // A point in the world (after the world matrix) is in eye space through the view; there, eye_inverse takes
+            // it back to the model and eye_t to this moment.
+            v2_transforms_[n] = interpolation::multiply(projection_t, interpolation::multiply(eye_t, interpolation::multiply(eye_inverse, d.view)));
+        }
+        v2_out_.resize(now.size());
+        const auto make = [&](std::size_t from, std::size_t to) {
+            for (std::size_t i = from; i < to; ++i) {
+                v2_out_[i].clear();
+                if (!now[i].setup.through && now[i].raw_complete) place_v2(now[i], v2_out_[i]);
+            }
+        };
+        const unsigned cores = std::thread::hardware_concurrency();
+        const std::size_t lanes = now.size() >= 64 && cores >= 3 ? std::min<std::size_t>(4, cores - 1) : 1;
+        std::vector<std::future<void>> helpers;
+        const std::size_t share = now.size() / lanes + 1;
+        for (std::size_t k = 1; k < lanes; ++k) helpers.push_back(std::async(std::launch::async, make, k * share, std::min(now.size(), (k + 1) * share)));
+        make(0, std::min(now.size(), share));
+        for (auto &helper : helpers) helper.get();
+    }
     staging_.clear();
     ranges_.assign(now.size(), Range{});
     for (std::size_t i = 0; i < now.size(); ++i) {
         const TapeEntry &entry = now[i];
-        ranges_[i] = Range{staging_.size(), entry.vertices.size()};
-        staging_.insert(staging_.end(), entry.vertices.begin(), entry.vertices.end());
+        const bool made = v2 && !entry.setup.through && entry.raw_complete;
+        const std::vector<GpuVertex> &source = made ? v2_out_[i] : entry.vertices;
+        ranges_[i] = Range{staging_.size(), source.size()};
+        staging_.insert(staging_.end(), source.begin(), source.end());
     }
     // Placing the vertices again reads shared data only and writes disjoint ranges of the staging buffer, so big
     // pictures are split between a few threads (the drawing thread takes the first share).
@@ -1953,7 +2159,7 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                 if (partner >= 0 && !clearing(entry.setup)) {
                     blend_vertices(before_batches[static_cast<std::size_t>(partner)].vertices, vertices, t);
                 }
-            } else {
+            } else if (!(v2 && entry.raw_complete)) {
                 place_again(entry, cameras, vertices, t);
             }
         }
@@ -2066,6 +2272,7 @@ void GlBackend::flush_pictures() {
 // pairs, the camera's turn and move, and the cuts.
 void GlBackend::match_v2(std::uint32_t shown) {
     interpolation::mark_eligible(recording_, shown);
+    v2_ready_ = false;
     static const bool log = std::getenv("MHF_INTERP_V2_LOG") != nullptr;
     struct Totals {
         std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
@@ -2080,6 +2287,14 @@ void GlBackend::match_v2(std::uint32_t shown) {
     if (!summaries_before_.empty()) {
         const auto t0 = std::chrono::steady_clock::now();
         const interpolation::Matching &m = matcher_.match(summaries_before_, recording_, cut_thresholds_);
+        if (v2_enabled_) {
+            v2_older_of_.assign(recording_.size(), -1);
+            for (std::size_t i = 0; i < m.newer_of.size(); ++i) {
+                if (m.newer_of[i] >= 0) v2_older_of_[static_cast<std::size_t>(m.newer_of[i])] = static_cast<std::int32_t>(i);
+            }
+            v2_camera_ = m.camera_found ? interpolation::rigid_motion(m.camera) : interpolation::RigidMotion{};
+            v2_ready_ = m.cut == nullptr;
+        }
         if (log) {
             totals.us += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
             ++totals.flips;
@@ -2104,6 +2319,11 @@ void GlBackend::match_v2(std::uint32_t shown) {
         }
     } else {
         matcher_.forget_motion();
+    }
+    if (v2_enabled_) {
+        v2_older_ = std::move(summaries_before_);
+        viewports_now_ = std::move(recording_viewports_);
+        recording_viewports_.clear();
     }
     summaries_before_ = std::move(recording_);
     recording_.clear();
