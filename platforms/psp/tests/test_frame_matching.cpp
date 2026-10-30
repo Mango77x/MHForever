@@ -138,6 +138,32 @@ int main() {
         MHF_CHECK(m.cut != nullptr);
     }
 
+    // A camera kept in the view matrix (the world matrices only place things): its turn is found all the same, from
+    // the change of the view matrix if need be.
+    {
+        Matcher matcher;
+        const auto in_view = [&](const Matrix &cam) {
+            std::vector<DrawSummary> out;
+            for (std::size_t t = 0; t < scene.tiles.size(); ++t) {
+                gpu::DrawInfo info;
+                info.vertex_address = 0x08A00000u;
+                info.vertex_type = 0x11Cu;
+                info.count = 36;
+                info.primitive = 3;
+                info.target = 0x88000u;
+                info.world = to_4x3(scene.tiles[t]);
+                info.view = to_4x3(cam);
+                info.projection = {1.5f, 0, 0, 0, 0, 2.6f, 0, 0, 0, 0, -1.0f, -1.0f, 0, 0, -20.0f, 0};
+                out.push_back(summarize(info));
+            }
+            mark_eligible(out, 0x88000u);
+            return out;
+        };
+        const Matching &m = matcher.match(in_view(camera(0, 0, 0)), in_view(camera(6.0f, 0, -20.0f)), CutThresholds{});
+        MHF_CHECK(m.cut == nullptr && m.camera_found && std::fabs(m.camera_angle_degrees - 6.0f) < 0.05f);
+        MHF_CHECK(m.camera_votes == m.camera_voters);
+    }
+
     // Following the camera's turn part of the way: half of a 10-degree turn is a 5-degree turn.
     {
         const RigidMotion motion = rigid_motion(camera(10.0f, 0, 0));

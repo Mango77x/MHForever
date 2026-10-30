@@ -5,6 +5,7 @@
 #include "frame_matching.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 
 namespace mhf::psp::interpolation {
@@ -176,30 +177,64 @@ const Matching &Matcher::match(
         return at >= 0 && slots_[static_cast<std::size_t>(at)].newer_count == 1u &&
                slots_[static_cast<std::size_t>(at)].older_count == 1u;
     };
-    std::vector<std::size_t> pairs, sample;
-    for (std::size_t i = 0; i < older.size(); ++i) {
-        if (out.newer_of[i] < 0) continue;
-        pairs.push_back(i);
-        if (single(i)) sample.push_back(i);
-    }
-    if (sample.size() < 3u) sample = pairs;
-    const auto motion_of = [&](std::size_t i, Matrix &motion) {
-        Matrix before_inverse{};
-        if (!affine_inverse(eye(older[i]), before_inverse)) return false;
-        motion = multiply(eye(newer[static_cast<std::size_t>(out.newer_of[i])]), before_inverse);
-        return true;
+    // An object is one pair of eye matrices, however many draws share it (a character or a piece of ground is drawn
+    // in many pieces under one matrix): each votes once, so the cost follows the objects, not the draws.
+    struct Object {
+        Matrix motion;
+        bool single;
     };
+    std::vector<Object> objects;
+    std::size_t pairs = 0;
+    {
+        std::vector<std::uint64_t> seen;
+        seen.reserve(older.size());
+        for (std::size_t i = 0; i < older.size(); ++i) {
+            if (out.newer_of[i] < 0) continue;
+            ++pairs;
+            const DrawSummary &to = newer[static_cast<std::size_t>(out.newer_of[i])];
+            const Matrix before = eye(older[i]), after = eye(to);
+            std::uint64_t h = 1469598103934665603ull;
+            for (const Matrix *m : {&before, &after}) {
+                for (const float f : *m) h = (h ^ std::bit_cast<std::uint32_t>(f)) * 1099511628211ull;
+            }
+            if (std::find(seen.begin(), seen.end(), h) != seen.end()) continue;
+            seen.push_back(h);
+            Matrix before_inverse{};
+            if (!affine_inverse(before, before_inverse)) continue;
+            objects.push_back({multiply(after, before_inverse), single(i)});
+        }
+    }
+    // Objects drawn once in both frames pair for certain; the instances of a mesh drawn many times (MHFU's ground) are
+    // paired in drawing order at this point, and when the game draws another piece first they are all shifted alike,
+    // a crowd agreeing on a wrong motion. So the candidates and the voters are the objects drawn once when there are
+    // enough of them (else every object), plus no motion at all and the change of the view matrix (where a game keeps
+    // its camera's turn).
     std::vector<Matrix> candidates, voters;
-    for (std::size_t k = 0, step = std::max<std::size_t>(1u, sample.size() / 63u); k < sample.size(); k += step) {
-        Matrix motion{};
-        if (motion_of(sample[k], motion)) candidates.push_back(motion);
+    {
+        std::vector<const Object *> singles, all;
+        for (const Object &o : objects) {
+            all.push_back(&o);
+            if (o.single) singles.push_back(&o);
+        }
+        const std::vector<const Object *> &trusted = singles.size() >= 3u ? singles : all;
+        for (std::size_t k = 0, step = std::max<std::size_t>(1u, trusted.size() / 63u); k < trusted.size(); k += step) {
+            candidates.push_back(trusted[k]->motion);
+        }
+        candidates.push_back(identity());
+        for (std::size_t i = 0; i < older.size(); ++i) {
+            if (out.newer_of[i] < 0) continue;
+            Matrix view_inverse{};
+            if (affine_inverse(older[i].view, view_inverse)) {
+                candidates.push_back(multiply(newer[static_cast<std::size_t>(out.newer_of[i])].view, view_inverse));
+            }
+            break;
+        }
+        for (std::size_t k = 0, step = std::max<std::size_t>(1u, trusted.size() / 512u); k < trusted.size(); k += step) {
+            voters.push_back(trusted[k]->motion);
+        }
+        out.objects = static_cast<std::uint32_t>(objects.size());
     }
-    candidates.push_back(identity());
-    for (std::size_t k = 0, step = std::max<std::size_t>(1u, pairs.size() / 512u); k < pairs.size(); k += step) {
-        Matrix motion{};
-        if (motion_of(pairs[k], motion)) voters.push_back(motion);
-    }
-    if (!pairs.empty()) {
+    if (pairs != 0u && !voters.empty()) {
         static constexpr std::array<std::array<float, 3>, 5> kProbes{{{0, 0, -150}, {-200, 0, -400}, {200, 0, -400},
                                                                       {0, -150, -300}, {0, 150, -800}}};
         const auto apply = [](const Matrix &m, const std::array<float, 3> &p) {
@@ -242,6 +277,8 @@ const Matching &Matcher::match(
         }
         out.camera_found = true;
         out.camera = *best;
+        out.camera_votes = static_cast<std::uint32_t>(best_votes);
+        out.camera_voters = static_cast<std::uint32_t>(voters.size());
         out.camera_angle_degrees = rotation_angle_degrees(identity(), out.camera);
         out.camera_distance = std::sqrt(out.camera[12] * out.camera[12] + out.camera[13] * out.camera[13] +
                                         out.camera[14] * out.camera[14]);

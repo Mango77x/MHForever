@@ -57,6 +57,8 @@ struct Matching {
     float max_own_motion{}, max_rejected_motion{};
     // How the camera moved, as the motion of eye space: for scenery that stands still, newer eye = camera * older eye.
     bool camera_found{};
+    std::uint32_t objects{};                     // distinct pairs of eye matrices among the pairs
+    std::uint32_t camera_votes{}, camera_voters{}; // objects that agree with the camera's motion, of those asked
     float camera_angle_degrees{}, camera_distance{};
     Matrix camera{};
     const char *cut{}; // why the two frames must not be blended, or null

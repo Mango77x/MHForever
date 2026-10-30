@@ -2070,7 +2070,8 @@ void GlBackend::match_v2(std::uint32_t shown) {
     struct Totals {
         std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
         unsigned flips = 0, cuts = 0, continued = 0;
-        std::uint64_t eligible = 0, matched = 0, repaired = 0, rejected = 0, crowded = 0;
+        std::uint64_t eligible = 0, matched = 0, repaired = 0, rejected = 0, crowded = 0, objects = 0, votes = 0, voters = 0;
+        float sum_angle = 0;
         float max_angle = 0, max_distance = 0;
         double us = 0;
         std::map<std::string, unsigned> why;
@@ -2087,6 +2088,10 @@ void GlBackend::match_v2(std::uint32_t shown) {
             totals.repaired += m.repaired;
             totals.rejected += m.rejected;
             totals.crowded += m.too_many_instances;
+            totals.objects += m.objects;
+            totals.votes += m.camera_votes;
+            totals.voters += m.camera_voters;
+            totals.sum_angle += m.camera_angle_degrees;
             if (m.continued) ++totals.continued;
             if (m.cut != nullptr) {
                 ++totals.cuts;
@@ -2106,12 +2111,15 @@ void GlBackend::match_v2(std::uint32_t shown) {
     std::string why;
     for (const auto &[reason, count] : totals.why) why += " " + reason + " x" + std::to_string(count);
     std::fprintf(stderr, "[interp2] %u flips: %.0f eligible draws, %.1f%% matched, %llu instances repaired (%llu meshes over the cap), %llu rejected, "
-                         "camera up to %.1f deg %.1f units, %u continued, %u cuts%s, matching %.0f us a flip\n",
+                         "%.0f objects, camera votes %.0f%%, turn %.2f deg on average and up to %.1f deg, up to %.1f units, "
+                         "%u continued, %u cuts%s, matching %.0f us a flip\n",
                  totals.flips, static_cast<double>(totals.eligible) / totals.flips,
                  totals.eligible != 0 ? 100.0 * static_cast<double>(totals.matched) / static_cast<double>(totals.eligible) : 0.0,
                  static_cast<unsigned long long>(totals.repaired), static_cast<unsigned long long>(totals.crowded),
-                 static_cast<unsigned long long>(totals.rejected),
-                 static_cast<double>(totals.max_angle), static_cast<double>(totals.max_distance), totals.continued, totals.cuts,
+                 static_cast<unsigned long long>(totals.rejected), static_cast<double>(totals.objects) / totals.flips,
+                 totals.voters != 0 ? 100.0 * static_cast<double>(totals.votes) / static_cast<double>(totals.voters) : 0.0,
+                 static_cast<double>(totals.sum_angle) / totals.flips, static_cast<double>(totals.max_angle),
+                 static_cast<double>(totals.max_distance), totals.continued, totals.cuts,
                  why.c_str(), totals.us / totals.flips);
     totals = Totals{};
 }
