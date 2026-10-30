@@ -45,6 +45,9 @@ public:
     // one logical unit is `scale` pixels.
     void begin(std::vector<std::uint32_t> &pixels, int width, int height, float scale);
     void end() { px_ = nullptr; }
+    // Draws only between logical y0 and y1 until unclip() (a list scrolled under a header).
+    void clip(float y0, float y1);
+    void unclip();
 
     // Rounded rectangle in logical units. `border` > 0 strokes instead of filling. `bottom` blends a vertical gradient.
     void rrect(float x, float y, float w, float h, float radius, Color top, float alpha, float border = 0.0f,
@@ -91,6 +94,7 @@ private:
 
     std::vector<std::uint32_t> *px_ = nullptr;
     int width_ = 0, height_ = 0;
+    int clip_y0_ = 0, clip_y1_ = 0; // pixel rows drawn: [clip_y0_, clip_y1_)
     float scale_ = 1.0f;
 };
 

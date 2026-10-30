@@ -22,6 +22,7 @@
 #include <condition_variable>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -88,6 +89,8 @@ struct Frontend::Impl {
     // opens. `last_room` brings a code back when the player returns to private halls.
     bool online{}, room_known{};
     std::string room, last_room, room_note, server;
+    // Whose room a code is, as far as this session knows: "" the player's own (a new code), else the friend joined.
+    std::map<std::string, std::string> room_owner;
     // Joining a friend's room: the code as typed (keyboard) or picked (the code keyboard, for controllers).
     std::string code_typed;
     bool code_typing{}, code_keyboard{}; // the keyboard types into the code field; the on-screen one is up (controller)
@@ -494,7 +497,9 @@ overlay::MenuTab menu_online(const Frontend::Impl &impl) {
 
     // The private room: its code, who is in it, where the player stands, and joining another one by code.
     if (private_room) {
-        overlay::MenuItem code = menu_item(Kind::Banner, kRoomCode, "Current room");
+        const auto owner = impl.room_owner.find(impl.room);
+        const std::string title = owner == impl.room_owner.end() ? "Private room" : owner->second.empty() ? "Your room" : owner->second + "'s room";
+        overlay::MenuItem code = menu_item(Kind::Banner, kRoomCode, title);
         code.text = format_adhoc_room_code(impl.room);
         code.actions = {"Copy", "New code", "Leave"};
         code.primary_action = 0;
@@ -718,6 +723,7 @@ void friend_pressed(Frontend::Impl &impl, Runtime &rt, std::size_t index, const 
         if (f.invite) friend_action(impl.friend_actions_file, "dismiss", f.key);
         if (f.server != impl.server) change_server(impl, rt, f.server);
         const std::string server_note = impl.room_note;
+        if (!f.room.empty() && !impl.room_owner.contains(f.room)) impl.room_owner[f.room] = f.name.empty() ? "Your friend" : f.name;
         change_room(impl, rt, f.room);
         if (rt.adhoc_server_pending()) impl.room_note = server_note;
         impl.room_note = "Joining " + name + ". " + impl.room_note;
@@ -886,7 +892,9 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             if (e.action == 2) {
                 change_room(impl, rt, ""); // Leave: back to the public halls
             } else if (e.action == 1) {
-                change_room(impl, rt, new_adhoc_room_code());
+                const std::string fresh = new_adhoc_room_code();
+                impl.room_owner[fresh] = "";
+                change_room(impl, rt, fresh);
             } else {
                 impl.host.set_clipboard_text(format_adhoc_room_code(impl.room));
                 impl.room_note = "Copied " + format_adhoc_room_code(impl.room) + ". Send it to your friends.";
@@ -952,7 +960,12 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             break;
         case kHalls:
             if (e.value == 0) change_room(impl, rt, "");
-            else change_room(impl, rt, impl.last_room.empty() ? new_adhoc_room_code() : impl.last_room);
+            else if (!impl.last_room.empty()) change_room(impl, rt, impl.last_room);
+            else {
+                const std::string fresh = new_adhoc_room_code();
+                impl.room_owner[fresh] = "";
+                change_room(impl, rt, fresh);
+            }
             break;
         case kPadStick:
             impl.pad.stick = std::string(kStickChoices[std::clamp(e.value, 0, static_cast<int>(std::size(kStickChoices)) - 1)]);
@@ -1154,6 +1167,7 @@ bool step_menu(Frontend::Impl &impl, Runtime &rt) {
         if (impl.menu.view().version != impl.menu_layout_version) {
             layout = impl.menu_layouter->layout(impl.menu.view());
             impl.menu_layout_version = impl.menu.view().version;
+            impl.menu.sync_scroll(layout.scroll);
         }
         const host::SdlHost::WindowRect window = impl.host.window_rect();
         for (const auto &m : mouse) {
@@ -1204,7 +1218,9 @@ bool step_menu(Frontend::Impl &impl, Runtime &rt) {
             } else if (m.kind == host::MouseEvent::Kind::Up) {
                 impl.menu_dragging = -1;
             } else if (m.kind == host::MouseEvent::Kind::Wheel) {
-                open = menu_handle(impl, rt, impl.menu.scroll(m.wheel, impl.menu_pointer_row)) && open;
+                open = menu_handle(impl, rt, impl.menu.scroll(m.wheel, impl.menu_pointer_row, layout)) && open;
+                layout = impl.menu_layouter->layout(impl.menu.view()); // the next notch scrolls from here
+                impl.menu_layout_version = impl.menu.view().version;
             }
             if (!open) break;
         }

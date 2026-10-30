@@ -60,6 +60,8 @@ struct MenuView {
     int selected = 0;     // row of that section
     int action = -1;      // the focused action of the selected row (Banner, Text), -1 the row itself
     int key = 0;          // the focused key of an open on-screen keyboard
+    float scroll = 0;     // how far the section's rows are scrolled (logical units; the renderer keeps it in range)
+    bool follow = true;   // keys moved the selection: the rows scroll to keep it in view (the wheel and the mouse do not)
     bool tabs_focused = false; // the focus is in the sidebar (Up/Down change the section)
     bool pointer = true;  // the mouse was used last: no focus ring, no key hints
     std::string title, subtitle;          // the sidebar's heading (the program, the game)
@@ -88,6 +90,8 @@ struct MenuLayout {
     Rect keypad;              // the panel around them
     int keypad_row = -1;      // the row it belongs to
     Rect resume, close;       // the sidebar's main button and the panel's ×
+    Rect content;             // where the rows show; a row scrolled partly out of it is picked only inside it
+    float scroll = 0, max_scroll = 0; // how far the rows are scrolled as drawn, and how far they can be
 
     struct Hit {
         enum class Kind { None, Tab, Row, Option, Action, Resume, Close, Key, Keypad } kind = Kind::None;
@@ -127,7 +131,10 @@ public:
     Event click_option(int row, int option);  // a Choice's chip or card
     Event click_action(int row, int action);  // a Banner's or Text's button
     Event drag_slider(int row, float along);  // the button is held on a slider's track
-    Event scroll(int direction, int row);     // the wheel (+1 = up): over a slider it moves it, elsewhere it moves the selection
+    // The wheel (+1 = up): over a slider it moves it, elsewhere it scrolls the rows (`layout` is where they are now).
+    Event scroll(int direction, int row, const MenuLayout &layout);
+    // Where the rows are as drawn (MenuLayout::scroll): kept, so that the mouse taking over from the keys moves nothing.
+    void sync_scroll(float scroll) { view_.scroll = scroll; }
     void hover_key(int key);                  // the pointer is over a key of the on-screen keyboard
     Event click_key(int key);
 

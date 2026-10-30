@@ -43,12 +43,14 @@ void Menu::set(MenuView view) {
             had_row = true;
         }
     }
-    const bool focus = view_.tabs_focused, pointer = view_.pointer;
+    const bool focus = view_.tabs_focused, pointer = view_.pointer, follow = view_.follow;
     const int key = keypad_row() >= 0 ? view_.key : 0;
+    const float scroll = view_.scroll;
     view_ = std::move(view);
     view_.version = ++version_;
     view_.pointer = pointer;
     view_.key = key;
+    view_.follow = follow;
     view_.action = -1;
     if (view_.tabs.empty()) {
         view_.tab = 0;
@@ -60,6 +62,7 @@ void Menu::set(MenuView view) {
     for (std::size_t i = 0; i < view_.tabs.size(); ++i) {
         if (!keep_tab.empty() && view_.tabs[i].name == keep_tab) tab = static_cast<int>(i);
     }
+    if (!keep_tab.empty() && view_.tabs[static_cast<std::size_t>(tab)].name == keep_tab) view_.scroll = scroll; // the same section
     view_.tab = tab;
     view_.tabs_focused = focus && view_.tabs.size() > 1;
     int found = -1;
@@ -81,8 +84,9 @@ void Menu::set(MenuView view) {
 }
 
 void Menu::set_pointer(bool on) {
-    if (view_.pointer == on) return;
+    if (view_.pointer == on && view_.follow == !on) return;
     view_.pointer = on;
+    view_.follow = !on; // keys bring the selection into view; the mouse leaves the rows where the wheel put them
     view_.version = ++version_;
 }
 
@@ -284,6 +288,7 @@ MenuLayout::Hit MenuLayout::hit(float x, float y) const {
             return h;
         }
     }
+    if (!content.contains(x, y)) return h; // above or below the rows: the header, the hints
     for (std::size_t i = 0; i < rows.size(); ++i) {
         if (!rows[i].contains(x, y)) continue;
         h.index = static_cast<int>(i);
@@ -392,7 +397,7 @@ Menu::Event Menu::drag_slider(int row, float along) {
     return set_value(item, std::clamp(snapped, item.min, item.max));
 }
 
-Menu::Event Menu::scroll(int direction, int row) {
+Menu::Event Menu::scroll(int direction, int row, const MenuLayout &layout) {
     if (view_.tabs.empty() || direction == 0) return {};
     if (row >= 0 && row < static_cast<int>(items().size())) {
         MenuItem &item = items()[static_cast<std::size_t>(row)];
@@ -400,7 +405,13 @@ Menu::Event Menu::scroll(int direction, int row) {
             return set_value(item, std::clamp(item.value + direction * std::max(item.step, 1), item.min, item.max));
         }
     }
-    if (!items().empty()) move(-direction); // the wheel up selects the row above, and the list follows
+    constexpr float kWheelStep = 28.0f; // about a row a notch
+    const float to = std::clamp(layout.scroll - static_cast<float>(direction) * kWheelStep, 0.0f, layout.max_scroll);
+    if (to != view_.scroll || view_.follow) {
+        view_.scroll = to;
+        view_.follow = false;
+        view_.version = ++version_;
+    }
     return {};
 }
 
@@ -496,16 +507,24 @@ struct MenuRenderer::Impl : Painter {
         std::vector<float> offsets(rows.size() + 1, 0.0f);
         for (std::size_t i = 0; i < rows.size(); ++i) offsets[i + 1] = offsets[i] + row_height(rows[i], c.w) + kRowGap;
         p.total = offsets.back();
-        if (v.selected >= 0 && v.selected < static_cast<int>(rows.size()) && p.total > c.h) {
+        const float max_scroll = std::max(0.0f, p.total - kRowGap - c.h);
+        p.scroll = v.scroll;
+        if (v.follow && v.selected >= 0 && v.selected < static_cast<int>(rows.size())) { // keys: the selection stays in view
             const auto s = static_cast<std::size_t>(v.selected);
-            if (offsets[s + 1] - kRowGap > c.h) p.scroll = offsets[s + 1] - kRowGap - c.h;
-            if (s > 0 && rows[s - 1].kind == MenuItem::Kind::Heading && offsets[s - 1] < p.scroll) p.scroll = offsets[s - 1];
+            const float top = s > 0 && rows[s - 1].kind == MenuItem::Kind::Heading ? offsets[s - 1] : offsets[s];
+            const float bottom = offsets[s + 1] - kRowGap;
+            if (bottom > p.scroll + c.h) p.scroll = bottom - c.h;
+            if (top < p.scroll) p.scroll = top;
         }
+        p.scroll = std::clamp(p.scroll, 0.0f, max_scroll);
+        p.layout.content = c;
+        p.layout.scroll = p.scroll;
+        p.layout.max_scroll = max_scroll;
         for (std::size_t i = 0; i < rows.size(); ++i) {
             const MenuItem &item = rows[i];
             const float h = row_height(item, c.w);
             const float y = c.y + offsets[i] - p.scroll;
-            const bool visible = y >= c.y - 0.5f && y + h <= c.y + c.h + 0.5f;
+            const bool visible = y + h > c.y && y < c.y + c.h; // drawn, clipped to the content, even when partly out
             p.row_y.push_back(y);
             p.shown.push_back(visible);
             const bool pickable = visible && Menu::selectable(item);
@@ -806,10 +825,12 @@ struct MenuRenderer::Impl : Painter {
             if (!tab.subtitle.empty()) text(main.x + 14.0f, main.y + 27.5f, fit(tab.subtitle, 5.2f, main.w - 46.0f), 5.2f, kDim, 1.0f);
         }
         const auto &rows = v.items();
+        clip(p.panels.content.y - 2.0f, p.panels.content.y + p.panels.content.h + 2.0f); // room for the focus ring
         for (std::size_t i = 0; i < rows.size(); ++i) {
             if (!p.shown[i]) continue;
             row(p, i, rows[i], static_cast<int>(i) == v.selected, v);
         }
+        unclip();
         if (p.layout.keypad_row >= 0) keypad(p, rows[static_cast<std::size_t>(p.layout.keypad_row)], v);
         const auto &c = p.panels.content;
         if (p.total > c.h + 0.5f) { // more rows than room: a thin scroll bar

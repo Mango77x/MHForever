@@ -64,10 +64,21 @@ void Painter::begin(std::vector<std::uint32_t> &pixels, int width, int height, f
     scale_ = scale;
     pixels.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0u);
     px_ = &pixels;
+    unclip();
+}
+
+void Painter::clip(float y0, float y1) {
+    clip_y0_ = std::clamp(static_cast<int>(std::lround(y0 * scale_)), 0, height_);
+    clip_y1_ = std::clamp(static_cast<int>(std::lround(y1 * scale_)), clip_y0_, height_);
+}
+
+void Painter::unclip() {
+    clip_y0_ = 0;
+    clip_y1_ = height_;
 }
 
 void Painter::blend(int x, int y, Color c, float a) {
-    if (a <= 0.0f || x < 0 || y < 0 || x >= width_ || y >= height_) return;
+    if (a <= 0.0f || x < 0 || y < clip_y0_ || x >= width_ || y >= clip_y1_) return;
     blend_px((*px_)[static_cast<std::size_t>(y) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(x)], byte(c.r),
              byte(c.g), byte(c.b), byte(std::min(a, 1.0f)));
 }
@@ -78,7 +89,7 @@ void Painter::rrect(float x, float y, float w, float h, float radius, Color top,
     const float s = scale_;
     const float X = x * s, Y = y * s, Wd = w * s, Hd = h * s, R = radius * s, B = border * s;
     const int x0 = std::max(0, static_cast<int>(std::floor(X))), x1 = std::min(width_, static_cast<int>(std::ceil(X + Wd)));
-    const int y0 = std::max(0, static_cast<int>(std::floor(Y))), y1 = std::min(height_, static_cast<int>(std::ceil(Y + Hd)));
+    const int y0 = std::max(clip_y0_, static_cast<int>(std::floor(Y))), y1 = std::min(clip_y1_, static_cast<int>(std::ceil(Y + Hd)));
     const float cx = X + Wd * 0.5f, cy = Y + Hd * 0.5f, hx = Wd * 0.5f - R, hy = Hd * 0.5f - R;
     const std::uint32_t full = byte(std::min(alpha, 1.0f));
     for (int py = y0; py < y1; ++py) {
@@ -180,7 +191,7 @@ void Painter::image(float x, float y, float size, const std::uint32_t *source, i
     const float ratio = static_cast<float>(source_size) / static_cast<float>(dest);
     for (int dy = 0; dy < dest; ++dy) {
         const int py = y0 + dy;
-        if (py < 0 || py >= height_) continue;
+        if (py < clip_y0_ || py >= clip_y1_) continue;
         const int sy0 = static_cast<int>(static_cast<float>(dy) * ratio);
         const int sy1 = std::max(sy0 + 1, static_cast<int>(static_cast<float>(dy + 1) * ratio));
         for (int dx = 0; dx < dest; ++dx) {
@@ -215,7 +226,7 @@ void Painter::image(float x, float y, float size, const std::uint32_t *source, i
 
 void Painter::rect(float x, float y, float w, float h, Color c, float alpha) {
     const int x0 = std::max(0, static_cast<int>(std::lround(x * scale_))), x1 = std::min(width_, static_cast<int>(std::lround((x + w) * scale_)));
-    const int y0 = std::max(0, static_cast<int>(std::lround(y * scale_))), y1 = std::min(height_, static_cast<int>(std::lround((y + h) * scale_)));
+    const int y0 = std::max(clip_y0_, static_cast<int>(std::lround(y * scale_))), y1 = std::min(clip_y1_, static_cast<int>(std::lround((y + h) * scale_)));
     const std::uint32_t a = byte(std::min(alpha, 1.0f)), r = byte(c.r), g = byte(c.g), b = byte(c.b);
     for (int py = y0; py < y1; ++py) {
         std::uint32_t *row = px_->data() + static_cast<std::size_t>(py) * static_cast<std::size_t>(width_);
