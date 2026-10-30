@@ -163,7 +163,7 @@ function simulated(): Native {
     up: 'dpad_up', down: 'dpad_down', left: 'dpad_left', right: 'dpad_right', stick: 'left',
   };
   const state: State = {
-    version: '0.7.0-dev',
+    version: '0.8.0-dev',
     platform: 'browser',
     pseudonym: 'Hunter',
     nostrKey: Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, '0')).join(''),
