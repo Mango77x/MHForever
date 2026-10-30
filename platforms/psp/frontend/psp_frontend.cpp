@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -89,9 +90,11 @@ struct Frontend::Impl {
     // opens. `last_room` brings a code back when the player returns to private halls.
     bool online{}, room_known{};
     std::string room, last_room, room_note, server;
-    // Whose room a code is on a server (room_key), as far as this session knows: "" the player's own (a new code), else
-    // the friend joined. The same code on another server is another room.
-    std::map<std::string, std::string> room_owner;
+    // Whose room is whose, as far as this session knows: the codes the player made are theirs on any server (nobody
+    // else has them); a friend's room is theirs only on the server it was joined on (room_key), as elsewhere the same
+    // code is another room, without them.
+    std::set<std::string> own_rooms;
+    std::map<std::string, std::string> friend_rooms;
     // Joining a friend's room: the code as typed (keyboard) or picked (the code keyboard, for controllers).
     std::string code_typed;
     bool code_typing{}, code_keyboard{}; // the keyboard types into the code field; the on-screen one is up (controller)
@@ -364,6 +367,14 @@ constexpr AdhocServerChoice kServers[] = {
 // A private room is a code on a server: the same code elsewhere is another room.
 std::string room_key(const std::string &server, const std::string &room) { return server + " " + room; }
 
+// Whose the current room is: "" the player's own, else the friend's name; nothing when the game does not know.
+std::optional<std::string> room_owner(const Frontend::Impl &impl) {
+    if (impl.own_rooms.contains(impl.room)) return std::string();
+    const auto f = impl.friend_rooms.find(room_key(impl.server, impl.room));
+    if (f != impl.friend_rooms.end()) return f->second;
+    return std::nullopt;
+}
+
 // A server's name in the list, else its address.
 std::string server_name(const std::string &host) {
     for (const AdhocServerChoice &s : kServers) {
@@ -502,12 +513,12 @@ overlay::MenuTab menu_online(const Frontend::Impl &impl) {
     // The private room: its code, who is in it, where the player stands, and joining another one by code.
     if (private_room) {
         tab.items.push_back(menu_item(Kind::Heading, 0, "")); // a line between the parts
-        const auto owner = impl.room_owner.find(room_key(impl.server, impl.room));
-        const std::string title = owner == impl.room_owner.end() ? "Private room" : owner->second.empty() ? "Your room" : owner->second + "'s room";
+        const std::optional<std::string> owner = room_owner(impl);
+        const std::string title = !owner ? "Private room" : owner->empty() ? "Your room" : *owner + "'s room";
         overlay::MenuItem code = menu_item(Kind::Banner, kRoomCode, title);
         code.text = format_adhoc_room_code(impl.room);
         // Someone else's room: Leave makes a room of the player's own. Their own: New code does the same.
-        const bool mine = owner != impl.room_owner.end() && owner->second.empty();
+        const bool mine = owner && owner->empty();
         code.actions = {"Copy", mine ? "New code" : "Leave"};
         code.primary_action = 0;
         tab.items.push_back(code);
@@ -732,7 +743,7 @@ void friend_pressed(Frontend::Impl &impl, Runtime &rt, std::size_t index, const 
         if (f.server != impl.server) change_server(impl, rt, f.server);
         const std::string server_note = impl.room_note;
         const std::string room = room_key(f.server, f.room);
-        if (!f.room.empty() && !impl.room_owner.contains(room)) impl.room_owner[room] = f.name.empty() ? "Your friend" : f.name;
+        if (!f.room.empty() && !impl.friend_rooms.contains(room)) impl.friend_rooms[room] = f.name.empty() ? "Your friend" : f.name;
         change_room(impl, rt, f.room);
         if (rt.adhoc_server_pending()) impl.room_note = server_note;
         impl.room_note = "Joining " + name + ". " + impl.room_note;
@@ -899,10 +910,10 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             return true;
         case kRoomCode:
             if (e.action == 1) { // New code, or Leave someone's room: a private room of the player's own
-                const auto owner = impl.room_owner.find(room_key(impl.server, impl.room));
-                const std::string left = owner == impl.room_owner.end() || owner->second.empty() ? std::string() : owner->second + "'s room";
+                const std::optional<std::string> owner = room_owner(impl);
+                const std::string left = !owner || owner->empty() ? std::string() : *owner + "'s room";
                 const std::string fresh = new_adhoc_room_code();
-                impl.room_owner[room_key(impl.server, fresh)] = "";
+                impl.own_rooms.insert(fresh);
                 change_room(impl, rt, fresh);
                 if (!left.empty()) impl.room_note = "You left " + left + ". This room is yours: only those you give its code to come in.";
                 refresh_menu(impl);
@@ -974,7 +985,7 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             else if (!impl.last_room.empty()) change_room(impl, rt, impl.last_room);
             else {
                 const std::string fresh = new_adhoc_room_code();
-                impl.room_owner[room_key(impl.server, fresh)] = "";
+                impl.own_rooms.insert(fresh);
                 change_room(impl, rt, fresh);
             }
             break;
