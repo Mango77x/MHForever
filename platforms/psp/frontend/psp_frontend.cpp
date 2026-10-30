@@ -250,6 +250,11 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
 
 void Frontend::set_controls_file(const std::string &path) { impl_->controls_file = std::filesystem::path(path); }
 
+void Frontend::set_texture_pack(const std::string &folder, const std::string &game_id) {
+    impl_->live.texture_pack_folder = folder;
+    impl_->live.texture_pack_game = game_id;
+}
+
 void Frontend::set_friends_files(const std::string &friends, const std::string &actions) {
     impl_->friends_file = std::filesystem::path(friends);
     impl_->friend_actions_file = std::filesystem::path(actions);
@@ -441,7 +446,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 }
 
 enum MenuId {
-    kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kPadStick, kRestoreKeys, kRestorePad,
+    kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kPadStick, kRestoreKeys, kRestorePad,
     kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore
 };
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
@@ -715,6 +720,11 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
                                       menu_item(Kind::Toggle, kFullscreen, "Fullscreen", impl.host.window_rect().fullscreen ? 1 : 0),
                                       menu_item(Kind::Toggle, kSmooth, "Smooth textures", impl.live.smooth_textures ? 1 : 0)},
                            "Changes apply at the next picture."};
+    if (!impl.live.texture_pack_folder.empty()) {
+        overlay::MenuItem pack = menu_item(Kind::Toggle, kTexturePack, "Texture pack", impl.live.texture_pack ? 1 : 0);
+        pack.detail = "Off draws the game's own textures again.";
+        video.items.push_back(pack);
+    }
     overlay::MenuTab controls{"Controls", {menu_item(Kind::Heading, 0, "Keyboard")}, "Click a key or a button, then press the new one."};
     for (std::size_t i = 0; i < host::kKeyActions.size(); ++i) {
         const int id = kKeyBase + static_cast<int>(i);
@@ -1062,6 +1072,7 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         case kSfx: impl.sfx_volume = e.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); break;
         case kFullscreen: impl.host.toggle_fullscreen(); break;
         case kSmooth: impl.live.smooth_textures = e.value != 0; break;
+        case kTexturePack: impl.live.texture_pack = e.value != 0; break;
         case kScale:
             impl.render_scale = e.value + 1;
             impl.live.scale = impl.render_scale; // the drawing thread applies it at the next picture

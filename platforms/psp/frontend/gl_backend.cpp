@@ -9,6 +9,8 @@
 
 #include "gl_backend.hpp"
 #include "frame_matching.hpp"
+#include "texture_images.hpp"
+#include "texture_pack.hpp"
 
 #include "ge.hpp"
 
@@ -19,6 +21,8 @@
 #include <array>
 #include <chrono>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <future>
 #include <set>
@@ -32,8 +36,6 @@
 #include <unordered_map>
 #include <string>
 #include <vector>
-#include <cstdlib>
-#include "texture_replacer.hpp"
 
 namespace mhf::psp {
 
@@ -112,6 +114,7 @@ using MhfReadPixels = void(APIENTRY *)(GLint, GLint, GLsizei, GLsizei, GLenum, G
     X(MhfTexParameteri, TexParameteri, glTexParameteri)                                                      \
     X(PFNGLACTIVETEXTUREPROC, ActiveTexture, glActiveTexture)                                                      \
     X(MhfPixelStorei, PixelStorei, glPixelStorei)                                                            \
+    X(PFNGLGENERATEMIPMAPPROC, GenerateMipmap, glGenerateMipmap)                                                   \
     X(PFNGLGENFRAMEBUFFERSPROC, GenFramebuffers, glGenFramebuffers)                                                \
     X(PFNGLDELETEFRAMEBUFFERSPROC, DeleteFramebuffers, glDeleteFramebuffers)                                       \
     X(PFNGLBINDFRAMEBUFFERPROC, BindFramebuffer, glBindFramebuffer)                                                \
@@ -372,6 +375,8 @@ struct DrawSetup {
     DrawKey key{};
     GLuint texture{};     // 0: untextured
     float uv_xform[4]{1, 1, 0, 0};
+    bool texture_mips{};          // the texture has mip levels (a texture pack image)
+    std::uint8_t texture_filter{}; // a texture pack's [filtering] for it: 0 the game's, 1 nearest, 2 linear
     bool through{};
     float tex_width{1}, tex_height{1};
     std::uint32_t target{}; // VRAM offset of the render target
@@ -507,6 +512,7 @@ public:
         : window_(window), scale_(std::max(1, scale)), memory_(memory), live_(live != nullptr ? live : &own_live_),
           overlay_(overlay), factor_(std::clamp(factor, 1, 6)), interpolate_(factor > 1) {
         if (live == nullptr) own_live_.smooth_textures = smooth_textures;
+        open_texture_pack();
     }
 
     ~GlBackend() override {
@@ -629,6 +635,17 @@ private:
         std::uint64_t checked_frame{~0ull};
         std::uint64_t checked_clut{~0ull};
         std::uint64_t last_use{};
+        // Texture pack: the image drawn instead of the game's (its GPU bytes), the one being decoded for it (its name and
+        // files, and the loader generation last looked at), the part of the texture it covers, its [filtering], and
+        // the lowest row drawn in through mode (512-tall textures are hashed down to it).
+        std::size_t pack_bytes{};
+        bool mips{};
+        std::uint8_t filter{};
+        float uv_scale[2]{1.0f, 1.0f};
+        std::string pending, shown; // being decoded; on the GPU
+        std::vector<std::filesystem::path> pending_files;
+        std::uint64_t pending_generation{~0ull};
+        std::uint16_t max_seen_v{}, keyed_max_v{};
     };
 
     void prepare(const gpu::Ge &ge) {
@@ -654,6 +671,8 @@ private:
         g.inv_w = through_ ? 1.0f : (v.w > 0.0f ? v.w : 1.0f);
         g.u = through_ ? v.u / tex_width_ : v.u;
         g.v = through_ ? v.v / tex_height_ : v.v;
+        // Texture packs hash 512-tall textures drawn in through mode only down to the lowest row drawn.
+        if (seen_v_ != nullptr && through_ && v.v > static_cast<float>(*seen_v_)) *seen_v_ = static_cast<std::uint16_t>(std::min(512.0f, std::ceil(v.v)));
         g.color[0] = to_byte(c.r); g.color[1] = to_byte(c.g); g.color[2] = to_byte(c.b); g.color[3] = to_byte(c.a);
         g.spec[0] = to_byte(c.sr); g.spec[1] = to_byte(c.sg); g.spec[2] = to_byte(c.sb); g.spec[3] = 0;
         g.fog = v.fog;
@@ -726,7 +745,16 @@ private:
                      std::uint32_t dst_stride, std::uint32_t dx, std::uint32_t dy, std::uint32_t width, std::uint32_t height);
     GLuint compile(const char *vertex, const char *fragment);
     GLint uniform(GLuint program, const char *name) { return gl_.GetUniformLocation(program, name); }
-    void set_texture_params(bool linear, bool clamp_s, bool clamp_t);
+    void set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips = false);
+    // Texture packs (frontend/texture_pack.hpp, texture_images.hpp): opening the pack, its key for the current texture
+    // and the image for it, putting a decoded image on the GPU, dumping the game's textures for pack makers, and
+    // keeping pack images within their memory budget.
+    void open_texture_pack();
+    void look_up_pack(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, CachedTexture &t);
+    void upload_pack_image(CachedTexture &t, const textures::Image &image);
+    void dump_texture(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, const std::uint32_t *pixels);
+    void drop_textures();
+    void trim_pack_memory();
     // Debugging: MHF_GL_DUMP=<folder> writes every MHF_GL_DUMP_EVERY-th (default 60) presented frame as a PPM image,
     // starting at presented frame MHF_GL_DUMP_FROM (default 0).
     void dump_window(int w, int h);
@@ -766,8 +794,20 @@ private:
     std::map<std::uint32_t, RenderTarget> targets_; // by VRAM offset
     RenderTarget *current_{};
     std::unordered_map<std::uint64_t, CachedTexture> textures_;
-    mhf::psp::frontend::TextureReplacer replacer_;
-    bool replacer_tried_ = false;
+    std::unique_ptr<textures::Pack> pack_;     // the texture pack, when one was given and could be opened
+    std::unique_ptr<textures::Loader> loader_; // decodes its images
+    bool pack_on_ = false;                     // drawing it (the player can turn it off in the menu)
+    std::size_t pack_bytes_ = 0, pack_budget_ = std::size_t(1024) << 20; // pack images on the GPU, and their limit
+    std::uint16_t *seen_v_ = nullptr;          // the lowest through-mode row drawn of the bound texture (packs)
+    // Pack images put on the GPU this flip: a scene arriving with dozens of them spreads them over a few flips instead
+    // of holding one up (each is an upload and its mip levels).
+    static constexpr unsigned kPackUploadsPerFlip = 6;
+    unsigned pack_uploads_ = 0;
+    bool pack_log_ = false;                    // MHF_TEXTURE_LOG=1: each texture's key and what the pack does with it
+    std::uint64_t pack_logged_at_ = 0, pack_replaced_ = 0, pack_missed_ = 0;
+    std::filesystem::path dump_folder_;        // MHF_TEXTURE_DUMP=<folder>: the game's textures as a pack to edit
+    std::unique_ptr<textures::Pack> dump_keys_;
+    std::set<std::string> dumped_;
     // Textures replaced by new content while a recorded batch (frame interpolation) may still draw with them; they
     // are deleted a few flips later.
     std::vector<std::pair<std::uint64_t, GLuint>> retired_textures_;
@@ -917,6 +957,8 @@ private:
     bool have_state_{};
     bool through_{};
     float tex_width_{1}, tex_height_{1};
+    bool tex_mips_ = false;          // the texture texture_for() gave has mip levels (a pack image)
+    std::uint8_t tex_filter_ = 0;    // and its pack [filtering]
     std::vector<GpuVertex> batch_;
     std::vector<Origin> batch_origins_; // frame interpolation: one per vertex of batch_
     std::uint64_t frame_{1};
@@ -1128,17 +1170,24 @@ GlBackend::RenderTarget *GlBackend::find_target(std::uint32_t vram_offset, bool 
 
 // ---------------------------------------------------------------- state
 
-void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t) {
-    gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips) {
+    // Texture pack images carry mip levels: at a distance they are sampled from those, not shimmering.
+    const GLint min_filter = mips ? (linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_LINEAR) : (linear ? GL_LINEAR : GL_NEAREST);
+    gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, clamp_s ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, clamp_t ? GL_CLAMP_TO_EDGE : GL_REPEAT);
 }
 
 GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
-    if (!replacer_tried_) {
-        replacer_tried_ = true;
-        if (const char *dir = std::getenv("MHF_TEXTURE_PACK")) replacer_.load(dir);
+    tex_mips_ = false;
+    tex_filter_ = 0;
+    seen_v_ = nullptr;
+    // The player turned the pack on or off: every texture is uploaded again, as the game's or as the pack's.
+    if (const bool want = pack_ != nullptr && live_->texture_pack.load(std::memory_order_relaxed); want != pack_on_) {
+        pack_on_ = want;
+        drop_textures();
+        if (!pack_on_) loader_->clear();
     }
     const auto info = ge.texture_info();
     tex_width_ = static_cast<float>(info.width);
@@ -1196,37 +1245,229 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
         const std::uint64_t hash = ge.texture_hash();
         t.checked_frame = frame_;
         t.checked_clut = ge.clut_generation();
-        if (t.texture == 0 || hash != t.hash) {
+        // A 512-tall texture drawn lower than before has another pack key.
+        const bool rekey = pack_on_ && info.height == 512 && t.max_seen_v != t.keyed_max_v;
+        if (t.texture == 0 || hash != t.hash || rekey) {
             t.hash = hash;
-            const mhf::psp::frontend::TextureReplacer::Image *repl = nullptr;
-            if (replacer_.size() != 0) {
-                const std::uint32_t rh = ge.replacement_hash();
-                static std::set<std::uint32_t> seen;
-                if (seen.insert(rh).second)
-                    std::fprintf(stderr, "[tex] %08x %ux%u fmt %u %s\n", rh, info.width, info.height, info.format,
-                                 replacer_.find(rh) ? "HIT" : "miss");
-                repl = replacer_.image(rh);
+            t.keyed_max_v = t.max_seen_v;
+            std::shared_ptr<const textures::Image> image;
+            bool kept = false;
+            if (pack_on_) {
+                look_up_pack(ge, info, t);
+                if (!t.pending.empty() && t.pending == t.shown && t.texture != 0) {
+                    t.pending.clear(); // the same image is on the GPU already
+                    kept = true;
+                } else if (!t.pending.empty() && (pack_uploads_ >= kPackUploadsPerFlip ||
+                                                  loader_->get(t.pending, t.pending_files, image) != textures::Loader::State::Ready)) {
+                    image.reset();
+                }
             }
-            if (!repl) {
+            if (kept) {
+            } else if (image) {
+                upload_pack_image(t, *image);
+                loader_->forget(t.pending);
+                t.shown = std::move(t.pending);
+                t.pending.clear();
+            } else {
+                // The game's own texture: until the pack's image is decoded, or for good.
                 pixels_.resize(static_cast<std::size_t>(info.width) * info.height);
                 ge.decode_texture(pixels_.data());
-            }
-            if (interpolate_ && t.texture != 0) {
-                // A recorded batch may replay with the old content: never overwrite a texture in place.
-                retired_textures_.emplace_back(frame_, t.texture);
-                t.texture = 0;
-            }
-            if (t.texture == 0) gl_.GenTextures(1, &t.texture);
-            gl_.BindTexture(GL_TEXTURE_2D, t.texture);
-            if (repl)
-                gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(repl->width),
-                               static_cast<GLsizei>(repl->height), 0, GL_RGBA, GL_UNSIGNED_BYTE, repl->rgba.data());
-            else
+                if (!dump_folder_.empty()) dump_texture(ge, info, pixels_.data());
+                if (interpolate_ && t.texture != 0) {
+                    // A recorded batch may replay with the old content: never overwrite a texture in place.
+                    retired_textures_.emplace_back(frame_, t.texture);
+                    t.texture = 0;
+                }
+                if (t.texture == 0) gl_.GenTextures(1, &t.texture);
+                pack_bytes_ -= std::min(pack_bytes_, t.pack_bytes);
+                t.pack_bytes = 0;
+                t.mips = false;
+                t.shown.clear();
+                gl_.BindTexture(GL_TEXTURE_2D, t.texture);
                 gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(info.width), static_cast<GLsizei>(info.height),
                                0, GL_RGBA, GL_UNSIGNED_BYTE, pixels_.data());
+            }
         }
     }
+    // The pack's image arrived (the loader moves on only when one finished): it takes the game's texture's place.
+    if (!t.pending.empty() && pack_on_ && loader_->generation() != t.pending_generation && pack_uploads_ < kPackUploadsPerFlip) {
+        t.pending_generation = loader_->generation();
+        std::shared_ptr<const textures::Image> image;
+        const auto state = loader_->get(t.pending, t.pending_files, image);
+        if (state == textures::Loader::State::Ready) {
+            upload_pack_image(t, *image);
+            loader_->forget(t.pending);
+            t.shown = std::move(t.pending);
+            t.pending.clear();
+        } else if (state == textures::Loader::State::Failed) {
+            t.pending.clear(); // the game's texture stays
+        }
+    }
+    uv_xform[0] = t.uv_scale[0];
+    uv_xform[1] = t.uv_scale[1];
+    tex_mips_ = t.mips;
+    tex_filter_ = t.filter;
+    if (pack_on_ && info.height == 512) seen_v_ = &t.max_seen_v;
     return t.texture;
+}
+
+// ---------------------------------------------------------------- texture packs
+
+void GlBackend::open_texture_pack() {
+    pack_log_ = std::getenv("MHF_TEXTURE_LOG") != nullptr;
+    if (const char *mb = std::getenv("MHF_TEXTURE_PACK_MEMORY")) pack_budget_ = std::size_t(std::max(64L, std::atol(mb))) << 20;
+    std::string folder = live_->texture_pack_folder;
+    if (folder.empty()) {
+        if (const char *env = std::getenv("MHF_TEXTURE_PACK")) folder = env;
+    }
+    if (const char *dump = std::getenv("MHF_TEXTURE_DUMP")) {
+        dump_folder_ = textures::from_utf8(dump);
+        std::error_code ec;
+        std::filesystem::create_directories(dump_folder_, ec);
+    }
+    if (!folder.empty()) {
+        std::string error;
+        const std::filesystem::path chosen = textures::from_utf8(folder);
+        std::filesystem::path located = textures::Pack::locate(chosen, live_->texture_pack_game);
+        pack_ = textures::Pack::open(located.empty() ? chosen : located, live_->texture_pack_game, error);
+        if (!pack_) {
+            std::fprintf(stderr, "[textures] no texture pack: %s\n", error.c_str());
+        } else {
+            std::fprintf(stderr, "[textures] texture pack: %zu textures from %s\n", pack_->size(), textures::utf8(pack_->ini()).c_str());
+            for (const std::string &w : pack_->warnings()) std::fprintf(stderr, "[textures] %s\n", w.c_str());
+            const unsigned cores = std::max(1u, std::thread::hardware_concurrency());
+            loader_ = std::make_unique<textures::Loader>(std::clamp(cores / 3u, 1u, 3u));
+        }
+    }
+    // Dumps take their keys from the pack's options when there is a pack (so edited images fit in it), else from a
+    // new pack's: the quick hash, as PPSSPP writes them.
+    if (!dump_folder_.empty() && !pack_) {
+        std::error_code ec;
+        const std::filesystem::path ini = dump_folder_ / "textures.ini";
+        if (!std::filesystem::exists(ini, ec)) {
+            std::ofstream(ini, std::ios::binary) << "# Textures dumped by MHForever (MHF_TEXTURE_DUMP). Edit the images: their names are\n"
+                                                    "# their keys, so the folder is a texture pack as it is.\n"
+                                                    "[options]\nversion = 1\nhash = quick\n\n[hashes]\n";
+        }
+        dump_keys_ = textures::Pack::keys_only();
+    }
+}
+
+// The facts of the current texture a pack's key is made of.
+textures::TextureFacts texture_facts(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, std::uint16_t max_seen_v) {
+    textures::TextureFacts f;
+    f.address = info.address;
+    f.buffer_width = info.stride;
+    f.format = info.format;
+    f.width = info.width;
+    f.height = info.height;
+    f.dimension = static_cast<std::uint16_t>(ge.reg(kTexSize0) & 0x0F0Fu);
+    f.max_seen_v = max_seen_v;
+    f.clut_format_word = (kClutFormat << 24u) | (ge.reg(kClutFormat) & 0xFFFFFFu);
+    f.clut = ge.clut_bytes();
+    f.clut_last_bytes = ge.clut_last_bytes();
+    f.clut_max_bytes = ge.clut_max_bytes();
+    return f;
+}
+
+void GlBackend::look_up_pack(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, CachedTexture &t) {
+    t.pending.clear();
+    t.pending_files.clear();
+    t.pending_generation = ~0ull;
+    t.filter = 0;
+    t.uv_scale[0] = t.uv_scale[1] = 1.0f;
+    textures::Key key;
+    std::uint32_t covered_w = info.width, covered_h = info.height;
+    const auto memory = [&ge](std::uint32_t address, std::uint32_t size) { return ge.guest_bytes(address, size); };
+    if (!pack_->key_of(texture_facts(ge, info, t.max_seen_v), memory, key, covered_w, covered_h)) return;
+    const textures::Match m = pack_->find(key);
+    if (pack_log_) {
+        std::fprintf(stderr, "[textures] %s %ux%u format %u: %s\n", textures::format_key(key).c_str(), info.width, info.height,
+                     info.format, m.entry == nullptr ? "not in the pack" : m.entry->keeps_original() ? "kept" : m.entry->image().c_str());
+    }
+    if (m.entry == nullptr || m.entry->keeps_original()) {
+        ++pack_missed_;
+        return;
+    }
+    t.filter = m.filter == textures::Filter::Nearest ? 1 : m.filter == textures::Filter::Linear ? 2 : 0;
+    // A [hashranges] image covers only part of the texture: coordinates reach past it in the same proportion.
+    t.uv_scale[0] = static_cast<float>(info.width) / static_cast<float>(std::max(1u, covered_w));
+    t.uv_scale[1] = static_cast<float>(info.height) / static_cast<float>(std::max(1u, covered_h));
+    t.pending = m.entry->image();
+    for (const auto &[level, name] : m.entry->levels) t.pending_files.push_back(pack_->path_of(name));
+}
+
+void GlBackend::upload_pack_image(CachedTexture &t, const textures::Image &image) {
+    if (interpolate_ && t.texture != 0) {
+        // A recorded batch may replay with the old content: never overwrite a texture in place.
+        retired_textures_.emplace_back(frame_, t.texture);
+        t.texture = 0;
+    }
+    if (t.texture == 0) gl_.GenTextures(1, &t.texture);
+    gl_.BindTexture(GL_TEXTURE_2D, t.texture);
+    gl_.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    for (std::size_t level = 0; level < image.levels.size(); ++level) {
+        const auto w = static_cast<GLsizei>(std::max(1u, image.width >> level)), h = static_cast<GLsizei>(std::max(1u, image.height >> level));
+        gl_.TexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.levels[level].data());
+    }
+    // An image without its own mip levels gets them made here; a full chain either way.
+    if (image.levels.size() == 1) gl_.GenerateMipmap(GL_TEXTURE_2D);
+    gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, image.levels.size() == 1 ? 1000 : static_cast<GLint>(image.levels.size() - 1));
+    pack_bytes_ -= std::min(pack_bytes_, t.pack_bytes);
+    t.pack_bytes = std::size_t(image.width) * image.height * 4u * 4u / 3u;
+    pack_bytes_ += t.pack_bytes;
+    t.mips = true;
+    ++pack_replaced_;
+    ++pack_uploads_;
+}
+
+// The game's texture as a PNG named by its key, once: with a textures.ini next to them the folder is a pack (named
+// images are found without being listed), so editing an image replaces the texture.
+void GlBackend::dump_texture(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, const std::uint32_t *pixels) {
+    const textures::Pack *keys = pack_ ? pack_.get() : dump_keys_.get();
+    if (keys == nullptr) return;
+    textures::Key key;
+    std::uint32_t covered_w = 0, covered_h = 0;
+    const auto memory = [&ge](std::uint32_t address, std::uint32_t size) { return ge.guest_bytes(address, size); };
+    if (!keys->key_of(texture_facts(ge, info, 0), memory, key, covered_w, covered_h)) return;
+    const std::string name = textures::format_key(key);
+    if (!dumped_.insert(name).second) return;
+    std::error_code ec;
+    const std::filesystem::path file = dump_folder_ / (name + ".png");
+    if (std::filesystem::exists(file, ec)) return; // an image already edited is never written over
+    textures::write_png(file, info.width, info.height, pixels);
+}
+
+// Every cached texture uploaded again at its next use (the pack was turned on or off).
+void GlBackend::drop_textures() {
+    for (auto &[key, t] : textures_) {
+        if (t.texture == 0) continue;
+        if (interpolate_) retired_textures_.emplace_back(frame_, t.texture);
+        else gl_.DeleteTextures(1, &t.texture);
+    }
+    textures_.clear();
+    pack_bytes_ = 0;
+    seen_v_ = nullptr;
+}
+
+// Past the budget, the pack images drawn least recently go (not those of this flip or the one before): their textures
+// are made again, as the game's first, when next drawn.
+void GlBackend::trim_pack_memory() {
+    if (pack_bytes_ <= pack_budget_) return;
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> by_age; // last use, key
+    for (const auto &[key, t] : textures_) {
+        if (t.pack_bytes != 0 && t.last_use + 1 < frame_) by_age.emplace_back(t.last_use, key);
+    }
+    std::sort(by_age.begin(), by_age.end());
+    const std::size_t goal = pack_budget_ / 10u * 9u;
+    for (const auto &[use, key] : by_age) {
+        if (pack_bytes_ <= goal) break;
+        const auto it = textures_.find(key);
+        pack_bytes_ -= std::min(pack_bytes_, it->second.pack_bytes);
+        if (interpolate_) retired_textures_.emplace_back(frame_, it->second.texture);
+        else gl_.DeleteTextures(1, &it->second.texture);
+        textures_.erase(it);
+    }
 }
 
 GLenum blend_factor(std::uint32_t f, bool source_side, std::uint32_t fixed, bool &uses_constant) {
@@ -1267,10 +1508,15 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
     const bool clear = (ge.reg(kClearMode) & 1u) != 0;
     const bool textured = !clear && (ge.reg(kTextureMapEnable) & 1u) != 0;
     tex_width_ = tex_height_ = 1.0f;
+    seen_v_ = nullptr; // untextured draws say nothing of the last texture's rows
+    tex_mips_ = false;
+    tex_filter_ = 0;
     if (textured) {
         gl_.ActiveTexture(GL_TEXTURE0);
         setup.texture = texture_for(ge, setup.uv_xform);
         setup.self_sampled = setup.texture == copy_texture_;
+        setup.texture_mips = tex_mips_;
+        setup.texture_filter = tex_filter_;
     }
     setup.tex_width = tex_width_;
     setup.tex_height = tex_height_;
@@ -1294,8 +1540,9 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
         gl_.ActiveTexture(GL_TEXTURE0);
         gl_.BindTexture(GL_TEXTURE_2D, setup.texture);
         // Enhancement (off by default): bilinear filtering for 3D textures; 2D (through-mode) art stays as drawn.
-        const bool linear = (R(kTexFilter) & 0x100u) != 0 || (live_->smooth_textures.load(std::memory_order_relaxed) && !through);
-        set_texture_params(linear, (R(kTexWrap) & 1u) != 0, (R(kTexWrap) & 0x100u) != 0);
+        bool linear = (R(kTexFilter) & 0x100u) != 0 || (live_->smooth_textures.load(std::memory_order_relaxed) && !through);
+        if (setup.texture_filter != 0) linear = setup.texture_filter == 2; // a texture pack's [filtering]
+        set_texture_params(linear, (R(kTexWrap) & 1u) != 0, (R(kTexWrap) & 0x100u) != 0, setup.texture_mips);
     }
 
     gl_.BindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
@@ -1771,10 +2018,23 @@ void GlBackend::finish_flip() {
         }
     }
 
+    seen_v_ = nullptr;
+    pack_uploads_ = 0;
+    trim_pack_memory();
+    if (pack_log_ && loader_ && frame_ >= pack_logged_at_ + 300) {
+        pack_logged_at_ = frame_;
+        const auto c = loader_->counters();
+        std::fprintf(stderr, "[textures] %llu replaced, %llu not in the pack; %llu images decoded (%.1f ms each), %llu failed; %zu MB on the GPU\n",
+                     static_cast<unsigned long long>(pack_replaced_), static_cast<unsigned long long>(pack_missed_),
+                     static_cast<unsigned long long>(c.decoded), c.decoded + c.failed != 0 ? c.decode_us / 1000.0 / double(c.decoded + c.failed) : 0.0,
+                     static_cast<unsigned long long>(c.failed), pack_bytes_ >> 20);
+    }
+
     // Forget textures not used for a while.
     if ((frame_ & 255u) == 0) {
         for (auto i = textures_.begin(); i != textures_.end();) {
             if (i->second.last_use + 600 < frame_) {
+                pack_bytes_ -= std::min(pack_bytes_, i->second.pack_bytes);
                 gl_.DeleteTextures(1, &i->second.texture);
                 i = textures_.erase(i);
             } else {

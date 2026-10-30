@@ -61,6 +61,7 @@ endif()
 add_subdirectory(third_party/psprecomp)
 add_subdirectory(third_party/stb)
 add_subdirectory(third_party/basisu)
+add_subdirectory(third_party/xxhash)
 add_subdirectory(third_party/pokke_save_crypto)
 # FFmpeg decodes the movies (H.264 + ATRAC3/ATRAC3+) and the game's music; by default it is built with the project
 # (cmake/ffmpeg.cmake, docs/02-architecture.md section 9).

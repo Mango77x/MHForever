@@ -974,6 +974,8 @@ void Ge::load_clut(std::uint32_t data) {
     ++clut_generation_;
     const std::uint32_t address = (regs_[kClutAddr] & 0xFFFFF0u) | ((regs_[kClutAddrUpper] & 0x0F0000u) << 8u);
     const std::uint32_t bytes = std::min<std::uint32_t>((data & 0x3Fu) * 32u, 1024u);
+    clut_last_bytes_ = bytes;
+    clut_max_bytes_ = std::max(clut_max_bytes_, bytes);
     for (std::uint32_t i = 0; i < bytes / 4u; ++i) {
         clut_[i] = rd32(address + i * 4u);
     }
@@ -1120,51 +1122,6 @@ void Ge::decode_texture(std::uint32_t *out) const {
     }
 }
 
-namespace {
-
-// Quick hash compatible with PPSSPP texture packs. Assumes a little-endian host.
-std::uint32_t quick_tex_hash(const std::uint8_t *p, std::uint32_t size, bool aligned16) {
-    std::uint32_t check = 0;
-    if (aligned16 && (size & 0x3Fu) == 0) {
-        std::uint16_t c[8] = {};
-        std::uint16_t c2[8] = {0xc00b, 0x9bd9, 0x4b73, 0xb651, 0x4d9b, 0x4309, 0x0083, 0x0001};
-        for (std::uint32_t off = 0; off < size; off += 64) {
-            std::uint16_t v0[8], v3[8];
-            std::uint32_t v1[4], v2[4], c32[4];
-            std::memcpy(v0, p + off, 16);
-            std::memcpy(v1, p + off + 16, 16);
-            std::memcpy(v2, p + off + 32, 16);
-            std::memcpy(v3, p + off + 48, 16);
-            for (int j = 0; j < 8; ++j)
-                c[j] = static_cast<std::uint16_t>(c[j] + static_cast<std::uint16_t>(std::uint32_t(v0[j]) * c2[j]));
-            std::memcpy(c32, c, 16);
-            for (int j = 0; j < 4; ++j) {
-                c32[j] ^= v1[j];
-                c32[j] += v2[j];
-            }
-            std::memcpy(c, c32, 16);
-            for (int j = 0; j < 8; ++j) c[j] ^= static_cast<std::uint16_t>(std::uint32_t(v3[j]) * c2[j]);
-            for (int j = 0; j < 8; ++j) c2[j] = static_cast<std::uint16_t>(c2[j] + 0x2455u);
-        }
-        std::uint32_t a[4], b[4];
-        std::memcpy(a, c, 16);
-        std::memcpy(b, c2, 16);
-        for (int j = 0; j < 4; ++j) check += a[j] + b[j];
-    } else {
-        for (std::uint32_t i = 0; i < size / 8; ++i) {
-            std::uint32_t x, y;
-            std::memcpy(&x, p + i * 8, 4);
-            std::memcpy(&y, p + i * 8 + 4, 4);
-            check += x;
-            check ^= y;
-        }
-    }
-    return check;
-}
-
-} // namespace
-
-
 std::uint64_t Ge::texture_hash() const {
     const TextureInfo t = texture_info();
     // FNV-1a over 64-bit words: fast and good enough to tell textures apart.
@@ -1190,34 +1147,6 @@ std::uint64_t Ge::texture_hash() const {
         for (const std::uint32_t c : clut_) mix(c);
     }
     return h;
-}
-
-std::uint32_t Ge::replacement_hash() const {
-    const TextureInfo t = texture_info();
-    if (t.format > 10u) return 0;
-    static constexpr std::uint32_t bits_for[11] = {16, 16, 16, 32, 4, 8, 16, 32, 4, 8, 8};
-    const std::uint32_t bpp = bits_for[t.format];
-
-    // PPSSPP aligns bufw down to 16 bytes (formats 0-7) and uses one 16-byte line if that leaves 0.
-    std::uint32_t bufw = t.stride;
-    if (t.format <= 7u) bufw &= 0x7FFu & ~((128u / bpp) - 1u);
-    if (bufw == 0) bufw = 128u / bpp;
-
-    const std::uint32_t w = t.width, h = t.height;
-    if (bufw <= w) {
-        const std::uint32_t size = bpp * (bufw * h + (w - bufw)) / 8u;
-        const std::uint8_t *p = host(t.address, size);
-        return p ? quick_tex_hash(p, size, (t.address & 0xFu) == 0) : 0u;
-    }
-    const std::uint32_t line = bpp * w / 8u, stride = bpp * bufw / 8u;
-    const std::uint8_t *p = host(t.address, stride * (h - 1u) + line);
-    if (!p) return 0u;
-    std::uint32_t result = 0;
-    for (std::uint32_t y = 0; y < h; ++y) {
-        const std::uint32_t row = quick_tex_hash(p + y * stride, line, ((t.address + y * stride) & 0xFu) == 0);
-        result = (result * 11u) ^ row;
-    }
-    return result;
 }
 
 } // namespace mhf::psp::gpu

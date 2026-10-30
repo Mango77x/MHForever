@@ -76,8 +76,15 @@ public:
     void decode_texture(std::uint32_t *out) const;
     // Hash of the texture bytes, and of the palette for indexed formats; changes when the texture would look different.
     [[nodiscard]] std::uint64_t texture_hash() const;
-    // 32-bit hash of the raw texture bytes, compatible with PPSSPP texture packs (hash = quick). 0 if unreadable.
-    [[nodiscard]] std::uint32_t replacement_hash() const;
+    // For texture packs (frontend/texture_pack.hpp): guest memory as the host sees it (nullptr unless all `length`
+    // bytes are mapped), and the palette as the loads left it, with the bytes the last load wrote and the most any
+    // load wrote.
+    [[nodiscard]] const std::uint8_t *guest_bytes(std::uint32_t address, std::uint32_t length) const noexcept {
+        return host(address, length);
+    }
+    [[nodiscard]] const std::uint8_t *clut_bytes() const noexcept { return reinterpret_cast<const std::uint8_t *>(clut_.data()); }
+    [[nodiscard]] std::uint32_t clut_last_bytes() const noexcept { return clut_last_bytes_; }
+    [[nodiscard]] std::uint32_t clut_max_bytes() const noexcept { return clut_max_bytes_; }
     // Incremented whenever the palette is reloaded.
     [[nodiscard]] std::uint64_t clut_generation() const noexcept { return clut_generation_; }
     // The current camera, for backends that place vertices again (frame interpolation).
@@ -126,6 +133,7 @@ private:
 
     Backend *backend_{};
     std::uint64_t clut_generation_{};
+    std::uint32_t clut_last_bytes_{}, clut_max_bytes_{};
     std::uint64_t camera_generation_{};
 
     // Direct access to guest RAM and EDRAM for the hot paths (vertices, texels, pixels): no bounds exceptions, an
