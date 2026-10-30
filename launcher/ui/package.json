@@ -12,7 +12,9 @@
   "dependencies": {
     "@fontsource/manrope": "5.3.0",
     "@fontsource/sora": "5.3.0",
+    "@noble/hashes": "2.0.1",
     "motion": "14.3.0",
+    "nostr-tools": "2.25.2",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

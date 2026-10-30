@@ -121,12 +121,46 @@ int main(int argc, char **argv) {
         CHECK(line == "child ran");
     }
 
+    // HKDF-SHA256 with an empty salt: RFC 5869 test case 3 (the first 32 bytes of its output).
+    {
+        const std::string ikm(22, '\x0b');
+        const auto okm = hkdf_sha256(ikm.data(), ikm.size(), "");
+        CHECK(to_hex(okm.data(), okm.size()) == "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d");
+    }
+
     std::string code;
     {
         Launcher l(dir, dir);
         Json s = l.state();
-        code = s["friendCode"].as_string();
-        CHECK(std::regex_match(code, std::regex("^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$")));
+        code = s["nostrKey"].as_string(); // the friends identity, derived from the seed
+        CHECK(std::regex_match(code, std::regex("^[0-9a-f]{64}$")));
+        CHECK(s["friends"].as_array().empty() && s["blocked"].as_array().empty());
+        CHECK(s["settings"]["friendRelays"].as_array().size() == 5);
+        // Friends: what is not a friend is dropped, a key listed twice is kept once, the list survives a restart.
+        Json friends(Json::Array{}), blocked(Json::Array{});
+        Json one;
+        one["key"] = std::string(64, 'a');
+        one["name"] = "Rathalos\x01 rider";
+        one["added"] = 1761800000;
+        friends.array().push_back(one);
+        friends.array().push_back(one);
+        Json bad;
+        bad["key"] = std::string(64, 'G');
+        friends.array().push_back(bad);
+        blocked.array().push_back(std::string(64, 'b'));
+        blocked.array().push_back("not a key");
+        l.set_friends(friends, blocked);
+        const Json after = l.state();
+        CHECK(after["friends"].as_array().size() == 1 && after["friends"].as_array()[0]["name"].as_string() == "Rathalos rider");
+        CHECK(after["blocked"].as_array().size() == 1);
+        // Relays: wss:// only, else the list is ignored.
+        Json relays;
+        relays["friendRelays"] = Json(Json::Array{Json("wss://relay.example.org")});
+        l.set_settings(relays);
+        CHECK(l.state()["settings"]["friendRelays"].as_array().size() == 1);
+        relays["friendRelays"] = Json(Json::Array{Json("http://relay.example.org")});
+        l.set_settings(relays);
+        CHECK(l.state()["settings"]["friendRelays"].as_array()[0].as_string() == "wss://relay.example.org");
         CHECK(s["pseudonym"].as_string() == "Hunter");
         Json partial;
         partial["scale"] = 11;
@@ -256,7 +290,8 @@ int main(int argc, char **argv) {
     }
     {
         Launcher again(dir, dir); // reloads launcher.json
-        CHECK(again.state()["friendCode"].as_string() == code);
+        CHECK(again.state()["nostrKey"].as_string() == code);
+        CHECK(again.state()["friends"].as_array().size() == 1);
         CHECK(again.state()["settings"]["fullscreen"].as_bool());
         CHECK(again.state()["settings"]["fps"].as_number() == 90);
         CHECK(again.state()["settings"]["keys"]["south"].as_string() == "KeyZ");
@@ -513,7 +548,7 @@ int main(int argc, char **argv) {
         std::string blocked_code;
         {
             Launcher l(blocked, blocked);
-            blocked_code = l.state()["friendCode"].as_string();
+            blocked_code = l.state()["nostrKey"].as_string();
         }
         fs::create_directories(blocked / "launcher.json.tmp");
         {
@@ -523,7 +558,7 @@ int main(int argc, char **argv) {
         fs::remove_all(blocked / "launcher.json.tmp");
         CHECK(fs::is_regular_file(blocked / "launcher.json"));
         Launcher after(blocked, blocked);
-        CHECK(after.state()["friendCode"].as_string() == blocked_code); // same identity, not a fresh one
+        CHECK(after.state()["nostrKey"].as_string() == blocked_code); // same identity, not a fresh one
         CHECK(after.state()["pseudonym"].as_string() == "Hunter");      // the previous file is intact
     }
 

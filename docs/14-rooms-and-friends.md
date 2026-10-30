@@ -172,6 +172,25 @@ the browser and supports NIP-44 and relay pools.
 - **Where the code lives.** The launcher UI (TypeScript, nostr-tools); the native side derives the key and passes only
   the Nostr key to the UI. The game is not involved: it only receives a server and a room code at start.
 
+**Built 2026-10-30** (`launcher/ui/src/friendNetwork.ts`, the drawer in `Friends.tsx`), as above, with these details:
+- Kinds: 21470 the announcement of "Let friends add me" (tag `t` = the first 128 bits of
+  `SHA-256("mhf-friend-code:" + code)`, empty content), 21471 a request or its answer between the players' own keys
+  (tag `p`, NIP-44), 21472 presence, invite and goodbye between friends (signed with the pair key, NIP-44).
+- Pair key for messages from X to Y on UTC day d: `HMAC-SHA256(conversation key, "mhf-pair:d:X:Y")`. A launcher listens
+  for days d-1, d and d+1 (clocks a little apart around midnight).
+- The Nostr key is `HKDF-SHA256(identity seed, info "mhf-nostr")` (the launcher, `nostr_key`); the friend code is the
+  first 80 bits of `SHA-256(public key)`. The friend code of 0.7 (a hash of the seed) is gone: nothing used it.
+- Every event is checked before use: signature (nostr-tools), at most 4 KB, created within 5 minutes of now, at most 30
+  a minute per sender, the same event once even when several relays carry it, and each field validated (names cut to
+  24 characters, servers as the launcher checks them, room codes as 8 Crockford characters). A friend that is already
+  in the list and sends a request again (a new computer) gets an answer at once; a blocked key is ignored.
+- Default relays (NIP-11 read 2026-10-30, all public, each forwarded the ephemeral kinds in a test): nos.lol,
+  relay.primal.net, nostr.mom, offchain.pub, relay.nostr.net (`friendRelays` in the launcher's settings).
+- While the game runs the launcher folds the game's room and server into its settings every 2 s, so friends see a
+  room change made in the Escape menu.
+- Join: the friend's server and room become the player's and the game starts. Invite: sends the player's server and
+  room. Both need the game closed on the receiving side for now.
+
 ### 4.4 Discord, as an extra
 Most of the community is on Discord. Rich Presence over Discord's local IPC can show "Hunting in Freedom Unite · room
 2/4" with a **Join** button whose secret is the invite link of §3.3. Recent open-source games still do this without
@@ -196,7 +215,7 @@ off until the player turns it on.
 | R2b | Switch public → private → public from the Escape menu: in the village (applies at once) and inside a hall (applies after leaving), with a public player present | §3.4. **Inside a hall, 2026-10-29** on socom.cc, with a PPSSPP player in it: public → private kept the player there (the connection made stays, as designed); after leaving and entering again the hall was empty. A switch in the village applied at the next hall, and private → public showed the PPSSPP players again after entering anew. **Done** |
 | R3 | R2 on socom.cc, with a PPSSPP player in public halls at the same time | §3.2 on a busy server |
 | R4 | Our Japanese and European copies in one bridged hall, then a quest | §3.5 |
-| R5 | Two launchers add each other by code and see presence through public relays, one of them on mobile data | §4.3 |
+| R5 | Two launchers add each other by code and see presence through public relays, one of them on mobile data | §4.3. **2026-10-30**: `launcher/ui/tools/friends-live-check.ts` (two networks with fresh keys on the five default relays: add by code, accept, presence, invite) passed; the drawer in a browser against a third network too. Two real launchers on different networks still to try |
 | R6 | Rich Presence Join between two Discord accounts | §4.4 |
 
 ## 7. Plan

@@ -82,7 +82,7 @@ const Json *chosen_copy(const Json &data, const std::string &game_id, const Cata
 
 // The launcher's own settings: everything else is kept per copy of a game.
 bool is_launcher_setting(const std::string &key) {
-    return key == "copyImage" || key == "adhocServer" || key == "adhocRoom" || key == "checkUpdates";
+    return key == "copyImage" || key == "adhocServer" || key == "adhocRoom" || key == "checkUpdates" || key == "friendRelays";
 }
 
 // What a copy of a game uses: its own settings, over what the launcher.json "settings" hold (the values every copy started
@@ -141,6 +141,13 @@ Json default_settings() {
     s["pad"] = pad;
     s["adhocServer"] = ""; // PSP ad hoc server for online play ("host" or "host:port"); empty: offline
     s["adhocRoom"] = "";   // private room code (docs/14-rooms-and-friends.md section 3); empty: the public halls
+    // The public Nostr relays friends meet through (docs/14 section 4.3): each forwards the ephemeral events the friends
+    // list uses (checked 2026-10-30) and says in its NIP-11 document that it takes public notes.
+    Json relays(Json::Array{});
+    for (const char *url : {"wss://nos.lol", "wss://relay.primal.net", "wss://nostr.mom", "wss://offchain.pub", "wss://relay.nostr.net"}) {
+        relays.array().push_back(url);
+    }
+    s["friendRelays"] = relays;
     return s;
 }
 
@@ -525,27 +532,16 @@ void Launcher::save() {
     fs::remove(backup, ec);
 }
 
-// Friend code: 80 bits of SHA-256(identity seed) in Crockford base32, XXXX-XXXX-XXXX-XXXX. Provisional until online
-// play derives it from the Ed25519 public key (docs/08-multiplayer.md §4.1).
-std::string Launcher::friend_code() const {
-    const std::string seed_hex = data_["identitySeed"].as_string();
-    Sha256 sha;
-    sha.update(seed_hex.data(), seed_hex.size());
-    const auto d = sha.finish();
-    static const char *alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-    std::string code;
-    std::uint64_t acc = 0;
-    int bits = 0;
-    std::size_t byte = 0;
-    while (code.size() < 16) {
-        if (bits < 5) {
-            acc = (acc << 8) | d[byte++];
-            bits += 8;
-        }
-        code.push_back(alphabet[(acc >> (bits - 5)) & 31]);
-        bits -= 5;
+// The secret key of the player's Nostr identity (docs/14-rooms-and-friends.md section 4.3), derived from the identity
+// seed so that the identity backup covers it. The UI makes the public key and the friend code from it.
+std::string Launcher::nostr_key() const {
+    std::uint8_t seed[32] = {};
+    const std::string hex = data_["identitySeed"].as_string();
+    for (std::size_t i = 0; i < sizeof seed && i * 2 + 1 < hex.size(); ++i) {
+        seed[i] = static_cast<std::uint8_t>(std::stoi(hex.substr(i * 2, 2), nullptr, 16));
     }
-    return code.substr(0, 4) + "-" + code.substr(4, 4) + "-" + code.substr(8, 4) + "-" + code.substr(12, 4);
+    const auto key = hkdf_sha256(seed, sizeof seed, "mhf-nostr");
+    return to_hex(key.data(), key.size());
 }
 
 const CatalogEntry *Launcher::entry_for(const std::string &disc_id) const {
@@ -589,7 +585,9 @@ Json Launcher::state() {
     s["platform"] = "linux";
 #endif
     s["pseudonym"] = data_["pseudonym"];
-    s["friendCode"] = friend_code();
+    s["nostrKey"] = nostr_key();
+    s["friends"] = data_["friends"].is_array() ? data_["friends"] : Json(Json::Array{});
+    s["blocked"] = data_["blocked"].is_array() ? data_["blocked"] : Json(Json::Array{});
     const CatalogEntry *shown = nullptr;
     chosen_copy(data_, "mhfu", &shown);
     s["settings"] = settings_for(data_, shown != nullptr ? shown->disc_id : "");
@@ -731,6 +729,15 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
         const std::string text = partial["adhocRoom"].as_string(), code = room_code(text);
         if (text.empty() || !code.empty()) launcher_settings["adhocRoom"] = code;
     }
+    if (partial["friendRelays"].is_array()) { // wss:// addresses only, at most 8; a list with any other is ignored
+        const auto &list = partial["friendRelays"].as_array();
+        const bool valid = list.size() <= 8 && std::all_of(list.begin(), list.end(), [](const Json &r) {
+            const std::string url = r.as_string();
+            return url.size() > 6 && url.size() <= 200 && url.rfind("wss://", 0) == 0 &&
+                   std::all_of(url.begin(), url.end(), [](char c) { return c > 0x20 && c < 0x7F && c != '"' && c != '\\'; });
+        });
+        if (valid) launcher_settings["friendRelays"] = partial["friendRelays"];
+    }
     if (partial["keys"].is_object()) {
         Json &keys = s["keys"];
         for (const auto &[action, value] : partial["keys"].as_object()) {
@@ -751,6 +758,52 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
             pad[action] = value.as_string();
         }
     }
+    save();
+}
+
+namespace {
+
+bool public_key(const std::string &text) {
+    return text.size() == 64 && std::all_of(text.begin(), text.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
+}
+
+// Printable text, at most `bytes` long (UTF-8 bytes; cut at a character boundary).
+std::string printable(const std::string &text, std::size_t bytes) {
+    std::string out;
+    for (const char c : text) {
+        if (static_cast<unsigned char>(c) >= 0x20 && c != 0x7F) out.push_back(c);
+    }
+    if (out.size() > bytes) {
+        out.resize(bytes);
+        while (!out.empty() && (static_cast<unsigned char>(out.back()) & 0xC0) == 0x80) out.pop_back();
+        if (!out.empty() && static_cast<unsigned char>(out.back()) >= 0xC0) out.pop_back();
+    }
+    return out;
+}
+
+} // namespace
+
+void Launcher::set_friends(const Json &friends, const Json &blocked) {
+    constexpr std::size_t kMaxFriends = 200, kMaxBlocked = 500;
+    Json kept(Json::Array{}), kept_blocked(Json::Array{});
+    for (const auto &f : friends.as_array()) {
+        if (kept.array().size() >= kMaxFriends) break;
+        const std::string key = f["key"].as_string();
+        if (!public_key(key)) continue;
+        const bool twice = std::any_of(kept.array().begin(), kept.array().end(), [&](const Json &k) { return k["key"].as_string() == key; });
+        if (twice) continue;
+        Json friend_entry;
+        friend_entry["key"] = key;
+        friend_entry["name"] = printable(f["name"].as_string(), 48);
+        friend_entry["added"] = f["added"].is_number() ? f["added"] : Json(0.0);
+        kept.array().push_back(friend_entry);
+    }
+    for (const auto &b : blocked.as_array()) {
+        if (kept_blocked.array().size() < kMaxBlocked && public_key(b.as_string())) kept_blocked.array().push_back(b);
+    }
+    std::lock_guard lock(mutex_);
+    data_["friends"] = kept;
+    data_["blocked"] = kept_blocked;
     save();
 }
 
@@ -984,7 +1037,6 @@ Json Launcher::identity_backup() {
     b["version"] = 1;
     b["pseudonym"] = data_["pseudonym"];
     b["identitySeed"] = data_["identitySeed"];
-    b["friendCode"] = friend_code();
     b["warning"] = "Keep this file private: it is your identity. Anyone with it can pretend to be you.";
     return b;
 }
