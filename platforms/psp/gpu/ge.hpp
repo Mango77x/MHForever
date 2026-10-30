@@ -76,6 +76,8 @@ public:
     void decode_texture(std::uint32_t *out) const;
     // Hash of the texture bytes, and of the palette for indexed formats; changes when the texture would look different.
     [[nodiscard]] std::uint64_t texture_hash() const;
+    // 32-bit hash of the raw texture bytes, compatible with PPSSPP texture packs (hash = quick). 0 if unreadable.
+    [[nodiscard]] std::uint32_t replacement_hash() const;
     // Incremented whenever the palette is reloaded.
     [[nodiscard]] std::uint64_t clut_generation() const noexcept { return clut_generation_; }
     // The current camera, for backends that place vertices again (frame interpolation).
