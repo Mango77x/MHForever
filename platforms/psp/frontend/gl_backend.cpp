@@ -1821,7 +1821,12 @@ Camera between(const Camera &a, const Camera &b, float t) {
     return c;
 }
 
-// World point to screen (x, y in PSP pixels, z 0..65535, 1/w), like the GE; false behind the near plane.
+// World point to screen (x, y in PSP pixels, z 0..65535, 1/w), like the GE; false behind the camera.
+//
+// A point a little behind the near plane is still placed (its depth is clamped by the draw shader): the points the GE
+// made by clipping a triangle lie exactly on the near plane of the flip, and the camera of an in-between picture,
+// slightly further on, puts them just behind it. Refusing them left the whole triangle where the flip drew it while
+// its neighbours moved, which opened long wedges in the terrain down to the horizon (the clear colour showing through).
 bool project(const Camera &c, const float p[3], float out[4]) {
     float view[3];
     for (std::size_t i = 0; i < 3; ++i) {
@@ -1831,7 +1836,8 @@ bool project(const Camera &c, const float p[3], float out[4]) {
     for (std::size_t i = 0; i < 4; ++i) {
         clip[i] = view[0] * c.proj[i] + view[1] * c.proj[4 + i] + view[2] * c.proj[8 + i] + c.proj[12 + i];
     }
-    if (!(clip[3] > 0.0f) || !(clip[2] > -clip[3])) return false;
+    constexpr float kMinW = 1e-3f; // in front of the camera: the screen position is defined
+    if (!(clip[3] > kMinW)) return false;
     const float inv_w = 1.0f / clip[3];
     out[0] = clip[0] * inv_w * c.viewport[0] + c.viewport[3] - c.viewport[6];
     out[1] = clip[1] * inv_w * c.viewport[1] + c.viewport[4] - c.viewport[7];
