@@ -459,7 +459,7 @@ struct MenuRenderer::Impl : Painter {
     float row_height(const MenuItem &item, float w) const {
         const bool detail = !item.detail.empty();
         switch (item.kind) {
-        case MenuItem::Kind::Heading: return 12.0f;
+        case MenuItem::Kind::Heading: return item.label.empty() ? 9.0f : 19.0f; // a line, then the title
         case MenuItem::Kind::Info: return static_cast<float>(std::max<std::size_t>(1, wrap(item.label, 5.2f, w - 22.0f).size())) * 7.2f + 8.0f;
         case MenuItem::Kind::Choice:
             if (!item.option_details.empty()) return item.label.empty() ? 30.0f : 40.0f;
@@ -633,8 +633,9 @@ struct MenuRenderer::Impl : Painter {
         const bool hover = selected && v.pointer;  // the pointer is over it
         const MenuLayout::Rect card{x, y, w, h};
         switch (item.kind) {
-        case MenuItem::Kind::Heading:
-            text(x + 2.0f, y + 9.0f, upper(item.label), kSmall, kAccent, 0.95f, true, 0.6f);
+        case MenuItem::Kind::Heading: // a hairline between parts (not above the first row), then the title if any
+            if (i > 0) rect(x, y + 3.5f, w, 0.5f, kWhite, 0.14f);
+            if (!item.label.empty()) text(x + 2.0f, y + 15.5f, upper(item.label), kSmall, kAccent, 0.95f, true, 0.6f);
             return;
         case MenuItem::Kind::Info: {
             rrect(x, y, w, h, kCard, kWhite, 0.04f);

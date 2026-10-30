@@ -89,7 +89,8 @@ struct Frontend::Impl {
     // opens. `last_room` brings a code back when the player returns to private halls.
     bool online{}, room_known{};
     std::string room, last_room, room_note, server;
-    // Whose room a code is, as far as this session knows: "" the player's own (a new code), else the friend joined.
+    // Whose room a code is on a server (room_key), as far as this session knows: "" the player's own (a new code), else
+    // the friend joined. The same code on another server is another room.
     std::map<std::string, std::string> room_owner;
     // Joining a friend's room: the code as typed (keyboard) or picked (the code keyboard, for controllers).
     std::string code_typed;
@@ -360,6 +361,9 @@ constexpr AdhocServerChoice kServers[] = {
     {"cat.wjg.jp", "Neko PSP", "Japan"},
 };
 
+// A private room is a code on a server: the same code elsewhere is another room.
+std::string room_key(const std::string &server, const std::string &room) { return server + " " + room; }
+
 // A server's name in the list, else its address.
 std::string server_name(const std::string &host) {
     for (const AdhocServerChoice &s : kServers) {
@@ -497,7 +501,8 @@ overlay::MenuTab menu_online(const Frontend::Impl &impl) {
 
     // The private room: its code, who is in it, where the player stands, and joining another one by code.
     if (private_room) {
-        const auto owner = impl.room_owner.find(impl.room);
+        tab.items.push_back(menu_item(Kind::Heading, 0, "")); // a line between the parts
+        const auto owner = impl.room_owner.find(room_key(impl.server, impl.room));
         const std::string title = owner == impl.room_owner.end() ? "Private room" : owner->second.empty() ? "Your room" : owner->second + "'s room";
         overlay::MenuItem code = menu_item(Kind::Banner, kRoomCode, title);
         code.text = format_adhoc_room_code(impl.room);
@@ -555,6 +560,7 @@ overlay::MenuTab menu_online(const Frontend::Impl &impl) {
         tab.items.push_back(menu_item(Kind::Info, 0, impl.room_note));
     }
 
+    tab.items.push_back(menu_item(Kind::Heading, 0, ""));
     overlay::MenuItem server = menu_item(Kind::Choice, kServer, "Server", -1);
     for (std::size_t i = 0; i < std::size(kServers); ++i) {
         server.options.emplace_back(kServers[i].name);
@@ -723,7 +729,8 @@ void friend_pressed(Frontend::Impl &impl, Runtime &rt, std::size_t index, const 
         if (f.invite) friend_action(impl.friend_actions_file, "dismiss", f.key);
         if (f.server != impl.server) change_server(impl, rt, f.server);
         const std::string server_note = impl.room_note;
-        if (!f.room.empty() && !impl.room_owner.contains(f.room)) impl.room_owner[f.room] = f.name.empty() ? "Your friend" : f.name;
+        const std::string room = room_key(f.server, f.room);
+        if (!f.room.empty() && !impl.room_owner.contains(room)) impl.room_owner[room] = f.name.empty() ? "Your friend" : f.name;
         change_room(impl, rt, f.room);
         if (rt.adhoc_server_pending()) impl.room_note = server_note;
         impl.room_note = "Joining " + name + ". " + impl.room_note;
@@ -893,7 +900,7 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
                 change_room(impl, rt, ""); // Leave: back to the public halls
             } else if (e.action == 1) {
                 const std::string fresh = new_adhoc_room_code();
-                impl.room_owner[fresh] = "";
+                impl.room_owner[room_key(impl.server, fresh)] = "";
                 change_room(impl, rt, fresh);
             } else {
                 impl.host.set_clipboard_text(format_adhoc_room_code(impl.room));
@@ -963,7 +970,7 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             else if (!impl.last_room.empty()) change_room(impl, rt, impl.last_room);
             else {
                 const std::string fresh = new_adhoc_room_code();
-                impl.room_owner[fresh] = "";
+                impl.room_owner[room_key(impl.server, fresh)] = "";
                 change_room(impl, rt, fresh);
             }
             break;
