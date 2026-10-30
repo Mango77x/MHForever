@@ -11,12 +11,13 @@ import { CloseIcon, CopyIcon, FriendsIcon } from './icons';
 
 const serverName = (host: string) => adhocServers.find((s) => s.host === host)?.name ?? host;
 
-// Where a friend is, in a few words.
-function where(p: Presence | undefined, now: number): { online: boolean; text: string } {
+// Where a friend is: what they do, and where (a second line while they play).
+function where(p: Presence | undefined, now: number): { online: boolean; text: string; place?: string } {
   if (!p || now - p.seen > offlineAfterMs) return { online: false, text: 'Offline' };
   if (!p.playing) return { online: true, text: 'In the launcher' };
-  if (p.server === '') return { online: true, text: `Playing ${p.game || 'Freedom Unite'} offline` };
-  return { online: true, text: `Playing · ${p.room !== '' ? 'private room' : 'public halls'} on ${serverName(p.server)}` };
+  const text = `Playing ${p.game || 'Freedom Unite'}`;
+  if (p.server === '') return { online: true, text, place: 'Offline, on their own' };
+  return { online: true, text, place: `${p.room !== '' ? 'Private room' : 'Public halls'} · ${serverName(p.server)}` };
 }
 
 export interface FriendsModel {
@@ -285,6 +286,7 @@ export function FriendsDrawer({ model, state, playing, onClose, onCopy, onJoin }
               <div className="f-text">
                 <b>{f.name || 'Friend'}</b>
                 <span>{w.text}</span>
+                {w.place && <span className="place">{w.place}</span>}
               </div>
               <div className="f-actions">
                 {menu === f.key ? (

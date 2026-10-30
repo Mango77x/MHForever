@@ -425,3 +425,4 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 .f-note.on { border-color: rgba(111, 209, 139, 0.4); background: rgba(111, 209, 139, 0.08); }
 .f-hint { font-size: 12.5px; line-height: 1.5; margin: 0; }
+.f-text span.place { color: var(--ink-2); }

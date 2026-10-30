@@ -145,6 +145,7 @@ export class FriendsNetwork {
   private outgoing = new Set<string>(); // keys the player asked to be friends with
   private timers: ReturnType<typeof setInterval>[] = [];
   private lastPresence = 0;
+  private heard = new Map<string, number>(); // when each friend's presence last arrived
 
   constructor(secretHex: string, relays: string[], private readonly on: FriendsEvents) {
     this.secret = hexToBytes(secretHex);
@@ -347,6 +348,10 @@ export class FriendsNetwork {
     if (!m) return;
     if (m.t === 'presence') {
       if (!isServer(m.server) || !isRoom(m.room)) return;
+      // A friend who just came online hears from the player at once, not up to a minute later.
+      const last = this.heard.get(key) ?? 0;
+      if (this.status && Date.now() - last > offlineAfterMs) this.say(key, { t: 'presence', ...this.status });
+      this.heard.set(key, Date.now());
       this.on.presence(key, {
         name: cleanText(m.name, 24), playing: m.playing === true, game: cleanText(m.game, 40), region: cleanText(m.region, 24),
         server: m.server, room: m.room, seen: Date.now(),
@@ -355,6 +360,7 @@ export class FriendsNetwork {
       if (!isServer(m.server) || m.server === '' || !isRoom(m.room)) return;
       this.on.invite({ from: key, server: m.server, room: m.room, seen: Date.now() });
     } else if (m.t === 'bye') {
+      this.heard.delete(key);
       this.on.presence(key, null);
     }
   }
