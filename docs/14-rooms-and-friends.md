@@ -193,7 +193,13 @@ the browser and supports NIP-44 and relay pools.
 - While the game runs the launcher folds the game's room and server into its settings every 2 s, so friends see a
   room change made in the Escape menu.
 - Join: the friend's server and room become the player's and the game starts. Invite: sends the player's server and
-  room. Both need the game closed on the receiving side for now.
+  room.
+- **In the game too** (the Online tab of the Escape menu): while the game runs the launcher writes the friends and the
+  invites to `game_friends.txt` (one line each: `friend|invite`, key, `offline|launcher|playing`, server, room, name,
+  separated by tabs; the game skips any line that does not read so) and the game appends what the player does there
+  (`invite <key>`, `dismiss <key>`) to `game_friend_actions.txt`, which the launcher takes every 2 s. Join in the game
+  uses the live switch of §3.4: the friend's server and room apply as soon as that cuts nobody off. Offline friends are
+  only counted.
 
 ### 4.4 Discord, as an extra
 Most of the community is on Discord. Rich Presence over Discord's local IPC can show "Hunting in Freedom Unite · room

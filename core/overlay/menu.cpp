@@ -13,10 +13,12 @@ namespace mhf::overlay {
 
 bool Menu::selectable(const MenuItem &item) {
     if (!item.enabled || item.kind == MenuItem::Kind::Info || item.kind == MenuItem::Kind::Heading) return false;
-    return item.kind != MenuItem::Kind::Banner || !item.actions.empty();
+    return (item.kind != MenuItem::Kind::Banner && item.kind != MenuItem::Kind::Person) || !item.actions.empty();
 }
 
-int Menu::first_action(const MenuItem &item) { return item.kind == MenuItem::Kind::Banner && !item.actions.empty() ? 0 : -1; }
+int Menu::first_action(const MenuItem &item) {
+    return (item.kind == MenuItem::Kind::Banner || item.kind == MenuItem::Kind::Person) && !item.actions.empty() ? 0 : -1;
+}
 
 std::vector<MenuItem> &Menu::items() { return view_.tabs[static_cast<std::size_t>(view_.tab)].items; }
 
@@ -231,8 +233,9 @@ Menu::Event Menu::press(Key key) {
         return {};
     }
     case MenuItem::Kind::Banner:
+    case MenuItem::Kind::Person:
     case MenuItem::Kind::Text: {
-        const int lowest = item.kind == MenuItem::Kind::Banner ? 0 : -1; // a field is focused before its actions
+        const int lowest = item.kind == MenuItem::Kind::Text ? -1 : 0; // a field is focused before its actions
         if (key == Key::Accept) return activated(view_.action);
         if (key == Key::Left) {
             if (view_.action <= lowest) {
@@ -451,6 +454,7 @@ struct MenuRenderer::Impl : Painter {
             if (!item.option_details.empty()) return item.label.empty() ? 30.0f : 40.0f;
             return 31.0f;
         case MenuItem::Kind::Banner: return 30.0f;
+        case MenuItem::Kind::Person: return 24.0f;
         case MenuItem::Kind::Text: return 28.0f;
         default: return detail ? 26.0f : 20.0f;
         }
@@ -531,6 +535,7 @@ struct MenuRenderer::Impl : Painter {
                     }
                     break;
                 case MenuItem::Kind::Banner: actions = buttons(item.actions, c.x + c.w - 8.0f, y + 7.0f, 16.0f); break;
+                case MenuItem::Kind::Person: actions = buttons(item.actions, c.x + c.w - 6.0f, y + 4.0f, 16.0f); break;
                 case MenuItem::Kind::Text: actions = buttons(item.actions, c.x + c.w, y + 9.0f, 17.0f); break;
                 default: break;
                 }
@@ -620,6 +625,26 @@ struct MenuRenderer::Impl : Painter {
                 text(x + 15.0f, base, line, 5.2f, kSoft, 0.95f);
                 base += 7.2f;
             }
+            return;
+        }
+        case MenuItem::Kind::Person: { // a friend: the initial, a dot when online, the name, where they are, the buttons
+            const auto &acts = p.layout.actions[i];
+            const float right = acts.empty() ? x + w - 8.0f : acts.front().x - 5.0f;
+            const bool online = item.value != 0;
+            rrect(x, y, w, h, kCard, kWhite, hover ? 0.075f : 0.04f);
+            if (focus && v.action < 0) ring(card, kCard);
+            const MenuLayout::Rect avatar{x + 6.0f, y + 4.0f, 16.0f, 16.0f};
+            rrect(avatar.x, avatar.y, avatar.w, avatar.h, 4.5f, kAccent, online ? 0.9f : 0.3f);
+            const std::string initial = item.label.empty() ? std::string("?") : upper(item.label.substr(0, 1));
+            centered(avatar, initial, 7.0f, kInk, 1.0f, true);
+            if (online) {
+                rrect(avatar.x + avatar.w - 4.0f, avatar.y + avatar.h - 4.0f, 5.5f, 5.5f, 2.75f, kPanel, 1.0f);
+                rrect(avatar.x + avatar.w - 3.0f, avatar.y + avatar.h - 3.0f, 3.5f, 3.5f, 1.75f, kGreen, 1.0f);
+            }
+            const float tx = avatar.x + avatar.w + 6.0f, tw = right - tx;
+            text(tx, y + 10.0f, fit(item.label, kLabel, tw), kLabel, kText, alpha, true);
+            text(tx, y + 18.5f, fit(item.detail, kDetail, tw), kDetail, online ? kGreen : kDim, 0.95f);
+            action_buttons(acts, item, focus ? v.action : -1, alpha);
             return;
         }
         case MenuItem::Kind::Banner: {

@@ -251,6 +251,11 @@ void on_set_friends(const char *id, const Json &args) {
     reply(id, g_app.launcher->state());
 }
 
+void on_set_game_friends(const char *id, const Json &args) {
+    if (!args.as_array().empty()) g_app.launcher->write_game_friends(args.as_array()[0]);
+    reply(id, Json(true));
+}
+
 void on_export_identity(const char *id, const Json &) {
     Json r;
     r["saved"] = false;
@@ -423,6 +428,13 @@ void on_play(const char *id, const Json &args) {
                     g_app.launcher->import_game_controls();
                     g_app.emit_state();
                 }
+                for (const auto &[action, key] : g_app.launcher->take_friend_actions()) { // Invite, Not now in the game's menu
+                    Json e;
+                    e["type"] = "gameFriend";
+                    e["action"] = action;
+                    e["key"] = key;
+                    g_app.emit(e);
+                }
             }
             if (!running && std::chrono::steady_clock::now() - started > std::chrono::milliseconds(1500)) {
                 running = true;
@@ -588,6 +600,7 @@ int main(int argc, char **argv) {
     bind("mhf_copyText", on_copy_text);
     bind("mhf_exportIdentity", on_export_identity);
     bind("mhf_setFriends", on_set_friends);
+    bind("mhf_setGameFriends", on_set_game_friends);
     bind("mhf_probeServer", on_probe_server);
 
     update::remove_old(platform::executable_dir()); // what the last update replaced, now that it is not running

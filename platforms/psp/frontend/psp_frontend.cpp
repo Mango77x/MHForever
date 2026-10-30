@@ -69,6 +69,16 @@ struct Frontend::Impl {
     host::PadBindings pad;
     int capture_id{};       // the Controls row waiting for a key or a button, 0 when none
     std::filesystem::path controls_file; // where a change is written for the launcher (empty: not at all)
+    // Friends in the Online tab, as the launcher writes them (friends_file) and what the player does with them
+    // (friend_actions_file); empty: no friends shown.
+    struct Friend {
+        bool invite{};       // an invite from this friend, else the friend and where they are
+        std::string key, name, state, server, room;
+    };
+    std::filesystem::path friends_file, friend_actions_file;
+    std::vector<Friend> friends;
+    std::filesystem::file_time_type friends_time{};
+    std::chrono::steady_clock::time_point friends_looked{};
     // The Online tab (docs/14-rooms-and-friends.md section 3.4): the private room, read from the runtime when the menu
     // opens. `last_room` brings a code back when the player returns to private halls.
     bool online{}, room_known{};
@@ -197,6 +207,11 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
 
 void Frontend::set_controls_file(const std::string &path) { impl_->controls_file = std::filesystem::path(path); }
 
+void Frontend::set_friends_files(const std::string &friends, const std::string &actions) {
+    impl_->friends_file = std::filesystem::path(friends);
+    impl_->friend_actions_file = std::filesystem::path(actions);
+}
+
 template <typename KeyBindings, typename PadBindings>
 void Frontend::set_bindings(const KeyBindings &keys, const PadBindings &pad) {
     impl_->keys = keys;
@@ -323,6 +338,7 @@ enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kPadStick, kRestoreKeys, kRestorePad,
     kHalls, kRoomCode, kJoinRoom, kServer
 };
+constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
 
 // The ad hoc servers the Online section offers: the launcher's list (launcher/ui/src/servers.ts, keep the two alike).
 struct AdhocServerChoice {
@@ -335,6 +351,54 @@ constexpr AdhocServerChoice kServers[] = {
     {"psi-hate.com", "Psi-Hate", "United States"},
     {"cat.wjg.jp", "Neko PSP", "Japan"},
 };
+
+// A server's name in the list, else its address.
+std::string server_name(const std::string &host) {
+    for (const AdhocServerChoice &s : kServers) {
+        if (s.host == host) return std::string(s.name);
+    }
+    return host;
+}
+
+// The friends the launcher wrote: "friend|invite <tab> key <tab> state <tab> server <tab> room <tab> name" per line.
+// Anything that does not read as one is skipped.
+std::vector<Frontend::Impl::Friend> read_friends(const std::filesystem::path &file) {
+    std::vector<Frontend::Impl::Friend> out;
+    std::ifstream in(file, std::ios::binary);
+    for (std::string line; std::getline(in, line) && out.size() < 64;) {
+        std::vector<std::string> field;
+        std::size_t start = 0;
+        for (int n = 0; n < 5; ++n) {
+            const std::size_t tab = line.find('\t', start);
+            if (tab == std::string::npos) break;
+            field.push_back(line.substr(start, tab - start));
+            start = tab + 1;
+        }
+        if (field.size() != 5) continue;
+        Frontend::Impl::Friend f;
+        f.invite = field[0] == "invite";
+        f.key = field[1];
+        f.state = field[2];
+        f.server = field[3];
+        f.room = field[4];
+        f.name = line.substr(start, 48);
+        const bool key_ok = f.key.size() == 64 && std::all_of(f.key.begin(), f.key.end(), [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; });
+        const bool server_ok = f.server.size() <= 253 && std::all_of(f.server.begin(), f.server.end(), [](char c) {
+            return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '.' || c == '-' || c == '_' || c == ':';
+        });
+        const bool room_ok = f.room.empty() || adhoc_room_code(f.room) == f.room;
+        const bool state_ok = f.state == "offline" || f.state == "launcher" || f.state == "playing";
+        if ((field[0] == "friend" || f.invite) && key_ok && server_ok && room_ok && state_ok) out.push_back(std::move(f));
+    }
+    return out;
+}
+
+// Tells the launcher what the player did with a friend ("invite" or "dismiss").
+void friend_action(const std::filesystem::path &file, const char *action, const std::string &key) {
+    if (file.empty()) return;
+    std::ofstream out(file, std::ios::binary | std::ios::app);
+    out << action << ' ' << key << '\n';
+}
 
 // The Controls tab: one Binding row per key action (ids from kKeyBase, in the order of host::kKeyActions) and per pad button
 // (from kPadBase, in the order of host::kPadActions).
@@ -414,6 +478,36 @@ overlay::MenuTab menu_online(const Frontend::Impl &impl) {
     }
     tab.items.push_back(server);
     if (!impl.room_note.empty()) tab.items.push_back(menu_item(Kind::Info, 0, impl.room_note));
+    if (!impl.friends_file.empty()) {
+        tab.items.push_back(menu_item(Kind::Heading, 0, "Friends"));
+        int offline = 0;
+        for (std::size_t i = 0; i < impl.friends.size(); ++i) {
+            const Frontend::Impl::Friend &f = impl.friends[i];
+            const std::string place = f.server.empty() ? "offline, on their own"
+                                                       : (f.room.empty() ? "public halls on " : "private room " + format_adhoc_room_code(f.room) + " on ") +
+                                                             server_name(f.server);
+            overlay::MenuItem row = menu_item(Kind::Person, kFriendBase + static_cast<int>(i), f.name.empty() ? "Friend" : f.name, 1);
+            if (f.invite) {
+                row.detail = "Invites you: " + place;
+                row.actions = {"Join", "Not now"};
+                row.primary_action = 0;
+            } else if (f.state == "offline") {
+                ++offline;
+                continue;
+            } else {
+                const bool here = f.server == impl.server && f.room == impl.room;
+                row.detail = f.state == "launcher" ? "In the launcher" : here ? "Playing, with you: " + place : "Playing, " + place;
+                if (f.state == "playing" && !f.server.empty() && !here) row.actions.push_back("Join");
+                if (!impl.server.empty() && !here) row.actions.push_back("Invite");
+            }
+            tab.items.push_back(row);
+        }
+        if (impl.friends.empty()) {
+            tab.items.push_back(menu_item(Kind::Info, 0, "Add friends in the launcher (Friends): here you see where they play, join them and invite them."));
+        } else if (offline > 0) {
+            tab.items.push_back(menu_item(Kind::Info, 0, std::to_string(offline) + (offline == 1 ? " friend is" : " friends are") + " offline."));
+        }
+    }
     return tab;
 }
 
@@ -522,6 +616,53 @@ void change_room(Frontend::Impl &impl, Runtime &rt, const std::string &room) {
     impl.room_note = rt.adhoc_in_hall() ? "You are in a hall now: you see " + where + " once you leave it and enter again."
                                         : "Next time you enter the Gathering Hall you see " + where + ".";
     apply_bindings(impl);
+    refresh_menu(impl);
+}
+
+// Reads the launcher's friends file again when it changed (at most once a second). True when the list changed.
+bool look_at_friends(Frontend::Impl &impl) {
+    if (impl.friends_file.empty()) return false;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - impl.friends_looked < std::chrono::seconds(1)) return false;
+    impl.friends_looked = now;
+    std::error_code ec;
+    const auto time = std::filesystem::last_write_time(impl.friends_file, ec);
+    if (ec || time == impl.friends_time) return false;
+    impl.friends_time = time;
+    impl.friends = read_friends(impl.friends_file);
+    return true;
+}
+
+// Gives the game another ad hoc server and says when it applies.
+void change_server(Frontend::Impl &impl, Runtime &rt, const std::string &host) {
+    impl.server = host;
+    rt.set_adhoc_server(host);
+    const std::string name = server_name(host);
+    impl.room_note = rt.adhoc_server_pending() ? "You are in a hall or a quest now: you move to " + name + " once you leave it."
+                                               : "Next time you enter the Gathering Hall you meet the players on " + name + ".";
+    apply_bindings(impl);
+}
+
+// A friend's row in the Online tab: Join their room (or their invite), Invite them to the player's, or put an invite away.
+void friend_pressed(Frontend::Impl &impl, Runtime &rt, std::size_t index, const std::string &action) {
+    if (index >= impl.friends.size()) return;
+    const Frontend::Impl::Friend f = impl.friends[index];
+    const std::string name = f.name.empty() ? "your friend" : f.name;
+    if (action == "Join") {
+        if (f.invite) friend_action(impl.friend_actions_file, "dismiss", f.key);
+        if (f.server != impl.server) change_server(impl, rt, f.server);
+        const std::string server_note = impl.room_note;
+        change_room(impl, rt, f.room);
+        if (rt.adhoc_server_pending()) impl.room_note = server_note;
+        impl.room_note = "Joining " + name + ". " + impl.room_note;
+        std::erase_if(impl.friends, [&](const Frontend::Impl::Friend &x) { return x.invite && x.key == f.key; });
+    } else if (action == "Invite") {
+        friend_action(impl.friend_actions_file, "invite", f.key);
+        impl.room_note = "Invite sent to " + name + ".";
+    } else if (action == "Not now") {
+        friend_action(impl.friend_actions_file, "dismiss", f.key);
+        std::erase_if(impl.friends, [&](const Frontend::Impl::Friend &x) { return x.invite && x.key == f.key; });
+    }
     refresh_menu(impl);
 }
 
@@ -696,7 +837,13 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             }
             return true;
         default:
-            if (e.id >= kKeyBase && e.id < kPadBase + static_cast<int>(kPadButtons)) { // a Controls row: wait for the new key or button
+            if (e.id >= kFriendBase && e.id < kFriendBase + 1000 && e.action >= 0) {
+                const auto &rows = impl.menu.view().items();
+                const auto row = std::find_if(rows.begin(), rows.end(), [&](const overlay::MenuItem &m) { return m.id == e.id; });
+                if (row != rows.end() && e.action < static_cast<int>(row->actions.size())) {
+                    friend_pressed(impl, rt, static_cast<std::size_t>(e.id - kFriendBase), row->actions[static_cast<std::size_t>(e.action)]);
+                }
+            } else if (e.id >= kKeyBase && e.id < kPadBase + static_cast<int>(kPadButtons)) { // a Controls row: wait for the new key or button
                 const bool same = impl.capture_id == e.id;
                 impl.capture_id = same ? 0 : e.id;
                 impl.host.set_capture(!same);
@@ -726,15 +873,8 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             break;
         case kServer:
             if (e.value >= 0 && e.value < static_cast<int>(std::size(kServers))) {
-                const AdhocServerChoice &chosen = kServers[static_cast<std::size_t>(e.value)];
-                impl.server = std::string(chosen.host);
-                rt.set_adhoc_server(impl.server);
-                const std::string name(chosen.name);
-                impl.room_note = rt.adhoc_server_pending()
-                                     ? "You are in a hall or a quest now: you move to " + name + " once you leave it."
-                                     : "Next time you enter the Gathering Hall you meet the players on " + name + ".";
-                if (!impl.room.empty()) impl.room_note += " Your friends have to choose " + name + " too.";
-                apply_bindings(impl);
+                change_server(impl, rt, std::string(kServers[static_cast<std::size_t>(e.value)].host));
+                if (!impl.room.empty()) impl.room_note += " Your friends have to choose " + server_name(impl.server) + " too.";
                 refresh_menu(impl);
             }
             break;
@@ -814,6 +954,8 @@ void open_menu(Frontend::Impl &impl, Runtime &rt) {
         impl.room_known = true;
         impl.room_note.clear();
     }
+    impl.friends_looked = {};
+    look_at_friends(impl);
     impl.menu.set(menu_main(impl));
     impl.menu_open = true;
     {
@@ -867,6 +1009,7 @@ void close_menu(Frontend::Impl &impl) {
 bool step_menu(Frontend::Impl &impl, Runtime &rt) {
     using Key = overlay::Menu::Key;
     bool open = true;
+    if (look_at_friends(impl) && impl.capture_id == 0) refresh_menu(impl); // who is online, and invites, as they change
     const bool capturing = impl.capture_id != 0; // a Controls row waits for a key or a button: nothing else acts
     std::vector<Key> keys;
     bool typed = false;

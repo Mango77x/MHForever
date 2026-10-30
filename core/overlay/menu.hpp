@@ -25,6 +25,7 @@ struct MenuItem {
         Heading, // a title for the rows below, never selected
         Banner,  // a highlighted card: `label` small, `text` large, `actions` on its right
         Text,    // a text field: `label` above, `text` typed (`placeholder` when empty), `value` 1 while typing, `actions` after it
+        Person,  // a friend: `label` the name, `detail` where they are, `value` 1 online (a green dot), `actions` on the right
     };
     Kind kind = Kind::Button;
     int id = 0;          // what the owner calls it

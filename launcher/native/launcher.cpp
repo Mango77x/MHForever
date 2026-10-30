@@ -785,6 +785,49 @@ std::string printable(const std::string &text, std::size_t bytes) {
 
 } // namespace
 
+void Launcher::write_game_friends(const Json &entries) {
+    std::string out;
+    std::size_t lines = 0;
+    for (const auto &e : entries.as_array()) {
+        if (lines >= 64) break; // the menu shows far fewer
+        const std::string kind = e["kind"].as_string(), key = e["key"].as_string(), state = e["state"].as_string();
+        const std::string server = e["server"].as_string(), room = e["room"].as_string();
+        if ((kind != "friend" && kind != "invite") || !public_key(key)) continue;
+        if (state != "offline" && state != "launcher" && state != "playing") continue;
+        if (!valid_server(server) || (!room.empty() && room_code(room) != room)) continue;
+        out += kind + "\t" + key + "\t" + state + "\t" + server + "\t" + room + "\t" + printable(e["name"].as_string(), 48) + "\n";
+        ++lines;
+    }
+    std::error_code ec;
+    const fs::path file = game_friends_file(), temp = file.string() + ".tmp";
+    {
+        std::ofstream f(temp, std::ios::binary | std::ios::trunc);
+        f << out;
+        if (!f) return;
+    }
+    fs::rename(temp, file, ec); // in one step: the game never reads half a file
+}
+
+std::vector<std::pair<std::string, std::string>> Launcher::take_friend_actions() {
+    std::vector<std::pair<std::string, std::string>> actions;
+    std::error_code ec;
+    const fs::path file = friend_actions_file(), taking = file.string() + ".taking";
+    if (!fs::exists(file, ec)) return actions;
+    fs::rename(file, taking, ec); // the game appends to a new file meanwhile; if it holds this one now, next time
+    if (ec) return actions;
+    std::ifstream in(taking, std::ios::binary);
+    for (std::string line; std::getline(in, line) && actions.size() < 32;) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const std::size_t space = line.find(' ');
+        if (space == std::string::npos) continue;
+        const std::string action = line.substr(0, space), key = line.substr(space + 1);
+        if ((action == "invite" || action == "dismiss") && public_key(key)) actions.emplace_back(action, key);
+    }
+    in.close();
+    fs::remove(taking, ec);
+    return actions;
+}
+
 void Launcher::set_friends(const Json &friends, const Json &blocked) {
     constexpr std::size_t kMaxFriends = 200, kMaxBlocked = 500;
     Json kept(Json::Array{}), kept_blocked(Json::Array{});
@@ -1017,6 +1060,12 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
             plan.args.push_back("--adhoc-room");
             plan.args.push_back(room);
         }
+        // Friends in the game's Online tab (the launcher keeps the first file current while the game runs).
+        fs::remove(friend_actions_file(), ec);
+        plan.args.push_back("--friends-file");
+        plan.args.push_back(platform::to_utf8(game_friends_file()));
+        plan.args.push_back("--friend-actions-file");
+        plan.args.push_back(platform::to_utf8(friend_actions_file()));
     }
     fs::create_directories(stick, ec);
     return plan;

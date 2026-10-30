@@ -4,7 +4,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { api, selectedGame, type State } from './bridge';
+import { api, onEvent, selectedGame, type GameFriend, type State } from './bridge';
 import { FriendsNetwork, formatFriendCode, friendCode, friendCodeOf, offlineAfterMs, type Friend, type Invite, type Presence, type Request, type SearchState } from './friendNetwork';
 import { formatRoomCode } from './rooms';
 import { adhocServers } from './servers';
@@ -119,6 +119,42 @@ export function useFriends(state: State | null, playing: boolean, say: (text: st
   };
   const statusText = JSON.stringify(status);
   useEffect(() => { if (status) net.current?.setStatus(status); }, [statusText, key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // While the game runs, its Online tab shows the friends and the invites too, and its Invite and Not now come back here.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!playing) return;
+    const t = window.setInterval(() => setTick((n) => n + 1), 15_000); // friends go offline with time alone
+    return () => window.clearInterval(t);
+  }, [playing]);
+  const gameFriends = useMemo(() => {
+    if (!playing || !state) return '';
+    const now = Date.now();
+    const entries: GameFriend[] = [];
+    const nameOf = (k: string) => state.friends.find((f) => f.key === k)?.name ?? '';
+    for (const i of invites) entries.push({ kind: 'invite', key: i.from, name: nameOf(i.from), state: 'playing', server: i.server, room: i.room });
+    for (const f of state.friends) {
+      const p = presence[f.key];
+      const online = !!p && now - p.seen <= offlineAfterMs;
+      entries.push({
+        kind: 'friend', key: f.key, name: f.name, state: !online ? 'offline' : p.playing ? 'playing' : 'launcher',
+        server: online ? p.server : '', room: online && p.server ? p.room : '',
+      });
+    }
+    return JSON.stringify(entries);
+  }, [playing, state, presence, invites, tick]);
+  useEffect(() => { if (gameFriends) api.mhf_setGameFriends(JSON.parse(gameFriends)); }, [gameFriends]);
+  const settingsRef = useRef(state?.settings);
+  settingsRef.current = state?.settings;
+  useEffect(() => onEvent((e) => {
+    if (e.type !== 'gameFriend') return;
+    if (e.action === 'invite') {
+      const s = settingsRef.current;
+      if (s?.adhocServer) net.current?.invite(e.key, s.adhocServer, s.adhocRoom);
+    } else {
+      setInvites((all) => all.filter((x) => x.from !== e.key));
+    }
+  }), []);
 
   useEffect(() => {
     if (!addUntil) return;

@@ -540,6 +540,41 @@ int main(int argc, char **argv) {
         CHECK(l.disc_id_for("mhfu").empty());
     }
 
+    // Friends in the game's Online tab: the launcher writes only what reads as a friend or an invite; the game's actions
+    // come back once, and only "invite" or "dismiss" with a key.
+    {
+        const fs::path g = dir / "game_friends";
+        fs::create_directories(g);
+        Launcher l(g, g);
+        Json entries(Json::Array{});
+        Json good;
+        good["kind"] = "friend";
+        good["key"] = std::string(64, 'c');
+        good["name"] = "Rath\tian";
+        good["state"] = "playing";
+        good["server"] = "socom.cc";
+        good["room"] = "K7QF29XM";
+        entries.array().push_back(good);
+        Json bad = good;
+        bad["room"] = "K7QF-29XM"; // not the stored form
+        entries.array().push_back(bad);
+        Json invite = good;
+        invite["kind"] = "invite";
+        entries.array().push_back(invite);
+        l.write_game_friends(entries);
+        std::ifstream in(l.game_friends_file());
+        std::string line1, line2, line3;
+        std::getline(in, line1);
+        std::getline(in, line2);
+        CHECK(line1 == "friend\t" + std::string(64, 'c') + "\tplaying\tsocom.cc\tK7QF29XM\tRathian");
+        CHECK(line2.rfind("invite\t", 0) == 0 && !std::getline(in, line3));
+        in.close();
+        std::ofstream(l.friend_actions_file()) << "invite " << std::string(64, 'c') << "\nrm -rf /\ndismiss nothex\n";
+        const auto actions = l.take_friend_actions();
+        CHECK(actions.size() == 1 && actions[0].first == "invite");
+        CHECK(l.take_friend_actions().empty() && !fs::exists(l.friend_actions_file()));
+    }
+
     // An identity seed that is not 64 hex digits (a launcher.json edited by hand) is replaced, never read as one.
     {
         const fs::path broken = dir / "broken_seed";
