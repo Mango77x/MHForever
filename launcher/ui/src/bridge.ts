@@ -77,6 +77,8 @@ export interface State {
   executable: { path: string; found: boolean };
   savesFolder: string; // where the saves are kept (Settings > Storage)
   savesFolderCustom: boolean; // the player chose it; false: the default one
+  texturePack: string; // the texture pack folder, '' when none (Settings > Storage)
+  texturePackEnabled: boolean; // the game is started with it
 }
 
 export interface SaveScan {
@@ -134,6 +136,8 @@ type Native = {
   mhf_updateInfo(): Promise<UpdateInfo | null>; // the newer release the start-up check found, if any
   mhf_installUpdate(): Promise<{ started: boolean }>; // download, check, install and restart (events: updateProgress...)
   mhf_savesFolder(mode: '' | 'default'): Promise<{ picked: boolean; copied?: number; error?: string; state: State }>;
+  // A texture pack folder for the game (developer feature): '' asks for a folder, 'none' removes it, 'on'/'off' switch it.
+  mhf_texturePack(mode: '' | 'on' | 'off' | 'none'): Promise<{ picked: boolean; error?: string; state: State }>;
 };
 
 const listeners = new Set<(e: LauncherEvent) => void>();
@@ -182,6 +186,7 @@ function simulated(): Native {
     executable: { path: '', found: true },
     savesFolder: 'C:\\Users\\Hunter\\Documents\\MHForever\\saves',
     savesFolderCustom: false,
+    texturePack: '', texturePackEnabled: false,
   };
   const copy = () => JSON.parse(JSON.stringify(state)) as State;
   return {
@@ -247,6 +252,12 @@ function simulated(): Native {
       state.savesFolderCustom = mode !== 'default';
       state.savesFolder = mode === 'default' ? 'C:\\Users\\Hunter\\Documents\\MHForever\\saves' : 'D:\\Games\\MHForever saves';
       return { picked: true, copied: mode === 'default' ? 0 : 1, error: '', state: copy() };
+    },
+    async mhf_texturePack(mode) {
+      if (mode === 'on' || mode === 'off') state.texturePackEnabled = mode === 'on';
+      else if (mode === 'none') { state.texturePack = ''; state.texturePackEnabled = false; }
+      else { state.texturePack = 'D:\\Mods\\MHFU textures'; state.texturePackEnabled = true; }
+      return { picked: mode === '', error: '', state: copy() };
     },
   };
 }

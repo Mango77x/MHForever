@@ -215,6 +215,27 @@ void on_saves_folder(const char *id, const Json &args) {
     reply(id, r);
 }
 
+void on_texture_pack(const char *id, const Json &args) {
+    // mode: "" asks for a folder, "none" removes the pack, "on" / "off" switch it.
+    Json r;
+    const std::string mode = args.as_array().empty() ? std::string() : args.as_array()[0].as_string();
+    r["picked"] = false;
+    r["error"] = std::string();
+    if (mode == "on" || mode == "off") {
+        g_app.launcher->set_texture_pack_enabled(mode == "on");
+    } else if (mode == "none") {
+        g_app.launcher->set_texture_pack(fs::path());
+    } else if (const std::optional<fs::path> folder = platform::open_folder(native_window(), "Choose the texture pack folder")) {
+        r["picked"] = true;
+        if (!g_app.launcher->set_texture_pack(*folder)) {
+            r["error"] = std::string("That folder has no textures_FU_EU.ini. Choose the folder that holds it.");
+        }
+    }
+    r["state"] = g_app.launcher->state();
+    reply(id, r);
+}
+
+
 void on_pick_executable(const char *id, const Json &) {
     if (const auto file = platform::open_file(native_window(), "Locate the decrypted executable (developer build)",
                                               "Executables", {"*.BIN", "*.bin", "*.elf", "*.prx"})) {
@@ -591,6 +612,7 @@ int main(int argc, char **argv) {
     bind("mhf_removeGame", on_remove_game);
     bind("mhf_pickExecutable", on_pick_executable);
     bind("mhf_savesFolder", on_saves_folder);
+    bind("mhf_texturePack", on_texture_pack);
     bind("mhf_updateInfo", on_update_info);
     bind("mhf_installUpdate", on_install_update);
     bind("mhf_scanSaves", on_scan_saves);

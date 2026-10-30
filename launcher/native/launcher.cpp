@@ -271,6 +271,28 @@ Launcher::SavesFolderChange Launcher::set_saves_folder(const fs::path &folder) {
     return result;
 }
 
+bool Launcher::set_texture_pack(const fs::path &folder) {
+    std::lock_guard lock(mutex_);
+    if (folder.empty()) {
+        data_.object().erase("texturePack");
+        data_["texturePackEnabled"] = false;
+        save();
+        return true;
+    }
+    std::error_code ec;
+    if (!fs::is_regular_file(folder / "textures_FU_EU.ini", ec)) return false; // the game reads this file (EU release)
+    data_["texturePack"] = platform::to_utf8(folder);
+    data_["texturePackEnabled"] = true;
+    save();
+    return true;
+}
+
+void Launcher::set_texture_pack_enabled(bool enabled) {
+    std::lock_guard lock(mutex_);
+    data_["texturePackEnabled"] = enabled;
+    save();
+}
+
 void Launcher::import_legacy_saves(const std::string &disc_id) {
     std::error_code ec;
     const fs::path old = base_ / "memstick";
@@ -598,6 +620,8 @@ Json Launcher::state() {
     s["stats"] = data_["stats"];
     s["savesFolder"] = platform::to_utf8(saves_dir_);
     s["savesFolderCustom"] = !data_["savesFolder"].as_string().empty();
+    s["texturePack"] = data_["texturePack"].is_string() ? data_["texturePack"].as_string() : std::string();
+    s["texturePackEnabled"] = data_["texturePackEnabled"].is_bool() && data_["texturePackEnabled"].as_bool();
     Json games(Json::Array{});
     const CatalogEntry *playable = nullptr;
     for (const auto &g : data_["games"].as_array()) {
@@ -1032,6 +1056,15 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
                  data_["pseudonym"].as_string(), "--music-volume", num("musicVolume"), "--sfx-volume", num("sfxVolume")};
     if (s["fullscreen"].as_bool()) plan.args.push_back("--fullscreen");
     if (s["smoothTextures"].as_bool()) plan.args.push_back("--smooth-textures");
+    if (data_["texturePackEnabled"].is_bool() && data_["texturePackEnabled"].as_bool() && data_["texturePack"].is_string()) {
+        // The pack is a developer feature: used only while its folder is still there.
+        std::error_code pack_ec;
+        const std::string pack = data_["texturePack"].as_string();
+        if (!pack.empty() && fs::is_directory(platform::from_utf8(pack), pack_ec)) {
+            plan.args.push_back("--texture-pack");
+            plan.args.push_back(pack);
+        }
+    }
     if (s["fps"].as_number() > 30) {
         plan.args.push_back("--fps");
         plan.args.push_back(num("fps"));
