@@ -860,7 +860,7 @@ bool MenuRenderer::render_notice(const std::string &title, const std::string &de
     Impl &d = *impl_;
     d.begin(pixels, width, height, static_cast<float>(height) / Impl::kH);
     const float w = std::min(Impl::kW - 40.0f, std::max(d.measure(title, 6.2f, true), d.measure(detail, 5.0f)) + 40.0f);
-    const float x = (Impl::kW - w) * 0.5f, y = 12.0f, h = 30.0f;
+    const float x = Impl::kW - w - 10.0f, y = 10.0f, h = 30.0f; // the top right corner
     d.rrect(x, y + 1.5f, w, h, 7.0f, kBlack, 0.35f); // a soft shadow
     d.rrect(x, y, w, h, 7.0f, kPanel, 0.94f);
     d.rrect(x, y, w, h, 7.0f, kAccent, 0.7f, 0.6f);

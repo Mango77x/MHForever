@@ -206,7 +206,7 @@ the browser and supports NIP-44 and relay pools.
   presence says they are in the room elsewhere), where the player stands (village, the room's hall, still a public
   hall) and Join another room; the Server last. In the public halls the room part is not shown.
 - Being together is said at once (2026-10-30, after a test with a friend: joining showed nothing until both were in the
-  Gathering Hall, as if it had not worked). In the game, with no menu or dialog up, a notice at the top for five
+  Gathering Hall, as if it had not worked). In the game, with no menu or dialog up, a notice in the top right corner for five
   seconds when friends come into the player's private room ("Rathian is in your room", with the room's code and where
   to meet) or leave it; it comes from the friends the launcher writes, so it needs both on MHForever. In the launcher,
   a friend in the player's room reads "In your room" (Join and Invite are then hidden) and coming in is said in a toast.
