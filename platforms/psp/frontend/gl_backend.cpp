@@ -515,12 +515,12 @@ public:
 
     void triangle(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b, const gpu::Vertex &c) override {
         prepare(ge);
-        if (!through_ && !(a.has_world && b.has_world && c.has_world)) raw_complete_ = false; // a 3D line, say
+        if (!through_ && !(a.has_world && b.has_world && c.has_world)) raw_incomplete(); // a 3D line, say
         const bool flat = (ge.reg(kShadeMode) & 1u) == 0;
         push(a, flat ? &c : nullptr);
         push(b, flat ? &c : nullptr);
         push(c, nullptr);
-        if (interpolate_) {
+        if (needs_origins()) {
             const std::uint16_t camera = a.has_world && b.has_world && c.has_world ? camera_for(ge) : kNoCamera;
             record(a, a, camera, false);
             record(b, b, camera, false);
@@ -529,6 +529,7 @@ public:
     }
 
     void draw_started(const gpu::DrawInfo &draw) override {
+        ++draw_serial_; // the GE's state can only have changed since the last draw
         if (!interpolate_) return;
         draw_use_ = ++draw_uses_[draw.vertex_address];
         recording_.push_back(interpolation::summarize(draw));
@@ -539,7 +540,7 @@ public:
         if (!interpolate_ || !v2_enabled_ || recording_.empty()) return;
         prepare(ge);
         if (!a.has_world || !b.has_world || !c.has_world) {
-            raw_complete_ = false;
+            raw_incomplete();
             return;
         }
         const bool flat = (ge.reg(kShadeMode) & 1u) == 0;
@@ -562,7 +563,7 @@ public:
 
     void sprite(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b) override {
         prepare(ge);
-        if (!through_) raw_complete_ = false; // a 3D sprite: interpolation v2 draws this batch as it was
+        if (!through_) raw_incomplete(); // a 3D sprite: interpolation v2 cannot make this batch again
         gpu::Vertex tl = b, tr = b, bl = b, br = b;
         tl.x = a.x; tl.y = a.y; tl.u = a.u; tl.v = a.v;
         tr.x = b.x; tr.y = a.y; tr.u = b.u; tr.v = a.v;
@@ -574,7 +575,7 @@ public:
         push(tr, nullptr);
         push(br, nullptr);
         push(bl, nullptr);
-        if (interpolate_) {
+        if (needs_origins()) {
             const std::uint16_t camera = a.has_world && b.has_world ? camera_for(ge) : kNoCamera;
             record(a, a, camera, true); // top left: x and y from a
             record(b, a, camera, true); // top right
@@ -629,6 +630,8 @@ private:
     };
 
     void prepare(const gpu::Ge &ge) {
+        if (have_state_ && prepared_serial_ == draw_serial_) return; // the same draw: the same state
+        prepared_serial_ = draw_serial_;
         DrawKey key{};
         for (std::size_t i = 0; i < kStateRegs.size(); ++i) key[i] = ge.reg(kStateRegs[i]);
         key[kStateRegs.size()] = static_cast<std::uint32_t>(ge.clut_generation());
@@ -808,6 +811,15 @@ private:
     const bool v2_enabled_ = std::getenv("MHF_INTERP_V2") != nullptr;
     std::vector<RawTriangle> raw_batch_;
     bool raw_complete_ = true;
+    std::uint64_t draw_serial_ = 0, prepared_serial_ = ~0ull;
+    // Where each recorded vertex came from (Origin) is for the first design's placing again: with v2, only the 2D
+    // batches and the 3D ones v2 cannot make again need it.
+    bool needs_origins() const { return interpolate_ && (!v2_enabled_ || through_ || !raw_complete_); }
+    void raw_incomplete() {
+        if (!raw_complete_) return;
+        raw_complete_ = false;
+        if (interpolate_ && v2_enabled_) batch_origins_.resize(batch_.size()); // drawn where they were recorded
+    }
     std::vector<std::array<float, 8>> recording_viewports_, viewports_now_;
     std::vector<interpolation::DrawSummary> v2_older_;
     std::vector<std::int32_t> v2_older_of_;
@@ -820,6 +832,11 @@ private:
     struct V2Draw {
         enum Kind : std::uint8_t { kFixed, kStill, kBlend, kFollow } kind = kFixed;
         interpolation::Matrix fixed, older_eye, own, back, projection_old, projection_new;
+        // An animated (skinned) draw whose partner drew as many triangles: each point is blended between where it was
+        // in the model then (back_old) and now, its triangles found again by their order in the draw.
+        bool deform = false;
+        std::size_t old_first = 0, new_first = 0;
+        interpolation::Matrix back_old;
     };
     // A share of a batch's triangles, placed by one thread into its own vertices.
     struct V2Chunk {
@@ -832,9 +849,15 @@ private:
     std::vector<std::size_t> v2_first_chunk_; // per batch
     std::vector<std::vector<GpuVertex>> v2_chunk_out_;
     std::vector<interpolation::Matrix> v2_transforms_; // per draw: world point to clip space at the picture's moment
-    void prepare_v2(const std::vector<TapeEntry> &now);
+    void prepare_v2(const std::vector<TapeEntry> &now, const std::vector<TapeEntry> &before);
+    // The triangles of the previous flip in drawing order, and per draw of either flip where its triangles start and
+    // how many there are; per batch of this flip, the order of its first triangle.
+    std::vector<const RawTriangle *> v2_old_tris_;
+    std::vector<std::size_t> v2_old_first_, v2_old_count_, v2_new_first_, v2_new_count_, v2_batch_ordinal_;
+    std::vector<interpolation::Matrix> v2_view_t_; // per deforming draw: eye space to clip space at the moment
+    float v2_t_ = 1.0f;
     void prepare_v2_draw(std::uint32_t n);
-    void place_v2(const TapeEntry &entry, std::size_t from, std::size_t to, std::vector<GpuVertex> &out) const;
+    void place_v2(std::size_t batch, const TapeEntry &entry, std::size_t from, std::size_t to, std::vector<GpuVertex> &out) const;
     std::uint32_t draw_use_{};              // of the current drawing command: tells repeated draws of a model apart
     struct PointSlot {
         std::uint64_t key{};
@@ -2006,9 +2029,33 @@ template <typename Work> void in_shares(std::size_t count, std::size_t least, co
 
 // Interpolation v2, once a flip: per draw what its transform needs whatever the moment, and the shown picture's 3D
 // batches cut into shares of about the same number of triangles.
-void GlBackend::prepare_v2(const std::vector<TapeEntry> &now) {
+void GlBackend::prepare_v2(const std::vector<TapeEntry> &now, const std::vector<TapeEntry> &before) {
     v2_prepared_ = true;
     const std::vector<interpolation::DrawSummary> &newer = summaries_before_;
+    // Each draw's triangles in both flips, in drawing order (a draw's triangles follow one another across batches).
+    v2_old_tris_.clear();
+    v2_old_first_.assign(v2_older_.size(), 0);
+    v2_old_count_.assign(v2_older_.size(), 0);
+    for (const TapeEntry &e : before) {
+        if (e.setup.through) continue;
+        for (const RawTriangle &tri : e.raw) {
+            if (tri.draw >= v2_older_.size()) continue;
+            if (v2_old_count_[tri.draw]++ == 0) v2_old_first_[tri.draw] = v2_old_tris_.size();
+            v2_old_tris_.push_back(&tri);
+        }
+    }
+    v2_new_first_.assign(newer.size(), 0);
+    v2_new_count_.assign(newer.size(), 0);
+    v2_batch_ordinal_.assign(now.size(), 0);
+    std::size_t ordinal = 0;
+    for (std::size_t i = 0; i < now.size(); ++i) {
+        v2_batch_ordinal_[i] = ordinal;
+        if (now[i].setup.through) continue;
+        for (const RawTriangle &tri : now[i].raw) {
+            if (tri.draw < newer.size() && v2_new_count_[tri.draw]++ == 0) v2_new_first_[tri.draw] = ordinal;
+            ++ordinal;
+        }
+    }
     v2_draws_.resize(newer.size()); // only the needed draws are read, and each is written whole below
     std::vector<std::uint8_t> needed(newer.size(), 0);
     v2_chunks_.clear();
@@ -2051,9 +2098,18 @@ void GlBackend::prepare_v2_draw(std::uint32_t n) {
             const interpolation::DrawSummary &from = v2_older_[static_cast<std::size_t>(o)];
             out.older_eye = interpolation::multiply(from.view, from.world);
             out.projection_old = from.projection;
+            const std::size_t oi = static_cast<std::size_t>(o);
+            interpolation::Matrix older_inverse{};
+            if (d.skinned && v2_new_count_[n] > 0 && v2_new_count_[n] == v2_old_count_[oi] &&
+                interpolation::affine_inverse(out.older_eye, older_inverse)) {
+                out.deform = true;
+                out.old_first = v2_old_first_[oi];
+                out.new_first = v2_new_first_[n];
+                out.back_old = interpolation::multiply(older_inverse, from.view);
+            }
             if (out.older_eye == eye) {
                 // Fixed in eye space (interpolation::blend_eye keeps it): at most the projection changes.
-                if (from.projection == d.projection) return;
+                if (from.projection == d.projection && !out.deform) return;
                 out.kind = V2Draw::kStill;
                 out.own = eye;
                 return;
@@ -2069,7 +2125,8 @@ void GlBackend::prepare_v2_draw(std::uint32_t n) {
     }
 }
 
-void GlBackend::place_v2(const TapeEntry &entry, std::size_t from, std::size_t to, std::vector<GpuVertex> &out) const {
+void GlBackend::place_v2(std::size_t batch, const TapeEntry &entry, std::size_t from, std::size_t to,
+                         std::vector<GpuVertex> &out) const {
     struct Clip {
         float x, y, z, w;
         const RawVertex *r;
@@ -2092,9 +2149,33 @@ void GlBackend::place_v2(const TapeEntry &entry, std::size_t from, std::size_t t
         const std::array<float, 8> &vp = viewports_now_[tri.draw];
         float cx[3], cy[3], cz[3], cw[3];
         bool all_in = true;
+        const V2Draw &draw = v2_draws_[tri.draw];
+        const RawTriangle *was = nullptr;
+        if (draw.deform) {
+            const std::size_t index = v2_batch_ordinal_[batch] + k - draw.new_first;
+            if (draw.old_first + index < v2_old_tris_.size()) was = v2_old_tris_[draw.old_first + index];
+        }
         for (int i = 0; i < 3; ++i) {
             const RawVertex &r = tri.v[i];
-            const float x = r.world[0], y = r.world[1], z = r.world[2];
+            float x = r.world[0], y = r.world[1], z = r.world[2];
+            if (was != nullptr) {
+                // Both points in the model, blended, then on through this moment's eye and projection.
+                const interpolation::Matrix &bn = draw.back, &bo = draw.back_old;
+                const float *w = was->v[i].world;
+                float model[3];
+                for (int row = 0; row < 3; ++row) {
+                    const float now_at = bn[row] * x + bn[4 + row] * y + bn[8 + row] * z + bn[12 + row];
+                    const float then_at = bo[row] * w[0] + bo[4 + row] * w[1] + bo[8 + row] * w[2] + bo[12 + row];
+                    model[row] = then_at + (now_at - then_at) * v2_t_;
+                }
+                const interpolation::Matrix &vt = v2_view_t_[tri.draw];
+                cx[i] = vt[0] * model[0] + vt[4] * model[1] + vt[8] * model[2] + vt[12];
+                cy[i] = vt[1] * model[0] + vt[5] * model[1] + vt[9] * model[2] + vt[13];
+                cz[i] = vt[2] * model[0] + vt[6] * model[1] + vt[10] * model[2] + vt[14];
+                cw[i] = vt[3] * model[0] + vt[7] * model[1] + vt[11] * model[2] + vt[15];
+                all_in = all_in && cz[i] > -cw[i] && cw[i] > 0.0f;
+                continue;
+            }
             cx[i] = m[0] * x + m[4] * y + m[8] * z + m[12];
             cy[i] = m[1] * x + m[5] * y + m[9] * z + m[13];
             cz[i] = m[2] * x + m[6] * y + m[10] * z + m[14];
@@ -2238,10 +2319,12 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
     // transforms blended to this moment, then clipped and placed as the GE does (place_v2).
     const bool v2 = v2_enabled_ && v2_ready_ && !summaries_before_.empty();
     if (v2) {
-        if (!v2_prepared_) prepare_v2(now);
+        if (!v2_prepared_) prepare_v2(now, before_batches);
+        v2_t_ = t;
         // The camera's motion this far, once; then each draw's transform, then the triangles, in even shares.
         const interpolation::Matrix camera_t = interpolation::rigid_at(v2_camera_, t);
         v2_transforms_.resize(v2_draws_.size());
+        v2_view_t_.resize(v2_draws_.size());
         const auto transforms = [&](std::size_t from, std::size_t to) {
             for (std::size_t k = from; k < to; ++k) {
                 const std::uint32_t n = v2_needed_[k];
@@ -2261,14 +2344,16 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                 }
                 const interpolation::Matrix projection_t =
                     d.kind == V2Draw::kFollow ? d.projection_new : interpolation::blend_linear(d.projection_old, d.projection_new, t);
-                v2_transforms_[n] = interpolation::multiply(projection_t, interpolation::multiply(eye_t, d.back));
+                const interpolation::Matrix view_t = interpolation::multiply(projection_t, eye_t);
+                if (d.deform) v2_view_t_[n] = view_t;
+                v2_transforms_[n] = interpolation::multiply(view_t, d.back);
             }
         };
         const auto chunks = [&](std::size_t from, std::size_t to) {
             for (std::size_t k = from; k < to; ++k) {
                 const V2Chunk &c = v2_chunks_[k];
                 v2_chunk_out_[k].clear();
-                place_v2(now[c.batch], c.from, c.to, v2_chunk_out_[k]);
+                place_v2(c.batch, now[c.batch], c.from, c.to, v2_chunk_out_[k]);
             }
         };
         in_shares(v2_needed_.size(), 512, transforms);
