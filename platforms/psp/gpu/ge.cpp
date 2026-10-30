@@ -522,7 +522,27 @@ void Ge::draw_primitive(std::uint32_t data) {
     ++stats_.primitives;
     stats_.vertices += count;
 
-    if (backend_ != nullptr) backend_->draw_started(vaddr);
+    if (backend_ != nullptr) {
+        DrawInfo draw;
+        draw.vertex_address = vaddr;
+        draw.index_address = index_format != 0 ? iaddr : 0u;
+        draw.vertex_type = vt;
+        draw.texture_address = (regs_[kTextureMapEnable] & 1u) != 0
+                                   ? (regs_[kTexAddr0] & 0xFFFFF0u) | ((regs_[kTexBufWidth0] & 0x0F0000u) << 8u)
+                                   : 0u;
+        draw.count = count;
+        draw.primitive = static_cast<std::uint8_t>(type);
+        draw.through = through;
+        draw.clear = (regs_[kClearMode] & 1u) != 0;
+        draw.target = regs_[kFramebufPtr] & 0x1FFFF0u;
+        draw.world = world_.m;
+        draw.view = view_.m;
+        draw.projection = proj_.m;
+        draw.viewport = {float24(regs_[kViewportXScale]), float24(regs_[kViewportYScale]), float24(regs_[kViewportZScale]),
+                         float24(regs_[kViewportXCenter]), float24(regs_[kViewportYCenter]), float24(regs_[kViewportZCenter]),
+                         static_cast<float>(regs_[kOffsetX] & 0xFFFFu) / 16.0f, static_cast<float>(regs_[kOffsetY] & 0xFFFFu) / 16.0f};
+        backend_->draw_started(draw);
+    }
     // Timing the drawing commands costs a clock read each; only when the interpolation log is on.
     static const bool timed = std::getenv("MHF_INTERP_LOG") != nullptr;
     const auto t_start = timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
@@ -598,6 +618,7 @@ void Ge::draw_bezier_or_spline(std::uint32_t cmd, std::uint32_t) {
 // inside the GE's 4096x4096 screen coordinate space (before the screen offset), or the whole triangle is dropped.
 // Games rely on this culling: the alternative (clipping at w ~ 0) produces huge stretched triangles.
 void Ge::draw_triangle(const Vertex &a, const Vertex &b, const Vertex &c) {
+    if (backend_ != nullptr) backend_->triangle_unclipped(*this, a, b, c);
     const Vertex *const in[3] = {&a, &b, &c};
     const float offset_x = static_cast<float>(regs_[kOffsetX] & 0xFFFFu) / 16.0f;
     const float offset_y = static_cast<float>(regs_[kOffsetY] & 0xFFFFu) / 16.0f;

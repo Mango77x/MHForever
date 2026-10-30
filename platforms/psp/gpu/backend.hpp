@@ -7,6 +7,7 @@
 // primitives go to the backend instead of the software rasterizer; the backend reads the rest of the draw state
 // (textures, blending, tests, framebuffer) from the GE registers through the Ge it is given.
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <optional>
@@ -16,6 +17,19 @@ namespace mhf::psp::gpu {
 class Ge;
 struct Vertex;
 
+// What a drawing command is, for frame interpolation: what it reads (its identity from one frame to the next) and the
+// matrices it is drawn with (column-major, as the GE holds them: world and view 4x3, the projection 4x4).
+struct DrawInfo {
+    std::uint32_t vertex_address{}, index_address{}, vertex_type{}, texture_address{}, count{};
+    std::uint8_t primitive{};
+    bool through{}; // 2D: screen coordinates, no matrices
+    bool clear{};   // clear mode
+    std::uint32_t target{}; // the framebuffer drawn into (its offset in VRAM)
+    std::array<float, 12> world{}, view{};
+    std::array<float, 16> projection{};
+    std::array<float, 8> viewport{}; // x, y, z scale; x, y, z centre; the screen offset x, y
+};
+
 class Backend {
 public:
     virtual ~Backend() = default;
@@ -23,8 +37,16 @@ public:
     // Screen-space vertices: x, y in framebuffer pixels, z in 0..65535, w = 1/w for perspective correction (1 in
     // through mode), u, v normalized (through mode: texels), colors 0..255, fog 0..1.
     virtual void triangle(const Ge &ge, const Vertex &a, const Vertex &b, const Vertex &c) = 0;
-    // A drawing command starts, with its vertex address (called even when nothing of it reaches the screen).
-    virtual void draw_started(std::uint32_t vertex_address) { (void)vertex_address; }
+    // A 3D triangle as the GE has it before clipping and culling (clip-space vertices, with their world positions),
+    // for frame interpolation; triangle() follows for what of it reaches the screen.
+    virtual void triangle_unclipped(const Ge &ge, const Vertex &a, const Vertex &b, const Vertex &c) {
+        (void)ge;
+        (void)a;
+        (void)b;
+        (void)c;
+    }
+    // A drawing command starts (called even when nothing of it reaches the screen).
+    virtual void draw_started(const DrawInfo &draw) { (void)draw; }
     // Axis-aligned rectangle between two corners; color, depth and fog come from `b`.
     virtual void sprite(const Ge &ge, const Vertex &a, const Vertex &b) = 0;
     // A block transfer (GE copy between memory rectangles) has been performed in guest memory.
