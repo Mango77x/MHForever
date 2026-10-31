@@ -93,11 +93,9 @@ improve lists (hooked; `prepare.py` passes them as `--hook`), the two functions 
 called by the game program), and seven `[patches]` in `lobby_task.ovl` (`04-recompiler.md` §6). A folder generated
 before them needs `prepare.py` run again.
 The US map (`regions/ULUS10391/`) holds the entry point, the overlay loader and the overlay manifest; the JP map (`regions/ULJM05500/`) holds the same three files (2026-10-29).
-
-`mhf_recomp` turns every `[data]` entry into a `MHF_SYMBOL_<name>` macro in a generated header (`<program>_symbols.hpp`,
-git-ignored like the generated code) that the host includes. That is how host code reads game state — the language
-screen's scene counter, for example — by canonical name: a region's map decides whether the name exists, and an address
-is never written by hand in the host. A missing name simply disables the behaviour that needs it in that region (§8).
+The EU and US maps also hold `mh_language_screen_stage` (`[data]`): the boot's scene counter, which the host reads to
+answer the language screen (§8). The Japanese release has a single language and no such screen, so its map does not
+name it and the game program does not press there.
 
 **US release (ULUS10391, measured 2026-10-26).** Up to the overlay manager the code sits where it does in EU; from there on
 everything, code and data, is 0x120 bytes higher, and the overlay groups load 0x100 higher. The 298 overlays carry the same names
@@ -143,8 +141,9 @@ Observed by the PPSSPP community:
 
 ## 8. Languages
 
-The EU version is multilingual (EN/FR/DE/ES/IT). It reads the PSP's system language with
-`sceUtilityGetSystemParamInt(8)` and then shows its own language screen before the title, on every start.
+The EU and North American versions are multilingual (EN/FR/DE/ES/IT). They read the PSP's system language with
+`sceUtilityGetSystemParamInt(8)` and then show their own language screen before the title, on every start. The Japanese
+release has a single language and no such screen, so there is nothing to answer there.
 
 **Why the port answers that screen.** The screen is not a setting the game remembers: it does not save the answer, and
 the game reads the system language only once, at start-up, to preselect a row. So a player who already told MHForever
@@ -193,9 +192,9 @@ The refresh stops as soon as the screen is answered: the frontend sets the playe
 before `games/mhfu`'s callback runs, so writing the pad afterwards would keep clearing it and the controls would stop
 working (this was the second one). The screen is on display only until it starts listening, roughly a second and a half,
 and is never shown to the player as a choice. Without `--language` the boot behaves exactly like the original. Verified
-end to end with `--language es` and `it` (title screen and later boot screens come out in the picked language) and
-without it (the screen appears as always). The launcher exposes the same choice per copy of the game (*Ask* keeps the
-original screen, see `07-launcher-ux.md` §3b).
+end to end on both the European and the North American program with `--language es` and `it` (title screen and later boot
+screens come out in the picked language) and without it (the screen appears as always). The launcher exposes the same
+choice per copy of the game (*Ask* keeps the original screen, see `07-launcher-ux.md` §3b).
 
 **Ruled out**, so nobody repeats the work: forcing a language variable that the game already writes before the screen,
 the `demo_task`/`demo_sub` overlays, a saved game (`MHP2NDG.BIN`), `PARAM.SFO`, and a timer that advances the screen.
