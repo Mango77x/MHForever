@@ -228,7 +228,8 @@ mode, where no second window can be shown.
 - Deck resolution 1280×800 (16:10); PSP 480×272 (~16:9). Integer scaling (×2 = 960×544) or fitted with a filter, crop option, and
   widescreen as an enhancement.
 - Test: suspend/resume, Game Mode input, performance and battery.
-- Real testing: maintainers have no Deck; friends with Decks test builds already validated on a Linux machine. They need their own copy
+- Real testing: maintainers have no Deck. Players have reported the game working on a Steam Deck (SteamOS), without a formal test;
+  friends with Decks test builds already validated on a Linux machine. They need their own copy
   to test the game; for the rest (input, launcher, scaling) use the test scene built from our own homebrew.
 
 ## 7. User data

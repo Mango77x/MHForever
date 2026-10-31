@@ -54,7 +54,8 @@ deletes only its prepared data (never your original .iso or your saves).
 
 Steam Deck
 ----------
-This release has not been tested on a Steam Deck. It is a normal desktop build: extract the folder and add MHForever as
+Players have reported MHForever working on a Steam Deck (SteamOS). The maintainers have no Deck to test on, so this is not a
+formal test. It is a normal desktop build: extract the folder and add MHForever as
 a non-Steam game (Game Mode > Add a Non-Steam Game). Controller-only use, 1280x800 and Game Mode are untested; reports
 are welcome.
 
