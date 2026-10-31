@@ -95,7 +95,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
       `scripts/package_release.py --platform linux` (programs, fonts, licenses, `dist/PLAYER_README_LINUX.txt`), embedded
       application icon, and a `cmake --install` layout with the desktop entry and the icon. CI builds and packages the layout
       on Ubuntu.
-- [ ] Windows installer and AppImage (Linux). Deck testing by friends.
+- [ ] Windows installer and AppImage (Linux). Steam Deck: players have reported it working on SteamOS; the maintainers have no Deck to test on.
 **Acceptance**: a user with no development tools goes from "I have my ISO" to "I'm playing" using only the launcher.
 
 ## Phase 5 — Multiplayer
@@ -123,10 +123,10 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [ ] Before the launcher reads PPSSPP's server list itself: write to PPSSPP and the server operators (`08-multiplayer.md`
   section 1.2; drafts kept outside the repository). Then the remaining experiments of `13-online-plan.md` §7: EU with
   NA (E2), three and four players (E4), two networks (E5), Linux (E8), fuzzing (E9).
-- [ ] Private rooms: room codes that rename the game's 24 halls on any public server (`14-rooms-and-friends.md` §3).
-  **Target: 0.8.**
-- [ ] Friends: friend codes, presence, invites and join over Nostr relays, Discord Rich Presence as an option
-  (`14-rooms-and-friends.md` §4). **Target: 0.9.**
+- [x] Private rooms: room codes that rename the game's 24 halls on any public server (`14-rooms-and-friends.md` §3).
+  **Released in 0.8.0** (PR #33).
+- [x] Friends: friend codes, presence, invites and join over Nostr relays (`14-rooms-and-friends.md` §4). **Released in 0.8.0**
+  (PR #34). Discord Rich Presence is still not done (optional).
 **Acceptance**: 4 players (Windows + Linux/Deck, different networks) complete a quest together.
 
 ## Phase 6 — US and JP regions
@@ -145,6 +145,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 Done: internal resolution (`--scale`, launcher setting), bilinear texture option, right stick as D-pad camera, fullscreen toggle.
 Done too: 60 to 180 fps by frame interpolation (`--fps`, launcher setting; `05-runtime-hle.md` §6, v0.2.0).
+Done too: HD texture packs in PPSSPP's format, one per copy of the game, in Game settings (0.8.2; `05-runtime-hle.md`, texture packs).
 Done too: an in-game menu on Escape (pause, blurred full-screen backdrop, tabs, mouse, controller) that changes the volumes,
 internal resolution (1x to 10x), frame rate, fullscreen and texture smoothing while playing (`07-launcher-ux.md` §3c).
 Done too: the keyboard bindings are chosen in the launcher (Settings → Controls; `07-launcher-ux.md` §5), and so are the
