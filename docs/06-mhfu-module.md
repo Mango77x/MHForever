@@ -76,8 +76,9 @@ mh_player_state     = 0x09xxxxxx
 ```
 The EU map (`regions/ULES01213/symbols.toml`) currently holds the entry point, the overlay loader and the language screen's
 scene counter (`04-recompiler.md` §4.4).
-The US map (`regions/ULUS10391/`) holds the entry point, the overlay loader, the overlay manifest and the same counter; the
-JP map is pending until that dump is available.
+The US map (`regions/ULUS10391/`) holds the entry point, the overlay loader, the overlay manifest and the same counter. The
+JP map is pending until that dump is available; that release is single-language, so it has no language screen and will
+not need this counter.
 
 `mhf_recomp` turns every `[data]` entry into a `MHF_SYMBOL_<name>` macro in a generated header (`<program>_symbols.hpp`,
 git-ignored like the generated code) that the host includes. That is how host code reads game state — the language
@@ -128,8 +129,9 @@ Observed by the PPSSPP community:
 
 ## 8. Languages
 
-The EU version is multilingual (EN/FR/DE/ES/IT). It reads the PSP's system language with
-`sceUtilityGetSystemParamInt(8)` and then shows its own language screen before the title, on every start.
+The EU and North American versions are multilingual (EN/FR/DE/ES/IT). They read the PSP's system language with
+`sceUtilityGetSystemParamInt(8)` and then show their own language screen before the title, on every start. The Japanese
+release has a single language and no such screen, so there is nothing to answer there.
 
 **Why the port answers that screen.** The screen is not a setting the game remembers: it does not save the answer, and
 the game reads the system language only once, at start-up, to preselect a row. So a player who already told MHForever
