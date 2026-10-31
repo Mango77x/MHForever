@@ -52,8 +52,8 @@ constexpr std::pair<std::string_view, int> kLanguages[] = {
 
 // Where the boot's language screen waits. The address is a data symbol of the region (its symbols.toml names it, and
 // mhf_recomp generates the macro below), never a number written here: the same address means something else in
-// another build, so pressing at it there could answer the wrong screen. A region that does not name it (the North
-// American map today) only gets the language preselected, with no press at all.
+// another build, so pressing at it there could answer the wrong screen. A region whose map does not name it only gets
+// the language preselected, with no press at all.
 constexpr std::uint32_t language_screen_stage_address() {
 #if defined(MHF_SYMBOL_mh_language_screen_stage)
     return MHF_SYMBOL_mh_language_screen_stage;

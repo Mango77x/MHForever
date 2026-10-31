@@ -4,6 +4,8 @@
 # addresses: each function has exactly one match. The code up to mh_overlay_is_active sits where it does in the EU
 # executable; from there on everything, code and data, is 0x120 bytes higher. The region table was checked by reading
 # it: it holds the EU values plus 0x100 for the overlay groups, as the program headers of the US executable say.
+# The language screen counter is not in the image but in the game's own allocation, so it is 0x140 above the EU one.
+# It was found on 2026-10-30 by diffing whole-RAM dumps paired with the dumped display.
 
 [functions]
 mh_main                 = 0x08906A54 # module entry point (the ELF's own entry)
@@ -17,6 +19,7 @@ mh_static_init_run      = 0x0890C41C # (begin, end, ...): runs a static-initiali
 
 [data]
 mh_overlay_region_bases = 0x089CBB90 # u32[6], region base address per group
+mh_language_screen_stage = 0x08B21844 # u32, boot scene counter: 7 while the language screen waits (docs/06-mhfu-module.md section 8)
 
 [offsets]
 system_active_overlays  = 0x00F7A580 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none); built by the same instructions as in EU

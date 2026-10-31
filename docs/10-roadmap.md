@@ -86,7 +86,8 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Saves (`<Documents>/MHForever/saves/<DISC_ID>`) and `launcher.json` (`%APPDATA%/MHForever`) kept outside the program folder,
       with a one-time copy from the old layout (0.2.1, 2026-10-22).
 - [x] Launcher: language selection (2026-10-28): every copy has its own language under Game settings; picking one starts the
-  game in it and answers its language screen, and *Ask* keeps the game's own screen at every start.
+  game in it and answers its language screen (EU and NA, each with its region's symbol for the counter), and *Ask* keeps
+  the game's own screen at every start.
 - [ ] Launcher: signed updates.
 - [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19), v0.2.0 adds frame interpolation (2026-10-21), v0.2.1 fixes audio clicks and keeps saves and settings outside the program folder (2026-10-22), v0.2.2 makes the 2D HUD interpolate again (2026-10-22), v0.2.3 makes interpolation lighter (about 90 to 150 fps in
       the village at 180, 2026-10-22), v0.3.0 adds the in-game menu on Escape with live video and audio settings and
