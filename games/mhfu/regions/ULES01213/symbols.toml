@@ -39,6 +39,7 @@ mh_horn_note_colors     = 0x089B7E18 # u8[20][3]: the colour of notes 1-3 for ea
 mh_horn_songs           = 0x09C0BC38 # u8[47][4] in game_task.ovl: each song's notes, newest first (see horn_songs.cpp)
 mh_resource_manager     = 0x09A0B540 # ResourceManager*: the loaded resources by id (the quest text is resource 4)
 mh_quest_message_texts  = 0x089B55A4 # u16 per quest message (the songs' effects first): its text id in the quest text
+mh_cockpit              = 0x089CBBEC # Cockpit*: the quest HUD and its menus (Cockpit_menu_chk: a game menu is open)
 
 [offsets]
 system_active_overlays  = 0x00F7A580 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none)

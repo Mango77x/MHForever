@@ -13,6 +13,8 @@ namespace region = psp::generated::mhfu_region_data;
 // Struct offsets, the same in the three releases (each checked in their code: the same instructions read them).
 constexpr std::uint32_t kGameSysPlayerId = 0x28;         // u8: the player slot this machine plays
 constexpr std::uint32_t kGameSysWeapon = 0x4A0 + 0x20;   // the hunter's weapon: u8 type at +1 (5 blademaster), u16 id at +2
+// A game menu is open (the game's own Cockpit_menu_chk) when any of these bytes is set.
+constexpr std::uint32_t kGameSysMenu = 0x10, kCockpitMenu = 0x604, kCockpitWindow = 0x52F;
 constexpr std::uint32_t kPlayerManagerPlayers = 0x0C;    // Player*[6], by player slot
 constexpr std::uint32_t kPlayerNoteCount = 0x1102;       // u8, one more for every note played
 constexpr std::uint32_t kPlayerNotesPlayed = 0x1103;     // u8[8], the newest first
@@ -179,6 +181,13 @@ std::optional<overlay::SongPanel> HornSongs::read(psp::Runtime &rt) {
         const psprecomp::GuestMemory &memory = rt.memory();
         const std::uint32_t game_sys = memory.load32(*region::mh_game_sys);
         if (!memory.contains(game_sys + kGameSysWeapon, 4)) return std::nullopt;
+        if constexpr (region::mh_cockpit.has_value()) { // hidden while one of the game's own menus is open over the HUD
+            const std::uint32_t cockpit = memory.load32(*region::mh_cockpit);
+            const bool menu = memory.load8(game_sys + kGameSysMenu) != 0 ||
+                              (memory.contains(cockpit + kCockpitMenu, 1) &&
+                               (memory.load8(cockpit + kCockpitMenu) != 0 || memory.load8(cockpit + kCockpitWindow) != 0));
+            if (menu) return std::nullopt;
+        }
         if (memory.load8(game_sys + kGameSysWeapon + 1) != kBlademasterWeapon) return std::nullopt;
         const std::uint32_t weapon = *region::mh_blademaster_weapons + memory.load16(game_sys + kGameSysWeapon + 2) * kWeaponInfoSize;
         if (memory.load8(*region::mh_weapon_model_classes + memory.load16(weapon)) != kHuntingHorn) return std::nullopt;
