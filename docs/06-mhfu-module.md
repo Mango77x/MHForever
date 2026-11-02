@@ -76,7 +76,8 @@ mh_player_state     = 0x09xxxxxx
 ```
 The EU map (`regions/ULES01213/symbols.toml`) currently holds the entry point and the overlay loader (`04-recompiler.md` §4.4),
 and the data entries of "Show true weapon values" (§9): the attack multipliers, and the element formats' "0" once per
-language, since the game loads the chosen language's menu text at its own place (the US and JP maps do not list them yet). Host code reads
+language, since the game loads the chosen language's menu text at its own place. The US map holds the same entries, each
+0x120 higher; the JP map does not list them yet. Host code reads
 `[data]` entries through the generated `mhfu_region_data.hpp` (`04-recompiler.md` §6); a folder generated before that
 header existed needs `prepare.py` run again (unchanged files are not rewritten).
 The US map (`regions/ULUS10391/`) holds the entry point, the overlay loader and the overlay manifest; the JP map (`regions/ULJM05500/`) holds the same three files (2026-10-29).
@@ -135,7 +136,7 @@ The EU version is probably multilingual (EN/FR/DE/ES/IT) and picks the language 
 | Internal resolution ×N | Low | Renderer. Done: `--scale`, launcher setting |
 | Texture filtering / MSAA | Low | Renderer. Bilinear option done (`--smooth-textures`); MSAA not |
 | Widescreen 16:9 / 16:10 (Deck) | Medium | Projection + HUD; HUD may stretch |
-| True weapon values | Done (EU) | Menus show attack and element without the display multipliers (`--true-weapon-values`, launcher setting). Data writes on every host poll, the element ones only where the loaded language's format is (checked in all five languages, 2026-11-02); damage is untouched. US and JP need their map entries |
+| True weapon values | Done (EU, US) | Menus show attack and element without the display multipliers (`--true-weapon-values`, launcher setting). Data writes on every host poll, the element ones only where the loaded language's format is (checked in all five languages of both releases, 2026-11-02); damage is untouched. JP needs its map entries |
 | Right-stick camera | Medium | Level 1 (stick → D-pad, `07`) done. Level 2: hook the camera function |
 | 60 fps | Done (0.2.0, experimental) | Renderer-side frame interpolation, 60 to 180 fps (`--fps`, launcher setting, `05` §6). Game logic stays at 30 fps, so timing and multiplayer sync are untouched; a real 60 fps logic would still need a timer study |
 | Button icons per controller | Medium | Replace button textures at runtime with our own art |

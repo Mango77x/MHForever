@@ -1,7 +1,7 @@
 // Tests the region maps in games/mhfu/regions (identification data in the repository, no game data): every map parses,
-// the EU map gives the data entries of --true-weapon-values an address, its per-language format entries never share an
-// address (the game program writes only where the loaded language's format is), and the releases that do not map them
-// yet still declare them, so the game program builds for every release.
+// the EU and US maps give the data entries of --true-weapon-values an address, their per-language format entries never
+// share an address (the game program writes only where the loaded language's format is), and the JP map, which does not
+// map them yet, still declares them, so the game program builds for every release.
 
 #include "emitter.hpp"
 
@@ -36,22 +36,23 @@ RegionData entries_for(const std::string &disc_id) {
 int main() {
     const auto zeros = element_value_zero_entries();
 
-    const RegionData eu = entries_for("ULES01213");
-    MHF_CHECK(eu.contains("mh_attack_display_multipliers") && eu.at("mh_attack_display_multipliers").has_value());
-    std::set<std::uint32_t> addresses;
-    for (const auto &name : zeros) {
-        MHF_CHECK(eu.contains(name) && eu.at(name).has_value());
-        if (eu.contains(name) && eu.at(name)) addresses.insert(*eu.at(name));
+    for (const char *disc_id : {"ULES01213", "ULUS10391"}) {
+        const RegionData mapped = entries_for(disc_id);
+        MHF_CHECK(mapped.contains("mh_attack_display_multipliers") &&
+                  mapped.at("mh_attack_display_multipliers").has_value());
+        std::set<std::uint32_t> addresses;
+        for (const auto &name : zeros) {
+            MHF_CHECK(mapped.contains(name) && mapped.at(name).has_value());
+            if (mapped.contains(name) && mapped.at(name)) addresses.insert(*mapped.at(name));
+        }
+        MHF_CHECK(addresses.size() == zeros.size());
+        MHF_CHECK(mapped.contains("mh_overlay_region_bases") && mapped.at("mh_overlay_region_bases").has_value());
     }
-    MHF_CHECK(addresses.size() == zeros.size());
-    MHF_CHECK(eu.contains("mh_overlay_region_bases") && eu.at("mh_overlay_region_bases").has_value());
 
-    for (const char *disc_id : {"ULUS10391", "ULJM05500"}) {
-        const RegionData other = entries_for(disc_id);
-        MHF_CHECK(other.contains("mh_attack_display_multipliers")); // declared, mapped or not
-        for (const auto &name : zeros) MHF_CHECK(other.contains(name));
-        MHF_CHECK(other.at("mh_overlay_region_bases").has_value());
-    }
+    const RegionData jp = entries_for("ULJM05500");
+    MHF_CHECK(jp.contains("mh_attack_display_multipliers")); // declared, mapped or not
+    for (const auto &name : zeros) MHF_CHECK(jp.contains(name));
+    MHF_CHECK(jp.at("mh_overlay_region_bases").has_value());
 
     return mhf::test::finish("mhfu_region_maps");
 }

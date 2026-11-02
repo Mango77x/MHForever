@@ -146,7 +146,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 Done: internal resolution (`--scale`, launcher setting), bilinear texture option, right stick as D-pad camera, fullscreen toggle.
 Done too: 60 to 180 fps by frame interpolation (`--fps`, launcher setting; `05-runtime-hle.md` §6, v0.2.0).
 Done too: HD texture packs in PPSSPP's format, one per copy of the game, in Game settings (0.8.2; `05-runtime-hle.md`, texture packs).
-Done too (EU only): true weapon values in menus, attack and element without the display multipliers (`--true-weapon-values`,
+Done too (EU and US): true weapon values in menus, attack and element without the display multipliers (`--true-weapon-values`,
 launcher setting; `06-mhfu-module.md` §9).
 Done too: an in-game menu on Escape (pause, blurred full-screen backdrop, tabs, mouse, controller) that changes the volumes,
 internal resolution (1x to 10x), frame rate, fullscreen and texture smoothing while playing (`07-launcher-ux.md` §3c).
