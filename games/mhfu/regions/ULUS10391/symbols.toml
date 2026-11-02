@@ -41,6 +41,8 @@ mh_blademaster_weapons  = 0x0895A0EC # 24 bytes per blademaster weapon id: model
 mh_weapon_model_classes = 0x089785A8 # u8 per weapon model id: its weapon class (8 = hunting horn)
 mh_horn_note_colors     = 0x089B7F38 # u8[20][3]: the colour of notes 1-3 for each of the horns' 20 note sets
 mh_horn_songs           = 0x09C0BD38 # u8[47][4] in game_task.ovl: each song's notes, newest first (see horn_songs.cpp)
+mh_resource_manager     = 0x09A0B680 # ResourceManager*: the loaded resources by id (the quest text is resource 4)
+mh_quest_message_texts  = 0x089B56C4 # u16 per quest message (the songs' effects first): its text id in the quest text
 
 [offsets]
 system_active_overlays  = 0x00F7A580 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none); built by the same instructions as in EU

@@ -25,12 +25,29 @@ constexpr std::uint32_t kWeaponInfoSize = 24, kWeaponNoteSet = 0x13;
 constexpr std::uint8_t kBlademasterWeapon = 5, kHuntingHorn = 8;
 constexpr std::uint32_t kPlayerSlots = 6, kNoteSets = 20, kSongs = 47;
 constexpr std::uint64_t kNotesStayUs = 6'000'000; // the notes played count this long after the last one
+// The quest text (mh_resource_manager, mh_quest_message_texts): the resource manager keeps a table of the loaded
+// resources, {u32 id, u32 data, u32} each; the quest text is resource 4, and the messages of the songs' effects are in
+// its text group 1, whose start is at +12 in the resource: a u32 offset per text id (from the group's start, maybe not
+// aligned, 0xFFFFFFFF for none), then the UTF-8 texts.
+constexpr std::uint32_t kResourceTable = 0x83C030, kResourceEntry = 12, kResources = 512;
+constexpr std::uint32_t kQuestText = 4, kSongTextGroup = 1;
+constexpr std::uint32_t kLongestName = 64; // bytes; a longer text is not a song's name
 
 constexpr bool kMapped = region::mh_game_sys && region::mh_player_manager && region::mh_blademaster_weapons &&
                          region::mh_weapon_model_classes && region::mh_horn_note_colors && region::mh_horn_songs;
+constexpr bool kTextMapped = region::mh_resource_manager && region::mh_quest_message_texts;
+
+// The message the game shows when each song is played, in its song order: its effect, as the quest text names it in the
+// language the game runs in. The heals show the weaker or the stronger of two by chance: the stronger, which the books'
+// names follow.
+constexpr std::uint8_t kSongMessages[] = {
+    0,  0,  2,  4,  5,  7,  7,  8,  9,  10, 11, 12, 12, 13, 14, 15, 17, 19, 20, 21, 23, 25, 26, 27,
+    28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 40, 41, 43, 44, 46, 47, 47, 49, 49, 50, 52, 53,
+};
+static_assert(std::size(kSongMessages) == kSongs);
 
 // The songs in the game's order (its song table, mh_horn_songs), as the Hunting Horn books of the English release
-// name them.
+// name them: shown when the game's own text cannot be read.
 constexpr std::string_view kSongNames[kSongs] = {
     "Self-Improvement", "Self-Improvement", "Attack Up [Lo]", "Attack Up [Hi]", "Defense Up [Lo]", "Defense Up [Hi]",
     "Defense Up [Hi]", "Health Inc [Lo]", "Health Inc [Mid]", "Health Inc [Hi]", "Wind Reduce", "Wind Cancel",
@@ -68,6 +85,46 @@ overlay::SongPanel::Note note_color(std::uint8_t note) {
     case 7: return {0.45f, 0.80f, 1.00f};
     default: return {0.5f, 0.5f, 0.5f};
     }
+}
+
+// True when `text` is well-formed UTF-8 without control characters: the game's text as the overlay's painter takes it.
+bool printable_utf8(std::string_view text) {
+    for (std::size_t i = 0; i < text.size();) {
+        const auto c = static_cast<unsigned char>(text[i]);
+        const std::size_t length = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : (c >> 3) == 0x1E ? 4 : 0;
+        if (length == 0 || i + length > text.size() || (length == 1 && c < 0x20)) return false;
+        for (std::size_t k = 1; k < length; ++k) {
+            if ((static_cast<unsigned char>(text[i + k]) & 0xC0) != 0x80) return false;
+        }
+        i += length;
+    }
+    return !text.empty();
+}
+
+// The quest text's message `message` in the language the game runs in, std::nullopt when it cannot be read.
+std::optional<std::string> quest_message(const psprecomp::GuestMemory &memory, std::uint32_t message) {
+    const std::uint32_t manager = memory.load32(*region::mh_resource_manager);
+    if (!memory.contains(manager + kResourceTable, kResources * kResourceEntry)) return std::nullopt;
+    std::uint32_t resource = 0;
+    for (std::uint32_t i = 0; i < kResources && resource == 0; ++i) {
+        if (memory.load32(manager + kResourceTable + i * kResourceEntry) == kQuestText) {
+            resource = memory.load32(manager + kResourceTable + i * kResourceEntry + 4);
+        }
+    }
+    if (!memory.contains(resource + (kSongTextGroup + 2) * 4, 4)) return std::nullopt;
+    const std::uint32_t group = resource + memory.load32(resource + (kSongTextGroup + 2) * 4);
+    const std::uint32_t id = memory.load16(*region::mh_quest_message_texts + message * 2);
+    if (!memory.contains(group + id * 4, 4)) return std::nullopt;
+    std::uint32_t offset = 0;
+    for (std::uint32_t k = 0; k < 4; ++k) offset |= static_cast<std::uint32_t>(memory.load8(group + id * 4 + k)) << (8 * k);
+    if (offset == 0xFFFFFFFFu || !memory.contains(group + offset, kLongestName)) return std::nullopt;
+    std::string text;
+    for (std::uint32_t k = 0; k < kLongestName; ++k) {
+        const auto c = static_cast<char>(memory.load8(group + offset + k));
+        if (c == '\0') return printable_utf8(text) ? std::optional(text) : std::nullopt;
+        text.push_back(c);
+    }
+    return std::nullopt;
 }
 
 // The Player* of the hunter on this machine, 0 when there is none (not in a quest).
@@ -159,7 +216,9 @@ std::optional<overlay::SongPanel> HornSongs::read(psp::Runtime &rt) {
             // A horn plays the songs made of its own notes only.
             if (notes.empty() || !std::ranges::all_of(notes, [&](std::uint8_t n) { return std::ranges::find(horn, n) != horn.end(); })) continue;
             overlay::SongPanel::Song row;
-            row.name = std::string(kSongNames[s]);
+            std::optional<std::string> name;
+            if constexpr (kTextMapped) name = quest_message(memory, kSongMessages[s]);
+            row.name = name ? std::move(*name) : std::string(kSongNames[s]);
             for (const std::uint8_t n : notes) row.notes.push_back(note_color(n));
             const SongProgress progress = song_progress(song, played);
             row.played = progress.played;
