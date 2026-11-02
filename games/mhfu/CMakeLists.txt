@@ -19,6 +19,13 @@ if(MHF_BUILD_TESTS)
     target_link_libraries(test_mhfu_data_bin PRIVATE mhf_mhfu_data)
     mhf_target_warnings(test_mhfu_data_bin)
     add_test(NAME mhfu_data_bin COMMAND test_mhfu_data_bin)
+
+    add_executable(test_mhfu_region_maps tests/test_region_maps.cpp)
+    target_include_directories(test_mhfu_region_maps PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+    target_compile_definitions(test_mhfu_region_maps PRIVATE MHF_MHFU_REGIONS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/regions")
+    target_link_libraries(test_mhfu_region_maps PRIVATE mhf_psp_recomp)
+    mhf_target_warnings(test_mhfu_region_maps)
+    add_test(NAME mhfu_region_maps COMMAND test_mhfu_region_maps)
 endif()
 
 # The game itself, built from code recompiled on the developer's machine (never committed, CONTRIBUTING.md).

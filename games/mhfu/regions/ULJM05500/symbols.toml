@@ -18,5 +18,12 @@ mh_static_init_run      = 0x08909DA4 # (begin, end, ...): runs a static-initiali
 [data]
 mh_overlay_region_bases = 0x089C6B40 # u32[6], region base address per group
 
+# Menu display of weapon values (--true-weapon-values; verified 2026-11-02). Damage never reads these.
+mh_attack_display_multipliers = 0x08938104 # u32[11], per weapon class: menus show attack * value / 100
+# The "0" the element value format prints after the value, and the same "0" in the dual-element total format (the only
+# language of this release; its menu text is loaded at run time).
+mh_element_value_format_zero_ja = 0x089CABCC # u8
+mh_dual_element_value_zero_ja   = 0x089CABE5 # u8
+
 [offsets]
 system_active_overlays  = 0x00F7A3C0 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none)

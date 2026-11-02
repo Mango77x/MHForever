@@ -1,0 +1,64 @@
+// Tests the region maps in games/mhfu/regions (identification data in the repository, no game data): every map parses,
+// every release maps the data entries of --true-weapon-values for each of its languages, a map's per-language format
+// entries never share an address (the game program writes only where the loaded language's format is), and every map
+// declares every language's names, so the game program builds for every release.
+
+#include "emitter.hpp"
+
+#include "check.hpp"
+
+#include <filesystem>
+#include <initializer_list>
+#include <set>
+#include <string>
+#include <vector>
+
+namespace {
+
+namespace fs = std::filesystem;
+using mhf::psp::recomp::RegionData;
+using mhf::psp::recomp::region_data_entries;
+
+std::vector<std::string> element_value_zero_entries(std::initializer_list<const char *> languages) {
+    std::vector<std::string> names;
+    for (const char *language : languages) {
+        names.push_back(std::string("mh_element_value_format_zero_") + language);
+        names.push_back(std::string("mh_dual_element_value_zero_") + language);
+    }
+    return names;
+}
+
+RegionData entries_for(const std::string &disc_id) {
+    return region_data_entries(fs::path(MHF_MHFU_REGIONS_DIR) / disc_id / "symbols.toml");
+}
+
+// The release maps the multipliers and both formats of each of its languages, at different addresses, and declares
+// every language's names.
+void check_release(const std::string &disc_id, const std::vector<std::string> &own,
+                   const std::vector<std::string> &all) {
+    const RegionData entries = entries_for(disc_id);
+    MHF_CHECK(entries.contains("mh_attack_display_multipliers") &&
+              entries.at("mh_attack_display_multipliers").has_value());
+    std::set<std::uint32_t> addresses;
+    for (const auto &name : own) {
+        MHF_CHECK(entries.contains(name) && entries.at(name).has_value());
+        if (entries.contains(name) && entries.at(name)) addresses.insert(*entries.at(name));
+    }
+    MHF_CHECK(addresses.size() == own.size());
+    for (const auto &name : all) MHF_CHECK(entries.contains(name));
+    MHF_CHECK(entries.contains("mh_overlay_region_bases") && entries.at("mh_overlay_region_bases").has_value());
+}
+
+} // namespace
+
+int main() {
+    const auto european = element_value_zero_entries({"en", "fr", "de", "es", "it"});
+    const auto japanese = element_value_zero_entries({"ja"});
+    const auto all = element_value_zero_entries({"en", "fr", "de", "es", "it", "ja"});
+
+    check_release("ULES01213", european, all);
+    check_release("ULUS10391", european, all);
+    check_release("ULJM05500", japanese, all);
+
+    return mhf::test::finish("mhfu_region_maps");
+}

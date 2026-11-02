@@ -2,7 +2,7 @@
 disc_id = "ULES01213"
 disc_version = "1.01"
 market = "EU"
-languages = ["en", "fr", "de", "es", "it"]   # [VERIFY]
+languages = ["en", "fr", "de", "es", "it"]   # all five played 2026-11-02
 status = "in-development"
 
 [[accepted_dumps]]

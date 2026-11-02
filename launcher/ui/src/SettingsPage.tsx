@@ -484,6 +484,10 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
         </div>
         <div className="srow">
+          <div className="slabel"><b>Show true weapon values</b><span>Optional enhancement: menus show attack and element without the display multipliers. Off is faithful to the original.</span></div>
+          <Toggle on={s.trueWeaponValues} onToggle={() => onChange({ trueWeaponValues: !s.trueWeaponValues })} label="Show true weapon values" />
+        </div>
+        <div className="srow">
           <div className="slabel">
             <b>HUD scale</b>
             <span>{(s.hudSize ?? 100) === 100 ? 'Original size.' : `${s.hudSize}% of the original size in quests: the health bar, the minimap and the items, each in its corner.`}</span>

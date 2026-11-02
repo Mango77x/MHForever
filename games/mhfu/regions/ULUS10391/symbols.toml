@@ -18,5 +18,21 @@ mh_static_init_run      = 0x0890C41C # (begin, end, ...): runs a static-initiali
 [data]
 mh_overlay_region_bases = 0x089CBB90 # u32[6], region base address per group
 
+# Menu display of weapon values (--true-weapon-values; verified 2026-11-02, all five languages). Damage never reads
+# these. Every address is the EU one plus 0x120.
+mh_attack_display_multipliers = 0x0893ACDC # u32[11], per weapon class: menus show attack * value / 100
+# The "0" the element value format prints after the value, and the same "0" in the dual-element total format. The game
+# loads the chosen language's menu text at run time, each language at its own place.
+mh_element_value_format_zero_en = 0x089CF142 # u8
+mh_dual_element_value_zero_en   = 0x089CF159 # u8
+mh_element_value_format_zero_fr = 0x089CF2F0 # u8
+mh_dual_element_value_zero_fr   = 0x089CF306 # u8
+mh_element_value_format_zero_de = 0x089CF2CB # u8
+mh_dual_element_value_zero_de   = 0x089CF2E3 # u8
+mh_element_value_format_zero_es = 0x089CF282 # u8
+mh_dual_element_value_zero_es   = 0x089CF299 # u8
+mh_element_value_format_zero_it = 0x089CF235 # u8
+mh_dual_element_value_zero_it   = 0x089CF24D # u8
+
 [offsets]
 system_active_overlays  = 0x00F7A580 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none); built by the same instructions as in EU

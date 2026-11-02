@@ -6,6 +6,8 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -25,6 +27,19 @@ struct EmitOptions {
 // given program names (main module first, then overlays).
 void emit_registry(const std::string &registry_name, const std::vector<std::string> &program_names,
                    const std::filesystem::path &out_dir);
+
+// Region-map [data] entries by name: the address in this release, or std::nullopt when only other releases map it.
+using RegionData = std::map<std::string, std::optional<std::uint32_t>>;
+
+// The [data] entries of the region map `symbols` (games/<id>/regions/<disc>/symbols.toml), plus every [data] name that
+// the other region maps next to it list, without an address: host code that names an entry builds for every release.
+RegionData region_data_entries(const std::filesystem::path &symbols);
+
+// Writes <out>/<program_name>_region_data.hpp: namespace mhf::psp::generated::<program_name>_region_data with one
+// `inline constexpr std::optional<std::uint32_t>` per entry. Host code names the entries directly, so a misspelled
+// name fails the build and every release builds the same code. Returns the path of the file.
+std::filesystem::path emit_region_data(const std::string &program_name, const RegionData &entries,
+                                       const std::filesystem::path &out_dir);
 
 struct EmitResult {
     std::vector<std::filesystem::path> files;
