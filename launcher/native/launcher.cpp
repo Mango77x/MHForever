@@ -123,6 +123,7 @@ Json default_settings() {
     s["smoothTextures"] = false;
     s["fps"] = 30; // output rate: the game's own 30, or a multiple of it up to 180 (in-between pictures)
     s["hudSize"] = 100; // the quest HUD's size in percent, 50..100 in steps of 10
+    s["trueWeaponValues"] = false; // menus show attack and element without the game's display multipliers
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
     s["checkUpdates"] = true; // ask GitHub for a newer release when the launcher starts
     s["musicVolume"] = 100;
@@ -905,7 +906,7 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     if (partial["hudSize"].is_number()) { // the in-game menu's steps: 50, 60, ... 100
         s["hudSize"] = std::clamp(std::round(partial["hudSize"].as_number() / 10.0), 5.0, 10.0) * 10.0;
     }
-    for (const char *key : {"fullscreen", "smoothTextures"}) {
+    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
     if (partial["copyImage"].is_bool()) launcher_settings["copyImage"] = partial["copyImage"];
@@ -1220,6 +1221,7 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back("--hud-size");
         plan.args.push_back(num("hudSize"));
     }
+    if (s["trueWeaponValues"].as_bool()) plan.args.push_back("--true-weapon-values");
     if (s["texturePackEnabled"].is_bool() && s["texturePackEnabled"].as_bool() && s["texturePack"].is_string()) {
         // This copy's pack, used only while its folder is still there (a pack used where it is may have moved).
         std::error_code pack_ec;

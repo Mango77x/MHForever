@@ -195,6 +195,15 @@ int main(int argc, char **argv) {
         tiny["hudSize"] = 10;
         l.set_settings(tiny);
         CHECK(l.state()["settings"]["hudSize"].as_number() == 50);
+        // True weapon values: off by default, a bool turns it on, anything else is ignored.
+        CHECK(!s["settings"]["trueWeaponValues"].as_bool(true));
+        Json true_values;
+        true_values["trueWeaponValues"] = true;
+        l.set_settings(true_values);
+        CHECK(l.state()["settings"]["trueWeaponValues"].as_bool());
+        true_values["trueWeaponValues"] = "no";
+        l.set_settings(true_values);
+        CHECK(l.state()["settings"]["trueWeaponValues"].as_bool());
         CHECK(s["pseudonym"].as_string() == "RathalosSlayer");
 
         // Keyboard bindings: defaults, a change, a button left without a key, and input the launcher ignores.
