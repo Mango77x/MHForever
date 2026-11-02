@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <ctime>
@@ -803,7 +804,7 @@ Json Launcher::state() {
 void Launcher::import_game_controls() {
     std::error_code ec;
     if (!fs::is_regular_file(controls_file(), ec)) return;
-    Json keys, pad, room, server;
+    Json keys, pad, room, server, music, sfx;
     {
         std::ifstream in(controls_file());
         for (std::string line; std::getline(in, line);) {
@@ -820,6 +821,10 @@ void Launcher::import_game_controls() {
                 room = text;
             } else if (name == "server") { // and the server
                 server = text;
+            } else if (name == "music-volume" || name == "sfx-volume") { // the sliders of the game's Audio tab
+                int value = 0;
+                const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+                if (error == std::errc{} && end == text.data() + text.size()) (name == "music-volume" ? music : sfx) = value;
             } else if (name == "padmap") {
                 const host::PadBindings parsed = host::parse_padmap(text);
                 for (const std::string_view action : host::kPadActions) {
@@ -833,6 +838,8 @@ void Launcher::import_game_controls() {
     partial["pad"] = pad;
     if (room.is_string()) partial["adhocRoom"] = room;
     if (server.is_string() && !server.as_string().empty()) partial["adhocServer"] = server; // the game never turns online play off
+    if (music.is_number()) partial["musicVolume"] = music; // apply_settings keeps them within 0..100
+    if (sfx.is_number()) partial["sfxVolume"] = sfx;
     {
         std::lock_guard lock(mutex_);
         const CatalogEntry *entry = nullptr;
