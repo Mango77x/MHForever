@@ -832,6 +832,7 @@ private:
         bool cutout{};                           // a texture with real holes: leaves, fronds, grass
         bool blended{};                          // layers over the ground, haze: no whole-map shadows from these
         bool translucent{};                      // blended with a texture that fades: clouds, haze, dust
+        bool has_holes{};                        // its texture has some clear texels
         float low[3]{1e30f, 1e30f, 1e30f}, high[3]{-1e30f, -1e30f, -1e30f}; // its bounds in the object's frame
         [[nodiscard]] float size() const { return std::max({high[0] - low[0], high[1] - low[1], high[2] - low[2]}); }
         [[nodiscard]] float height() const { return high[1] - low[1]; }
@@ -1228,6 +1229,9 @@ private:
     std::vector<ShadowDraw> shadow_draws_;
     std::vector<float> shadow_vertices_; // eye x, y, z and u, v
     std::vector<ShadowRange> shadow_ranges_;
+    bool shadow_in_cave_{};            // rock overhead: only objects cast
+    int shadow_cave_votes_{};
+    std::uint32_t shadow_frame_count_{};
     std::vector<float> shadow_depths_;          // the depth (0..1) each captured vertex was drawn with; < 0: not known
     float shadow_draw_vz_[2]{};                 // the viewport depth of the draw being captured
     std::uint32_t shadow_skipped_{};            // draws of the picture left out for not writing the depth
@@ -1963,6 +1967,7 @@ void GlBackend::shadow_capture(const gpu::Ge &ge, const gpu::Vertex &a, const gp
         d.blended = (ge.reg(kAlphaBlendEnable) & 1u) != 0;
         // Much of the rock is blended too, with a few clear texels along its edges: only a texture that is mostly clear is air.
         d.translucent = d.blended && shadow_texture_holes_ >= 0.25f;
+        d.has_holes = shadow_texture_holes_ >= min_holes;
         d.cutout = (d.func == 6 || d.func == 7) && d.ref >= 64 && (ge.reg(kAlphaBlendEnable) & 1u) != 0 &&
                    shadow_texture_holes_ >= min_holes;
         shadow_draws_.push_back(d);
@@ -2079,7 +2084,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     }
     const float largest = live_->shadow_max_object.load(std::memory_order_relaxed);
     const float largest_piece = live_->shadow_max_piece.load(std::memory_order_relaxed);
-    const bool whole_map = live_->shadow_whole_map.load(std::memory_order_relaxed);
+    bool whole_map = live_->shadow_whole_map.load(std::memory_order_relaxed);
     const auto casts = [&](const ShadowGroup &g) { return g.skinned || g.size() <= largest; };
 
     // The scenery is the biggest group that is not skinned: its Y axis is the world's up. The hunter is the nearest skinned
@@ -2193,6 +2198,28 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         }
         return low[0] < 0.0f && high[0] > 0.0f && low[1] < 0.0f && high[1] > 0.0f && low[2] < 0.0f && high[2] > 0.0f;
     };
+    // Mist and fog in the air: big flat cards, alone or in pairs of triangles that make quads. Blended rock can have just as few
+    // triangles, but it is not flat. The count alone left half of the scenery out.
+    const auto air = [&](const ShadowDraw &d) {
+        if (d.translucent) return true;
+        const std::uint32_t triangles = d.count / 3u;
+        if (!d.blended || triangles == 0u || triangles > 24u || d.size() < 500.0f) return false;
+        const float *x = shadow_vertices_.data() + static_cast<std::size_t>(d.first) * 5u;
+        const auto normal_of = [&](std::uint32_t i, float *n) {
+            const float *t = x + static_cast<std::size_t>(i) * 15u;
+            const float e0[3] = {t[5] - t[0], t[6] - t[1], t[7] - t[2]}, e1[3] = {t[10] - t[0], t[11] - t[1], t[12] - t[2]};
+            cross(e0, e1, n);
+            return normalize(n);
+        };
+        if (triangles == 1u) return true;
+        if ((triangles & 1u) != 0u) return false;
+        for (std::uint32_t i = 0; i + 1u < triangles; i += 2u) {
+            float n0[3], n1[3];
+            if (!normal_of(i, n0) || !normal_of(i + 1u, n1)) return false;
+            if (std::fabs(n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2]) < 0.995f) return false;
+        }
+        return true;
+    };
     // The ground: flat pieces overlap a little, with thin upright strips along their seams, and each would cast a thin line on
     // the next. So what lies low and is flat or a strip does not cast. High up the same shapes are ledges and tops of rock,
     // which must, or their shadows have holes. Low means up to a little above the hunter's feet.
@@ -2260,6 +2287,62 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         }
         return gap <= cast_limit * cast_limit;
     };
+    // Inside a cave the sun does not count: there is rock overhead all around the hunter, not just on one side as under an arch or
+    // next to a cliff. Only objects cast there. Looked at a few times a second, and it has to agree three times in a row.
+    static const bool cave_check = [] {
+        const char *e = std::getenv("MHF_SHADOW_CAVES");
+        return e == nullptr || e[0] != '0';
+    }();
+    if (cave_check && whole_map && hunter != nullptr && shadow_frame_count_++ % 10u == 0) {
+        float side[3];
+        cross(up_axis, right, side);
+        float hunter_centre[3];
+        centre_of(*hunter, hunter_centre);
+        const float reach_out = 400.0f;
+        float points[9][2];
+        const float cx = hunter_centre[0] * right[0] + hunter_centre[1] * right[1] + hunter_centre[2] * right[2];
+        const float cy = hunter_centre[0] * side[0] + hunter_centre[1] * side[1] + hunter_centre[2] * side[2];
+        points[0][0] = cx;
+        points[0][1] = cy;
+        for (int i = 0; i < 8; ++i) {
+            points[i + 1][0] = cx + reach_out * std::cos(0.7853982f * static_cast<float>(i));
+            points[i + 1][1] = cy + reach_out * std::sin(0.7853982f * static_cast<float>(i));
+        }
+        unsigned covered = 0;
+        for (const ShadowDraw &d : shadow_draws_) {
+            if (d.count == 0 || d.target != rt.address || d.cutout || air(d)) continue;
+            const ShadowGroup &g = shadow_groups_[d.group];
+            if (g.skinned || backdrop(g) || shell(d)) continue;
+            for (std::uint32_t v = 0; v + 3u <= d.count; v += 3u) {
+                const float *t = shadow_vertices_.data() + (static_cast<std::size_t>(d.first) + v) * 5u;
+                if (std::min({height_of(t), height_of(t + 5), height_of(t + 10)}) < feet + 200.0f) continue;
+                float x[3], y[3];
+                for (int k = 0; k < 3; ++k) {
+                    const float *p = t + 5 * k;
+                    x[k] = p[0] * right[0] + p[1] * right[1] + p[2] * right[2];
+                    y[k] = p[0] * side[0] + p[1] * side[1] + p[2] * side[2];
+                }
+                for (unsigned i = 0; i < 9u; ++i) {
+                    if ((covered & (1u << i)) != 0) continue;
+                    const float px = points[i][0], py = points[i][1];
+                    const float a = (x[1] - x[0]) * (py - y[0]) - (y[1] - y[0]) * (px - x[0]);
+                    const float b = (x[2] - x[1]) * (py - y[1]) - (y[2] - y[1]) * (px - x[1]);
+                    const float c = (x[0] - x[2]) * (py - y[2]) - (y[0] - y[2]) * (px - x[2]);
+                    if ((a >= 0.0f && b >= 0.0f && c >= 0.0f) || (a <= 0.0f && b <= 0.0f && c <= 0.0f)) covered |= 1u << i;
+                }
+            }
+        }
+        int count = 0;
+        for (unsigned i = 0; i < 9u; ++i) count += (covered >> i) & 1u;
+        const bool under_rock = count >= 8;
+        shadow_cave_votes_ = under_rock == shadow_in_cave_ ? 0 : shadow_cave_votes_ + 1;
+        if (shadow_cave_votes_ >= 3) {
+            shadow_in_cave_ = under_rock;
+            shadow_cave_votes_ = 0;
+            std::fprintf(stderr, "[shadow] %s a cave (%d of 9 points under rock): whole map shadows %s\n", under_rock ? "in" : "out of", count, under_rock ? "off" : "on");
+        }
+    }
+    if (shadow_in_cave_) whole_map = false;
     shadow_ranges_.clear();
     const auto triangle_casts = [&](const float *t) {
         float e[3][3], longest = 0.0f;
@@ -2281,7 +2364,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             const ShadowGroup &g = shadow_groups_[d.group];
             if (g.skinned || casts(g)) {
                 shadow_ranges_.push_back({i, d.first, d.count});
-            } else if (!backdrop(g) && !d.translucent && !shell(d) && near_enough(d)) {
+            } else if (!backdrop(g) && !air(d) && !shell(d) && near_enough(d)) {
                 const std::uint32_t start = static_cast<std::uint32_t>(shadow_vertices_.size() / 5u);
                 for (std::uint32_t v = 0; v + 3u <= d.count; v += 3u) {
                     const std::size_t at = (static_cast<std::size_t>(d.first) + v) * 5u;
@@ -2334,7 +2417,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         };
         const auto solid = [&](const ShadowDraw &d) {
             const ShadowGroup &g = shadow_groups_[d.group];
-            return d.count != 0 && d.target == rt.address && !d.cutout && !d.translucent && !g.skinned && !backdrop(g) && !shell(d);
+            return d.count != 0 && d.target == rt.address && !d.cutout && !air(d) && !g.skinned && !backdrop(g) && !shell(d);
         };
         for (const ShadowDraw &d : shadow_draws_) {
             if (!solid(d)) continue;
@@ -2408,7 +2491,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         for (const ShadowDraw &d : shadow_draws_) {
             if (d.target != rt.address) continue;
             (d.cutout ? cutout_triangles : d.blended ? blended_triangles : solid_triangles) += d.count / 3u;
-            if (d.translucent) translucent_triangles += d.count / 3u;
+            if (air(d)) translucent_triangles += d.count / 3u;
         }
         std::fprintf(stderr, "[shadow] triangles: %zu solid, %zu blended (%zu of them air), %zu cut-out; %u draws without depth left out; %zu shaded for facing away; map centred on %s\n",
                      solid_triangles, blended_triangles, translucent_triangles, cutout_triangles, shadow_skipped_, shadow_facing_.size() / 15u, hunter != nullptr ? "the hunter" : "the camera");
@@ -2511,7 +2594,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             if (d.count == 0 || d.target != rt.address) continue;
             const ShadowGroup &g = shadow_groups_[d.group];
             // Why it is left out: taken for air, for a backdrop, for a shell around the camera, or anything else.
-            if (d.translucent) gl_.Uniform4f(l_color, 1.0f, 0.1f, 1.0f, 0.5f);
+            if (air(d)) gl_.Uniform4f(l_color, 1.0f, 0.1f, 1.0f, 0.5f);
             else if (backdrop(g)) gl_.Uniform4f(l_color, 0.1f, 1.0f, 1.0f, 0.5f);
             else if (shell(d)) gl_.Uniform4f(l_color, 1.0f, 1.0f, 1.0f, 0.5f);
             else gl_.Uniform4f(l_color, 1.0f, 0.1f, 0.1f, 0.25f);
