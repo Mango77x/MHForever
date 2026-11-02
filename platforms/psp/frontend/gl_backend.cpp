@@ -1927,6 +1927,7 @@ void GlBackend::finish_hud_flip() {
             std::fprintf(stderr, "[hud]   (%.0f,%.0f)-(%.0f,%.0f) %s\n", b.x1, b.y1, b.x2, b.y2, hud_flip_kinds_[i]);
         }
     }
+    live_->quest_hud.store(!hud_vitals_.empty(), std::memory_order_relaxed);
     hud_flip_boxes_.clear();
     hud_flip_kinds_.clear();
     hud_corner_seen_ = false;
