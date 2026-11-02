@@ -25,5 +25,7 @@ export function lastPlayed(unix: number | null): string {
 }
 
 export const frameRates = [30, 60, 90, 120, 150, 180];
+// HUD size in percent, as the in-game menu offers it (platforms/psp/frontend/psp_frontend.cpp, kHudSizes).
+export const hudSizes = [100, 90, 80, 70, 60, 50];
 // Internal resolutions: whole multiples of the PSP's 480 × 272 (1× to 10×), so 2D art and text stay sharp.
 export const resolutions = Array.from({ length: 10 }, (_, i) => `${480 * (i + 1)} × ${272 * (i + 1)}`);

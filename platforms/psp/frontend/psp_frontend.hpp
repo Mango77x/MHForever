@@ -44,6 +44,9 @@ public:
     // A texture pack (frontend/texture_pack.hpp): its folder, and the release being played ("ULES01213"), which
     // chooses the pack's ini. Before attach(). The Video tab of the in-game menu then turns it on and off.
     void set_texture_pack(const std::string &folder, const std::string &game_id);
+    // The quest HUD's size in percent, 50..100 (gl_backend.hpp, LiveSettings). The Video tab of the in-game menu
+    // changes it while playing.
+    void set_hud(int size);
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
     void attach(Runtime &rt, std::function<void()> extra = {});

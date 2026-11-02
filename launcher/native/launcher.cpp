@@ -121,6 +121,7 @@ Json default_settings() {
     s["fullscreen"] = false;
     s["smoothTextures"] = false;
     s["fps"] = 30; // output rate: the game's own 30, or a multiple of it up to 180 (in-between pictures)
+    s["hudSize"] = 100; // the quest HUD's size in percent, 50..100 in steps of 10
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
     s["checkUpdates"] = true; // ask GitHub for a newer release when the launcher starts
     s["musicVolume"] = 100;
@@ -894,6 +895,9 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     }
     num("musicVolume", 0, 100);
     num("sfxVolume", 0, 100);
+    if (partial["hudSize"].is_number()) { // the in-game menu's steps: 50, 60, ... 100
+        s["hudSize"] = std::clamp(std::round(partial["hudSize"].as_number() / 10.0), 5.0, 10.0) * 10.0;
+    }
     for (const char *key : {"fullscreen", "smoothTextures"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
@@ -1205,6 +1209,10 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
                  data_["pseudonym"].as_string(), "--music-volume", num("musicVolume"), "--sfx-volume", num("sfxVolume")};
     if (s["fullscreen"].as_bool()) plan.args.push_back("--fullscreen");
     if (s["smoothTextures"].as_bool()) plan.args.push_back("--smooth-textures");
+    if (s["hudSize"].is_number() && s["hudSize"].as_number() < 100) {
+        plan.args.push_back("--hud-size");
+        plan.args.push_back(num("hudSize"));
+    }
     if (s["texturePackEnabled"].is_bool() && s["texturePackEnabled"].as_bool() && s["texturePack"].is_string()) {
         // This copy's pack, used only while its folder is still there (a pack used where it is may have moved).
         std::error_code pack_ec;

@@ -185,6 +185,16 @@ int main(int argc, char **argv) {
         Json back;
         back["fps"] = 90;
         l.set_settings(back);
+        // HUD size: the in-game menu's steps of 10, from 50 to 100.
+        CHECK(l.state()["settings"]["hudSize"].as_number() == 100);
+        Json hud;
+        hud["hudSize"] = 73;
+        l.set_settings(hud);
+        CHECK(l.state()["settings"]["hudSize"].as_number() == 70);
+        Json tiny;
+        tiny["hudSize"] = 10;
+        l.set_settings(tiny);
+        CHECK(l.state()["settings"]["hudSize"].as_number() == 50);
         CHECK(s["pseudonym"].as_string() == "RathalosSlayer");
 
         // Keyboard bindings: defaults, a change, a button left without a key, and input the launcher ignores.

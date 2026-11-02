@@ -429,6 +429,21 @@ its folder (`--texture-pack`, or `MHF_TEXTURE_PACK`).
   image is never written over).
 - Not supported: zipped packs (unzip them), DDS and ZIM images, and `[indexed]` (palette-index images).
 
+### HUD scale (`frontend/gl_backend.cpp`, `size_hud`)
+
+The player can shrink the hunting HUD (`--hud-size 50..100`, the in-game menu's Video tab). The renderer recognizes it
+by the order the game draws it, every flip on its own: the clock in the top left corner first, then the health and
+stamina bars, the sharpness and the name plate; then whatever lies in the minimap's square in the top right (only the
+visited areas until the map is taken from the supply box); then the item bar in the bottom right. Each part shrinks
+toward its corner: its vertices and its scissor are scaled about that corner, its texture is filtered so the art does
+not shimmer, and clamped when the draw stays inside it (a repeating texture keeps repeating). Everything else (menus,
+the village, the start screens) is drawn as the game draws it. `MHF_HUD_LOG=1` describes the 2D draws of every 300th
+flip, and any flip with something in the clock's corner where no HUD was found.
+
+Scaling the menus too was tried and dropped: the game hands over loose 2D draws only, nothing says which belong to one
+panel or which corner a panel hangs from, and every rule that guessed it from positions pulled some menu apart or made
+screens change size back and forth. Doing it well needs the game's own layout code (where each element is anchored).
+
 ## 7. Debugging
 
 - Overlay (ImGui, F4 like ACX) showing: FPS, threads, recent HLE calls, unimplemented NIDs, fallback-interpreter counters, active

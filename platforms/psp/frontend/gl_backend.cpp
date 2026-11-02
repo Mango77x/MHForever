@@ -381,6 +381,8 @@ struct DrawSetup {
     float tex_width{1}, tex_height{1};
     std::uint32_t target{}; // VRAM offset of the render target
     bool self_sampled{};    // the texture is a copy of the target being drawn: it cannot be replayed later
+    float hud[3]{1, 0, 0};  // HUD size: the scale of a 2D draw and the point it shrinks toward (its scissor follows)
+    bool hud_clamp{};       // and its texture coordinates stay inside the texture (no repeating pattern)
 };
 
 // The camera a vertex was placed with: view and projection matrices, viewport and screen offset.
@@ -513,6 +515,8 @@ public:
           overlay_(overlay), factor_(std::clamp(factor, 1, 6)), interpolate_(factor > 1) {
         if (live == nullptr) own_live_.smooth_textures = smooth_textures;
         open_texture_pack();
+        const char *hud_log = std::getenv("MHF_HUD_LOG");
+        hud_log_ = hud_log != nullptr && hud_log[0] == '1';
     }
 
     ~GlBackend() override {
@@ -734,6 +738,11 @@ private:
     void render_between(const RenderTarget &shown, const std::vector<TapeEntry> &now,
                         const std::vector<TapeEntry> &before, const Slot &before_slot, float t);
     void draw_batch();
+    void size_hud();
+    void finish_hud_flip();
+    [[nodiscard]] bool shown_target(std::uint32_t address) const {
+        return std::find(shown_targets_.begin(), shown_targets_.end(), address) != shown_targets_.end();
+    }
     void read_back();
     RenderTarget &target_for(std::uint32_t address, std::uint32_t stride, std::uint32_t format,
                              std::uint32_t needed_height);
@@ -974,6 +983,25 @@ private:
     std::vector<GpuVertex> batch_;
     std::vector<Origin> batch_origins_; // frame interpolation: one per vertex of batch_
     std::uint64_t frame_{1};
+
+    // HUD size (LiveSettings::hud_size). Each 2D draw of a shown screen is placed as it comes, from this flip's draws
+    // only (see size_hud): the quest HUD is the run the game draws from its clock, so nothing carries over from one flip
+    // to the next and nothing jumps when a menu opens. MHF_HUD_LOG=1 describes the 2D draws of every 300th flip.
+    struct HudBox {
+        float x1, y1, x2, y2;
+    };
+    enum class HudPhase { before, vitals, after_vitals, map, items, rest };
+    HudPhase hud_phase_ = HudPhase::before;                  // where this flip's 2D draws are in the HUD's run
+    std::vector<HudBox> hud_vitals_;                         // this flip's clock, bars and name plate
+    bool hud_after_name_ = false;
+    std::vector<HudBox> hud_flip_boxes_;                     // MHF_HUD_LOG: this flip's 2D draws and where they went
+    std::vector<const char *> hud_flip_kinds_;
+    bool hud_corner_seen_ = false;
+    std::uint64_t hud_missed_logged_ = 0;
+    std::array<std::uint32_t, 4> shown_targets_{~0u, ~0u, ~0u, ~0u}; // the screens presented lately
+    std::size_t shown_next_ = 0;
+    bool hud_log_ = false, hud_log_flip_ = false;
+    std::size_t hud_drawn_ = 0, hud_3d_after_ = 0; // in the logged flip: 2D draws sized, 3D draws on a screen after them
 };
 
 bool GlBackend::init() {
@@ -1582,8 +1610,13 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
         gl_.BindTexture(GL_TEXTURE_2D, setup.texture);
         // Enhancement (off by default): bilinear filtering for 3D textures; 2D (through-mode) art stays as drawn.
         bool linear = (R(kTexFilter) & 0x100u) != 0 || (live_->smooth_textures.load(std::memory_order_relaxed) && !through);
+        // 2D art drawn smaller than its pixels would shimmer if left nearest; filtered, a texture set to repeat would
+        // also blend in its opposite edge (a faint frame around the minimap), so a sized draw that stays inside its
+        // texture clamps. One that repeats it (the dotted line under a menu's title) has to keep repeating.
+        if (setup.hud[0] < 1.0f) linear = true;
         if (setup.texture_filter != 0) linear = setup.texture_filter == 2; // a texture pack's [filtering]
-        set_texture_params(linear, (R(kTexWrap) & 1u) != 0, (R(kTexWrap) & 0x100u) != 0, setup.texture_mips);
+        const bool clamp = setup.hud[0] < 1.0f && setup.hud_clamp;
+        set_texture_params(linear, clamp || (R(kTexWrap) & 1u) != 0, clamp || (R(kTexWrap) & 0x100u) != 0, setup.texture_mips);
     }
 
     gl_.BindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
@@ -1592,6 +1625,13 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
     const std::uint32_t x2 = std::min(sx2, rt.width - 1u), y2 = std::min(sy2, rt.height - 1u);
     if (sx1 > x2 || sy1 > y2) {
         gl_.Scissor(0, 0, 0, 0);
+    } else if (setup.hud[0] != 1.0f) { // a sized 2D draw: its scissor shrinks with it, toward the same point
+        const auto at = [&](float p, float anchor) {
+            return static_cast<GLint>(std::lround((anchor + (p - anchor) * setup.hud[0]) * static_cast<float>(scale_)));
+        };
+        const GLint left = at(static_cast<float>(sx1), setup.hud[1]), top = at(static_cast<float>(sy1), setup.hud[2]);
+        const GLint right = at(static_cast<float>(x2 + 1u), setup.hud[1]), bottom = at(static_cast<float>(y2 + 1u), setup.hud[2]);
+        gl_.Scissor(left, top, std::max(0, right - left), std::max(0, bottom - top));
     } else {
         gl_.Scissor(static_cast<GLint>(sx1) * scale_, static_cast<GLint>(sy1) * scale_,
                     static_cast<GLsizei>(x2 - sx1 + 1u) * scale_, static_cast<GLsizei>(y2 - sy1 + 1u) * scale_);
@@ -1720,6 +1760,11 @@ void GlBackend::read_back() {
 
 void GlBackend::draw_batch() {
     if (batch_.empty() && raw_batch_.empty()) return;
+    if (setup_.through && !batch_.empty()) {
+        size_hud();
+    } else if (hud_log_flip_ && hud_drawn_ != 0 && !batch_.empty() && shown_target(setup_.target)) {
+        ++hud_3d_after_;
+    }
     if (interpolate_) {
         if (tape_.size() >= 20000) { // a game that never flips: do not keep everything
             tape_.clear();
@@ -1733,6 +1778,161 @@ void GlBackend::draw_batch() {
     batch_origins_.clear();
     raw_batch_.clear();
     raw_complete_ = true;
+}
+
+// HUD size: only the quest HUD is sized. It is a run the game draws before anything else on the screen, in this order:
+// its clock with the health and stamina bars, the sharpness and the name plate; then the minimap; then the item bar.
+// Each piece of that run shrinks into its corner; everything else (menus, the village, the start screens) keeps its
+// size. A quest is a flip that draws the clock, so the village never is. Nothing carries over from one flip to the
+// next, so nothing jumps when a menu opens.
+// Sizing the menus too was tried and dropped: the game only hands over loose 2D draws, nothing says which belong to
+// one panel or which corner it hangs from, and every rule that guessed it from positions pulled some menu apart or
+// made screens change size back and forth. Doing it well needs the game's own layout code (where each element is
+// anchored), not guesses from the outside.
+constexpr float kHudClock[4] = {8.0f, 8.0f, 60.0f, 56.0f}; // the clock's box (measured, EU, US and JP alike)
+// Where the clock's pieces lie (measured): the clock, the bars (however long) and the sharpness above y 40, then the
+// name plate at x <= 104 from y 56, which comes last. A menu's header starts at y 40, right under the sharpness, and
+// the supply box's top edge touches the stamina bar: neither is part of the run.
+template <typename Box> bool hud_name_plate(const Box &b) { return b.x2 <= 105.0f && b.y1 >= 54.0f && b.y2 <= 73.0f; }
+template <typename Box> bool hud_vitals_piece(const Box &b, bool after_name) {
+    return hud_name_plate(b) || (!after_name && b.y2 <= 41.0f);
+}
+template <typename Box> bool hud_touch(const Box &a, const Box &b) {
+    return a.x1 <= b.x2 + 1 && b.x1 <= a.x2 + 1 && a.y1 <= b.y2 + 1 && b.y1 <= a.y2 + 1;
+}
+// The clock may come alone or in one batch with the pieces drawn next to it (draws with the same state are drawn
+// together): a batch that starts at the clock's corner, covers the clock and stays within the bars' rows.
+template <typename Box> bool hud_is_clock(const Box &b) {
+    return std::fabs(b.x1 - kHudClock[0]) < 1.5f && std::fabs(b.y1 - kHudClock[1]) < 1.5f && b.x2 >= kHudClock[2] - 1.5f &&
+           b.y2 >= kHudClock[3] - 1.5f && b.y2 <= 73.0f;
+}
+// Something in the clock's corner (for the log: a flip with it and no HUD found is described in full).
+template <typename Box> bool hud_in_clock_corner(const Box &b) { return b.x1 < 16.0f && b.y1 < 16.0f && b.y2 <= 80.0f; }
+// The minimap fills a square in the top right corner (measured: 316,32 to 468,184). Until the player takes the map
+// from the supply box it is drawn as the visited areas only, small pieces inside that square, so any piece inside it
+// counts; the smallest is a 12x12 mark, so a thinner piece there is a menu's (a header's 8-high edge). The item bar
+// sits in the bottom right.
+template <typename Box> bool hud_on_map(const Box &b) {
+    return b.x1 >= 314.0f && b.y1 >= 30.0f && b.x2 <= 470.0f && b.y2 <= 186.0f && b.x2 - b.x1 >= 10.0f && b.y2 - b.y1 >= 10.0f;
+}
+template <typename Box> bool hud_item_piece(const Box &b) { return b.x1 >= 300.0f && b.y1 >= 196.0f; }
+
+// HUD size for the 2D batch about to be drawn: places it (see above), then sizes its vertices and its scissor.
+void GlBackend::size_hud() {
+    const bool was_sized = setup_.hud[0] != 1.0f; // the state of a previous batch with the same registers
+    setup_.hud[0] = 1.0f;
+    HudBox box{1e9f, 1e9f, -1e9f, -1e9f};
+    for (const GpuVertex &v : batch_) {
+        box.x1 = std::min(box.x1, v.x);
+        box.y1 = std::min(box.y1, v.y);
+        box.x2 = std::max(box.x2, v.x);
+        box.y2 = std::max(box.y2, v.y);
+    }
+    const char *skip = nullptr;
+    if ((key_reg(setup_.key, kClearMode) & 1u) != 0) skip = "clear";
+    else if (setup_.self_sampled) skip = "copy of its own target";
+    else if (!shown_target(setup_.target)) skip = "not on a shown screen";
+    else if (box.x2 - box.x1 >= 448.0f && box.y2 - box.y1 >= 256.0f) {
+        skip = "whole screen";
+    }
+    const char *what = "";
+    bool sized = false;
+    float ax = 0.0f, ay = 0.0f;
+    if (skip == nullptr) {
+        ++hud_drawn_;
+        // Where this draw is in the HUD's run.
+        const auto touches_vitals = [&] {
+            return std::any_of(hud_vitals_.begin(), hud_vitals_.end(), [&](const HudBox &v) { return hud_touch(v, box); });
+        };
+        if (hud_phase_ == HudPhase::before && hud_is_clock(box)) {
+            hud_phase_ = HudPhase::vitals;
+            hud_vitals_.assign(1, box);
+            hud_after_name_ = false;
+        } else if (hud_phase_ == HudPhase::vitals && hud_vitals_piece(box, hud_after_name_) && touches_vitals()) {
+            hud_vitals_.push_back(box);
+            hud_after_name_ = hud_after_name_ || hud_name_plate(box);
+        } else if (hud_phase_ != HudPhase::before && hud_phase_ != HudPhase::rest) {
+            if (hud_phase_ == HudPhase::vitals) hud_phase_ = HudPhase::after_vitals;
+            if ((hud_phase_ == HudPhase::after_vitals || hud_phase_ == HudPhase::map) && hud_on_map(box)) {
+                hud_phase_ = HudPhase::map;
+            } else if (hud_phase_ != HudPhase::rest && hud_item_piece(box)) {
+                hud_phase_ = HudPhase::items;
+            } else {
+                hud_phase_ = HudPhase::rest;
+            }
+        }
+        const HudPhase phase = hud_phase_;
+        if (phase == HudPhase::vitals) {
+            what = "health";
+            sized = true;
+            ax = 0.0f;
+            ay = 0.0f;
+        } else if (phase == HudPhase::map) {
+            what = "minimap";
+            sized = true;
+            ax = 480.0f;
+            ay = 0.0f;
+        } else if (phase == HudPhase::items) {
+            what = "items";
+            sized = true;
+            ax = 480.0f;
+            ay = 272.0f;
+        } else {
+            what = "kept";
+        }
+    }
+    if (hud_log_ && skip == nullptr) {
+        hud_flip_boxes_.push_back(box);
+        hud_flip_kinds_.push_back(what);
+        hud_corner_seen_ = hud_corner_seen_ || hud_in_clock_corner(box);
+    }
+    if (hud_log_flip_) {
+        std::fprintf(stderr, "[hud] 2D target=%06X tex=%s %gx%g verts=%zu box=(%.0f,%.0f)-(%.0f,%.0f) scissor=%u,%u-%u,%u blend=%u ",
+                     static_cast<unsigned>(setup_.target), setup_.texture != 0 ? "yes" : "no", setup_.tex_width, setup_.tex_height, batch_.size(),
+                     box.x1, box.y1, box.x2, box.y2, key_reg(setup_.key, kScissor1) & 0x3FFu,
+                     (key_reg(setup_.key, kScissor1) >> 10u) & 0x3FFu, key_reg(setup_.key, kScissor2) & 0x3FFu,
+                     (key_reg(setup_.key, kScissor2) >> 10u) & 0x3FFu, key_reg(setup_.key, kAlphaBlendEnable) & 1u);
+        if (skip != nullptr) std::fprintf(stderr, "skip: %s\n", skip);
+        else std::fprintf(stderr, "%s\n", what);
+    }
+    const int size = live_->hud_size.load(std::memory_order_relaxed);
+    if (skip == nullptr && sized && size > 0 && size < 100) {
+        const float s = static_cast<float>(size) / 100.0f;
+        bool inside = true; // texture coordinates (through mode: 0..1 across the texture)
+        for (GpuVertex &v : batch_) {
+            v.x = ax + (v.x - ax) * s;
+            v.y = ay + (v.y - ay) * s;
+            inside = inside && v.u >= -1e-3f && v.u <= 1.001f && v.v >= -1e-3f && v.v <= 1.001f;
+        }
+        setup_.hud[0] = s;
+        setup_.hud[1] = ax;
+        setup_.hud[2] = ay;
+        setup_.hud_clamp = inside;
+    }
+    if (current_ != nullptr && (was_sized || setup_.hud[0] != 1.0f)) emit_state(setup_, *current_);
+}
+
+// At the flip: the next flip's 2D draws start the HUD's run again.
+void GlBackend::finish_hud_flip() {
+    if (hud_log_flip_) {
+        std::fprintf(stderr, "[hud] flip %llu: %zu 2D draws on screen, %zu 3D draws on screen after the first of them%s\n",
+                     static_cast<unsigned long long>(frame_), hud_drawn_, hud_3d_after_, hud_vitals_.empty() ? "" : ", in a quest");
+    }
+    // A flip with something in the clock's corner but no HUD found: described in full (at most once a second).
+    if (hud_log_ && hud_corner_seen_ && hud_vitals_.empty() && frame_ >= hud_missed_logged_ + 30) {
+        hud_missed_logged_ = frame_;
+        std::fprintf(stderr, "[hud] flip %llu: no HUD found, %zu 2D draws:\n", static_cast<unsigned long long>(frame_), hud_flip_boxes_.size());
+        for (std::size_t i = 0; i < hud_flip_boxes_.size(); ++i) {
+            const HudBox &b = hud_flip_boxes_[i];
+            std::fprintf(stderr, "[hud]   (%.0f,%.0f)-(%.0f,%.0f) %s\n", b.x1, b.y1, b.x2, b.y2, hud_flip_kinds_[i]);
+        }
+    }
+    hud_flip_boxes_.clear();
+    hud_flip_kinds_.clear();
+    hud_corner_seen_ = false;
+    hud_phase_ = HudPhase::before;
+    hud_vitals_.clear();
+    hud_drawn_ = hud_3d_after_ = 0;
 }
 
 void GlBackend::draw_vertices(const std::vector<GpuVertex> &vertices) {
@@ -1875,6 +2075,10 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
     // made this screen (movies, loading screens), so show guest memory.
     if (it != targets_.end() && it->second.last_draw + 1 >= frame_) {
         drawn = &it->second;
+        if (!shown_target(offset)) { // the HUD is sized on the screens the game shows (two or three, in turn)
+            shown_targets_[shown_next_] = offset;
+            shown_next_ = (shown_next_ + 1) % shown_targets_.size();
+        }
         texture = it->second.color;
         uv_max[0] = 480.0f / static_cast<float>(it->second.width);
         uv_max[1] = 272.0f / static_cast<float>(it->second.height);
@@ -2044,7 +2248,9 @@ void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
 }
 
 void GlBackend::finish_flip() {
+    finish_hud_flip();
     ++frame_;
+    hud_log_flip_ = hud_log_ && frame_ % 300 == 0;
     tape_.clear();
     touched_.clear();
     cameras_.clear();

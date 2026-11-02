@@ -4,7 +4,7 @@ import { api, regionTag, selectedGame, type SaveImportResult, type SaveScan, typ
 import { CopyIcon } from './icons';
 import { OnlineSettings } from './OnlineSettings';
 import { TexturePackSection } from './TexturePack';
-import { frameRates, resolutions } from './format';
+import { frameRates, hudSizes, resolutions } from './format';
 import { setNavigationPaused } from './gamepad';
 import { keyGroups, keyLabel, reservedKeys } from './keys';
 import { anySourcePressed, assignSource, padGroups, padLabel, pressedSource, stickChoices } from './pad';
@@ -482,6 +482,18 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
         <div className="srow">
           <div className="slabel"><b>Smooth texture filtering</b><span>Optional enhancement: softens pixelated textures. Off is faithful to the original.</span></div>
           <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
+        </div>
+        <div className="srow">
+          <div className="slabel">
+            <b>HUD scale</b>
+            <span>{(s.hudSize ?? 100) === 100 ? 'Original size.' : `${s.hudSize}% of the original size in quests: the health bar, the minimap and the items, each in its corner.`}</span>
+          </div>
+          <div className="seg wide" role="radiogroup" aria-label="HUD scale" style={{ '--n': hudSizes.length } as CSSProperties}>
+            <span className="pill" style={{ transform: `translateX(${Math.max(0, hudSizes.indexOf(s.hudSize ?? 100)) * 100}%)` }} />
+            {hudSizes.map((n) => (
+              <button key={n} className={(s.hudSize ?? 100) === n ? 'on' : ''} role="radio" aria-checked={(s.hudSize ?? 100) === n} onClick={() => onChange({ hudSize: n })}>{n}%</button>
+            ))}
+          </div>
         </div>
       </motion.div>
       <motion.div className="glass section" {...rise(0.07)}>
