@@ -28,6 +28,7 @@
 
 #if defined(MHF_HAS_FRONTEND)
 #include "psp_frontend.hpp"
+#include "shadow_textures.hpp"
 #endif
 #include <cstdlib>
 #include <cstring>
@@ -292,6 +293,11 @@ int main(int argc, char **argv) {
             frontend.set_controls_file(controls_file);
             frontend.set_friends_files(friends_file, friend_actions_file);
             if (!texture_pack.empty()) frontend.set_texture_pack(texture_pack, disc_product_code(options.disc_image));
+            frontend.set_shadow_textures({std::begin(kShadowAirTextures), std::end(kShadowAirTextures)},
+                                         {std::begin(kShadowSolidTextures), std::end(kShadowSolidTextures)},
+                                         {}); // caves go by the zones below
+            frontend.set_shadow_cave_zones({std::begin(kShadowCaveZones), std::end(kShadowCaveZones)});
+            frontend.set_shadow_zones({std::begin(kShadowZoneNames), std::end(kShadowZoneNames)}, shadow_zone_textures());
             frontend.attach(runtime, extra);
         } else if (window) {
             // A player asked for a window: never keep running invisibly.

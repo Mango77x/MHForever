@@ -255,6 +255,19 @@ void Frontend::set_texture_pack(const std::string &folder, const std::string &ga
     impl_->live.texture_pack_game = game_id;
 }
 
+void Frontend::set_shadow_textures(std::vector<std::uint64_t> air, std::vector<std::uint64_t> solid, std::vector<std::uint64_t> cave) {
+    impl_->live.shadow_air_textures = std::move(air);
+    impl_->live.shadow_solid_textures = std::move(solid);
+    impl_->live.shadow_cave_textures = std::move(cave);
+}
+
+void Frontend::set_shadow_cave_zones(std::vector<std::string> zones) { impl_->live.shadow_cave_zones = std::move(zones); }
+
+void Frontend::set_shadow_zones(std::vector<std::string> names, std::vector<std::pair<std::uint32_t, int>> textures) {
+    impl_->live.shadow_zone_names = std::move(names);
+    impl_->live.shadow_zone_textures = std::move(textures);
+}
+
 void Frontend::set_friends_files(const std::string &friends, const std::string &actions) {
     impl_->friends_file = std::filesystem::path(friends);
     impl_->friend_actions_file = std::filesystem::path(actions);
@@ -447,7 +460,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing, kShadowPick
 };
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
 
@@ -752,6 +765,9 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         overlay::MenuItem only_facing = menu_item(Kind::Toggle, kShadowOnlyFacing, "Test: only side shade", impl.live.shadow_part == 2 ? 1 : 0);
         only_facing.detail = "For finding faults: leaves out the shadows that fall on things.";
         video.items.push_back(only_facing);
+        overlay::MenuItem pick = menu_item(Kind::Toggle, kShadowPick, "Test: identify centre", impl.live.shadow_pick ? 1 : 0);
+        pick.detail = "Paints what is under the red cross white and writes its texture to game.log.";
+        video.items.push_back(pick);
     }
     overlay::MenuTab controls{"Controls", {menu_item(Kind::Heading, 0, "Keyboard")}, "Click a key or a button, then press the new one."};
     for (std::size_t i = 0; i < host::kKeyActions.size(); ++i) {
@@ -1109,6 +1125,7 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         case kShadowMaxObject: impl.live.shadow_max_object = 30.0f * std::pow(1.05f, static_cast<float>(std::clamp(e.value, 0, 100))); break;
         case kShadowMaxPiece: impl.live.shadow_max_piece = e.value <= 0 ? 0.0f : 30.0f * std::pow(1.05f, static_cast<float>(std::min(e.value, 100))); break;
         case kShadowWholeMap: impl.live.shadow_whole_map = e.value != 0; break;
+        case kShadowPick: impl.live.shadow_pick = e.value != 0; break;
         case kShadowOnlyCast:
             impl.live.shadow_part = e.value != 0 ? 1 : 0;
             refresh_menu(impl);

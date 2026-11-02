@@ -8,7 +8,10 @@
 // host/keymap.hpp and host/padmap.hpp are not included here on purpose: the PSP runtime and the homebrew runners include this
 // header without the SDL host's include directories. The keyboard and controller bindings travel as templates instead.
 #include <functional>
+#include <cstdint>
 #include <memory>
+#include <utility>
+#include <vector>
 #include <string>
 
 namespace mhf::psp {
@@ -44,6 +47,10 @@ public:
     // A texture pack (frontend/texture_pack.hpp): its folder, and the release being played ("ULES01213"), which
     // chooses the pack's ini. Before attach(). The Video tab of the in-game menu then turns it on and off.
     void set_texture_pack(const std::string &folder, const std::string &game_id);
+    // What a game knows about its textures, for the projected shadows (LiveSettings). Before attach().
+    void set_shadow_textures(std::vector<std::uint64_t> air, std::vector<std::uint64_t> solid, std::vector<std::uint64_t> cave);
+    void set_shadow_cave_zones(std::vector<std::string> zones);
+    void set_shadow_zones(std::vector<std::string> names, std::vector<std::pair<std::uint32_t, int>> textures);
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
     void attach(Runtime &rt, std::function<void()> extra = {});

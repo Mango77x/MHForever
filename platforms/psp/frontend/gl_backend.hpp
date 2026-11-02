@@ -14,6 +14,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 struct SDL_Window;
@@ -55,9 +56,18 @@ struct LiveSettings {
     std::atomic<bool> shadow_whole_map{true};
     // For finding faults: 0 everything, 1 only the shadows that fall on things, 2 only the shade of sides turned from the sun.
     std::atomic<int> shadow_part{0};
+    // For identifying things: what is under the middle of the screen goes to the log, with its texture.
+    std::atomic<bool> shadow_pick{false};
+    // What the game knows about its own textures (Frontend::set_shadow_textures), set before the backend is made: air (mist,
+    // haze), solid (rock that looks like mist to the guesses), and the insides of caves, where only objects cast.
+    std::vector<std::uint64_t> shadow_air_textures, shadow_solid_textures, shadow_cave_textures;
+    // Where the game is: the zones of its maps ("areas/hunting/desert/area6"), the game's textures that only a zone uses (a hash
+    // of the game's own texture, as packs key them, and an index into the names), and the zones that are caves.
+    std::vector<std::string> shadow_zone_names, shadow_cave_zones;
+    std::vector<std::pair<std::uint32_t, int>> shadow_zone_textures;
     std::atomic<float> shadow_strength{0.5f};
-    std::atomic<float> shadow_max_object{1000.0f};
-    std::atomic<float> shadow_max_piece{400.0f};
+    std::atomic<float> shadow_max_object{39450.0f};
+    std::atomic<float> shadow_max_piece{39450.0f};
     std::atomic<bool> shadow_show{false};
 };
 

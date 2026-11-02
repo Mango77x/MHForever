@@ -34,6 +34,7 @@
 #include <cstring>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <string>
 #include <vector>
 
@@ -833,6 +834,10 @@ private:
         bool blended{};                          // layers over the ground, haze: no whole-map shadows from these
         bool translucent{};                      // blended with a texture that fades: clouds, haze, dust
         bool has_holes{};                        // its texture has some clear texels
+        std::uint64_t texture_hash{};            // which of the game's textures it uses (0: none)
+        int zone{-1};                            // the zone of its pack image
+        std::uint8_t listed{};                   // the game's list says what its texture is: 1 air, 2 solid, 3 inside of a cave
+        float holes{-1.0f}, alpha_low{255.0f}, alpha_high{0.0f}; // the texture's clear share; the vertices' alpha
         float low[3]{1e30f, 1e30f, 1e30f}, high[3]{-1e30f, -1e30f, -1e30f}; // its bounds in the object's frame
         [[nodiscard]] float size() const { return std::max({high[0] - low[0], high[1] - low[1], high[2] - low[2]}); }
         [[nodiscard]] float height() const { return high[1] - low[1]; }
@@ -890,6 +895,7 @@ private:
         std::uint64_t pending_generation{~0ull};
         std::uint16_t max_seen_v{}, keyed_max_v{};
         float holes{-1.0f}; // projected shadows: the share of texels clearly transparent (alpha < 128); < 0: not counted yet
+        int zone{-1};       // projected shadows: the part of a map its pack image belongs to, by its folder (-1: none)
     };
 
     void prepare(const gpu::Ge &ge) {
@@ -1218,6 +1224,14 @@ private:
     std::uint8_t tex_filter_ = 0;    // and its pack [filtering]
     float tex_holes_{-1.0f};         // the share of transparent texels of the texture texture_for() gave
     float shadow_texture_holes_{-1.0f}; // the same for the draw being captured
+    std::uint64_t tex_hash_{}, shadow_texture_hash_{}; // the game's texture, as the content hash the cache keys it by
+    std::uint64_t shadow_pick_logged_{};
+    int tex_zone_{-1}, shadow_texture_zone_{-1}; // the zone of the texture texture_for() gave; of the draw being captured
+    std::unordered_map<std::uint32_t, int> shadow_zone_by_texture_; // LiveSettings::shadow_zone_textures
+    std::unique_ptr<textures::Pack> shadow_zone_keys_;
+    std::vector<std::string> shadow_zone_names_;
+    int shadow_zone_{-1}, shadow_zone_next_{-1}, shadow_zone_votes_{}; // the zone the game is in, and the one that may follow it
+    std::vector<std::uint32_t> shadow_zone_triangles_;
     std::vector<GpuVertex> batch_;
     std::vector<Origin> batch_origins_; // frame interpolation: one per vertex of batch_
     // Projected shadows (LiveSettings says what the player can change). MHF_SHADOW_REACH, _BIAS, _DROP and _SOFT, read once,
@@ -1229,6 +1243,9 @@ private:
     std::vector<ShadowDraw> shadow_draws_;
     std::vector<float> shadow_vertices_; // eye x, y, z and u, v
     std::vector<ShadowRange> shadow_ranges_;
+    std::unordered_set<std::uint64_t> shadow_list_air_, shadow_list_solid_, shadow_list_cave_; // LiveSettings::shadow_*_textures
+    bool shadow_cave_textures_{};      // a texture of a cave is on the screen
+    bool shadow_sliders_in_cave_{};    // the size sliders were last set for a cave
     bool shadow_in_cave_{};            // rock overhead: only objects cast
     int shadow_cave_votes_{};
     std::uint32_t shadow_frame_count_{};
@@ -1262,6 +1279,11 @@ bool GlBackend::init() {
         live_->shadow_max_piece = number("MHF_SHADOW_MAX_PIECE", live_->shadow_max_piece.load());
         if (const char *whole = std::getenv("MHF_SHADOW_WHOLE_MAP"); whole != nullptr) live_->shadow_whole_map = whole[0] != '0';
         if (const char *show = std::getenv("MHF_SHADOW_SHOW"); show != nullptr && show[0] != '0') live_->shadow_show = true;
+        shadow_list_air_.insert(live_->shadow_air_textures.begin(), live_->shadow_air_textures.end());
+        shadow_list_solid_.insert(live_->shadow_solid_textures.begin(), live_->shadow_solid_textures.end());
+        shadow_list_cave_.insert(live_->shadow_cave_textures.begin(), live_->shadow_cave_textures.end());
+        shadow_zone_names_ = live_->shadow_zone_names;
+        for (const auto &[hash, zone] : live_->shadow_zone_textures) shadow_zone_by_texture_.emplace(hash, zone);
     }
     context_ = SDL_GL_CreateContext(window_);
     if (context_ == nullptr) {
@@ -1479,6 +1501,8 @@ void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, clamp_t ? GL_CLAMP_TO_EDGE : GL_REPEAT);
 }
 
+textures::TextureFacts texture_facts(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, std::uint16_t max_seen_v);
+
 GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
     tex_mips_ = false;
     tex_filter_ = 0;
@@ -1613,8 +1637,21 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
             for (const std::uint32_t px : pixels_) clear += (px >> 24u) < 128u ? 1u : 0u;
             t.holes = pixels_.empty() ? 0.0f : static_cast<float>(clear) / static_cast<float>(pixels_.size());
         }
+        // Which zone of which map it belongs to, by the game's own texture: no pack is needed for this.
+        t.zone = -1;
+        if (!shadow_zone_by_texture_.empty()) {
+            if (!shadow_zone_keys_) shadow_zone_keys_ = textures::Pack::keys_only();
+            textures::Key key;
+            std::uint32_t covered_w = info.width, covered_h = info.height;
+            const auto memory = [&ge](std::uint32_t address, std::uint32_t size) { return ge.guest_bytes(address, size); };
+            if (shadow_zone_keys_->key_of(texture_facts(ge, info, t.max_seen_v), memory, key, covered_w, covered_h)) {
+                if (const auto zone = shadow_zone_by_texture_.find(key.data); zone != shadow_zone_by_texture_.end()) t.zone = zone->second;
+            }
+        }
     }
     tex_holes_ = t.holes;
+    tex_hash_ = t.hash;
+    tex_zone_ = t.zone;
     return t.texture;
 }
 
@@ -1855,6 +1892,8 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
     tex_mips_ = false;
     tex_filter_ = 0;
     tex_holes_ = -1.0f;
+    tex_hash_ = 0;
+    tex_zone_ = -1;
     if (textured) {
         gl_.ActiveTexture(GL_TEXTURE0);
         setup.texture = texture_for(ge, setup.uv_xform);
@@ -1863,6 +1902,8 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
         setup.texture_filter = tex_filter_;
     }
     shadow_texture_holes_ = tex_holes_;
+    shadow_texture_hash_ = tex_hash_;
+    shadow_texture_zone_ = tex_zone_;
     setup.tex_width = tex_width_;
     setup.tex_height = tex_height_;
     setup_ = setup;
@@ -1968,6 +2009,12 @@ void GlBackend::shadow_capture(const gpu::Ge &ge, const gpu::Vertex &a, const gp
         // Much of the rock is blended too, with a few clear texels along its edges: only a texture that is mostly clear is air.
         d.translucent = d.blended && shadow_texture_holes_ >= 0.25f;
         d.has_holes = shadow_texture_holes_ >= min_holes;
+        d.texture_hash = shadow_texture_hash_;
+        d.zone = shadow_texture_zone_;
+        if (shadow_list_air_.count(d.texture_hash) != 0) d.listed = 1;
+        else if (shadow_list_solid_.count(d.texture_hash) != 0) d.listed = 2;
+        else if (shadow_list_cave_.count(d.texture_hash) != 0) d.listed = 3;
+        d.holes = shadow_texture_holes_;
         d.cutout = (d.func == 6 || d.func == 7) && d.ref >= 64 && (ge.reg(kAlphaBlendEnable) & 1u) != 0 &&
                    shadow_texture_holes_ >= min_holes;
         shadow_draws_.push_back(d);
@@ -2006,6 +2053,8 @@ void GlBackend::shadow_capture(const gpu::Ge &ge, const gpu::Vertex &a, const gp
             draw.high[k] = std::max(draw.high[k], along);
         }
         shadow_vertices_.insert(shadow_vertices_.end(), {eye[0], eye[1], eye[2], p->u, p->v});
+        draw.alpha_low = std::min(draw.alpha_low, p->a);
+        draw.alpha_high = std::max(draw.alpha_high, p->a);
         shadow_sources_.push_back(p->source);
         shadow_depths_.push_back(p->w > 0.0f ? (p->z / p->w * shadow_draw_vz_[0] + shadow_draw_vz_[1]) / 65535.0f : -1.0f);
     }
@@ -2082,8 +2131,9 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         shadow_pass_.valid = false;
         return;
     }
-    const float largest = live_->shadow_max_object.load(std::memory_order_relaxed);
-    const float largest_piece = live_->shadow_max_piece.load(std::memory_order_relaxed);
+    // The sliders go up to the whole map, but past this the scenery would pass for one object and skip every rule made for it.
+    const float largest = std::min(live_->shadow_max_object.load(std::memory_order_relaxed), 1000.0f);
+    const float largest_piece = std::min(live_->shadow_max_piece.load(std::memory_order_relaxed), 1000.0f);
     bool whole_map = live_->shadow_whole_map.load(std::memory_order_relaxed);
     const auto casts = [&](const ShadowGroup &g) { return g.skinned || g.size() <= largest; };
 
@@ -2201,6 +2251,8 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     // Mist and fog in the air: big flat cards, alone or in pairs of triangles that make quads. Blended rock can have just as few
     // triangles, but it is not flat. The count alone left half of the scenery out.
     const auto air = [&](const ShadowDraw &d) {
+        if (d.listed == 1) return true; // what the game's list says beats every guess below
+        if (d.listed >= 2) return false;
         if (d.translucent) return true;
         const std::uint32_t triangles = d.count / 3u;
         if (!d.blended || triangles == 0u || triangles > 24u || d.size() < 500.0f) return false;
@@ -2287,12 +2339,19 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         }
         return gap <= cast_limit * cast_limit;
     };
-    // Inside a cave the sun does not count: there is rock overhead all around the hunter, not just on one side as under an arch or
-    // next to a cliff. Only objects cast there. Looked at a few times a second, and it has to agree three times in a row.
+    // Inside a cave the sun does not count, and only objects cast. The game's list of textures says where that is. For a cave not
+    // on the list yet MHF_SHADOW_CAVES=1 looks for rock overhead all around the hunter, not just on one side as under an arch or
+    // next to a cliff: a few times a second, and it has to agree three times in a row.
     static const bool cave_check = [] {
         const char *e = std::getenv("MHF_SHADOW_CAVES");
-        return e == nullptr || e[0] != '0';
+        return e != nullptr && e[0] != '0';
     }();
+    bool cave_textures = false;
+    for (const ShadowDraw &d : shadow_draws_) cave_textures = cave_textures || (d.listed == 3 && d.count != 0 && d.target == rt.address);
+    if (cave_textures != shadow_cave_textures_) {
+        shadow_cave_textures_ = cave_textures;
+        std::fprintf(stderr, "[shadow] %s a cave, by its textures: whole map shadows %s\n", cave_textures ? "in" : "out of", cave_textures ? "off" : "on");
+    }
     if (cave_check && whole_map && hunter != nullptr && shadow_frame_count_++ % 10u == 0) {
         float side[3];
         cross(up_axis, right, side);
@@ -2342,7 +2401,44 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             std::fprintf(stderr, "[shadow] %s a cave (%d of 9 points under rock): whole map shadows %s\n", under_rock ? "in" : "out of", count, under_rock ? "off" : "on");
         }
     }
-    if (shadow_in_cave_) whole_map = false;
+    // Where the game is, from the texture pack: the zone most of the scenery's triangles belong to, once it has held for a while
+    // (the images all around the screen settle over a few pictures after a zone loads).
+    shadow_zone_triangles_.assign(shadow_zone_names_.size(), 0u);
+    for (const ShadowDraw &d : shadow_draws_) {
+        if (d.zone >= 0 && d.target == rt.address) shadow_zone_triangles_[static_cast<std::size_t>(d.zone)] += d.count / 3u;
+    }
+    // A map's "base" folder may also hold what its zones share, so it only counts when nothing of a numbered zone is on the screen.
+    int zone_now = -1;
+    for (int pass = 0; pass < 2 && zone_now < 0; ++pass) {
+        for (std::size_t i = 0; i < shadow_zone_triangles_.size(); ++i) {
+            const std::string &name = shadow_zone_names_[i];
+            const bool base = name.size() > 5u && name.compare(name.size() - 5u, 5u, "/base") == 0;
+            if (base != (pass == 1) || shadow_zone_triangles_[i] == 0u) continue;
+            if (zone_now < 0 || shadow_zone_triangles_[i] > shadow_zone_triangles_[static_cast<std::size_t>(zone_now)]) zone_now = static_cast<int>(i);
+        }
+    }
+    if (zone_now == shadow_zone_) {
+        shadow_zone_votes_ = 0;
+    } else if (zone_now >= 0) {
+        shadow_zone_votes_ = zone_now == shadow_zone_next_ ? shadow_zone_votes_ + 1 : 1;
+        shadow_zone_next_ = zone_now;
+        if (shadow_zone_votes_ >= 15) {
+            shadow_zone_ = zone_now;
+            shadow_zone_votes_ = 0;
+            std::fprintf(stderr, "[shadow] zone %s\n", shadow_zone_names_[static_cast<std::size_t>(zone_now)].c_str());
+        }
+    }
+    if (shadow_zone_ >= 0) {
+        const auto &caves = live_->shadow_cave_zones;
+        if (std::find(caves.begin(), caves.end(), shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)]) != caves.end()) cave_textures = true;
+    }
+    // The sliders follow: nothing but characters and monsters in a cave, everything out of one.
+    if (const bool in_cave = shadow_in_cave_ || cave_textures; in_cave != shadow_sliders_in_cave_) {
+        shadow_sliders_in_cave_ = in_cave;
+        live_->shadow_max_object = in_cave ? 30.0f : 39450.0f;
+        live_->shadow_max_piece = in_cave ? 0.0f : 39450.0f;
+    }
+    if (shadow_in_cave_ || cave_textures) whole_map = false;
     shadow_ranges_.clear();
     const auto triangle_casts = [&](const float *t) {
         float e[3][3], longest = 0.0f;
@@ -2609,6 +2705,93 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             gl_.DrawArrays(GL_TRIANGLES, static_cast<GLint>(r.first), static_cast<GLsizei>(r.count));
         }
         gl_.Disable(GL_BLEND);
+    }
+
+    // Identifying things: what is under the middle of the screen, nearest first, in the log, with the nearest painted white.
+    if (live_->shadow_pick.load(std::memory_order_relaxed)) {
+        struct Hit {
+            float distance;
+            std::uint32_t draw;
+        };
+        std::vector<Hit> hits;
+        const float cx = static_cast<float>(rt.width) * 0.5f, cy = 136.0f;
+        for (std::uint32_t i = 0; i < shadow_draws_.size(); ++i) {
+            const ShadowDraw &d = shadow_draws_[i];
+            if (d.count == 0 || d.target != rt.address) continue;
+            float nearest = 1e30f;
+            for (std::uint32_t v = 0; v + 3u <= d.count; v += 3u) {
+                const float *t = shadow_vertices_.data() + (static_cast<std::size_t>(d.first) + v) * 5u;
+                float x[3], y[3], z[3];
+                bool front = true;
+                for (int k = 0; k < 3; ++k) {
+                    const float *q = t + 5 * k;
+                    const float w = p.proj[3] * q[2] + p.proj[5];
+                    if (w <= 0.0f) front = false;
+                    else {
+                        x[k] = q[0] * p.proj[0] / w * p.vp[0] + p.vp[2];
+                        y[k] = q[1] * p.proj[1] / w * p.vp[1] + p.vp[3];
+                        z[k] = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
+                    }
+                }
+                if (!front) continue;
+                const float a = (x[1] - x[0]) * (cy - y[0]) - (y[1] - y[0]) * (cx - x[0]);
+                const float b = (x[2] - x[1]) * (cy - y[1]) - (y[2] - y[1]) * (cx - x[1]);
+                const float c = (x[0] - x[2]) * (cy - y[2]) - (y[0] - y[2]) * (cx - x[2]);
+                if ((a >= 0.0f && b >= 0.0f && c >= 0.0f) || (a <= 0.0f && b <= 0.0f && c <= 0.0f)) nearest = std::min({nearest, z[0], z[1], z[2]});
+            }
+            if (nearest < 1e29f) hits.push_back({nearest, i});
+        }
+        std::sort(hits.begin(), hits.end(), [](const Hit &x, const Hit &y) { return x.distance < y.distance; });
+        std::uint64_t signature = hits.size();
+        for (std::size_t i = 0; i < hits.size() && i < 6u; ++i) signature = signature * 1099511628211ull ^ shadow_draws_[hits[i].draw].texture_hash;
+        if (signature != shadow_pick_logged_) {
+            shadow_pick_logged_ = signature;
+            std::fprintf(stderr, "[shadow] centre of the screen: %zu things\n", hits.size());
+            for (std::size_t i = 0; i < hits.size() && i < 6u; ++i) {
+                const ShadowDraw &d = shadow_draws_[hits[i].draw];
+                const ShadowGroup &g = shadow_groups_[d.group];
+                bool in_map = false;
+                for (const ShadowRange &r : shadow_ranges_) in_map = in_map || r.draw == hits[i].draw;
+                std::fprintf(stderr, "[shadow]   #%zu texture %016llx distance %.0f, %u triangles, size %.0f, %s%s%s%s, clear %.0f%%, vertex alpha %.0f-%.0f, %s, %s\n", i + 1u,
+                             static_cast<unsigned long long>(d.texture_hash), hits[i].distance, d.count / 3u, d.size(), g.skinned ? "skinned " : "", d.cutout ? "cut-out " : "",
+                             d.blended ? "blended " : "solid ", air(d) ? "air" : backdrop(g) ? "backdrop" : shell(d) ? "shell" : "", d.holes * 100.0f, d.alpha_low, d.alpha_high,
+                             in_map ? "casts" : "does not cast", !d.cutout && !air(d) && !g.skinned && !backdrop(g) && !shell(d) ? "can shade" : "never shades");
+            }
+        }
+        const GLuint show = shadow_show_program_;
+        gl_.BindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
+        const GLsizei tw = static_cast<GLsizei>(rt.width) * scale_, th = static_cast<GLsizei>(rt.height) * scale_;
+        gl_.Viewport(0, 0, tw, th);
+        gl_.Disable(GL_DEPTH_TEST);
+        gl_.DepthMask(GL_FALSE);
+        gl_.Disable(GL_BLEND);
+        gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+        gl_.BindBuffer(GL_ARRAY_BUFFER, shadow_vbo_);
+        if (!hits.empty()) {
+            const ShadowDraw &d = shadow_draws_[hits[0].draw];
+            gl_.Enable(GL_BLEND);
+            gl_.BlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+            gl_.BlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+            gl_.UseProgram(show);
+            gl_.Uniform4f(uniform(show, "u_proj"), p.proj[0], p.proj[1], p.proj[2], p.proj[3]);
+            gl_.Uniform2f(uniform(show, "u_proj_z"), p.proj[4], p.proj[5]);
+            gl_.Uniform4f(uniform(show, "u_vp"), p.vp[0], p.vp[1], p.vp[2], p.vp[3]);
+            gl_.Uniform2f(uniform(show, "u_target"), static_cast<float>(rt.width), static_cast<float>(rt.height));
+            gl_.Uniform4f(uniform(show, "u_color"), 1.0f, 1.0f, 1.0f, 0.75f);
+            gl_.BindVertexArray(shadow_vao_);
+            gl_.DrawArrays(GL_TRIANGLES, static_cast<GLint>(d.first), static_cast<GLsizei>(d.count));
+            gl_.Disable(GL_BLEND);
+        }
+        // A cross at the point looked at.
+        gl_.Enable(GL_SCISSOR_TEST);
+        gl_.ClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+        const GLint mx = static_cast<GLint>(cx) * scale_, my = static_cast<GLint>(cy) * scale_, arm = 5 * scale_;
+        gl_.Scissor(mx - arm, my - 1, arm * 2, 2 + scale_ / 2);
+        gl_.Clear(GL_COLOR_BUFFER_BIT);
+        gl_.Scissor(mx - 1, my - arm, 2 + scale_ / 2, arm * 2);
+        gl_.Clear(GL_COLOR_BUFFER_BIT);
+        gl_.Disable(GL_SCISSOR_TEST);
+        gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     }
     gl_.BindVertexArray(empty_vao_);
 }
