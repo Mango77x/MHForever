@@ -3,7 +3,8 @@
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
-//             [--smooth-textures] [--fps 30..180] [--hud-size 50-100] [--music-volume 0-100] [--sfx-volume 0-100]
+//             [--smooth-textures] [--fps 30..180] [--hud-size 50-100] [--true-weapon-values]
+//             [--music-volume 0-100] [--sfx-volume 0-100]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
 //             [--controls-file <path>]
 //             [--adhoc-server host[:port]] [--adhoc-nick <name>] [--adhoc-mac AA:BB:CC:DD:EE:FF] [--adhoc-room CODE]
@@ -20,6 +21,11 @@
 #include "host/keymap.hpp"
 #include "host/padmap.hpp"
 
+#if !__has_include("mhfu_region_data.hpp")
+#error "mhfu_region_data.hpp is missing from MHF_MHFU_GENERATED: re-run games/mhfu/tools/prepare.py"
+#endif
+#include "mhfu_region_data.hpp" // generated from this release's regions/<disc>/symbols.toml [data]
+
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -32,6 +38,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -44,8 +51,49 @@ namespace {
 
 using mhf::psp::Context;
 using mhf::psp::Runtime;
+namespace region = mhf::psp::generated::mhfu_region_data;
 
 bool g_log_overlays = true;
+
+// The "0" the element value formats print after the value, for every language the game can load. The chosen language's
+// menu text is loaded at run time, each language at its own place, so only that language's entries hold the formats.
+constexpr std::optional<std::uint32_t> kElementValueFormatZeros[] = {
+    region::mh_element_value_format_zero_en, region::mh_dual_element_value_zero_en,
+    region::mh_element_value_format_zero_fr, region::mh_dual_element_value_zero_fr,
+    region::mh_element_value_format_zero_de, region::mh_dual_element_value_zero_de,
+    region::mh_element_value_format_zero_es, region::mh_dual_element_value_zero_es,
+    region::mh_element_value_format_zero_it, region::mh_dual_element_value_zero_it,
+};
+
+// --true-weapon-values needs every entry; a release that maps only some of them does not offer it.
+constexpr bool kTrueWeaponValuesMapped =
+    region::mh_attack_display_multipliers &&
+    std::ranges::all_of(kElementValueFormatZeros,
+                        [](const std::optional<std::uint32_t> &zero) { return zero.has_value(); });
+
+// True when the byte at `zero` is the "0" that ends a "%<digit>d0" format: the loaded language's text is there, not
+// another language's (and not one this function already cut short).
+bool is_value_format_zero(const psprecomp::GuestMemory &memory, std::uint32_t zero) {
+    const std::uint8_t width = memory.load8(zero - 2u);
+    return memory.load8(zero - 3u) == '%' && width >= '0' && width <= '9' && memory.load8(zero - 1u) == 'd' &&
+           memory.load8(zero) == '0';
+}
+
+// Menus show a weapon's attack multiplied by its class's display multiplier / 100, and print a "0" after element
+// values; damage uses the stored values. Writing 100 into every multiplier and ending the format text before that "0"
+// shows the stored values. Done on every host poll: the game loads the format text after start-up and again when the
+// player changes the language.
+void show_true_weapon_values([[maybe_unused]] Runtime &rt) {
+    if constexpr (kTrueWeaponValuesMapped) {
+        constexpr std::uint32_t kWeaponClasses = 11;
+        for (std::uint32_t i = 0; i < kWeaponClasses; ++i) {
+            rt.memory().store32(*region::mh_attack_display_multipliers + i * 4u, 100u);
+        }
+        for (const auto &zero : kElementValueFormatZeros) {
+            if (is_value_format_zero(rt.memory(), *zero)) rt.memory().store8(*zero, std::uint8_t{0});
+        }
+    }
+}
 
 // Scripted input for unattended runs: "12.5:cross,15:start" presses each button for 150 ms at that time;
 // "20:sup/3" holds the analog stick up (sup, sdown, sleft, sright) or a button for 3 seconds.
@@ -182,6 +230,7 @@ int main(int argc, char **argv) {
     bool smooth_textures = false;
     int target_fps = 30; // --fps N: 30 (the game's own rate) or a multiple of it up to 180
     int hud_size = 100; // --hud-size N: the quest HUD's size in percent (enhancement)
+    bool true_weapon_values = false; // --true-weapon-values: menus show attack and element without display multipliers
     mhf::host::KeyBindings keyboard; // --keymap: the launcher's keyboard bindings
     mhf::host::PadBindings controller; // --padmap: the launcher's controller bindings
     std::string controls_file;         // --controls-file: where the in-game menu writes the bindings the player changes
@@ -207,6 +256,7 @@ int main(int argc, char **argv) {
         else if (a == "--smooth-textures") smooth_textures = true; // enhancement, off by default
         else if (a == "--fps" && i + 1 < argc) target_fps = std::clamp(std::stoi(argv[++i]), 30, 180); // enhancement
         else if (a == "--hud-size" && i + 1 < argc) hud_size = std::clamp(std::stoi(argv[++i]), 50, 100); // enhancement
+        else if (a == "--true-weapon-values") true_weapon_values = true; // enhancement, off by default
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--sfx-volume" && i + 1 < argc) options.sfx_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--keymap" && i + 1 < argc) keyboard = mhf::host::parse_keymap(argv[++i]);
@@ -233,6 +283,12 @@ int main(int argc, char **argv) {
     if (options.disc_image.empty() || exe.empty()) {
         std::fprintf(stderr, "error: --iso and --exe are required\n");
         return 2;
+    }
+    if constexpr (!kTrueWeaponValuesMapped) {
+        if (true_weapon_values) {
+            std::fprintf(stderr, "[mhfu] --true-weapon-values: not mapped for this release, ignored\n");
+            true_weapon_values = false;
+        }
     }
     // In a window the player answers the system dialogs (messages, keyboard, save/load) on screen.
     options.interactive_dialogs = window && !auto_dialogs;
@@ -286,6 +342,13 @@ int main(int argc, char **argv) {
                 char name[32];
                 std::snprintf(name, sizeof name, "frame_%06u.png", ++frame);
                 mhf::psp::dump_display(*rt, dump_folder / name);
+            };
+        }
+        if (true_weapon_values) {
+            // Headless runs then always have a host poll, so the kernel no longer reports a deadlock (kernel.cpp).
+            extra = [rt = &runtime, previous = std::move(extra)]() {
+                show_true_weapon_values(*rt);
+                if (previous) previous();
             };
         }
 #if defined(MHF_HAS_FRONTEND)
