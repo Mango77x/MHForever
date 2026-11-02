@@ -96,6 +96,9 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   folder moves, the game is started without it). A switch turns it off and on; *Remove* forgets a pack used where it is
   and, after a confirmation, deletes MHForever's copy. The game gets `--texture-pack <folder>` and chooses the ini for its
   own release.
+- **HUD scale (2026-11-02)**: **Game settings → Video → HUD scale** (100% down to 50%, steps of 10; `hudSize` per copy,
+  passed as `--hud-size`) shrinks the hunting HUD into its corners; the in-game menu's Video tab has the same choice for the
+  session. Only the quest HUD is sized: scaling the menus was tried and dropped (`05-runtime-hle.md`, HUD scale).
 - **Updates (2026-10-29)**: when the launcher starts (Settings > About > Check for updates, on by default) it asks GitHub for
   the latest release; when it is newer, Home offers "Update now". The launcher downloads the archive for its system with the
   system's `curl`, checks it against the SHA-256 GitHub computes for every release asset (nothing to publish besides the
@@ -121,7 +124,7 @@ fullscreen, resizing, closing the game while it is up) is fragile on Windows and
 mode, where no second window can be shown.
 
 - Sections: **Game** (back to the game, quit with a confirmation), **Audio** (music, sound effects), **Video** (internal
-  resolution 1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures), **Controls**, and **Online** when a server
+  resolution 1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures, texture pack, HUD scale), **Controls**, and **Online** when a server
   is set. The keyboard and the controller still do everything: Q / E, Tab, PageUp / PageDown or the shoulder buttons
   change section; Left from a row (or before a choice's first option) goes to the sidebar, where Up/Down pick the section
   and Right goes back; arrows or the D-pad / stick move between rows and through a row's options and buttons, Enter or A

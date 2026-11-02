@@ -3,7 +3,7 @@
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
-//             [--smooth-textures] [--fps 30..180] [--music-volume 0-100] [--sfx-volume 0-100]
+//             [--smooth-textures] [--fps 30..180] [--hud-size 50-100] [--music-volume 0-100] [--sfx-volume 0-100]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
 //             [--controls-file <path>]
 //             [--adhoc-server host[:port]] [--adhoc-nick <name>] [--adhoc-mac AA:BB:CC:DD:EE:FF] [--adhoc-room CODE]
@@ -181,6 +181,7 @@ int main(int argc, char **argv) {
     bool fullscreen = false;
     bool smooth_textures = false;
     int target_fps = 30; // --fps N: 30 (the game's own rate) or a multiple of it up to 180
+    int hud_size = 100; // --hud-size N: the quest HUD's size in percent (enhancement)
     mhf::host::KeyBindings keyboard; // --keymap: the launcher's keyboard bindings
     mhf::host::PadBindings controller; // --padmap: the launcher's controller bindings
     std::string controls_file;         // --controls-file: where the in-game menu writes the bindings the player changes
@@ -205,6 +206,7 @@ int main(int argc, char **argv) {
         else if (a == "--fullscreen") fullscreen = true;
         else if (a == "--smooth-textures") smooth_textures = true; // enhancement, off by default
         else if (a == "--fps" && i + 1 < argc) target_fps = std::clamp(std::stoi(argv[++i]), 30, 180); // enhancement
+        else if (a == "--hud-size" && i + 1 < argc) hud_size = std::clamp(std::stoi(argv[++i]), 50, 100); // enhancement
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--sfx-volume" && i + 1 < argc) options.sfx_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--keymap" && i + 1 < argc) keyboard = mhf::host::parse_keymap(argv[++i]);
@@ -292,6 +294,7 @@ int main(int argc, char **argv) {
             frontend.set_controls_file(controls_file);
             frontend.set_friends_files(friends_file, friend_actions_file);
             if (!texture_pack.empty()) frontend.set_texture_pack(texture_pack, disc_product_code(options.disc_image));
+            frontend.set_hud(hud_size);
             frontend.attach(runtime, extra);
         } else if (window) {
             // A player asked for a window: never keep running invisibly.

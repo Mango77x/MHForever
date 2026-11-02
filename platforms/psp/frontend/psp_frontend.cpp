@@ -255,6 +255,8 @@ void Frontend::set_texture_pack(const std::string &folder, const std::string &ga
     impl_->live.texture_pack_game = game_id;
 }
 
+void Frontend::set_hud(int size) { impl_->live.hud_size = std::clamp(size, 50, 100); }
+
 void Frontend::set_friends_files(const std::string &friends, const std::string &actions) {
     impl_->friends_file = std::filesystem::path(friends);
     impl_->friend_actions_file = std::filesystem::path(actions);
@@ -446,7 +448,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 }
 
 enum MenuId {
-    kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kPadStick, kRestoreKeys, kRestorePad,
+    kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kHudSize, kPadStick, kRestoreKeys, kRestorePad,
     kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore
 };
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
@@ -533,6 +535,7 @@ constexpr std::string_view kStickChoices[] = {"left", "right", ""};
 
 constexpr int kMaxScale = 10;                 // 1x..10x the PSP's 480x272
 constexpr int kFpsChoices[] = {30, 60, 90, 120, 150, 180}; // whole multiples of the game's 30 fps
+constexpr int kHudSizes[] = {100, 90, 80, 70, 60, 50};      // percent of the size the game draws its HUD at
 
 // The on-screen keyboard for a friend's room code (with a controller): these characters, then Delete and Join.
 constexpr std::string_view kCodeAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"; // Crockford base32, as room codes
@@ -725,6 +728,13 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         pack.detail = "Off draws the game's own textures again.";
         video.items.push_back(pack);
     }
+    overlay::MenuItem hud = menu_item(Kind::Choice, kHudSize, "HUD scale");
+    for (std::size_t i = 0; i < std::size(kHudSizes); ++i) {
+        hud.options.push_back(std::to_string(kHudSizes[i]) + "%");
+        if (kHudSizes[i] == impl.live.hud_size) hud.value = static_cast<int>(i);
+    }
+    hud.detail = "In quests: the health bar, the minimap and the items, each in its corner.";
+    video.items.push_back(hud);
     overlay::MenuTab controls{"Controls", {menu_item(Kind::Heading, 0, "Keyboard")}, "Click a key or a button, then press the new one."};
     for (std::size_t i = 0; i < host::kKeyActions.size(); ++i) {
         const int id = kKeyBase + static_cast<int>(i);
@@ -1073,6 +1083,9 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         case kFullscreen: impl.host.toggle_fullscreen(); break;
         case kSmooth: impl.live.smooth_textures = e.value != 0; break;
         case kTexturePack: impl.live.texture_pack = e.value != 0; break;
+        case kHudSize:
+            if (e.value >= 0 && e.value < static_cast<int>(std::size(kHudSizes))) impl.live.hud_size = kHudSizes[e.value];
+            break;
         case kScale:
             impl.render_scale = e.value + 1;
             impl.live.scale = impl.render_scale; // the drawing thread applies it at the next picture

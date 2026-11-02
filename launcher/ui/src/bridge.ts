@@ -22,6 +22,7 @@ export interface Settings {
   fullscreen: boolean;
   smoothTextures: boolean;
   fps: number; // 30..180, a multiple of 30
+  hudSize?: number; // the quest HUD's size in percent, 50..100 in steps of 10
   copyImage: boolean; // keep a copy of the disc image in MHForever's own folder
   musicVolume: number; // 0..100
   sfxVolume: number; // 0..100
@@ -201,7 +202,7 @@ function simulated(): Native {
     friends: [],
     blocked: [],
     settings: {
-      scale: 4, fullscreen: false, smoothTextures: false, fps: 30, copyImage: false, musicVolume: 80, sfxVolume: 90,
+      scale: 4, fullscreen: false, smoothTextures: false, fps: 30, hudSize: 100, copyImage: false, musicVolume: 80, sfxVolume: 90,
       keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '', adhocRoom: '', checkUpdates: true,
       friendRelays: ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom', 'wss://offchain.pub', 'wss://relay.nostr.net'],
     },

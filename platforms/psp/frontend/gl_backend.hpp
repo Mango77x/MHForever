@@ -44,6 +44,8 @@ struct LiveSettings {
     // the pack's folder (empty: none, or MHF_TEXTURE_PACK) and the release it is drawn for ("ULES01213").
     std::atomic<bool> texture_pack{true};
     std::string texture_pack_folder, texture_pack_game;
+    // HUD size in percent (100: as the game draws it): in quests, the HUD shrinks into the corners it sits in.
+    std::atomic<int> hud_size{100};
 };
 
 // Creates the context on the calling thread. Returns nullptr (after logging why) when OpenGL 3.3 is unavailable.
