@@ -96,6 +96,11 @@ using MhfReadPixels = void(APIENTRY *)(GLint, GLint, GLsizei, GLsizei, GLenum, G
 #define MHF_GL_FUNCTIONS(X)                                                                                        \
     X(MhfGetString, GetString, glGetString)                                                                  \
     X(MhfGetError, GetError, glGetError)                                                                     \
+    X(PFNGLGENQUERIESPROC, GenQueries, glGenQueries)                                                               \
+    X(PFNGLBEGINQUERYPROC, BeginQuery, glBeginQuery)                                                               \
+    X(PFNGLENDQUERYPROC, EndQuery, glEndQuery)                                                                     \
+    X(PFNGLGETQUERYOBJECTUIVPROC, GetQueryObjectuiv, glGetQueryObjectuiv)                                          \
+    X(PFNGLGETQUERYOBJECTUI64VPROC, GetQueryObjectui64v, glGetQueryObjectui64v)                                    \
     X(MhfViewport, Viewport, glViewport)                                                                     \
     X(MhfScissor, Scissor, glScissor)                                                                        \
     X(MhfEnable, Enable, glEnable)                                                                           \
@@ -356,6 +361,7 @@ layout(location = 2) in float a_depth; // what to add to the depth worked out he
 uniform vec4 u_proj, u_vp;
 uniform vec2 u_proj_z, u_vz, u_target;
 uniform vec3 u_rc0, u_rc1, u_rc2, u_t; // this picture's eye space to the map's, as in kShadowFactorFragment
+uniform int u_clear;                  // 1: taking the shadows off pieces of the air, at their exact depth
 out float v_reach;
 void main() {
     vec3 e = vec3(dot(a_eye, vec3(u_rc0.x, u_rc1.x, u_rc2.x)), dot(a_eye, vec3(u_rc0.y, u_rc1.y, u_rc2.y)),
@@ -365,7 +371,7 @@ void main() {
     // Layers of ground lie a little over the surface shaded here, and would cut the shade along their edges: it is drawn a little
     // nearer to the camera, along the line of sight, which leaves it in the same place on the screen.
     float e_length = max(length(e), 1.0);
-    float ze = e.z * max(1.0 - 10.0 / e_length, 0.0);
+    float ze = u_clear != 0 ? e.z : e.z * max(1.0 - 10.0 / e_length, 0.0);
     float z = ((u_proj.z * ze + u_proj_z.x) / (u_proj.w * ze + u_proj_z.y) * u_vz.x + u_vz.y) / 65535.0 + a_depth;
     gl_Position = vec4((pixel / u_target * 2.0 - 1.0) * w, (z * 2.0 - 1.0) * w, w);
     v_reach = a_reach;
@@ -374,8 +380,14 @@ void main() {
 constexpr const char *kShadowFacingFragment = R"(#version 330 core
 in float v_reach;
 uniform float u_darkness;
+uniform int u_clear;
+uniform sampler2D u_depth;
 out vec4 o_color;
-void main() { o_color = vec4(vec3(1.0 - u_darkness * (1.0 - v_reach)), 1.0); }
+void main() {
+    // Only where the scene's depth is this very piece: not what stands before it, nor what shows through its gaps.
+    if (u_clear != 0 && abs(texelFetch(u_depth, ivec2(gl_FragCoord.xy), 0).r - gl_FragCoord.z) > 0.0004) discard;
+    o_color = vec4(vec3(1.0 - u_darkness * (1.0 - v_reach)), 1.0);
+}
 )";
 
 // The "show what casts" view: every object of the picture in the colour of its class, over the scene.
@@ -764,7 +776,16 @@ public:
     }
 
     void triangle_unclipped(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b, const gpu::Vertex &c) override {
-        if (shadow_draw_ok_) shadow_capture(ge, a, b, c);
+        if (shadow_draw_ok_) {
+            // One triangle in 32 is timed: asking the clock for each would cost more than some of them.
+            if ((++shadow_capture_seen_ & 31u) == 0u) {
+                const auto from = std::chrono::steady_clock::now();
+                shadow_capture(ge, a, b, c);
+                shadow_capture_ms_ += 32.0 * std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - from).count();
+            } else {
+                shadow_capture(ge, a, b, c);
+            }
+        }
         if (!interpolate_ || !v2_enabled_ || recording_.empty()) return;
         prepare(ge);
         if (!a.has_world || !b.has_world || !c.has_world) {
@@ -897,6 +918,8 @@ private:
     void shadow_capture(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b, const gpu::Vertex &c);
     bool shadow_setup();
     void run_shadow(RenderTarget &rt);
+    void shadow_time_begin(int slot);
+    void shadow_time_end();
     void apply_shadow(RenderTarget &rt, const ShadowPass &p, const float *eye_to_map);
     void apply_live_scale();
     void apply_live_fps();
@@ -1268,6 +1291,7 @@ private:
     std::unique_ptr<textures::Pack> shadow_zone_keys_;
     std::vector<std::string> shadow_zone_names_;
     int shadow_zone_{-1}, shadow_zone_next_{-1}, shadow_zone_votes_{}; // the zone the game is in, and the one that may follow it
+    std::chrono::steady_clock::time_point shadow_last_scene_{}; // when the last 3D scene was mapped
     int shadow_floor_zone_{-1};        // the zone shadow_floor_ was taken in
     float shadow_floor_{};             // the height of the ground in it, from the world's origin: the hunter's feet on arrival
     std::vector<std::uint32_t> shadow_zone_triangles_; // how many textures of each zone are on the screen
@@ -1298,7 +1322,20 @@ private:
     std::vector<float> shadow_normals_, shadow_facing_; // eye x, y, z and how much sun the surface faces
     std::unordered_map<std::uint64_t, std::uint32_t> shadow_points_;
     GLuint shadow_facing_program_{}, shadow_facing_vao_[2]{}, shadow_facing_vbo_[2]{};
+    // Where the shadows' time goes, written to the log. On the graphics card, in order: map, hunter's map, factor, facing, applying.
+    struct ShadowTime {
+        GLuint query{};
+        bool pending{};
+        double ms{};
+        int count{};
+    };
+    ShadowTime shadow_time_[5]{};
+    int shadow_time_now_{-1};
+    std::uint32_t shadow_capture_seen_{};
+    double shadow_capture_ms_{}, shadow_cpu_ms_[4]{};
+    int shadow_cpu_runs_{};
     GLsizei shadow_facing_count_[2]{}; // by map: each map's picture keeps its own triangles
+    GLsizei shadow_clear_count_[2]{};  // and after them, the listed pieces of the air: no shadow falls on those
     float shadow_light_[3]{}, shadow_proj_[6]{}, shadow_vz_[2]{}, shadow_vp_[4]{};
     float shadow_reach_{16000.0f}, shadow_bias_{12.0f}, shadow_drop_{8000.0f}, shadow_soft_{1.0f}, shadow_min_elevation_{35.0f};
     GLsizei shadow_size_{4096}, shadow_w_{}, shadow_h_{};
@@ -2193,7 +2230,33 @@ bool GlBackend::shadow_setup() {
     return shadow_ready_;
 }
 
+// A query's answer arrives some frames later, and a slot still waiting for it skips a turn.
+void GlBackend::shadow_time_begin(int slot) {
+    ShadowTime &t = shadow_time_[slot];
+    if (t.query == 0) gl_.GenQueries(1, &t.query);
+    if (t.pending) {
+        GLuint ready = 0;
+        gl_.GetQueryObjectuiv(t.query, GL_QUERY_RESULT_AVAILABLE, &ready);
+        if (ready == 0) return;
+        GLuint64 ns = 0;
+        gl_.GetQueryObjectui64v(t.query, GL_QUERY_RESULT, &ns);
+        t.ms += static_cast<double>(ns) / 1e6;
+        ++t.count;
+        t.pending = false;
+    }
+    gl_.BeginQuery(GL_TIME_ELAPSED, t.query);
+    shadow_time_now_ = slot;
+}
+
+void GlBackend::shadow_time_end() {
+    if (shadow_time_now_ < 0) return;
+    gl_.EndQuery(GL_TIME_ELAPSED);
+    shadow_time_[shadow_time_now_].pending = true;
+    shadow_time_now_ = -1;
+}
+
 void GlBackend::run_shadow(RenderTarget &rt) {
+    const auto cpu_start = std::chrono::steady_clock::now();
     if (shadow_capture_frame_ != frame_ || shadow_draws_.empty() || !shadow_setup() || shadow_vz_[0] == 0.0f) {
         shadow_pass_.valid = false;
         return;
@@ -2323,7 +2386,9 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     // triangle too, so no shape tells them apart.
     const auto air = [](const ShadowDraw &d) {
         if (d.listed == 1) return true;
-        return d.listed < 2 && d.translucent;
+        // Fading out along their own vertices is what shapes floating in the air do; rock stays opaque. Leaves are left to their cut-outs.
+        const bool fades = d.blended && !d.cutout && d.holes >= 0.02f && d.alpha_low < 200.0f;
+        return d.listed < 2 && (d.translucent || fades);
     };
     // The ground: flat pieces overlap a little, with thin upright strips along their seams, and each would cast a thin line on
     // the next. So what lies low and is flat or a strip does not cast. High up the same shapes are ledges and tops of rock,
@@ -2464,6 +2529,9 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             std::fprintf(stderr, "[shadow] %s a cave (%d of 9 points under rock): whole map shadows %s\n", under_rock ? "in" : "out of", count, under_rock ? "off" : "on");
         }
     }
+    const auto scene_now = std::chrono::steady_clock::now();
+    const bool after_a_pause = scene_now - shadow_last_scene_ > std::chrono::milliseconds(150);
+    shadow_last_scene_ = scene_now;
     // Where the game is: the zone with the largest share of its own textures on the screen, once that has held for a while. Not
     // the one with the most triangles: a zone with few textures of its own loses to a neighbour it shares its pieces with.
     shadow_zone_seen_.clear();
@@ -2494,7 +2562,9 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     } else if (zone_now >= 0) {
         shadow_zone_votes_ = zone_now == shadow_zone_next_ ? shadow_zone_votes_ + 1 : 1;
         shadow_zone_next_ = zone_now;
-        if (shadow_zone_votes_ >= 15) {
+        // Zones load behind a moment with no 3D at all: what comes after it is a new zone, and showing the old one's shadows
+        // until it is sure would flash. While the game plays on, it has to hold for a while.
+        if (shadow_zone_votes_ >= 15 || after_a_pause) {
             shadow_zone_ = zone_now;
             shadow_zone_votes_ = 0;
             std::fprintf(stderr, "[shadow] zone %s (%.0f%% of its textures)\n", shadow_zone_names_[static_cast<std::size_t>(zone_now)].c_str(), zone_share * 100.0f);
@@ -2512,7 +2582,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     }
     if (shadow_in_cave_ || cave_textures) whole_map = false;
     shadow_ranges_.clear();
-    const auto triangle_casts = [&](const float *t) {
+    const auto triangle_casts = [&](const float *t, bool listed) {
         float e[3][3], longest = 0.0f;
         for (int i = 0; i < 3; ++i) {
             const float *p = t + 5 * i, *q = t + 5 * ((i + 1) % 3);
@@ -2522,7 +2592,8 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         if (std::sqrt(longest) > largest) return false;
         float n[3];
         cross(e[0], e[1], n);
-        return !normalize(n) || std::fabs(n[0] * up_axis[0] + n[1] * up_axis[1] + n[2] * up_axis[2]) < 0.95f;
+        // Lying flat is an overlay on the ground, unless the list says otherwise (leaves that float, like lily pads).
+        return listed || !normalize(n) || std::fabs(n[0] * up_axis[0] + n[1] * up_axis[1] + n[2] * up_axis[2]) < 0.95f;
     };
     for (std::uint32_t i = 0; i < shadow_draws_.size(); ++i) {
         const ShadowDraw &d = shadow_draws_[i];
@@ -2553,7 +2624,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             const std::uint32_t start = static_cast<std::uint32_t>(shadow_vertices_.size() / 5u);
             for (std::uint32_t v = 0; v + 3u <= d.count; v += 3u) {
                 const std::size_t at = (static_cast<std::size_t>(d.first) + v) * 5u;
-                if (!triangle_casts(shadow_vertices_.data() + at)) continue;
+                if (!triangle_casts(shadow_vertices_.data() + at, d.listed == 2)) continue;
                 shadow_vertices_.resize(shadow_vertices_.size() + 15u);
                 std::copy_n(shadow_vertices_.begin() + static_cast<std::ptrdiff_t>(at), 15, shadow_vertices_.end() - 15);
             }
@@ -2565,6 +2636,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     // The surfaces turned away from the sun, from the triangles the camera sees: each normal is turned towards the camera, and
     // points the triangles share average theirs, so that the shade follows the shape instead of showing every face.
     const int next_map = 1 - shadow_cur_;
+    const auto cpu_sorted = std::chrono::steady_clock::now();
     shadow_facing_.clear();
     if (whole_map) {
         shadow_normals_.clear();
@@ -2586,7 +2658,8 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         };
         const auto solid = [&](const ShadowDraw &d) {
             const ShadowGroup &g = shadow_groups_[d.group];
-            return d.count != 0 && d.target == rt.address && !d.cutout && !air(d) && !g.skinned && !backdrop(g) && !shell(d);
+            // A shell on the list takes the shade too (it shows through gaps in a wall), but it still casts nothing.
+            return d.count != 0 && d.target == rt.address && !d.cutout && !air(d) && !g.skinned && !backdrop(g) && (!shell(d) || d.listed == 2);
         };
         for (const ShadowDraw &d : shadow_draws_) {
             if (!solid(d)) continue;
@@ -2647,8 +2720,19 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         }
     }
     shadow_facing_count_[next_map] = static_cast<GLsizei>(shadow_facing_.size() / 5u);
+    for (const ShadowDraw &d : shadow_draws_) {
+        if (d.listed != 1 || d.count == 0 || d.target != rt.address) continue;
+        for (std::uint32_t v = d.first; v < d.first + d.count; ++v) {
+            const float *q = shadow_vertices_.data() + static_cast<std::size_t>(v) * 5u;
+            const float real = shadow_depths_[v], w = shadow_proj_[3] * q[2] + shadow_proj_[5];
+            const float worked_out = ((shadow_proj_[2] * q[2] + shadow_proj_[4]) / w * shadow_vz_[0] + shadow_vz_[1]) / 65535.0f;
+            shadow_facing_.insert(shadow_facing_.end(), {q[0], q[1], q[2], 1.0f, real >= 0.0f ? real - worked_out : 0.0f});
+        }
+    }
+    shadow_clear_count_[next_map] = static_cast<GLsizei>(shadow_facing_.size() / 5u) - shadow_facing_count_[next_map];
     gl_.BindBuffer(GL_ARRAY_BUFFER, shadow_facing_vbo_[next_map]);
     gl_.BufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(shadow_facing_.size() * sizeof(float)), shadow_facing_.data(), GL_STREAM_DRAW);
+    const auto cpu_faced = std::chrono::steady_clock::now();
 
     static int runs = 0;
     static const int log_every = [] {
@@ -2663,7 +2747,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             if (air(d)) translucent_triangles += d.count / 3u;
         }
         std::fprintf(stderr, "[shadow] triangles: %zu solid, %zu blended (%zu of them air), %zu cut-out; %u draws without depth left out; %zu shaded for facing away; map centred on %s\n",
-                     solid_triangles, blended_triangles, translucent_triangles, cutout_triangles, shadow_skipped_, shadow_facing_.size() / 15u, hunter != nullptr ? "the hunter" : "the camera");
+                     solid_triangles, blended_triangles, translucent_triangles, cutout_triangles, shadow_skipped_, static_cast<std::size_t>(shadow_facing_count_[next_map]) / 3u, hunter != nullptr ? "the hunter" : "the camera");
     }
     if (runs++ % log_every == 0) {
         std::vector<const ShadowGroup *> by_size;
@@ -2741,14 +2825,43 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         k.mask = d.mask;
         k.clamp_s = d.clamp_s;
         k.clamp_t = d.clamp_t;
-        k.scenery = !(d.cutout || casts(shadow_groups_[d.group]));
+        // Trunks and posts are scenery to the game, but as thin as the soft edge of the scenery's shadows: theirs would vanish.
+        k.scenery = !(d.cutout || casts(shadow_groups_[d.group]) || d.height() >= 1.5f * d.width());
         k.player = std::find(shadow_player_groups_.begin(), shadow_player_groups_.end(), d.group) != shadow_player_groups_.end();
         kept.ranges.push_back(k);
     }
+    const auto cpu_kept = std::chrono::steady_clock::now();
+    shadow_time_begin(0);
     draw_shadow_map(p, kept, kept.vertices, false);
-    if (p.player_half > 0.0f) draw_shadow_map(p, kept, kept.vertices, true);
+    shadow_time_end();
+    if (p.player_half > 0.0f) {
+        shadow_time_begin(1);
+        draw_shadow_map(p, kept, kept.vertices, true);
+        shadow_time_end();
+    }
     static constexpr float same_eye[12] = {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
     apply_shadow(rt, p, same_eye);
+    const auto cpu_end = std::chrono::steady_clock::now();
+    const auto ms = [](auto from, auto to) { return std::chrono::duration<double, std::milli>(to - from).count(); };
+    shadow_cpu_ms_[0] += ms(cpu_start, cpu_sorted);
+    shadow_cpu_ms_[1] += ms(cpu_sorted, cpu_faced);
+    shadow_cpu_ms_[2] += ms(cpu_faced, cpu_kept);
+    shadow_cpu_ms_[3] += ms(cpu_kept, cpu_end);
+    if (++shadow_cpu_runs_ >= 150) {
+        const double n = shadow_cpu_runs_;
+        const auto gpu = [&](int i) {
+            const double v = shadow_time_[i].count != 0 ? shadow_time_[i].ms / shadow_time_[i].count : 0.0;
+            shadow_time_[i].ms = 0.0;
+            shadow_time_[i].count = 0;
+            return v;
+        };
+        const double g0 = gpu(0), g1 = gpu(1), g2 = gpu(2), g3 = gpu(3), g4 = gpu(4);
+        std::fprintf(stderr, "[shadow time] cpu ms per frame: capture %.2f, sorting %.2f, facing %.2f, keeping %.2f, sending %.2f | card ms each: map %.2f, hunter's map %.2f, factor %.2f, facing %.2f, applying %.2f\n",
+                     shadow_capture_ms_ / n, shadow_cpu_ms_[0] / n, shadow_cpu_ms_[1] / n, shadow_cpu_ms_[2] / n, shadow_cpu_ms_[3] / n, g0, g1, g2, g3, g4);
+        shadow_capture_ms_ = 0.0;
+        for (double &v : shadow_cpu_ms_) v = 0.0;
+        shadow_cpu_runs_ = 0;
+    }
 
     // The view for telling what casts: skinned green, placed objects yellow, what was left out red.
     if (live_->shadow_show.load(std::memory_order_relaxed)) {
@@ -2836,7 +2949,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                 std::fprintf(stderr, "[shadow]   #%zu texture %016llx distance %.0f, %u triangles, size %.0f, %s%s%s%s, clear %.0f%%, vertex alpha %.0f-%.0f, %s, %s\n", i + 1u,
                              static_cast<unsigned long long>(d.texture_hash), hits[i].distance, d.count / 3u, d.size(), g.skinned ? "skinned " : "", d.cutout ? "cut-out " : "",
                              d.blended ? "blended " : "solid ", air(d) ? "air" : backdrop(g) ? "backdrop" : shell(d) ? "shell" : "", d.holes * 100.0f, d.alpha_low, d.alpha_high,
-                             in_map ? "casts" : "does not cast", !d.cutout && !air(d) && !g.skinned && !backdrop(g) && !shell(d) ? "can shade" : "never shades");
+                             in_map ? "casts" : "does not cast", !d.cutout && !air(d) && !g.skinned && !backdrop(g) && (!shell(d) || d.listed == 2) ? "can shade" : "never shades");
             }
         }
         const GLuint show = shadow_show_program_;
@@ -2991,13 +3104,28 @@ void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float 
     gl_.Uniform1f(uniform(f, "u_bias"), shadow_bias_);
     gl_.Uniform1f(uniform(f, "u_drop"), p.drop);
     gl_.Uniform1f(uniform(f, "u_soft"), shadow_soft_);
+    shadow_time_begin(2);
     gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    shadow_time_end();
+    shadow_time_begin(3);
     gl_.ActiveTexture(GL_TEXTURE4);
     gl_.BindTexture(GL_TEXTURE_2D, 0);
     gl_.ActiveTexture(GL_TEXTURE3);
     gl_.BindTexture(GL_TEXTURE_2D, 0);
     gl_.ActiveTexture(GL_TEXTURE1);
     gl_.BindTexture(GL_TEXTURE_2D, 0);
+    const auto facing_uniforms = [&](GLuint fp) {
+        gl_.Uniform4f(uniform(fp, "u_proj"), p.proj[0], p.proj[1], p.proj[2], p.proj[3]);
+        gl_.Uniform2f(uniform(fp, "u_proj_z"), p.proj[4], p.proj[5]);
+        gl_.Uniform2f(uniform(fp, "u_vz"), p.vz[0], p.vz[1]);
+        gl_.Uniform4f(uniform(fp, "u_vp"), p.vp[0], p.vp[1], p.vp[2], p.vp[3]);
+        gl_.Uniform2f(uniform(fp, "u_target"), static_cast<float>(rt.width), static_cast<float>(rt.height));
+        gl_.Uniform3f(uniform(fp, "u_rc0"), eye_to_map[0], eye_to_map[1], eye_to_map[2]);
+        gl_.Uniform3f(uniform(fp, "u_rc1"), eye_to_map[3], eye_to_map[4], eye_to_map[5]);
+        gl_.Uniform3f(uniform(fp, "u_rc2"), eye_to_map[6], eye_to_map[7], eye_to_map[8]);
+        gl_.Uniform3f(uniform(fp, "u_t"), eye_to_map[9], eye_to_map[10], eye_to_map[11]);
+        gl_.Uniform1f(uniform(fp, "u_darkness"), p.darkness);
+    };
     if (shadow_facing_count_[p.map] != 0 && part != 1) {
         // Against the scene's depth, which is only attached for this: the darker of the two wins.
         gl_.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, rt.depth, 0);
@@ -3010,16 +3138,8 @@ void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float 
         gl_.BlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
         const GLuint fp = shadow_facing_program_;
         gl_.UseProgram(fp);
-        gl_.Uniform4f(uniform(fp, "u_proj"), p.proj[0], p.proj[1], p.proj[2], p.proj[3]);
-        gl_.Uniform2f(uniform(fp, "u_proj_z"), p.proj[4], p.proj[5]);
-        gl_.Uniform2f(uniform(fp, "u_vz"), p.vz[0], p.vz[1]);
-        gl_.Uniform4f(uniform(fp, "u_vp"), p.vp[0], p.vp[1], p.vp[2], p.vp[3]);
-        gl_.Uniform2f(uniform(fp, "u_target"), static_cast<float>(rt.width), static_cast<float>(rt.height));
-        gl_.Uniform3f(uniform(fp, "u_rc0"), eye_to_map[0], eye_to_map[1], eye_to_map[2]);
-        gl_.Uniform3f(uniform(fp, "u_rc1"), eye_to_map[3], eye_to_map[4], eye_to_map[5]);
-        gl_.Uniform3f(uniform(fp, "u_rc2"), eye_to_map[6], eye_to_map[7], eye_to_map[8]);
-        gl_.Uniform3f(uniform(fp, "u_t"), eye_to_map[9], eye_to_map[10], eye_to_map[11]);
-        gl_.Uniform1f(uniform(fp, "u_darkness"), p.darkness);
+        facing_uniforms(fp);
+        gl_.Uniform1i(uniform(fp, "u_clear"), 0);
         gl_.BindVertexArray(shadow_facing_vao_[p.map]);
         gl_.DrawArrays(GL_TRIANGLES, 0, shadow_facing_count_[p.map]);
         gl_.BindVertexArray(empty_vao_);
@@ -3029,9 +3149,29 @@ void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float 
         gl_.Disable(GL_DEPTH_TEST);
         gl_.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
     }
+    if (shadow_clear_count_[p.map] != 0) {
+        // The listed pieces of the air write depth, so the map's shadows land on them: those are taken off here. The factor's
+        // alpha stays: it says how much to blur.
+        const GLuint fp = shadow_facing_program_;
+        gl_.UseProgram(fp);
+        facing_uniforms(fp);
+        gl_.Uniform1i(uniform(fp, "u_clear"), 1);
+        gl_.Uniform1i(uniform(fp, "u_depth"), 1);
+        gl_.ActiveTexture(GL_TEXTURE1);
+        gl_.BindTexture(GL_TEXTURE_2D, rt.depth);
+        gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+        gl_.BindVertexArray(shadow_facing_vao_[p.map]);
+        gl_.DrawArrays(GL_TRIANGLES, shadow_facing_count_[p.map], shadow_clear_count_[p.map]);
+        gl_.BindVertexArray(empty_vao_);
+        gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        gl_.BindTexture(GL_TEXTURE_2D, 0);
+        gl_.ActiveTexture(GL_TEXTURE0);
+    }
 
+    shadow_time_end();
     gl_.BindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
     gl_.UseProgram(shadow_apply_program_);
+    shadow_time_begin(4);
     gl_.Uniform1i(uniform(shadow_apply_program_, "u_factor"), 2);
     gl_.Uniform1i(uniform(shadow_apply_program_, "u_step"), std::max(1, scale_ / 2));
     gl_.ActiveTexture(GL_TEXTURE2);
@@ -3041,6 +3181,7 @@ void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float 
     gl_.BlendFuncSeparate(GL_ZERO, GL_SRC_COLOR, GL_ZERO, GL_ONE);
     gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
     gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    shadow_time_end();
     gl_.Disable(GL_BLEND);
     gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     gl_.BindTexture(GL_TEXTURE_2D, 0);
@@ -4276,7 +4417,9 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                             }
                         }
                     }
+                    shadow_time_begin(1);
                     draw_shadow_map(flip_.shadow, kept, shadow_between_, true);
+                    shadow_time_end();
                 }
                 apply_shadow(scratch_, flip_.shadow, eye_to_map);
                 gl_.BindVertexArray(vao_);

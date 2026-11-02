@@ -13,6 +13,8 @@
 // Mist and distant panels: they neither cast nor shade.
 inline constexpr std::uint64_t kShadowAirTextures[] = {
     0xe9429f44c10c12a9ull, // the swamp's panels in the sky
+    0xfdfd6dd715f1d518ull, // more of them, in its zone 2
+    0x79aa69c00d47113dull, // the jungle's shapes in the sky
 };
 
 // Rock the guesses could take for mist.
@@ -27,6 +29,12 @@ inline constexpr std::uint64_t kShadowSolidTextures[] = {
     0x00b84265ed5eed1aull,
     0x3510dbf03d994cf9ull, // snowy mountains, taken for a shell around the camera
     0x87ddd6c234261f5aull, // desert rock: its low tops must cast, unlike sand
+    0xd7a3de44dfb2d944ull, // what shows through the gaps of a wall in the swamp, zone 4
+    0x19b2be016a0a9a43ull, // and the wall
+    0xf0d3f04a7cbcf2b3ull,
+    0xeebb43ec35130882ull,
+    0xaff7ca0369e01151ull, // thin trees in the swamp: low pieces must cast, unlike strips of ground
+    0x678eabd8c2de845full, // lily pads: they lie flat and still cast
 };
 
 // The zones that are caves.
