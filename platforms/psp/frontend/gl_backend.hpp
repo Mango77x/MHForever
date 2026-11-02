@@ -54,6 +54,7 @@ struct LiveSettings {
     // from the sun are shaded; the size limits below then apply only to leaves.
     std::atomic<bool> shadow{false};
     std::atomic<bool> shadow_whole_map{true};
+    std::atomic<bool> shadow_whole_map_in_caves{false}; // the zones listed as caves get the whole map too
     // For finding faults: 0 everything, 1 only the shadows that fall on things, 2 only the shade of sides turned from the sun.
     std::atomic<int> shadow_part{0};
     // For identifying things: what is under the middle of the screen goes to the log, with its texture.

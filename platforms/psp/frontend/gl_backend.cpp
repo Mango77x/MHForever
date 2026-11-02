@@ -2575,12 +2575,13 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         if (std::find(caves.begin(), caves.end(), shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)]) != caves.end()) cave_textures = true;
     }
     // The sliders follow: nothing but characters and monsters in a cave, everything out of one.
-    if (const bool in_cave = shadow_in_cave_ || cave_textures; in_cave != shadow_sliders_in_cave_) {
+    const bool treat_as_cave = (shadow_in_cave_ || cave_textures) && !live_->shadow_whole_map_in_caves.load(std::memory_order_relaxed);
+    if (const bool in_cave = treat_as_cave; in_cave != shadow_sliders_in_cave_) {
         shadow_sliders_in_cave_ = in_cave;
         live_->shadow_max_object = in_cave ? 30.0f : 39450.0f;
         live_->shadow_max_piece = in_cave ? 0.0f : 39450.0f;
     }
-    if (shadow_in_cave_ || cave_textures) whole_map = false;
+    if (treat_as_cave) whole_map = false;
     shadow_ranges_.clear();
     const auto triangle_casts = [&](const float *t, bool listed) {
         float e[3][3], longest = 0.0f;
@@ -2619,7 +2620,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             }
         } else if (casts(shadow_groups_[d.group]) || (!d.cutout && d.size() <= largest_piece && d.height() >= 1.5f * d.width())) {
             shadow_ranges_.push_back({i, d.first, d.count});
-        } else if (d.cutout) {
+        } else if (d.cutout && !treat_as_cave) { // in a cave, leaves and grass stay out too: only characters cast there
             // The triangles that pass go after the picture's own vertices.
             const std::uint32_t start = static_cast<std::uint32_t>(shadow_vertices_.size() / 5u);
             for (std::uint32_t v = 0; v + 3u <= d.count; v += 3u) {
