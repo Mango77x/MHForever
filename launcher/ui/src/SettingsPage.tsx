@@ -484,7 +484,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
         </div>
         <div className="srow">
-          <div className="slabel"><b>Show true weapon values</b><span>Optional enhancement: menus show attack and element without the display multipliers. Not in the Japanese release yet. Off is faithful to the original.</span></div>
+          <div className="slabel"><b>Show true weapon values</b><span>Optional enhancement: menus show attack and element without the display multipliers. Off is faithful to the original.</span></div>
           <Toggle on={s.trueWeaponValues} onToggle={() => onChange({ trueWeaponValues: !s.trueWeaponValues })} label="Show true weapon values" />
         </div>
         <div className="srow">

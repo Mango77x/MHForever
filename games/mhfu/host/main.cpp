@@ -55,20 +55,23 @@ namespace region = mhf::psp::generated::mhfu_region_data;
 
 bool g_log_overlays = true;
 
-// The "0" the element value formats print after the value, for every language the game can load. The chosen language's
-// menu text is loaded at run time, each language at its own place, so only that language's entries hold the formats.
+// The "0" the element value formats print after the value, for every language a release can load; each release maps
+// its own languages. The chosen language's menu text is loaded at run time, each language at its own place, so only
+// that language's entries hold the formats.
 constexpr std::optional<std::uint32_t> kElementValueFormatZeros[] = {
     region::mh_element_value_format_zero_en, region::mh_dual_element_value_zero_en,
     region::mh_element_value_format_zero_fr, region::mh_dual_element_value_zero_fr,
     region::mh_element_value_format_zero_de, region::mh_dual_element_value_zero_de,
     region::mh_element_value_format_zero_es, region::mh_dual_element_value_zero_es,
     region::mh_element_value_format_zero_it, region::mh_dual_element_value_zero_it,
+    region::mh_element_value_format_zero_ja, region::mh_dual_element_value_zero_ja,
 };
 
-// --true-weapon-values needs every entry; a release that maps only some of them does not offer it.
+// --true-weapon-values needs the multipliers and the formats of at least one language; a release without them does not
+// offer it.
 constexpr bool kTrueWeaponValuesMapped =
     region::mh_attack_display_multipliers &&
-    std::ranges::all_of(kElementValueFormatZeros,
+    std::ranges::any_of(kElementValueFormatZeros,
                         [](const std::optional<std::uint32_t> &zero) { return zero.has_value(); });
 
 // True when the byte at `zero` is the "0" that ends a "%<digit>d0" format: the loaded language's text is there, not
@@ -90,7 +93,7 @@ void show_true_weapon_values([[maybe_unused]] Runtime &rt) {
             rt.memory().store32(*region::mh_attack_display_multipliers + i * 4u, 100u);
         }
         for (const auto &zero : kElementValueFormatZeros) {
-            if (is_value_format_zero(rt.memory(), *zero)) rt.memory().store8(*zero, std::uint8_t{0});
+            if (zero && is_value_format_zero(rt.memory(), *zero)) rt.memory().store8(*zero, std::uint8_t{0});
         }
     }
 }
