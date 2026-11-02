@@ -150,6 +150,11 @@ Original design notes:
 - **Hooks**: call native code before/after a guest function without replacing it.
 - **Instruction patch**: change a single instruction (last resort).
 - Everything is declared by **canonical name** and resolved per region. Never addresses in code.
+- **Data entries** (2026-11-02): with `--symbols`, `mhf_recomp` also writes `<name>_region_data.hpp`, namespace
+  `mhf::psp::generated::<name>_region_data`, one `inline constexpr std::optional<std::uint32_t>` per `[data]` name
+  that any region map next to the active one lists (`std::nullopt` where the active region does not map it). Host code
+  names the entries directly: a misspelled name fails the build, and code for an entry only some releases map still
+  builds for all.
 - N64Recomp technique: compile patched functions into a library linked **before** the original output, so the linker prefers the
   patch. Useful to iterate without regenerating everything.
 

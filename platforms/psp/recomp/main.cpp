@@ -243,6 +243,8 @@ int main(int argc, char **argv) {
                 input.hooks[static_cast<std::uint32_t>(toml::to_integer(*value))] = hook;
             }
         }
+        // Data entries by canonical name, read now so that a broken region map fails before the long emission.
+        const RegionData region_data = symbols_path.empty() ? RegionData{} : region_data_entries(symbols_path);
 
         // Overlays (docs/04-recompiler.md §4): analyzed together with the main module so that calls between them
         // seed each other.
@@ -338,6 +340,9 @@ int main(int argc, char **argv) {
                         totals.unresolved);
         } else {
             emit_registry(name, names, out_dir);
+        }
+        if (!symbols_path.empty()) {
+            produced.insert(emit_region_data(name, region_data, out_dir));
         }
         // Remove sources left over from earlier runs (a module that now has fewer parts, a renamed overlay), which
         // would otherwise be picked up by the build.
