@@ -201,9 +201,9 @@ mode, where no second window can be shown.
   - Per-controller profiles, deadzones, sensitivity and an analog camera are pending; rumble optional (the PSP has none).
 - In the game: the in-game menu has a **Controls** tab with the same bindings. Pick a row, press the new key or button and it
   applies at once; Esc or a click cancels, Backspace unbinds, F11 stays reserved. The host reports the next key or button by
-  name while the menu waits for one (`SdlHost::set_capture`). The game writes every change to the file the launcher gave it
-  (`--controls-file`, `game_controls.txt` in the data folder) and the launcher folds it into `launcher.json` when it starts,
-  before a launch and when the game ends, so a change made while playing is kept.
+  name while the menu waits for one (`SdlHost::set_capture`). The game writes every change, and the Audio tab's volumes, to
+  the file the launcher gave it (`--controls-file`, `game_controls.txt` in the data folder) and the launcher folds it into
+  `launcher.json` when it starts, before a launch and when the game ends, so a change made while playing is kept.
 - **Friends** (the drawer from the top bar; `14-rooms-and-friends.md` section 4.3): the friend code, "Let friends add
   me" (ten minutes), "Add by code", requests (Accept, Decline, Block), invites (Join, Not now) and the list: who is
   online and where ("Playing · private room on Socom"), with Join, Invite and Remove. The top bar's button counts
