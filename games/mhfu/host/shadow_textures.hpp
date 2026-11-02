@@ -25,11 +25,14 @@ inline constexpr std::uint64_t kShadowSolidTextures[] = {
     0x5f0482228ab53b4bull,
     0x33ed119b128bc331ull,
     0x00b84265ed5eed1aull,
+    0x3510dbf03d994cf9ull, // snowy mountains, taken for a shell around the camera
+    0x87ddd6c234261f5aull, // desert rock: its low tops must cast, unlike sand
 };
 
 // The zones that are caves.
 inline constexpr const char *kShadowCaveZones[] = {
     "areas/hunting/desert/base",
+    "areas/hunting/desert/area3",         "areas/hunting/desert/area8",
     "areas/hunting/desert/area4",         "areas/hunting/desert/area6",         "areas/hunting/desert/area10",
     "areas/hunting/jungle/area6",         "areas/hunting/jungle/area7",         "areas/hunting/jungle/area8",
     "areas/hunting/snowy_mountains/area3", "areas/hunting/snowy_mountains/area4", "areas/hunting/snowy_mountains/area5",

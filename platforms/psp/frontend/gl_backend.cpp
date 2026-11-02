@@ -1270,7 +1270,9 @@ private:
     int shadow_zone_{-1}, shadow_zone_next_{-1}, shadow_zone_votes_{}; // the zone the game is in, and the one that may follow it
     int shadow_floor_zone_{-1};        // the zone shadow_floor_ was taken in
     float shadow_floor_{};             // the height of the ground in it, from the world's origin: the hunter's feet on arrival
-    std::vector<std::uint32_t> shadow_zone_triangles_;
+    std::vector<std::uint32_t> shadow_zone_triangles_; // how many textures of each zone are on the screen
+    std::vector<int> shadow_zone_totals_;              // and how many it has
+    std::vector<std::pair<int, std::uint64_t>> shadow_zone_seen_;
     std::vector<GpuVertex> batch_;
     std::vector<Origin> batch_origins_; // frame interpolation: one per vertex of batch_
     // Projected shadows (LiveSettings says what the player can change). MHF_SHADOW_REACH, _BIAS, _DROP and _SOFT, read once,
@@ -1329,7 +1331,11 @@ bool GlBackend::init() {
         shadow_list_solid_.insert(live_->shadow_solid_textures.begin(), live_->shadow_solid_textures.end());
         shadow_list_cave_.insert(live_->shadow_cave_textures.begin(), live_->shadow_cave_textures.end());
         shadow_zone_names_ = live_->shadow_zone_names;
-        for (const auto &[hash, zone] : live_->shadow_zone_textures) shadow_zone_by_texture_.emplace(hash, zone);
+        shadow_zone_totals_.assign(shadow_zone_names_.size(), 0);
+        for (const auto &[hash, zone] : live_->shadow_zone_textures) {
+            shadow_zone_by_texture_.emplace(hash, zone);
+            ++shadow_zone_totals_[static_cast<std::size_t>(zone)];
+        }
     }
     context_ = SDL_GL_CreateContext(window_);
     if (context_ == nullptr) {
@@ -2313,29 +2319,11 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         }
         return low[0] < 0.0f && high[0] > 0.0f && low[1] < 0.0f && high[1] > 0.0f && low[2] < 0.0f && high[2] > 0.0f;
     };
-    // Mist and fog in the air: big flat cards, alone or in pairs of triangles that make quads. Blended rock can have just as few
-    // triangles, but it is not flat. The count alone left half of the scenery out.
-    const auto air = [&](const ShadowDraw &d) {
-        if (d.listed == 1) return true; // what the game's list says beats every guess below
-        if (d.listed >= 2) return false;
-        if (d.translucent) return true;
-        const std::uint32_t triangles = d.count / 3u;
-        if (!d.blended || triangles == 0u || triangles > 24u || d.size() < 500.0f) return false;
-        const float *x = shadow_vertices_.data() + static_cast<std::size_t>(d.first) * 5u;
-        const auto normal_of = [&](std::uint32_t i, float *n) {
-            const float *t = x + static_cast<std::size_t>(i) * 15u;
-            const float e0[3] = {t[5] - t[0], t[6] - t[1], t[7] - t[2]}, e1[3] = {t[10] - t[0], t[11] - t[1], t[12] - t[2]};
-            cross(e0, e1, n);
-            return normalize(n);
-        };
-        if (triangles == 1u) return true;
-        if ((triangles & 1u) != 0u) return false;
-        for (std::uint32_t i = 0; i + 1u < triangles; i += 2u) {
-            float n0[3], n1[3];
-            if (!normal_of(i, n0) || !normal_of(i + 1u, n1)) return false;
-            if (std::fabs(n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2]) < 0.995f) return false;
-        }
-        return true;
+    // Mist and fog in the air: what the game's list names, and textures that are mostly clear. Rock can be a single opaque
+    // triangle too, so no shape tells them apart.
+    const auto air = [](const ShadowDraw &d) {
+        if (d.listed == 1) return true;
+        return d.listed < 2 && d.translucent;
     };
     // The ground: flat pieces overlap a little, with thin upright strips along their seams, and each would cast a thin line on
     // the next. So what lies low and is flat or a strip does not cast. High up the same shapes are ledges and tops of rock,
@@ -2476,20 +2464,29 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             std::fprintf(stderr, "[shadow] %s a cave (%d of 9 points under rock): whole map shadows %s\n", under_rock ? "in" : "out of", count, under_rock ? "off" : "on");
         }
     }
-    // Where the game is, from the texture pack: the zone most of the scenery's triangles belong to, once it has held for a while
-    // (the images all around the screen settle over a few pictures after a zone loads).
-    shadow_zone_triangles_.assign(shadow_zone_names_.size(), 0u);
+    // Where the game is: the zone with the largest share of its own textures on the screen, once that has held for a while. Not
+    // the one with the most triangles: a zone with few textures of its own loses to a neighbour it shares its pieces with.
+    shadow_zone_seen_.clear();
     for (const ShadowDraw &d : shadow_draws_) {
-        if (d.zone >= 0 && d.target == rt.address) shadow_zone_triangles_[static_cast<std::size_t>(d.zone)] += d.count / 3u;
+        if (d.zone >= 0 && d.target == rt.address) shadow_zone_seen_.emplace_back(d.zone, d.texture_hash);
     }
+    std::sort(shadow_zone_seen_.begin(), shadow_zone_seen_.end());
+    shadow_zone_seen_.erase(std::unique(shadow_zone_seen_.begin(), shadow_zone_seen_.end()), shadow_zone_seen_.end());
+    shadow_zone_triangles_.assign(shadow_zone_names_.size(), 0u);
+    for (const auto &[zone, hash] : shadow_zone_seen_) ++shadow_zone_triangles_[static_cast<std::size_t>(zone)];
     // A map's "base" folder may also hold what its zones share, so it only counts when nothing of a numbered zone is on the screen.
     int zone_now = -1;
+    float zone_share = 0.0f;
     for (int pass = 0; pass < 2 && zone_now < 0; ++pass) {
         for (std::size_t i = 0; i < shadow_zone_triangles_.size(); ++i) {
             const std::string &name = shadow_zone_names_[i];
             const bool base = name.size() > 5u && name.compare(name.size() - 5u, 5u, "/base") == 0;
             if (base != (pass == 1) || shadow_zone_triangles_[i] == 0u) continue;
-            if (zone_now < 0 || shadow_zone_triangles_[i] > shadow_zone_triangles_[static_cast<std::size_t>(zone_now)]) zone_now = static_cast<int>(i);
+            const float share = static_cast<float>(shadow_zone_triangles_[i]) / static_cast<float>(std::max(1, shadow_zone_totals_[i]));
+            if (share > zone_share) {
+                zone_share = share;
+                zone_now = static_cast<int>(i);
+            }
         }
     }
     if (zone_now == shadow_zone_) {
@@ -2500,7 +2497,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         if (shadow_zone_votes_ >= 15) {
             shadow_zone_ = zone_now;
             shadow_zone_votes_ = 0;
-            std::fprintf(stderr, "[shadow] zone %s\n", shadow_zone_names_[static_cast<std::size_t>(zone_now)].c_str());
+            std::fprintf(stderr, "[shadow] zone %s (%.0f%% of its textures)\n", shadow_zone_names_[static_cast<std::size_t>(zone_now)].c_str(), zone_share * 100.0f);
         }
     }
     if (shadow_zone_ >= 0) {
@@ -2541,7 +2538,8 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                     const std::size_t at = (static_cast<std::size_t>(d.first) + v) * 5u;
                     const float *t = shadow_vertices_.data() + at;
                     // The pieces of sand cross each other: slopes low down would cast along those lines.
-                    if (low_ground(t) && (strip_or_flat(t) != 0 || gentle_ground(t, 0.6f))) continue;
+                    // Rock the game's list names is never ground, however low and flat.
+                    if (d.listed != 2 && low_ground(t) && (strip_or_flat(t) != 0 || gentle_ground(t, 0.6f))) continue;
                     shadow_vertices_.resize(shadow_vertices_.size() + 15u);
                     std::copy_n(shadow_vertices_.begin() + static_cast<std::ptrdiff_t>(at), 15, shadow_vertices_.end() - 15);
                 }
@@ -2625,7 +2623,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                 const float *t = shadow_vertices_.data() + static_cast<std::size_t>(v) * 5u;
                 if (strip_or_flat(t) == 1 || buried_wall(t)) continue;
                 // Gentle slopes are sand low down and faces of rock high up: their shade comes in with the height, with no edge.
-                if (gentle_ground(t, 0.6f)) {
+                if (d.listed != 2 && gentle_ground(t, 0.6f)) {
                     for (int k = 0; k < 3; ++k) {
                         const float x = std::clamp((height_of(t + 5 * k) - feet - 300.0f) / 600.0f, 0.0f, 1.0f);
                         r[k] = 1.0f - (1.0f - r[k]) * x * x * (3.0f - 2.0f * x);
