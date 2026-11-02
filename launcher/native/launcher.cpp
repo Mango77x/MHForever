@@ -5,6 +5,7 @@
 #include "host/padmap.hpp"
 #include "install/data_dir.hpp"
 #include "install/installer.hpp"
+#include "overlay/song_panel.hpp"
 #include "iso9660.hpp"
 #include "param_sfo.hpp"
 #include "platform.hpp"
@@ -124,6 +125,8 @@ Json default_settings() {
     s["fps"] = 30; // output rate: the game's own 30, or a multiple of it up to 180 (in-between pictures)
     s["hudSize"] = 100; // the quest HUD's size in percent, 50..100 in steps of 10
     s["trueWeaponValues"] = false; // menus show attack and element without the game's display multipliers
+    s["hornSongs"] = false; // the hunting horn's songs over the quest HUD
+    s["hornSongsPlace"] = "next-to-sheet"; // and where: a place's name, or "custom:X,Y" (overlay/song_panel.hpp)
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
     s["checkUpdates"] = true; // ask GitHub for a newer release when the launcher starts
     s["musicVolume"] = 100;
@@ -805,7 +808,7 @@ Json Launcher::state() {
 void Launcher::import_game_controls() {
     std::error_code ec;
     if (!fs::is_regular_file(controls_file(), ec)) return;
-    Json keys, pad, room, server, music, sfx;
+    Json keys, pad, room, server, music, sfx, song_place;
     {
         std::ifstream in(controls_file());
         for (std::string line; std::getline(in, line);) {
@@ -826,6 +829,8 @@ void Launcher::import_game_controls() {
                 int value = 0;
                 const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
                 if (error == std::errc{} && end == text.data() + text.size()) (name == "music-volume" ? music : sfx) = value;
+            } else if (name == "horn-songs-place") { // where the game's Video tab put the hunting horn's songs (or dragged them)
+                song_place = text;
             } else if (name == "padmap") {
                 const host::PadBindings parsed = host::parse_padmap(text);
                 for (const std::string_view action : host::kPadActions) {
@@ -841,6 +846,7 @@ void Launcher::import_game_controls() {
     if (server.is_string() && !server.as_string().empty()) partial["adhocServer"] = server; // the game never turns online play off
     if (music.is_number()) partial["musicVolume"] = music; // apply_settings keeps them within 0..100
     if (sfx.is_number()) partial["sfxVolume"] = sfx;
+    if (song_place.is_string()) partial["hornSongsPlace"] = song_place; // apply_settings checks the name
     {
         std::lock_guard lock(mutex_);
         const CatalogEntry *entry = nullptr;
@@ -906,8 +912,11 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     if (partial["hudSize"].is_number()) { // the in-game menu's steps: 50, 60, ... 100
         s["hudSize"] = std::clamp(std::round(partial["hudSize"].as_number() / 10.0), 5.0, 10.0) * 10.0;
     }
-    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues"}) {
+    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "hornSongs"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
+    }
+    if (partial["hornSongsPlace"].is_string() && overlay::parse_song_spot(partial["hornSongsPlace"].as_string())) {
+        s["hornSongsPlace"] = partial["hornSongsPlace"];
     }
     if (partial["copyImage"].is_bool()) launcher_settings["copyImage"] = partial["copyImage"];
     if (partial["checkUpdates"].is_bool()) launcher_settings["checkUpdates"] = partial["checkUpdates"];
@@ -1222,6 +1231,13 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back(num("hudSize"));
     }
     if (s["trueWeaponValues"].as_bool()) plan.args.push_back("--true-weapon-values");
+    if (s["hornSongs"].as_bool()) {
+        plan.args.push_back("--horn-songs");
+        if (s["hornSongsPlace"].is_string()) {
+            plan.args.push_back("--horn-songs-place");
+            plan.args.push_back(s["hornSongsPlace"].as_string());
+        }
+    }
     if (s["texturePackEnabled"].is_bool() && s["texturePackEnabled"].as_bool() && s["texturePack"].is_string()) {
         // This copy's pack, used only while its folder is still there (a pack used where it is may have moved).
         std::error_code pack_ec;

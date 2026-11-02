@@ -4,7 +4,7 @@ import { api, regionTag, selectedGame, type SaveImportResult, type SaveScan, typ
 import { CopyIcon } from './icons';
 import { OnlineSettings } from './OnlineSettings';
 import { TexturePackSection } from './TexturePack';
-import { frameRates, hudSizes, resolutions } from './format';
+import { frameRates, hudSizes, resolutions, songPlaces } from './format';
 import { setNavigationPaused } from './gamepad';
 import { keyGroups, keyLabel, reservedKeys } from './keys';
 import { anySourcePressed, assignSource, padGroups, padLabel, pressedSource, stickChoices } from './pad';
@@ -499,6 +499,24 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
             ))}
           </div>
         </div>
+      </motion.div>
+      <motion.div className="glass section" {...rise(0.065)}>
+        <h3>Game</h3>
+        <div className="srow">
+          <div className="slabel"><b>Show hunting horn songs</b><span>Optional enhancement: in quests with a hunting horn, the songs it can play are listed on screen, the one being played lights up and the ones in effect turn green. Off is faithful to the original.</span></div>
+          <Toggle on={s.hornSongs ?? false} onToggle={() => onChange({ hornSongs: !(s.hornSongs ?? false) })} label="Show hunting horn songs" />
+        </div>
+        {s.hornSongs && (
+          <div className="srow">
+            <div className="slabel"><b>Hunting horn songs position</b><span>{(s.hornSongsPlace ?? '').startsWith('custom:') ? 'A spot of your own, moved in the game. Pick one of these to use it instead.' : "Where the list is shown, out of the way of the game's HUD. In the game, Esc > Game moves it too, anywhere you like."}</span></div>
+            <div className="seg wide" role="radiogroup" aria-label="Hunting horn songs position" style={{ '--n': songPlaces.length } as CSSProperties}>
+              {!(s.hornSongsPlace ?? '').startsWith('custom:') && <span className="pill" style={{ transform: `translateX(${Math.max(0, songPlaces.findIndex((p) => p.id === (s.hornSongsPlace ?? 'next-to-sheet'))) * 100}%)` }} />}
+              {songPlaces.map((p) => (
+                <button key={p.id} className={(s.hornSongsPlace ?? 'next-to-sheet') === p.id ? 'on' : ''} role="radio" aria-checked={(s.hornSongsPlace ?? 'next-to-sheet') === p.id} onClick={() => onChange({ hornSongsPlace: p.id })}>{p.label}</button>
+              ))}
+            </div>
+          </div>
+        )}
       </motion.div>
       <motion.div className="glass section" {...rise(0.07)}>
         <h3>Texture pack</h3>

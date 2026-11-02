@@ -204,6 +204,30 @@ int main(int argc, char **argv) {
         true_values["trueWeaponValues"] = "no";
         l.set_settings(true_values);
         CHECK(l.state()["settings"]["trueWeaponValues"].as_bool());
+        // Hunting horn songs: off by default, a bool turns them on, anything else is ignored.
+        CHECK(!l.state()["settings"]["hornSongs"].as_bool(true));
+        Json horn;
+        horn["hornSongs"] = true;
+        l.set_settings(horn);
+        CHECK(l.state()["settings"]["hornSongs"].as_bool());
+        horn["hornSongs"] = "no";
+        l.set_settings(horn);
+        CHECK(l.state()["settings"]["hornSongs"].as_bool());
+        // Their place: next to the horn's note sheet by default, one of the known names, anything else ignored.
+        CHECK(l.state()["settings"]["hornSongsPlace"].as_string() == "next-to-sheet");
+        Json place;
+        place["hornSongsPlace"] = "bottom-left";
+        l.set_settings(place);
+        CHECK(l.state()["settings"]["hornSongsPlace"].as_string() == "bottom-left");
+        place["hornSongsPlace"] = "middle";
+        l.set_settings(place);
+        CHECK(l.state()["settings"]["hornSongsPlace"].as_string() == "bottom-left");
+        place["hornSongsPlace"] = "custom:120,200"; // dragged there in the game
+        l.set_settings(place);
+        CHECK(l.state()["settings"]["hornSongsPlace"].as_string() == "custom:120,200");
+        place["hornSongsPlace"] = "custom:900,20"; // off the screen
+        l.set_settings(place);
+        CHECK(l.state()["settings"]["hornSongsPlace"].as_string() == "custom:120,200");
         CHECK(s["pseudonym"].as_string() == "RathalosSlayer");
 
         // Keyboard bindings: defaults, a change, a button left without a key, and input the launcher ignores.
