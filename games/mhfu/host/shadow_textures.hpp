@@ -29,6 +29,7 @@ inline constexpr std::uint64_t kShadowSolidTextures[] = {
 
 // The zones that are caves.
 inline constexpr const char *kShadowCaveZones[] = {
+    "areas/hunting/desert/base",
     "areas/hunting/desert/area4",         "areas/hunting/desert/area6",         "areas/hunting/desert/area10",
     "areas/hunting/jungle/area6",         "areas/hunting/jungle/area7",         "areas/hunting/jungle/area8",
     "areas/hunting/snowy_mountains/area3", "areas/hunting/snowy_mountains/area4", "areas/hunting/snowy_mountains/area5",
