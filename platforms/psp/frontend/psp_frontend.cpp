@@ -447,7 +447,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing
 };
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
 
@@ -724,6 +724,34 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         overlay::MenuItem pack = menu_item(Kind::Toggle, kTexturePack, "Texture pack", impl.live.texture_pack ? 1 : 0);
         pack.detail = "Off draws the game's own textures again.";
         video.items.push_back(pack);
+    }
+    overlay::MenuItem shadow = menu_item(Kind::Toggle, kShadow, "Projected shadows", impl.live.shadow ? 1 : 0);
+    shadow.detail = "The hunter, monsters, rocks and plants cast shadows on the ground. Experimental.";
+    video.items.push_back(shadow);
+    if (impl.live.shadow) { // its settings unfold under the switch while it is on
+        overlay::MenuItem whole = menu_item(Kind::Toggle, kShadowWholeMap, "Whole map shadows", impl.live.shadow_whole_map ? 1 : 0);
+        whole.detail = "The scenery casts shadows too, and sides turned away from the sun go dark. Off: only objects cast.";
+        video.items.push_back(whole);
+        video.items.push_back(menu_item(Kind::Slider, kShadowStrength, "Shadow darkness", static_cast<int>(impl.live.shadow_strength * 100.0f + 0.5f)));
+        // The largest object that casts: 30 * 1.05^value, about 30 to 39000 world units.
+        const int largest = std::clamp(static_cast<int>(std::log(std::max(impl.live.shadow_max_object.load(), 30.0f) / 30.0f) / std::log(1.05f) + 0.5f), 0, 100);
+        overlay::MenuItem size = menu_item(Kind::Slider, kShadowMaxObject, "Largest shadow object", largest);
+        size.detail = "Lower it if scenery casts shadows, raise it if a big rock or tree does not.";
+        video.items.push_back(size);
+        const float piece_size = impl.live.shadow_max_piece;
+        const int piece_value = piece_size <= 0.0f ? 0 : std::clamp(static_cast<int>(std::log(std::max(piece_size, 30.0f) / 30.0f) / std::log(1.05f) + 0.5f), 1, 100);
+        overlay::MenuItem piece = menu_item(Kind::Slider, kShadowMaxPiece, "Largest scenery piece", piece_value);
+        piece.detail = "Raise it for tall trunks that are part of the map. All the way down: none.";
+        video.items.push_back(piece);
+        overlay::MenuItem show = menu_item(Kind::Toggle, kShadowShow, "Show what casts", impl.live.shadow_show ? 1 : 0);
+        show.detail = "Paints characters green, objects and leaves yellow, trunks blue; left out: haze magenta, backdrops cyan, shells white, the rest red.";
+        video.items.push_back(show);
+        overlay::MenuItem only_cast = menu_item(Kind::Toggle, kShadowOnlyCast, "Test: only cast shadows", impl.live.shadow_part == 1 ? 1 : 0);
+        only_cast.detail = "For finding faults: leaves out the shade of sides turned away from the sun.";
+        video.items.push_back(only_cast);
+        overlay::MenuItem only_facing = menu_item(Kind::Toggle, kShadowOnlyFacing, "Test: only side shade", impl.live.shadow_part == 2 ? 1 : 0);
+        only_facing.detail = "For finding faults: leaves out the shadows that fall on things.";
+        video.items.push_back(only_facing);
     }
     overlay::MenuTab controls{"Controls", {menu_item(Kind::Heading, 0, "Keyboard")}, "Click a key or a button, then press the new one."};
     for (std::size_t i = 0; i < host::kKeyActions.size(); ++i) {
@@ -1073,6 +1101,23 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         case kFullscreen: impl.host.toggle_fullscreen(); break;
         case kSmooth: impl.live.smooth_textures = e.value != 0; break;
         case kTexturePack: impl.live.texture_pack = e.value != 0; break;
+        case kShadow:
+            impl.live.shadow = e.value != 0;
+            refresh_menu(impl); // the sliders under it appear or go
+            break;
+        case kShadowStrength: impl.live.shadow_strength = static_cast<float>(std::clamp(e.value, 0, 100)) / 100.0f; break;
+        case kShadowMaxObject: impl.live.shadow_max_object = 30.0f * std::pow(1.05f, static_cast<float>(std::clamp(e.value, 0, 100))); break;
+        case kShadowMaxPiece: impl.live.shadow_max_piece = e.value <= 0 ? 0.0f : 30.0f * std::pow(1.05f, static_cast<float>(std::min(e.value, 100))); break;
+        case kShadowWholeMap: impl.live.shadow_whole_map = e.value != 0; break;
+        case kShadowOnlyCast:
+            impl.live.shadow_part = e.value != 0 ? 1 : 0;
+            refresh_menu(impl);
+            break;
+        case kShadowOnlyFacing:
+            impl.live.shadow_part = e.value != 0 ? 2 : 0;
+            refresh_menu(impl);
+            break;
+        case kShadowShow: impl.live.shadow_show = e.value != 0; break;
         case kScale:
             impl.render_scale = e.value + 1;
             impl.live.scale = impl.render_scale; // the drawing thread applies it at the next picture

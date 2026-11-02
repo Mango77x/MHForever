@@ -44,6 +44,21 @@ struct LiveSettings {
     // the pack's folder (empty: none, or MHF_TEXTURE_PACK) and the release it is drawn for ("ULES01213").
     std::atomic<bool> texture_pack{true};
     std::string texture_pack_folder, texture_pack_game;
+    // Projected shadows (enhancement): on or off while the game runs and how dark they are (0..1). Skinned draws (the hunter, the
+    // monsters) always cast; anything else casts if the object is at most shadow_max_object long (world units), which leaves
+    // the scenery out. Inside the scenery, slender solid pieces up to shadow_max_piece cast too (trunks, posts; 0: none),
+    // and so do leaves and fronds. shadow_show paints what casts over the picture. MHF_SHADOW=1, MHF_SHADOW_STRENGTH,
+    // MHF_SHADOW_MAX_OBJECT, MHF_SHADOW_MAX_PIECE and MHF_SHADOW_SHOW=1 set the values the game starts with.
+    // shadow_whole_map (MHF_SHADOW_WHOLE_MAP=0 starts with it off): all the solid scenery casts too, and surfaces turned away
+    // from the sun are shaded; the size limits below then apply only to leaves.
+    std::atomic<bool> shadow{false};
+    std::atomic<bool> shadow_whole_map{true};
+    // For finding faults: 0 everything, 1 only the shadows that fall on things, 2 only the shade of sides turned from the sun.
+    std::atomic<int> shadow_part{0};
+    std::atomic<float> shadow_strength{0.5f};
+    std::atomic<float> shadow_max_object{1000.0f};
+    std::atomic<float> shadow_max_piece{400.0f};
+    std::atomic<bool> shadow_show{false};
 };
 
 // Creates the context on the calling thread. Returns nullptr (after logging why) when OpenGL 3.3 is unavailable.
