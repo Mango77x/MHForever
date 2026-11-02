@@ -763,22 +763,34 @@ overlay::MenuView menu_confirm_quit(const Frontend::Impl &impl) {
     return v;
 }
 
-// Applies the bindings at once and, when the launcher asked for it, writes them where it will find them: the player's
-// choice then survives the session (the launcher folds the file into its settings).
-void apply_bindings(Frontend::Impl &impl) {
-    impl.host.set_keymap(impl.keys);
-    impl.host.set_padmap(impl.pad);
+// When the launcher asked for it, writes what the player chose in the menu (bindings, volumes, room) where it will find
+// it: the choice then survives the session (the launcher folds the file into its settings).
+void save_controls(const Frontend::Impl &impl) {
     if (impl.controls_file.empty()) return;
     std::error_code ec;
     const std::filesystem::path temp = impl.controls_file.string() + ".tmp";
     {
         std::ofstream out(temp, std::ios::trunc);
         out << "keymap=" << host::format_keymap(impl.keys) << "\npadmap=" << host::format_padmap(impl.pad) << "\n";
+        out << "music-volume=" << impl.music_volume << "\nsfx-volume=" << impl.sfx_volume << "\n";
         if (impl.room_known) out << "room=" << impl.room << "\n" << "server=" << impl.server << "\n"; // the launcher offers them next time
         if (!out) return;
     }
     std::filesystem::rename(temp, impl.controls_file, ec); // replaces the previous file in one step
     if (ec) std::fprintf(stderr, "[frontend] could not save the controls: %s\n", ec.message().c_str());
+}
+
+// Applies the bindings at once and saves them for the launcher.
+void apply_bindings(Frontend::Impl &impl) {
+    impl.host.set_keymap(impl.keys);
+    impl.host.set_padmap(impl.pad);
+    save_controls(impl);
+}
+
+// Applies the volumes at once and saves them for the launcher, which otherwise starts the game with its own again.
+void apply_volumes(Frontend::Impl &impl, Runtime &rt) {
+    rt.set_volumes(impl.music_volume, impl.sfx_volume);
+    save_controls(impl);
 }
 
 // Shows the menu's main view again.
@@ -1068,8 +1080,8 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         return true;
     case overlay::Menu::Event::Kind::Changed:
         switch (e.id) {
-        case kMusic: impl.music_volume = e.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); break;
-        case kSfx: impl.sfx_volume = e.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); break;
+        case kMusic: impl.music_volume = e.value; apply_volumes(impl, rt); break;
+        case kSfx: impl.sfx_volume = e.value; apply_volumes(impl, rt); break;
         case kFullscreen: impl.host.toggle_fullscreen(); break;
         case kSmooth: impl.live.smooth_textures = e.value != 0; break;
         case kTexturePack: impl.live.texture_pack = e.value != 0; break;
