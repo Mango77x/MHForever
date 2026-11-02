@@ -103,7 +103,8 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   copy, passed as `--horn-songs`) lists the songs the hunter's horn can play over the quest HUD (`06-mhfu-module.md` §9).
   Its position (`hornSongsPlace`, `--horn-songs-place`): next to the horn's note sheet (default), top middle, under the
   name plates, bottom left, or `custom:X,Y`. The in-game menu's Game tab picks the position or drags the list anywhere;
-  the game writes the choice to the controls file and the launcher keeps it.
+  the game writes the choice to the controls file and the launcher keeps it. The same Game section holds **Show true weapon
+  values** (`trueWeaponValues`, `--true-weapon-values`): the game's options live there, Video keeps the picture's.
 - **Updates (2026-10-29)**: when the launcher starts (Settings > About > Check for updates, on by default) it asks GitHub for
   the latest release; when it is newer, Home offers "Update now". The launcher downloads the archive for its system with the
   system's `curl`, checks it against the SHA-256 GitHub computes for every release asset (nothing to publish besides the
