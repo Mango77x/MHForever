@@ -75,11 +75,12 @@ constexpr bool kTrueWeaponValuesMapped =
                         [](const std::optional<std::uint32_t> &zero) { return zero.has_value(); });
 
 // True when the byte at `zero` is the "0" that ends a "%<digit>d0" format: the loaded language's text is there, not
-// another language's (and not one this function already cut short).
+// another language's (and not one this function already cut short). The "0" must be the format's last character, so
+// cutting it never drops more text.
 bool is_value_format_zero(const psprecomp::GuestMemory &memory, std::uint32_t zero) {
     const std::uint8_t width = memory.load8(zero - 2u);
     return memory.load8(zero - 3u) == '%' && width >= '0' && width <= '9' && memory.load8(zero - 1u) == 'd' &&
-           memory.load8(zero) == '0';
+           memory.load8(zero) == '0' && memory.load8(zero + 1u) == 0;
 }
 
 // Menus show a weapon's attack multiplied by its class's display multiplier / 100, and print a "0" after element
