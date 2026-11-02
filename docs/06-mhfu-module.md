@@ -80,6 +80,9 @@ language, since the game loads the chosen language's menu text at its own place.
 0x120 higher; the JP map holds them for its one language (`_ja`). Host code reads
 `[data]` entries through the generated `mhfu_region_data.hpp` (`04-recompiler.md` §6); a folder generated before that
 header existed needs `prepare.py` run again (unchanged files are not rewritten).
+All three maps also hold the data entries of the hunting horn songs (§9): the game's state and player manager, the
+blademaster weapon table and the class of each weapon model, the colours of the horns' 20 note sets, and the 47 songs (in
+`game_task.ovl`, read only while that overlay is loaded).
 The US map (`regions/ULUS10391/`) holds the entry point, the overlay loader and the overlay manifest; the JP map (`regions/ULJM05500/`) holds the same three files (2026-10-29).
 
 **US release (ULUS10391, measured 2026-10-26).** Up to the overlay manager the code sits where it does in EU; from there on
@@ -137,6 +140,7 @@ The EU version is probably multilingual (EN/FR/DE/ES/IT) and picks the language 
 | Texture filtering / MSAA | Low | Renderer. Bilinear option done (`--smooth-textures`); MSAA not |
 | Widescreen 16:9 / 16:10 (Deck) | Medium | Projection + HUD; HUD may stretch |
 | True weapon values | Done (EU, US, JP) | Menus show attack and element without the display multipliers (`--true-weapon-values`, launcher setting). Data writes on every host poll, the element ones only where the loaded language's format is (checked in every language of the three releases, 2026-11-02); damage is untouched |
+| Hunting horn songs | Done | The songs the hunter's horn can play, over the quest HUD (`--horn-songs`, launcher setting): the game's own tables give the horn's notes and the songs (`horn_songs.cpp`), the notes just played light up the song under way and the next note, and a song whose effect is on turns green (the player's effect timers). Placed next to the horn's note sheet by default, at three other places, or dragged anywhere from the in-game menu's Game tab (`--horn-songs-place`). Song names are English in every release for now |
 | Right-stick camera | Medium | Level 1 (stick → D-pad, `07`) done. Level 2: hook the camera function |
 | 60 fps | Done (0.2.0, experimental) | Renderer-side frame interpolation, 60 to 180 fps (`--fps`, launcher setting, `05` §6). Game logic stays at 30 fps, so timing and multiplayer sync are untouched; a real 60 fps logic would still need a timer study |
 | Button icons per controller | Medium | Replace button textures at runtime with our own art |

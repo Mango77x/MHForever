@@ -4,6 +4,7 @@
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
 //             [--smooth-textures] [--fps 30..180] [--hud-size 50-100] [--true-weapon-values]
+//             [--horn-songs [--horn-songs-place next-to-sheet|top-middle|under-names|bottom-left|custom:X,Y]]
 //             [--music-volume 0-100] [--sfx-volume 0-100]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
 //             [--controls-file <path>]
@@ -33,6 +34,7 @@
 #include <functional>
 
 #if defined(MHF_HAS_FRONTEND)
+#include "horn_songs.hpp"
 #include "psp_frontend.hpp"
 #endif
 #include <cstdlib>
@@ -235,6 +237,8 @@ int main(int argc, char **argv) {
     int target_fps = 30; // --fps N: 30 (the game's own rate) or a multiple of it up to 180
     int hud_size = 100; // --hud-size N: the quest HUD's size in percent (enhancement)
     bool true_weapon_values = false; // --true-weapon-values: menus show attack and element without display multipliers
+    bool horn_songs = false; // --horn-songs: the hunting horn's songs over the quest HUD (enhancement)
+    std::string horn_songs_place = "next-to-sheet"; // --horn-songs-place: where (overlay/song_panel.hpp, parse_song_spot)
     mhf::host::KeyBindings keyboard; // --keymap: the launcher's keyboard bindings
     mhf::host::PadBindings controller; // --padmap: the launcher's controller bindings
     std::string controls_file;         // --controls-file: where the in-game menu writes the bindings the player changes
@@ -261,6 +265,8 @@ int main(int argc, char **argv) {
         else if (a == "--fps" && i + 1 < argc) target_fps = std::clamp(std::stoi(argv[++i]), 30, 180); // enhancement
         else if (a == "--hud-size" && i + 1 < argc) hud_size = std::clamp(std::stoi(argv[++i]), 50, 100); // enhancement
         else if (a == "--true-weapon-values") true_weapon_values = true; // enhancement, off by default
+        else if (a == "--horn-songs") horn_songs = true; // enhancement
+        else if (a == "--horn-songs-place" && i + 1 < argc) horn_songs_place = argv[++i];
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--sfx-volume" && i + 1 < argc) options.sfx_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--keymap" && i + 1 < argc) keyboard = mhf::host::parse_keymap(argv[++i]);
@@ -362,6 +368,18 @@ int main(int argc, char **argv) {
             frontend.set_friends_files(friends_file, friend_actions_file);
             if (!texture_pack.empty()) frontend.set_texture_pack(texture_pack, disc_product_code(options.disc_image));
             frontend.set_hud(hud_size);
+            if (horn_songs) {
+                // The horn's songs over the quest HUD, read from the game a few times a second (horn_songs.hpp).
+                frontend.set_song_spot(mhf::overlay::parse_song_spot(horn_songs_place).value_or(mhf::overlay::SongSpot{}));
+                extra = [&frontend, rt = &runtime, songs = mhf::mhfu::HornSongs{}, read_at = std::uint64_t{0},
+                         previous = std::move(extra)]() mutable {
+                    if (const std::uint64_t now = rt->now_us(); now - read_at >= 50'000) {
+                        read_at = now;
+                        frontend.set_song_panel(songs.read(*rt));
+                    }
+                    if (previous) previous();
+                };
+            }
             frontend.attach(runtime, extra);
         } else if (window) {
             // A player asked for a window: never keep running invisibly.
@@ -376,6 +394,8 @@ int main(int argc, char **argv) {
         (void)controls_file;
         (void)friends_file;
         (void)friend_actions_file;
+        (void)horn_songs;
+        (void)horn_songs_place;
         if (window) std::fprintf(stderr, "[mhfu] built without the SDL frontend; running headless\n");
         if (extra) runtime.kernel_host_poll(extra);
 #endif

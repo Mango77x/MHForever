@@ -29,6 +29,14 @@ mh_element_value_format_zero_es = 0x089CF162 # u8
 mh_dual_element_value_zero_es   = 0x089CF179 # u8
 mh_element_value_format_zero_it = 0x089CF115 # u8
 mh_dual_element_value_zero_it   = 0x089CF12D # u8
+# The hunting horn's songs (games/mhfu/host/horn_songs.cpp; found 2026-11-02 from the code that plays a note, and checked
+# in a quest). Struct offsets used with these are the same in the three releases (see horn_songs.cpp).
+mh_game_sys             = 0x089CC438 # GameSys*: the hunter's equipment, which player this machine plays
+mh_player_manager       = 0x09A4F0C4 # PlayerManager*: the Player* of each player slot
+mh_blademaster_weapons  = 0x08959FCC # 24 bytes per blademaster weapon id: model id u16 at +0x00, a horn's note set u8 at +0x13
+mh_weapon_model_classes = 0x08978488 # u8 per weapon model id: its weapon class (8 = hunting horn)
+mh_horn_note_colors     = 0x089B7E18 # u8[20][3]: the colour of notes 1-3 for each of the horns' 20 note sets
+mh_horn_songs           = 0x09C0BC38 # u8[47][4] in game_task.ovl: each song's notes, newest first (see horn_songs.cpp)
 
 [offsets]
 system_active_overlays  = 0x00F7A580 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none)

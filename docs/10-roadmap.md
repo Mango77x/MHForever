@@ -148,6 +148,8 @@ Done too: 60 to 180 fps by frame interpolation (`--fps`, launcher setting; `05-r
 Done too: HD texture packs in PPSSPP's format, one per copy of the game, in Game settings (0.8.2; `05-runtime-hle.md`, texture packs).
 Done too: true weapon values in menus, attack and element without the display multipliers (`--true-weapon-values`,
 launcher setting; `06-mhfu-module.md` §9).
+Done too: the hunting horn's songs over the quest HUD, from the game's own tables, with the song being played and the songs
+in effect marked (`--horn-songs`, launcher setting; `06-mhfu-module.md` §9). Song names in the game's own languages are pending.
 Done too: an in-game menu on Escape (pause, blurred full-screen backdrop, tabs, mouse, controller) that changes the volumes,
 internal resolution (1x to 10x), frame rate, fullscreen and texture smoothing while playing (`07-launcher-ux.md` §3c).
 Done too: the keyboard bindings are chosen in the launcher (Settings → Controls; `07-launcher-ux.md` §5), and so are the
