@@ -438,7 +438,9 @@ visited areas until the map is taken from the supply box); then the item bar in 
 toward its corner: its vertices and its scissor are scaled about that corner, its texture is filtered so the art does
 not shimmer, and clamped when the draw stays inside it (a repeating texture keeps repeating). Everything else (menus,
 the village, the start screens) is drawn as the game draws it. `MHF_HUD_LOG=1` describes the 2D draws of every 300th
-flip, and any flip with something in the clock's corner where no HUD was found.
+flip, and any flip with something in the clock's corner where no HUD was found. The renderer also tells the frontend, flip by
+flip, whether it found the quest HUD (`LiveSettings::quest_hud`): the hunting horn songs are shown only then, placed out of
+the HUD's way at its size (`psp_frontend.cpp`, `song_anchor`).
 
 Scaling the menus too was tried and dropped: the game hands over loose 2D draws only, nothing says which belong to one
 panel or which corner a panel hangs from, and every rule that guessed it from positions pulled some menu apart or made

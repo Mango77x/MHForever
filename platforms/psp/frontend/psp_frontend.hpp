@@ -4,11 +4,13 @@
 // mixed audio. Used by the game executables and the homebrew runner when a window is wanted.
 
 #include "mhf/psp/runtime.hpp"
+#include "overlay/song_panel.hpp"
 
 // host/keymap.hpp and host/padmap.hpp are not included here on purpose: the PSP runtime and the homebrew runners include this
 // header without the SDL host's include directories. The keyboard and controller bindings travel as templates instead.
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace mhf::psp {
@@ -47,6 +49,14 @@ public:
     // The quest HUD's size in percent, 50..100 (gl_backend.hpp, LiveSettings). The Video tab of the in-game menu
     // changes it while playing.
     void set_hud(int size);
+    // Turns the hunting horn's songs on (an enhancement, off unless called) at the place the player chose; the Game tab
+    // of the in-game menu changes the place or lets the player drag them anywhere, and the controls file keeps the new
+    // spot for the launcher.
+    void set_song_spot(overlay::SongSpot spot);
+    // The hunting horn's songs (overlay/song_panel.hpp), from the `extra` poll: shown at their place while the game draws
+    // its quest HUD and no menu, system dialog or notice is up; std::nullopt (no horn, not in a quest) hides them. Only
+    // the OpenGL renderer finds the quest HUD, so the software renderer never shows them.
+    void set_song_panel(std::optional<overlay::SongPanel> panel);
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
     void attach(Runtime &rt, std::function<void()> extra = {});

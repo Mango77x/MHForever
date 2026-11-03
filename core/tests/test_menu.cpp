@@ -402,6 +402,25 @@ int main() {
         MHF_CHECK((notice[static_cast<std::size_t>(40 * 960 + 900)] >> 24u) != 0);    // the card
         MHF_CHECK(notice[static_cast<std::size_t>(400 * 960 + 480)] == 0u && notice[0] == 0u); // the game shows through
     }
+    // The hunting horn's songs: a card at its anchor (here its bottom left corner), the rest of the picture clear.
+    {
+        SongPanel songs;
+        songs.songs = {{"First song", {{1, 1, 1}, {1, 1, 1}}, 1, false, false}, {"Second song", {{1, 0.2f, 0.2f}}, 0, true, true}};
+        const auto [w, h] = renderer.song_panel_size(songs);
+        MHF_CHECK(w > 40.0f && h > 15.0f);
+        std::vector<std::uint32_t> card;
+        MHF_CHECK(renderer.render_song_panel(songs, 10.0f, 262.0f, 0.0f, 1.0f, 960, 544, card));
+        MHF_CHECK((card[static_cast<std::size_t>(500 * 960 + 30)] >> 24u) != 0); // the card, near the bottom left
+        MHF_CHECK(card[static_cast<std::size_t>(40 * 960 + 900)] == 0u);         // the game shows through elsewhere
+    }
+    // Where the songs go, as the launcher and the controls file write it.
+    MHF_CHECK(parse_song_spot("next-to-sheet") == SongSpot{SongPlace::next_to_sheet});
+    MHF_CHECK(SongSpot{}.place == SongPlace::next_to_sheet); // the default
+    MHF_CHECK((parse_song_spot("custom:120,200") == SongSpot{SongPlace::custom, 120, 200}));
+    MHF_CHECK(format_song_spot(SongSpot{SongPlace::custom, 7, 9}) == "custom:7,9");
+    MHF_CHECK(format_song_spot(SongSpot{SongPlace::under_names}) == "under-names");
+    MHF_CHECK(!parse_song_spot("middle") && !parse_song_spot("custom:500,10") && !parse_song_spot("custom:1") &&
+              !parse_song_spot("custom:1,2x"));
     // Without the backdrop (the display blurs the game behind it) the corners stay clear.
     MHF_CHECK(renderer.render(shown.view(), 2, pixels, false));
     MHF_CHECK(pixels[0] == 0u && pixels[pixels.size() - 1] == 0u);

@@ -46,6 +46,9 @@ struct LiveSettings {
     std::string texture_pack_folder, texture_pack_game;
     // HUD size in percent (100: as the game draws it): in quests, the HUD shrinks into the corners it sits in.
     std::atomic<int> hud_size{100};
+    // Written by the drawing thread at every flip: that flip drew the quest HUD (its clock). The hunting horn's song
+    // panel is only shown over it.
+    std::atomic<bool> quest_hud{false};
 };
 
 // Creates the context on the calling thread. Returns nullptr (after logging why) when OpenGL 3.3 is unavailable.
