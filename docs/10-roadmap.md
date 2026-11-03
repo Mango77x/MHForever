@@ -9,7 +9,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Root CMake with presets `linux-clang`, `windows-clang`, `windows-msvc`; builds and passes tests on Linux (2026-10-16)
       and on Windows (CI and the release build, 2026-10-19).
 - [x] GitHub Actions CI (content guard + build/test on Ubuntu and Windows) green on `main` since 2026-10-19.
-- [x] Content guard `scripts/check_repo_content.py` (paths, `~PSP`/PSF/ISO/PSMF signatures, MIPS ELF, size) + `.githooks/pre-commit`
+- [x] Content guard `scripts/check_repo_content.py` (paths, the images, dumps and ROMs of every console, keys and BIOS dumps, their signatures such as `~PSP`, ISO, 3DS NCSD/NCCH, Switch, Wii/GameCube, Xbox, MIPS and Wii U ELF, size) + `.githooks/pre-commit`
       (enable with `git config core.hooksPath .githooks`) (2026-10-16).
 - [x] pspdev toolchain in CI (Linux job) to build our own `homebrew/` (2026-10-16).
 - [x] Evaluate PSPRecomp, ACX recomp, N64Recomp and mhp2g-decomp (2026-10-16; summary in `04-recompiler.md` §1).

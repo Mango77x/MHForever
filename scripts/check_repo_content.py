@@ -20,6 +20,46 @@ from pathlib import Path
 
 MAX_FILE_BYTES = 2 * 1024 * 1024
 
+# File extensions of the games of every console (images, dumps, packages, ROMs), by console, as `.gitignore` lists them:
+# the self-test checks that the two agree. `.md` (Mega Drive), `.bin`, `.dat`, `.app`, `.elf` and archives are left out
+# on purpose: documents and build outputs use them.
+GAME_FILE_EXTENSIONS = (
+    # Disc images of any console (PSP, PS1, PS2, GameCube, Wii, Xbox, Saturn, Dreamcast...)
+    "iso cso zso ciso chd cue ccd mds mdf nrg img gdi cdi xiso",
+    # Sony: PSP, PS1, PS2, PS3, PS4, Vita (executables and packages)
+    "pbp ecm pkg rap edat self vpk",
+    # Microsoft: Xbox, Xbox 360 (executables)
+    "xex xbe xvd xvc",
+    # Nintendo GameCube and Wii
+    "gcm gcz rvz wia wbfs wad tgc dol",
+    # Nintendo Wii U
+    "wud wux wua rpx rpl",
+    # Nintendo Switch
+    "nsp xci nca nsz xcz nso nro pfs0",
+    # Nintendo 3DS
+    "3ds cci cxi cia cfa 3dsx",
+    # Nintendo DS, GBA, Game Boy, NES, SNES, N64
+    "nds dsi srl gba gb gbc sgb nes fds unf sfc smc swc fig z64 n64 v64 ndd",
+    # Sega, NEC, SNK, WonderSwan, Atari and generic ROMs
+    "smd sms gg 32x pce sgx ngp ngc ws wsc a26 a52 a78 lnx rom",
+)
+
+# Keys and BIOS dumps by name (they decrypt or run those games).
+KEY_AND_BIOS_PATTERNS = [
+    "*.keys",
+    "*aes_keys.txt",
+    "*boot9.bin",
+    "*boot11.bin",
+    "*otp.bin",
+    "*seeddb.bin",
+    "*scph*.bin",
+]
+
+
+def game_extensions() -> list[str]:
+    return [ext for group in GAME_FILE_EXTENSIONS for ext in group.split()]
+
+
 # Paths that must never be committed (matched against the repo-relative POSIX path).
 FORBIDDEN_PATH_PATTERNS = [
     "user_data/*",
@@ -27,10 +67,12 @@ FORBIDDEN_PATH_PATTERNS = [
     "*/generated/*",
     "generated/*",
     "*/overlays/*.bin",
-    "*.iso", "*.cso", "*.chd", "*.pbp", "*.prx.dec",
+    "*.prx.dec",
     "*eboot*.bin", "*eboot*.elf", "*boot.bin", "*data.bin", "*param.sfo",
     "*.at3", "*.pmf",
     "*.gpr", "*.rep/*",
+    *[f"*.{ext}" for ext in game_extensions()],
+    *KEY_AND_BIOS_PATTERNS,
 ]
 
 # Exceptions to FORBIDDEN_PATH_PATTERNS.
@@ -38,16 +80,59 @@ ALLOWED_PATHS = {
     "research/README.md",
 }
 
-# Content signatures of PSP game data. (offset, bytes, description)
+# Content signatures of game data, whatever the file is called. (offset, bytes, description)
 FORBIDDEN_SIGNATURES = [
+    # PSP and the other Sony consoles
     (0, b"~PSP", "encrypted PSP executable (~PSP header)"),
     (0, b"\x00PSF", "PARAM.SFO metadata"),
     (0x8001, b"CD001", "ISO9660 disc image"),
     (0, b"PSMF", "PSP movie (PSMF)"),
+    (0, b"PS-X EXE", "PlayStation executable"),
+    (0, b"SCE\x00", "PlayStation SELF executable"),
+    (0, b"\x7fPKG", "PlayStation 3 package"),
+    (0, b"\x7fCNT", "PlayStation 4 package"),
+    # Nintendo 3DS
+    (0x100, b"NCSD", "Nintendo 3DS cartridge image (CCI/3DS)"),
+    (0x100, b"NCCH", "Nintendo 3DS title (CXI/CFA)"),
+    (0, b"3DSX", "Nintendo 3DS executable (3DSX)"),
+    # Nintendo Switch
+    (0x100, b"HEAD", "Nintendo Switch cartridge image (XCI)"),
+    (0, b"PFS0", "Nintendo Switch package (NSP)"),
+    (0x200, b"NCA3", "Nintendo Switch content archive (NCA)"),
+    (0x200, b"NCA2", "Nintendo Switch content archive (NCA)"),
+    (0, b"NSO0", "Nintendo Switch executable (NSO)"),
+    (0x10, b"NRO0", "Nintendo Switch executable (NRO)"),
+    # GameCube, Wii, Wii U
+    (0x1C, b"\xc2\x33\x9f\x3d", "GameCube disc"),
+    (0x18, b"\x5d\x1c\x9e\xa3", "Wii disc"),
+    (0, b"WBFS", "Wii disc (WBFS)"),
+    (0, b"CISO", "compressed disc image (CISO)"),
+    (0, b"RVZ\x01", "Dolphin disc image (RVZ)"),
+    (0, b"WIA\x01", "Dolphin disc image (WIA)"),
+    (0, b"\x01\xc0\x0b\xb1", "GameCube disc image (GCZ)"),
+    (0, b"\x00\x00\x00\x20Is", "Wii channel (WAD)"),
+    (0, b"WUX0", "Wii U disc image (WUX)"),
+    # Xbox, Xbox 360
+    (0, b"XEX2", "Xbox 360 executable (XEX)"),
+    (0, b"XBEH", "Xbox executable (XBE)"),
+    (0x10000, b"MICROSOFT*XBOX*MEDIA", "Xbox disc image"),
+    # Handhelds and old consoles
+    (4, b"\x24\xff\xae\x51\x69\x9a\xa2\x21", "Game Boy Advance ROM"),
+    (0xC0, b"\x24\xff\xae\x51\x69\x9a\xa2\x21", "Nintendo DS ROM"),
+    (0x104, b"\xce\xed\x66\x66\xcc\x0d\x00\x0b", "Game Boy ROM"),
+    (0, b"NES\x1a", "NES ROM"),
+    (0, b"\x80\x37\x12\x40", "Nintendo 64 ROM"),
+    (0, b"\x37\x80\x40\x12", "Nintendo 64 ROM (byte-swapped)"),
+    (0, b"\x40\x12\x37\x80", "Nintendo 64 ROM (little endian)"),
+    (0x100, b"SEGA MEGA DRIVE", "Mega Drive ROM"),
+    (0x100, b"SEGA GENESIS", "Genesis ROM"),
+    (0, b"SEGA SEGASATURN", "Sega Saturn disc"),
+    (0, b"SEGA SEGAKATANA", "Dreamcast disc"),
 ]
 
 ELF_MAGIC = b"\x7fELF"
 EM_MIPS = 8
+EI_OSABI_WIIU = 0xCA  # Wii U executables (RPX/RPL) are ELF files with this OS ABI
 
 
 def is_mips_elf(head: bytes) -> bool:
@@ -56,6 +141,10 @@ def is_mips_elf(head: bytes) -> bool:
     little_endian = head[5] == 1
     machine = int.from_bytes(head[18:20], "little" if little_endian else "big")
     return machine == EM_MIPS
+
+
+def is_wiiu_elf(head: bytes) -> bool:
+    return len(head) >= 8 and head.startswith(ELF_MAGIC) and head[7] == EI_OSABI_WIIU
 
 
 def check_path(rel: str) -> str | None:
@@ -76,6 +165,8 @@ def check_content(data: bytes) -> str | None:
             return f"looks like {description}"
     if is_mips_elf(data[:64]):
         return "MIPS ELF binary (PSP executable or build output)"
+    if is_wiiu_elf(data[:64]):
+        return "Wii U executable (RPX/RPL)"
     return None
 
 
@@ -152,6 +243,28 @@ def self_test() -> int:
     x86_elf[18:20] = (62).to_bytes(2, "little")
     expect(check_content(bytes(x86_elf)) is None, "x86-64 ELF allowed")
     expect(check_content(b"a" * (MAX_FILE_BYTES + 1)) is not None, "large file blocked")
+    wiiu = bytearray(64)
+    wiiu[0:4] = ELF_MAGIC
+    wiiu[7] = EI_OSABI_WIIU
+    expect(check_content(bytes(wiiu)) is not None, "Wii U ELF blocked")
+
+    # Every console's extensions are blocked by name, in any case, and every signature by content.
+    for ext in game_extensions():
+        expect(check_path(f"x/Game.{ext.upper()}") is not None, f".{ext} blocked")
+    for name in ("Monster Hunter 4 Ultimate (Europe).cci", "prod.keys", "dump/boot9.bin", "keys/aes_keys.txt"):
+        expect(check_path(name) is not None, f"{name} blocked")
+    for offset, magic, description in FORBIDDEN_SIGNATURES:
+        data = bytearray(offset + len(magic) + 16)
+        data[offset:offset + len(magic)] = magic
+        expect(check_content(bytes(data)) is not None, f"{description} blocked by content")
+    # What the repository really holds must not be caught: documents, sources and the Mega Drive's `.md` clash.
+    for name in ("README.md", "docs/05-runtime-hle.md", "launcher/native/cli.cpp", "scripts/package_release.py", "data/table.bin",
+                 "third_party/stb/stb_image.h", "dist/PLAYER_README.txt", "assets/branding/icon-256.png"):
+        expect(check_path(name) is None, f"{name} allowed")
+    # `.gitignore` lists the same extensions: the two lists cannot drift apart.
+    ignore = (repo_root() / ".gitignore").read_text(encoding="utf-8")
+    for ext in game_extensions():
+        expect(f"*.{ext}\n" in ignore or f"*.{ext} " in ignore, f"*.{ext} is in .gitignore")
     expect(check_content(b"int main() { return 0; }\n") is None, "text allowed")
 
     with tempfile.TemporaryDirectory() as tmp:
