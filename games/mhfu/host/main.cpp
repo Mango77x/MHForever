@@ -297,6 +297,8 @@ int main(int argc, char **argv) {
                                          {std::begin(kShadowSolidTextures), std::end(kShadowSolidTextures)},
                                          {}); // caves go by the zones below
             frontend.set_shadow_cave_zones({std::begin(kShadowCaveZones), std::end(kShadowCaveZones)});
+            frontend.set_shadow_haze_textures({std::begin(kShadowHazeTextures), std::end(kShadowHazeTextures)});
+            frontend.set_shadow_zone_suns(shadow_zone_suns());
             frontend.set_shadow_zones({std::begin(kShadowZoneNames), std::end(kShadowZoneNames)}, shadow_zone_textures());
             frontend.attach(runtime, extra);
         } else if (window) {

@@ -261,6 +261,8 @@ void Frontend::set_shadow_textures(std::vector<std::uint64_t> air, std::vector<s
     impl_->live.shadow_cave_textures = std::move(cave);
 }
 
+void Frontend::set_shadow_haze_textures(std::vector<std::uint64_t> textures) { impl_->live.shadow_haze_textures = std::move(textures); }
+void Frontend::set_shadow_zone_suns(std::vector<std::pair<std::string, float>> suns) { impl_->live.shadow_zone_suns = std::move(suns); }
 void Frontend::set_shadow_cave_zones(std::vector<std::string> zones) { impl_->live.shadow_cave_zones = std::move(zones); }
 
 void Frontend::set_shadow_zones(std::vector<std::string> names, std::vector<std::pair<std::uint32_t, int>> textures) {
@@ -460,7 +462,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowWholeMapInCaves, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing, kShadowPick
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowWholeMapInCaves, kShadowSunHeight, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing, kShadowPick
 };
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
 
@@ -743,12 +745,18 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
     video.items.push_back(shadow);
     if (impl.live.shadow) { // its settings unfold under the switch while it is on
         overlay::MenuItem whole = menu_item(Kind::Toggle, kShadowWholeMap, "Whole map shadows", impl.live.shadow_whole_map ? 1 : 0);
-        whole.detail = "The scenery casts shadows too, and sides turned away from the sun go dark. Off: only objects cast.";
+        whole.detail = "The scenery casts shadows too, and sides turned away from the sun go dark. Off: only the hunter and monsters cast.";
         video.items.push_back(whole);
         overlay::MenuItem caves = menu_item(Kind::Toggle, kShadowWholeMapInCaves, "Whole map shadows in caves", impl.live.shadow_whole_map_in_caves ? 1 : 0);
-        caves.detail = "Also in the zones that are caves or interiors, where only characters and objects cast otherwise.";
+        caves.detail = "Also in the zones that are caves or interiors, where only the hunter and monsters cast otherwise.";
         video.items.push_back(caves);
         video.items.push_back(menu_item(Kind::Slider, kShadowStrength, "Shadow darkness", static_cast<int>(impl.live.shadow_strength * 100.0f + 0.5f)));
+        // All the way down: as the game has it. All the way up: straight overhead (35 to 90 degrees).
+        const float sun_height = impl.live.shadow_sun_height;
+        const int sun_value = sun_height <= 0.0f ? 0 : std::clamp(static_cast<int>((sun_height - 35.0f) / 0.55f + 0.5f), 1, 100);
+        overlay::MenuItem sun = menu_item(Kind::Slider, kShadowSunHeight, "Sun height", sun_value);
+        sun.detail = "Raises the sun for shorter shadows. All the way down: as the game has it. Test.";
+        video.items.push_back(sun);
         // The largest object that casts: 30 * 1.05^value, about 30 to 39000 world units.
         const int largest = std::clamp(static_cast<int>(std::log(std::max(impl.live.shadow_max_object.load(), 30.0f) / 30.0f) / std::log(1.05f) + 0.5f), 0, 100);
         overlay::MenuItem size = menu_item(Kind::Slider, kShadowMaxObject, "Largest shadow object", largest);
@@ -1125,6 +1133,7 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             refresh_menu(impl); // the sliders under it appear or go
             break;
         case kShadowStrength: impl.live.shadow_strength = static_cast<float>(std::clamp(e.value, 0, 100)) / 100.0f; break;
+        case kShadowSunHeight: impl.live.shadow_sun_height = e.value <= 0 ? 0.0f : 35.0f + 0.55f * static_cast<float>(std::min(e.value, 100)); break;
         case kShadowMaxObject: impl.live.shadow_max_object = 30.0f * std::pow(1.05f, static_cast<float>(std::clamp(e.value, 0, 100))); break;
         case kShadowMaxPiece: impl.live.shadow_max_piece = e.value <= 0 ? 0.0f : 30.0f * std::pow(1.05f, static_cast<float>(std::min(e.value, 100))); break;
         case kShadowWholeMap: impl.live.shadow_whole_map = e.value != 0; break;

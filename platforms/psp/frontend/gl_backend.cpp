@@ -611,6 +611,7 @@ struct DrawSetup {
     float tex_width{1}, tex_height{1};
     std::uint32_t target{}; // VRAM offset of the render target
     bool self_sampled{};    // the texture is a copy of the target being drawn: it cannot be replayed later
+    bool haze{};            // haze on the game's list: the projected shadows must come before it
 };
 
 // The camera a vertex was placed with: view and projection matrices, viewport and screen offset.
@@ -640,6 +641,16 @@ constexpr std::size_t state_index(std::uint32_t reg) {
         if (kStateRegs[i] == reg) return i;
     }
     return kStateRegs.size();
+}
+
+// A see-through sheet hanging right in front of the camera. It writes depth, which would hide the scene from the shadows, and
+// the game needs that depth: it keeps what comes next from showing. So the shadows are worked out before it.
+bool is_camera_haze(const DrawKey &key, const std::vector<GpuVertex> &vertices) {
+    if ((key_reg(key, kAlphaBlendEnable) & 1u) == 0 || (key_reg(key, kZTestEnable) & 1u) == 0 || (key_reg(key, kZWriteDisable) & 1u) != 0) return false;
+    // One alpha for the whole sheet: layers of ground fade from vertex to vertex.
+    return !vertices.empty() && std::all_of(vertices.begin(), vertices.end(), [&](const GpuVertex &v) {
+        return v.color[3] < 200u && v.color[3] == vertices.front().color[3] && v.inv_w > 1.0f / 60.0f;
+    });
 }
 
 // Effects: blended and not writing depth (particles such as dust and smoke, but also layers such as the snow over the
@@ -1308,13 +1319,14 @@ private:
     std::vector<ShadowDraw> shadow_draws_;
     std::vector<float> shadow_vertices_; // eye x, y, z and u, v
     std::vector<ShadowRange> shadow_ranges_;
-    std::unordered_set<std::uint64_t> shadow_list_air_, shadow_list_solid_, shadow_list_cave_; // LiveSettings::shadow_*_textures
+    std::unordered_set<std::uint64_t> shadow_list_air_, shadow_list_solid_, shadow_list_cave_, shadow_list_haze_; // LiveSettings::shadow_*_textures
     bool shadow_cave_textures_{};      // a texture of a cave is on the screen
     bool shadow_sliders_in_cave_{};    // the size sliders were last set for a cave
     bool shadow_in_cave_{};            // rock overhead: only objects cast
     int shadow_cave_votes_{};
     std::uint32_t shadow_frame_count_{};
     std::vector<float> shadow_depths_;          // the depth (0..1) each captured vertex was drawn with; < 0: not known
+    float shadow_scene_view_[12]{};             // projection, viewport depth and viewport of the last draw of the scene itself
     float shadow_draw_vz_[2]{};                 // the viewport depth of the draw being captured
     std::uint32_t shadow_draw_vertices_{};      // and where its vertices are
     std::uint32_t shadow_skipped_{};            // draws of the picture left out for not writing the depth
@@ -1367,6 +1379,7 @@ bool GlBackend::init() {
         shadow_list_air_.insert(live_->shadow_air_textures.begin(), live_->shadow_air_textures.end());
         shadow_list_solid_.insert(live_->shadow_solid_textures.begin(), live_->shadow_solid_textures.end());
         shadow_list_cave_.insert(live_->shadow_cave_textures.begin(), live_->shadow_cave_textures.end());
+        shadow_list_haze_.insert(live_->shadow_haze_textures.begin(), live_->shadow_haze_textures.end());
         shadow_zone_names_ = live_->shadow_zone_names;
         shadow_zone_totals_.assign(shadow_zone_names_.size(), 0);
         for (const auto &[hash, zone] : live_->shadow_zone_textures) {
@@ -1993,6 +2006,7 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
     shadow_texture_holes_ = tex_holes_;
     shadow_texture_hash_ = tex_hash_;
     shadow_texture_zone_ = tex_zone_;
+    setup.haze = textured && shadow_list_haze_.count(tex_hash_) != 0;
     setup.tex_width = tex_width_;
     setup.tex_height = tex_height_;
     setup_ = setup;
@@ -2317,7 +2331,15 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     if (shadow_light_ok_) std::copy(shadow_light_, shadow_light_ + 3, dir);
     if (!normalize(dir)) return;
     const float height = dir[0] * up_axis[0] + dir[1] * up_axis[1] + dir[2] * up_axis[2];
-    const float lowest = std::sin(shadow_min_elevation_ * 0.0174533f);
+    // The slider, for trying heights out, goes over what the game's list says for the zone.
+    float sun_height = live_->shadow_sun_height.load(std::memory_order_relaxed);
+    if (sun_height <= 0.0f && shadow_zone_ >= 0) {
+        const std::string &zone = shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)];
+        for (const auto &[name, degrees] : live_->shadow_zone_suns) {
+            if (name == zone) sun_height = degrees;
+        }
+    }
+    const float lowest = std::sin(std::max(shadow_min_elevation_, sun_height) * 0.0174533f);
     if (height < lowest) {
         float flat[3] = {dir[0] - height * up_axis[0], dir[1] - height * up_axis[1], dir[2] - height * up_axis[2]};
         if (normalize(flat)) {
@@ -2388,7 +2410,9 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         if (d.listed == 1) return true;
         // Fading out along their own vertices is what shapes floating in the air do; rock stays opaque. Leaves are left to their cut-outs.
         const bool fades = d.blended && !d.cutout && d.holes >= 0.02f && d.alpha_low < 200.0f;
-        return d.listed < 2 && (d.translucent || fades);
+        // See-through all over, like the haze some maps hang right in front of the camera.
+        const bool thin = d.blended && !d.cutout && d.alpha_high < 200.0f;
+        return d.listed < 2 && (d.translucent || fades || thin);
     };
     // The ground: flat pieces overlap a little, with thin upright strips along their seams, and each would cast a thin line on
     // the next. So what lies low and is flat or a strip does not cast. High up the same shapes are ledges and tops of rock,
@@ -2599,7 +2623,23 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     for (std::uint32_t i = 0; i < shadow_draws_.size(); ++i) {
         const ShadowDraw &d = shadow_draws_[i];
         if (d.count == 0 || d.target != rt.address) continue;
-        if (whole_map && !d.cutout) {
+        // However small: nothing in the air casts. Cut-outs count as air by how clear they are, as leaves do, and those must.
+        if (air(d) && !shadow_groups_[d.group].skinned && (!d.cutout || d.listed == 1)) continue;
+        if (!whole_map) {
+            // Characters and what the hunter carries, and nothing else: no plants, no objects.
+            const ShadowGroup &g = shadow_groups_[d.group];
+            bool carried = false;
+            if (hunter != nullptr && !g.skinned && !d.cutout && g.size() <= 400.0f) {
+                float a[3], b[3];
+                centre_of(*hunter, a);
+                centre_of(g, b);
+                const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+                carried = dx * dx + dy * dy + dz * dz < 350.0f * 350.0f;
+            }
+            if (g.skinned || carried) shadow_ranges_.push_back({i, d.first, d.count});
+            continue;
+        }
+        if (!d.cutout) {
             // Blended draws that stand up are scenery fading into the distance; flat ones are layers over the ground.
             const ShadowGroup &g = shadow_groups_[d.group];
             if (g.skinned || casts(g)) {
@@ -2620,7 +2660,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             }
         } else if (casts(shadow_groups_[d.group]) || (!d.cutout && d.size() <= largest_piece && d.height() >= 1.5f * d.width())) {
             shadow_ranges_.push_back({i, d.first, d.count});
-        } else if (d.cutout && !treat_as_cave) { // in a cave, leaves and grass stay out too: only characters cast there
+        } else if (d.cutout) {
             // The triangles that pass go after the picture's own vertices.
             const std::uint32_t start = static_cast<std::uint32_t>(shadow_vertices_.size() / 5u);
             for (std::uint32_t v = 0; v + 3u <= d.count; v += 3u) {
@@ -3352,7 +3392,30 @@ void GlBackend::draw_batch() {
         // A batch culled whole in this flip is kept for its triangles before clipping: in between it may show.
         tape_.push_back({setup_, batch_, batch_origins_, std::move(raw_batch_), raw_complete_});
     }
-    if (!batch_.empty()) draw_vertices(batch_);
+    if (!batch_.empty()) {
+        const bool haze = setup_.haze || is_camera_haze(setup_.key, batch_);
+        const bool shadows_next = shadow_scene_frame_ == frame_ && shadow_done_frame_ != frame_ && live_->shadow.load(std::memory_order_relaxed);
+        if (shadows_next && !haze) {
+            std::copy_n(shadow_proj_, 6, shadow_scene_view_);
+            std::copy_n(shadow_vz_, 2, shadow_scene_view_ + 6);
+            std::copy_n(shadow_vp_, 4, shadow_scene_view_ + 8);
+        }
+        if (shadows_next && haze) {
+            if (const auto it = targets_.find(shadow_scene_address_); it != targets_.end() && setup_.target == shadow_scene_address_) {
+                // The sheet has a camera of its own: the depth to read is the scene's.
+                std::copy_n(shadow_scene_view_, 6, shadow_proj_);
+                std::copy_n(shadow_scene_view_ + 6, 2, shadow_vz_);
+                std::copy_n(shadow_scene_view_ + 8, 4, shadow_vp_);
+                shadow_done_frame_ = frame_;
+                run_shadow(it->second);
+                gl_.BindVertexArray(vao_);
+                gl_.BindBuffer(GL_ARRAY_BUFFER, vbo_);
+                have_state_ = false;
+                emit_state(setup_, it->second);
+            }
+        }
+        draw_vertices(batch_);
+    }
     batch_.clear();
     batch_origins_.clear();
     raw_batch_.clear();
@@ -4268,6 +4331,8 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
     // transforms blended to this moment, then clipped and placed as the GE does (place_v2).
     const bool v2 = v2_enabled_ && v2_ready_ && !summaries_before_.empty();
     interpolation::Matrix camera_at{}; // the camera's motion up to this moment, for the shadows
+    interpolation::Matrix scene_motion{}; // how the scenery itself moved, from the flip to this moment
+    bool scene_moved = false;
     if (v2) {
         if (!v2_prepared_) prepare_v2(now, before_batches);
         v2_t_ = t;
@@ -4309,6 +4374,29 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
         };
         in_shares(v2_needed_.size(), 512, transforms);
         in_shares(v2_chunks_.size(), 1, chunks);
+        // The shadows must follow the ground as it is drawn in this picture. The camera found by the votes of all the draws can
+        // differ from that (in some places monsters or plants outvote it), and the shadows would slide over the ground and back.
+        std::size_t most = 0;
+        std::uint32_t biggest = 0;
+        for (const std::uint32_t n : v2_needed_) {
+            const V2Draw &d = v2_draws_[n];
+            if ((d.kind != V2Draw::kBlend && d.kind != V2Draw::kFollow) || summaries_before_[n].skinned || n >= v2_new_count_.size()) continue;
+            if (v2_new_count_[n] > most) {
+                most = v2_new_count_[n];
+                biggest = n;
+            }
+        }
+        if (most != 0) {
+            const V2Draw &d = v2_draws_[biggest];
+            const interpolation::DrawSummary &summary = summaries_before_[biggest];
+            interpolation::Matrix eye_t = d.kind == V2Draw::kFollow ? interpolation::multiply(camera_t, d.own) : interpolation::blend_affine(d.older_eye, d.own, t);
+            if (d.kind == V2Draw::kBlend && v2_camera_.valid) eye_t = interpolation::multiply(camera_t, eye_t);
+            interpolation::Matrix eye_inverse{};
+            if (interpolation::affine_inverse(interpolation::multiply(summary.view, summary.world), eye_inverse)) {
+                scene_motion = interpolation::multiply(eye_t, eye_inverse);
+                scene_moved = true;
+            }
+        }
     }
     staging_.clear();
     ranges_.assign(now.size(), Range{});
@@ -4374,7 +4462,8 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
     for (std::size_t i = 0; i < now.size(); ++i) {
         if (ranges_[i].count == 0) continue;
         if (shadow_pending && (key_reg(now[i].setup.key, kClearMode) & 1u) == 0) {
-            if (!now[i].setup.through) {
+            const bool haze = now[i].setup.haze || is_camera_haze(now[i].setup.key, now[i].vertices);
+            if (!now[i].setup.through && !haze) {
                 if ((key_reg(now[i].setup.key, kZTestEnable) & 1u) != 0 && (key_reg(now[i].setup.key, kZWriteDisable) & 1u) == 0) {
                     scene_drawn = true;
                 }
@@ -4383,8 +4472,8 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                 // A fixed point has the eye coordinates v_t = C * v_flip, with C = (the camera's motion up to t) * (its motion
                 // over the whole flip, undone): the pixel looks up the map through v_flip = C^-1 * v_t.
                 float eye_to_map[12] = {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
-                if (v2 && v2_camera_.valid) {
-                    const interpolation::Matrix c = interpolation::multiply(camera_at, v2_camera_.inverse);
+                if (v2 && (scene_moved || v2_camera_.valid)) {
+                    const interpolation::Matrix c = scene_moved ? scene_motion : interpolation::multiply(camera_at, v2_camera_.inverse);
                     for (int k = 0; k < 3; ++k) {
                         for (int j = 0; j < 3; ++j) eye_to_map[3 * k + j] = c[static_cast<std::size_t>(4 * k + j)];
                         eye_to_map[9 + k] = c[static_cast<std::size_t>(12 + k)];

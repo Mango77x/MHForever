@@ -17,6 +17,12 @@ inline constexpr std::uint64_t kShadowAirTextures[] = {
     0x79aa69c00d47113dull, // the jungle's shapes in the sky
 };
 
+// Haze the game draws right in front of the camera, writing depth: the shadows are worked out before it.
+inline constexpr std::uint64_t kShadowHazeTextures[] = {
+    0xfab96254c5ff1085ull, // forest and hills
+    0x75ec9e9692beacf5ull, // and in its zone 10
+};
+
 // Rock the guesses could take for mist.
 inline constexpr std::uint64_t kShadowSolidTextures[] = {
     0x1bee8c61ccccad4aull,
@@ -47,11 +53,28 @@ inline constexpr const char *kShadowCaveZones[] = {
     "areas/hunting/swamp/area3",          "areas/hunting/swamp/area7",          "areas/hunting/swamp/area9",
     "areas/hunting/volcano/area3",        "areas/hunting/volcano/area4",        "areas/hunting/volcano/area5",
     "areas/hunting/volcano/area6",        "areas/hunting/great_forest/area7",   "areas/hunting/great_forest/area8",
-    "areas/hunting/forestandhills/base",  "areas/hunting/forestandhills/area5",
     // The village's buildings: everything there but its open air.
     "areas/pokke/farm",                   "areas/pokke/hall",                   "areas/pokke/house",
     "areas/pokke/kitchen",
 };
+
+// How high the sun stands in some zones, as on the "Sun height" slider (0..100: from the game's 35 degrees to overhead).
+struct ShadowZoneSun {
+    const char *zone;
+    int height;
+};
+inline constexpr ShadowZoneSun kShadowZoneSuns[] = {
+    {"areas/hunting/forestandhills/area8", 15},  {"areas/hunting/forestandhills/area6", 70},
+    {"areas/hunting/forestandhills/area7", 60},  {"areas/hunting/forestandhills/area10", 60},
+    {"areas/hunting/forestandhills/area11", 60}, {"areas/hunting/forestandhills/area12", 60},
+    {"areas/hunting/forestandhills/area9", 100},
+};
+
+inline std::vector<std::pair<std::string, float>> shadow_zone_suns() {
+    std::vector<std::pair<std::string, float>> out;
+    for (const ShadowZoneSun &s : kShadowZoneSuns) out.emplace_back(s.zone, 35.0f + 0.55f * static_cast<float>(s.height));
+    return out;
+}
 
 inline std::vector<std::pair<std::uint32_t, int>> shadow_zone_textures() {
     std::vector<std::pair<std::uint32_t, int>> out;
