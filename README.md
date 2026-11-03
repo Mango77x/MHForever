@@ -108,6 +108,9 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
   came with them (pull request #7).
 - **[ibonplix](https://github.com/ibonplix)**, for the first texture pack support (pull request #39): the PPSSPP quick hash, the
   KTX2 decoding and the launcher setting that the HD textures are built on.
+- **[Pablo1517](https://github.com/Pablo1517)**, for the hunting horn songs card (pull request #49), the true weapon values
+  (#44) and keeping the volumes changed in the in-game menu (#45), and for the generated region data the game's host reads
+  the region maps through.
 - **Mobilozor**, for proving HD texture packs on MHForever first (on SteamOS), and for the audit and
   test logs shared with the project.
 - **[TeamGDB's Yakumo](https://github.com/TeamGDB/Yakumo)** (MIT), whose frame interpolation MHForever's is ported from, and
