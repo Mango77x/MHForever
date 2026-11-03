@@ -160,6 +160,9 @@ def main() -> int:
                     help="the North America program (mhfu-us[.exe]); the archive carries one program per region")
     ap.add_argument("--game-jp", type=pathlib.Path, default=None,
                     help="the Japanese program (mhfu-jp[.exe])")
+    ap.add_argument("--launcher-cli", type=pathlib.Path, default=None,
+                    help="the launcher without a window (MHForever-cli[.exe]): installs and starts the game where the "
+                         "launcher's window cannot start (no WebKitGTK, as on the Steam Deck's SteamOS)")
     ap.add_argument("--fonts", required=True, type=pathlib.Path)
     ap.add_argument("--ffmpeg-dlls", type=pathlib.Path, default=None,
                     help="Windows: the folder holding FFmpeg's DLLs (CMake copies them to <build>/bin)")
@@ -187,6 +190,14 @@ def main() -> int:
         if not program.is_file():
             print(f"error: missing {name}: {program}", file=sys.stderr)
             return 2
+
+    if args.launcher_cli is not None:
+        name = launcher_name.replace("MHForever", "MHForever-cli", 1)
+        if not args.launcher_cli.is_file():
+            print(f"error: missing {name}: {args.launcher_cli}", file=sys.stderr)
+            return 2
+        files[name] = args.launcher_cli
+        programs.add(name)
 
     readme = (ROOT / readme_name).read_text(encoding="utf-8").replace("@VERSION@", args.version)
     folder = f"MHForever-{args.version}"
