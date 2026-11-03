@@ -233,12 +233,18 @@ mode, where no second window can be shown.
 - Native Linux x86-64 build (do not rely on Proton): built and tested on Ubuntu in CI, and packaged for players.
 - Distribution: the portable `MHForever-<version>-linux-x64.tar.gz` made by `scripts/package_release.py` is the first
   supported form; `cmake --install` adds the desktop entry and the icon. **AppImage** next; Flatpak later (check Flathub
-  content policies). The launcher needs WebKitGTK 4.1 and GTK 3 at runtime, both present on current desktops.
+  content policies). The launcher's window needs WebKitGTK 4.1 and GTK 3 at runtime, which most desktops have and
+  **SteamOS does not**: the dynamic loader stops `MHForever` before it can show anything (issue #50, 0.8.2). So the archive also
+  carries **`MHForever-cli`** (`launcher/native/cli.cpp`), the launcher without a window: `--install`, `--list`, `--set`,
+  `--play`, `--update`. It links no web view and, with `MHF_NO_GTK`, no GTK (the file dialogs are stubs), so it needs only
+  libc and libstdc++. `--play` stays running while the game does (what a Game Mode entry needs) and keeps what the
+  player changes in the game's menu, as the window does.
 - Deck resolution 1280×800 (16:10); PSP 480×272 (~16:9). Integer scaling (×2 = 960×544) or fitted with a filter, crop option, and
   widescreen as an enhancement.
 - Test: suspend/resume, Game Mode input, performance and battery.
-- Real testing: maintainers have no Deck. Players have reported the game working on a Steam Deck (SteamOS), without a formal test;
-  friends with Decks test builds already validated on a Linux machine. They need their own copy
+- Real testing: maintainers have no Deck. Reports of the game working on a Steam Deck came from players who had installed
+  WebKitGTK themselves; a Deck as it ships could not start the launcher until `MHForever-cli` (0.8.3), whose dependencies
+  were checked but which no Deck has run yet. Friends with Decks test builds already validated on a Linux machine. They need their own copy
   to test the game; for the rest (input, launcher, scaling) use the test scene built from our own homebrew.
 
 ## 7. User data
