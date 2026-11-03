@@ -1357,6 +1357,9 @@ private:
     ShadowPass shadow_pass_;
     ShadowKept shadow_kept_[3];        // by generation: the flip shown, the one before it, and the one being drawn
     std::vector<float> shadow_between_;
+    std::vector<std::uint32_t> v2_scene_votes_; // the draws that say how the ground moved in an in-between picture
+    double shadow_scene_share_{};               // how much of them agreed, added up, and over how many pictures
+    int shadow_scene_pictures_{};
     // The player moves fastest and is seen closest: a small map of its own, drawn again for every in-between picture.
     static constexpr GLsizei kShadowPlayerSize = 1024;
     GLuint shadow_player_fbo_{}, shadow_player_depth_{}, shadow_player_color_{};
@@ -2333,10 +2336,13 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     const float height = dir[0] * up_axis[0] + dir[1] * up_axis[1] + dir[2] * up_axis[2];
     // The slider, for trying heights out, goes over what the game's list says for the zone.
     float sun_height = live_->shadow_sun_height.load(std::memory_order_relaxed);
-    if (sun_height <= 0.0f && shadow_zone_ >= 0) {
+    float zone_darkness = -1.0f;
+    if (shadow_zone_ >= 0) {
         const std::string &zone = shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)];
-        for (const auto &[name, degrees] : live_->shadow_zone_suns) {
-            if (name == zone) sun_height = degrees;
+        for (const auto &[name, sun] : live_->shadow_zone_suns) {
+            if (name != zone) continue;
+            if (sun_height <= 0.0f) sun_height = sun.first;
+            zone_darkness = sun.second;
         }
     }
     const float lowest = std::sin(std::max(shadow_min_elevation_, sun_height) * 0.0174533f);
@@ -2821,6 +2827,8 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     p.half = shadow_reach_;
     p.drop = whole_map ? 1e9f : shadow_drop_; // with the scenery in the map, nothing has to be cut off below a caster
     p.darkness = std::clamp(live_->shadow_strength.load(std::memory_order_relaxed), 0.0f, 1.0f);
+    // The zone's, unless the slider was moved from where it starts.
+    if (zone_darkness >= 0.0f && std::fabs(p.darkness - 0.5f) < 0.001f) p.darkness = zone_darkness;
     // The player and what it carries, on a small map of its own.
     shadow_player_groups_.clear();
     p.player_half = 0.0f;
@@ -2897,8 +2905,11 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             return v;
         };
         const double g0 = gpu(0), g1 = gpu(1), g2 = gpu(2), g3 = gpu(3), g4 = gpu(4);
-        std::fprintf(stderr, "[shadow time] cpu ms per frame: capture %.2f, sorting %.2f, facing %.2f, keeping %.2f, sending %.2f | card ms each: map %.2f, hunter's map %.2f, factor %.2f, facing %.2f, applying %.2f\n",
-                     shadow_capture_ms_ / n, shadow_cpu_ms_[0] / n, shadow_cpu_ms_[1] / n, shadow_cpu_ms_[2] / n, shadow_cpu_ms_[3] / n, g0, g1, g2, g3, g4);
+        std::fprintf(stderr, "[shadow time] cpu ms per frame: capture %.2f, sorting %.2f, facing %.2f, keeping %.2f, sending %.2f | card ms each: map %.2f, hunter's map %.2f, factor %.2f, facing %.2f, applying %.2f | ground pieces agreeing %.0f%%\n",
+                     shadow_capture_ms_ / n, shadow_cpu_ms_[0] / n, shadow_cpu_ms_[1] / n, shadow_cpu_ms_[2] / n, shadow_cpu_ms_[3] / n, g0, g1, g2, g3, g4,
+                     shadow_scene_pictures_ != 0 ? 100.0 * shadow_scene_share_ / shadow_scene_pictures_ : 0.0);
+        shadow_scene_share_ = 0.0;
+        shadow_scene_pictures_ = 0;
         shadow_capture_ms_ = 0.0;
         for (double &v : shadow_cpu_ms_) v = 0.0;
         shadow_cpu_runs_ = 0;
@@ -4332,6 +4343,7 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
     const bool v2 = v2_enabled_ && v2_ready_ && !summaries_before_.empty();
     interpolation::Matrix camera_at{}; // the camera's motion up to this moment, for the shadows
     interpolation::Matrix scene_motion{}; // how the scenery itself moved, from the flip to this moment
+    interpolation::Matrix scene_whole{};  // and over the whole flip, from the one before
     bool scene_moved = false;
     if (v2) {
         if (!v2_prepared_) prepare_v2(now, before_batches);
@@ -4376,27 +4388,73 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
         in_shares(v2_chunks_.size(), 1, chunks);
         // The shadows must follow the ground as it is drawn in this picture. The camera found by the votes of all the draws can
         // differ from that (in some places monsters or plants outvote it), and the shadows would slide over the ground and back.
-        std::size_t most = 0;
-        std::uint32_t biggest = 0;
+        // A single piece can be wrong too (a thing that moves, or a piece paired with its neighbour), so the biggest pieces vote,
+        // by their triangles, standing still included. Everything built on the ground moves alike.
+        v2_scene_votes_.clear();
         for (const std::uint32_t n : v2_needed_) {
+            if (!summaries_before_[n].skinned && n < v2_new_count_.size() && v2_new_count_[n] != 0) v2_scene_votes_.push_back(n);
+        }
+        const std::size_t voters = std::min<std::size_t>(v2_scene_votes_.size(), 48u);
+        std::partial_sort(v2_scene_votes_.begin(), v2_scene_votes_.begin() + static_cast<std::ptrdiff_t>(voters), v2_scene_votes_.end(),
+                          [&](std::uint32_t x, std::uint32_t y) { return v2_new_count_[x] > v2_new_count_[y]; });
+        struct SceneVote {
+            interpolation::Matrix at, whole;
+            std::size_t weight;
+            bool ok;
+        };
+        std::vector<SceneVote> votes(voters);
+        for (std::size_t i = 0; i < voters; ++i) {
+            const std::uint32_t n = v2_scene_votes_[i];
             const V2Draw &d = v2_draws_[n];
-            if ((d.kind != V2Draw::kBlend && d.kind != V2Draw::kFollow) || summaries_before_[n].skinned || n >= v2_new_count_.size()) continue;
-            if (v2_new_count_[n] > most) {
-                most = v2_new_count_[n];
-                biggest = n;
+            const interpolation::DrawSummary &summary = summaries_before_[n];
+            const interpolation::Matrix eye = interpolation::multiply(summary.view, summary.world);
+            interpolation::Matrix eye_t = eye, eye_inverse{}, older_inverse{};
+            if (d.kind == V2Draw::kFollow) eye_t = interpolation::multiply(camera_t, d.own);
+            if (d.kind == V2Draw::kBlend) {
+                eye_t = interpolation::blend_affine(d.older_eye, d.own, t);
+                if (v2_camera_.valid) eye_t = interpolation::multiply(camera_t, eye_t);
+            }
+            SceneVote &v = votes[i];
+            v.weight = v2_new_count_[n];
+            v.ok = interpolation::affine_inverse(eye, eye_inverse);
+            if (!v.ok) continue;
+            v.at = interpolation::multiply(eye_t, eye_inverse);
+            v.whole = interpolation::multiply(eye, eye_inverse);
+            if (d.kind == V2Draw::kFollow) v.whole = interpolation::rigid_at(v2_camera_, 1.0f);
+            if (d.kind == V2Draw::kBlend && interpolation::affine_inverse(d.older_eye, older_inverse)) {
+                v.whole = interpolation::multiply(eye, older_inverse);
             }
         }
-        if (most != 0) {
-            const V2Draw &d = v2_draws_[biggest];
-            const interpolation::DrawSummary &summary = summaries_before_[biggest];
-            interpolation::Matrix eye_t = d.kind == V2Draw::kFollow ? interpolation::multiply(camera_t, d.own) : interpolation::blend_affine(d.older_eye, d.own, t);
-            if (d.kind == V2Draw::kBlend && v2_camera_.valid) eye_t = interpolation::multiply(camera_t, eye_t);
-            interpolation::Matrix eye_inverse{};
-            if (interpolation::affine_inverse(interpolation::multiply(summary.view, summary.world), eye_inverse)) {
-                scene_motion = interpolation::multiply(eye_t, eye_inverse);
+        const auto same = [](const interpolation::Matrix &p, const interpolation::Matrix &q) {
+            static constexpr float probes[3][3] = {{0, 0, -500}, {1000, 0, -3000}, {0, 1000, -3000}};
+            for (const auto &o : probes) {
+                float gap = 0.0f;
+                for (std::size_t k = 0; k < 3; ++k) {
+                    const float x = p[k] * o[0] + p[4 + k] * o[1] + p[8 + k] * o[2] + p[12 + k];
+                    const float y = q[k] * o[0] + q[4 + k] * o[1] + q[8 + k] * o[2] + q[12 + k];
+                    gap += (x - y) * (x - y);
+                }
+                if (gap > 9.0f) return false;
+            }
+            return true;
+        };
+        std::size_t best_weight = 0, total_weight = 0;
+        for (std::size_t i = 0; i < voters; ++i) {
+            if (!votes[i].ok) continue;
+            total_weight += votes[i].weight;
+            std::size_t weight = 0;
+            for (std::size_t j = 0; j < voters; ++j) {
+                if (votes[j].ok && same(votes[i].at, votes[j].at)) weight += votes[j].weight;
+            }
+            if (weight > best_weight) {
+                best_weight = weight;
+                scene_motion = votes[i].at;
+                scene_whole = votes[i].whole;
                 scene_moved = true;
             }
         }
+        shadow_scene_share_ += total_weight != 0 ? static_cast<double>(best_weight) / static_cast<double>(total_weight) : 0.0;
+        ++shadow_scene_pictures_;
     }
     staging_.clear();
     ranges_.assign(now.size(), Range{});
@@ -4483,10 +4541,11 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                 // points of the flip before, brought into this flip's eye space. Everything else stays as the flip mapped it.
                 const ShadowKept &kept = shadow_kept_[flip_.shadow.generation % 3u];
                 const ShadowKept &older = shadow_kept_[(flip_.shadow.generation + 2u) % 3u];
-                if (v2 && v2_camera_.valid && flip_.shadow.player_half > 0.0f && kept.generation == flip_.shadow.generation) {
+                if (v2 && (scene_moved || v2_camera_.valid) && flip_.shadow.player_half > 0.0f && kept.generation == flip_.shadow.generation) {
                     shadow_between_ = kept.vertices;
                     if (older.generation + 1u == kept.generation) {
-                        const interpolation::Matrix motion = interpolation::rigid_at(v2_camera_, 1.0f);
+                        // By the same motion as the rest of the shadows, or the hunter's would jump between its two places.
+                        const interpolation::Matrix motion = scene_moved ? scene_whole : interpolation::rigid_at(v2_camera_, 1.0f);
                         for (const KeptRange &o : older.ranges) o.paired = false;
                         for (const KeptRange &r : kept.ranges) {
                             if (!r.player) continue;

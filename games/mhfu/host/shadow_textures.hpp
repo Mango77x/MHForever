@@ -45,9 +45,7 @@ inline constexpr std::uint64_t kShadowSolidTextures[] = {
 
 // The zones that are caves.
 inline constexpr const char *kShadowCaveZones[] = {
-    "areas/hunting/desert/base",
-    "areas/hunting/desert/area3",         "areas/hunting/desert/area8",
-    "areas/hunting/desert/area4",         "areas/hunting/desert/area6",         "areas/hunting/desert/area10",
+    "areas/hunting/desert/area10",
     "areas/hunting/jungle/area6",         "areas/hunting/jungle/area7",         "areas/hunting/jungle/area8",
     "areas/hunting/snowy_mountains/area3", "areas/hunting/snowy_mountains/area4", "areas/hunting/snowy_mountains/area5",
     "areas/hunting/swamp/area3",          "areas/hunting/swamp/area7",          "areas/hunting/swamp/area9",
@@ -58,21 +56,28 @@ inline constexpr const char *kShadowCaveZones[] = {
     "areas/pokke/kitchen",
 };
 
-// How high the sun stands in some zones, as on the "Sun height" slider (0..100: from the game's 35 degrees to overhead).
+// How high the sun stands in some zones, as on the "Sun height" slider (0..100: from the game's 35 degrees to overhead), and
+// how dark the shadows are there, as on the "Shadow darkness" slider (nothing: as that slider says).
 struct ShadowZoneSun {
     const char *zone;
     int height;
+    int darkness = -1;
 };
 inline constexpr ShadowZoneSun kShadowZoneSuns[] = {
     {"areas/hunting/forestandhills/area8", 15},  {"areas/hunting/forestandhills/area6", 70},
     {"areas/hunting/forestandhills/area7", 60},  {"areas/hunting/forestandhills/area10", 60},
     {"areas/hunting/forestandhills/area11", 60}, {"areas/hunting/forestandhills/area12", 60},
     {"areas/hunting/forestandhills/area9", 100},
+    {"areas/hunting/desert/base", 85, 30},       {"areas/hunting/desert/area4", 90, 30},
+    {"areas/hunting/desert/area6", 90, 30},      {"areas/hunting/desert/area3", 70},
+    {"areas/hunting/desert/area8", 65},
 };
 
-inline std::vector<std::pair<std::string, float>> shadow_zone_suns() {
-    std::vector<std::pair<std::string, float>> out;
-    for (const ShadowZoneSun &s : kShadowZoneSuns) out.emplace_back(s.zone, 35.0f + 0.55f * static_cast<float>(s.height));
+inline std::vector<std::pair<std::string, std::pair<float, float>>> shadow_zone_suns() {
+    std::vector<std::pair<std::string, std::pair<float, float>>> out;
+    for (const ShadowZoneSun &s : kShadowZoneSuns) {
+        out.emplace_back(s.zone, std::pair{35.0f + 0.55f * static_cast<float>(s.height), static_cast<float>(s.darkness) / 100.0f});
+    }
     return out;
 }
 

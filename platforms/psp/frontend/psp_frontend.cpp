@@ -262,7 +262,7 @@ void Frontend::set_shadow_textures(std::vector<std::uint64_t> air, std::vector<s
 }
 
 void Frontend::set_shadow_haze_textures(std::vector<std::uint64_t> textures) { impl_->live.shadow_haze_textures = std::move(textures); }
-void Frontend::set_shadow_zone_suns(std::vector<std::pair<std::string, float>> suns) { impl_->live.shadow_zone_suns = std::move(suns); }
+void Frontend::set_shadow_zone_suns(std::vector<std::pair<std::string, std::pair<float, float>>> suns) { impl_->live.shadow_zone_suns = std::move(suns); }
 void Frontend::set_shadow_cave_zones(std::vector<std::string> zones) { impl_->live.shadow_cave_zones = std::move(zones); }
 
 void Frontend::set_shadow_zones(std::vector<std::string> names, std::vector<std::pair<std::uint32_t, int>> textures) {

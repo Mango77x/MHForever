@@ -66,7 +66,7 @@ struct LiveSettings {
     // Where the game is: the zones of its maps ("areas/hunting/desert/area6"), the game's textures that only a zone uses (a hash
     // of the game's own texture, as packs key them, and an index into the names), and the zones that are caves.
     std::vector<std::string> shadow_zone_names, shadow_cave_zones;
-    std::vector<std::pair<std::string, float>> shadow_zone_suns; // how high the sun stands in some zones, in degrees
+    std::vector<std::pair<std::string, std::pair<float, float>>> shadow_zone_suns; // some zones' sun in degrees and darkness (< 0: the slider's)
     std::vector<std::pair<std::uint32_t, int>> shadow_zone_textures;
     std::atomic<float> shadow_strength{0.5f};
     std::atomic<float> shadow_max_object{39450.0f};
