@@ -462,7 +462,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowWholeMapInCaves, kShadowSunHeight, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing, kShadowPick
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowWholeMapInCaves, kShadowHalfResolution, kShadowSunHeight, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing, kShadowPick
 };
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
 
@@ -750,6 +750,9 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         overlay::MenuItem caves = menu_item(Kind::Toggle, kShadowWholeMapInCaves, "Whole map shadows in caves", impl.live.shadow_whole_map_in_caves ? 1 : 0);
         caves.detail = "Also in the zones that are caves or interiors, where only the hunter and monsters cast otherwise.";
         video.items.push_back(caves);
+        overlay::MenuItem half = menu_item(Kind::Toggle, kShadowHalfResolution, "Half resolution shadows", impl.live.shadow_half_resolution ? 1 : 0);
+        half.detail = "Faster, with slightly softer edges.";
+        video.items.push_back(half);
         video.items.push_back(menu_item(Kind::Slider, kShadowStrength, "Shadow darkness", static_cast<int>(impl.live.shadow_strength * 100.0f + 0.5f)));
         // All the way down: as the game has it. All the way up: straight overhead (35 to 90 degrees).
         const float sun_height = impl.live.shadow_sun_height;
@@ -1138,6 +1141,7 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         case kShadowMaxPiece: impl.live.shadow_max_piece = e.value <= 0 ? 0.0f : 30.0f * std::pow(1.05f, static_cast<float>(std::min(e.value, 100))); break;
         case kShadowWholeMap: impl.live.shadow_whole_map = e.value != 0; break;
         case kShadowWholeMapInCaves: impl.live.shadow_whole_map_in_caves = e.value != 0; break;
+        case kShadowHalfResolution: impl.live.shadow_half_resolution = e.value != 0; break;
         case kShadowPick: impl.live.shadow_pick = e.value != 0; break;
         case kShadowOnlyCast:
             impl.live.shadow_part = e.value != 0 ? 1 : 0;

@@ -266,6 +266,7 @@ uniform float u_pixel;                               // pixels of the target per
 uniform vec3 u_center, u_right, u_up, u_dir, u_half; // the sun's box, as in kShadowMapVertex
 uniform vec3 u_rc0, u_rc1, u_rc2, u_t;               // this picture's eye space to the map's (in-between pictures)
 uniform float u_darkness, u_bias, u_drop, u_soft;    // u_drop: how far below a caster its shadow still reaches
+uniform int u_down;                                  // pixels of the picture per pixel of the factor, each way
 out vec4 o_color;
 float eye_z(float d) {
     float zn = (d * 65535.0 - u_vz.y) / u_vz.x;
@@ -290,7 +291,7 @@ float player_shadow(vec3 v, float bias_world, float turn) {
 }
 void main() {
     o_color = vec4(1.0, 1.0, 1.0, 0.0); // alpha: how much of the shadow here is the scenery's (only that is blurred afterwards)
-    ivec2 ip = ivec2(gl_FragCoord.xy);
+    ivec2 ip = ivec2(gl_FragCoord.xy) * u_down;
     float d = texelFetch(u_depth, ip, 0).r;
     if (d >= 0.99995) return; // the sky
     float ze = eye_z(d);
@@ -337,18 +338,42 @@ void main() {
 
 // With a small blur: the wide soft edges come from a few samples, which would show as grain.
 constexpr const char *kShadowApplyFragment = R"(#version 330 core
-uniform sampler2D u_factor;
-uniform int u_step;
+uniform sampler2D u_factor, u_depth;
+uniform int u_step, u_down; // u_down: pixels of the picture per pixel of the factor, each way
 out vec4 o_color;
 void main() {
-    ivec2 ip = ivec2(gl_FragCoord.xy), size = textureSize(u_factor, 0) - ivec2(1);
+    ivec2 full = ivec2(gl_FragCoord.xy), ip = full / u_down, size = textureSize(u_factor, 0) - ivec2(1);
     vec4 sum = vec4(0.0);
     for (int y = -1; y <= 1; ++y) {
         for (int x = -1; x <= 1; ++x) sum += texelFetch(u_factor, clamp(ip + ivec2(x, y) * u_step, ivec2(0), size), 0);
     }
     sum /= 9.0;
+    vec3 sharp = texelFetch(u_factor, ip, 0).rgb;
+    if (u_down > 1) {
+        // Brought up by the nearest pixels of the factor at the same depth: a shadow must not spill over the edge of what stands
+        // in front of it, as a plain blend would.
+        float here = texelFetch(u_depth, full, 0).r;
+        vec2 at = (vec2(full) + 0.5) / float(u_down) - 0.5;
+        ivec2 corner = ivec2(floor(at));
+        vec2 f = at - vec2(corner);
+        vec3 total = vec3(0.0);
+        float weight = 0.0, nearest = 1e9;
+        vec3 closest = sharp;
+        for (int y = 0; y <= 1; ++y) {
+            for (int x = 0; x <= 1; ++x) {
+                ivec2 k = clamp(corner + ivec2(x, y), ivec2(0), size);
+                float gap = abs(texelFetch(u_depth, k * u_down, 0).r - here);
+                float w = (x == 1 ? f.x : 1.0 - f.x) * (y == 1 ? f.y : 1.0 - f.y) * exp(-gap * 4000.0) + 1e-5;
+                vec3 c = texelFetch(u_factor, k, 0).rgb;
+                total += c * w;
+                weight += w;
+                if (gap < nearest) { nearest = gap; closest = c; }
+            }
+        }
+        sharp = weight > 0.02 ? total / weight : closest;
+    }
     // Only the scenery's wide edges have grain: the shadows of characters and objects stay as they are.
-    o_color = vec4(mix(texelFetch(u_factor, ip, 0).rgb, sum.rgb, clamp(sum.a * 4.0, 0.0, 1.0)), 1.0);
+    o_color = vec4(mix(sharp, sum.rgb, clamp(sum.a * 4.0, 0.0, 1.0)), 1.0);
 }
 )";
 
@@ -380,12 +405,16 @@ void main() {
 constexpr const char *kShadowFacingFragment = R"(#version 330 core
 in float v_reach;
 uniform float u_darkness;
-uniform int u_clear;
+uniform int u_clear, u_down;
 uniform sampler2D u_depth;
 out vec4 o_color;
 void main() {
+    float scene = texelFetch(u_depth, ivec2(gl_FragCoord.xy) * u_down, 0).r;
     // Only where the scene's depth is this very piece: not what stands before it, nor what shows through its gaps.
-    if (u_clear != 0 && abs(texelFetch(u_depth, ivec2(gl_FragCoord.xy), 0).r - gl_FragCoord.z) > 0.0004) discard;
+    if (u_clear != 0 && abs(scene - gl_FragCoord.z) > 0.0004) discard;
+    // The rest against the scene's depth, with a little to spare on slopes.
+    float spare = max(abs(dFdx(gl_FragCoord.z)), abs(dFdy(gl_FragCoord.z))) + 8.0 / 16777216.0;
+    if (u_clear == 0 && gl_FragCoord.z > scene + spare) discard;
     o_color = vec4(vec3(1.0 - u_darkness * (1.0 - v_reach)), 1.0);
 }
 )";
@@ -3095,7 +3124,10 @@ void GlBackend::draw_shadow_map(const ShadowPass &p, const ShadowKept &kept, con
 // drawn), then multiplied into the picture. `eye_to_map` takes this picture's eye space to the map's: x' = R * (x - t), with
 // R's rows in its first nine numbers and t in the last three.
 void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float *eye_to_map) {
-    const GLsizei w = static_cast<GLsizei>(rt.width) * scale_, h = static_cast<GLsizei>(rt.height) * scale_;
+    const GLsizei full_w = static_cast<GLsizei>(rt.width) * scale_, full_h = static_cast<GLsizei>(rt.height) * scale_;
+    // At a small internal resolution there is nothing to spare.
+    const int down = scale_ >= 2 && live_->shadow_half_resolution.load(std::memory_order_relaxed) ? 2 : 1;
+    const GLsizei w = (full_w + down - 1) / down, h = (full_h + down - 1) / down;
     gl_.Disable(GL_SCISSOR_TEST);
     gl_.Disable(GL_BLEND);
     gl_.Disable(GL_DEPTH_TEST);
@@ -3142,6 +3174,7 @@ void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float 
     gl_.Uniform2f(uniform(f, "u_vz"), p.vz[0], p.vz[1]);
     gl_.Uniform4f(uniform(f, "u_vp"), p.vp[0], p.vp[1], p.vp[2], p.vp[3]);
     gl_.Uniform1f(uniform(f, "u_pixel"), static_cast<float>(scale_));
+    gl_.Uniform1i(uniform(f, "u_down"), down);
     gl_.Uniform3f(uniform(f, "u_center"), p.center[0], p.center[1], p.center[2]);
     gl_.Uniform3f(uniform(f, "u_right"), p.right[0], p.right[1], p.right[2]);
     gl_.Uniform3f(uniform(f, "u_up"), p.up[0], p.up[1], p.up[2]);
@@ -3179,12 +3212,10 @@ void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float 
         gl_.Uniform1f(uniform(fp, "u_darkness"), p.darkness);
     };
     if (shadow_facing_count_[p.map] != 0 && part != 1) {
-        // Against the scene's depth, which is only attached for this: the darker of the two wins.
-        gl_.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, rt.depth, 0);
-        gl_.Enable(GL_DEPTH_TEST);
-        gl_.DepthFunc(GL_LEQUAL);
-        gl_.Enable(GL_POLYGON_OFFSET_FILL);
-        gl_.PolygonOffset(-1.0f, -8.0f);
+        // Against the scene's depth, which the shader reads: the darker of the two wins.
+        gl_.ActiveTexture(GL_TEXTURE1);
+        gl_.BindTexture(GL_TEXTURE_2D, rt.depth);
+        gl_.ActiveTexture(GL_TEXTURE0);
         gl_.Enable(GL_BLEND);
         gl_.BlendEquationSeparate(GL_MIN, GL_MIN);
         gl_.BlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
@@ -3192,14 +3223,16 @@ void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float 
         gl_.UseProgram(fp);
         facing_uniforms(fp);
         gl_.Uniform1i(uniform(fp, "u_clear"), 0);
+        gl_.Uniform1i(uniform(fp, "u_down"), down);
+        gl_.Uniform1i(uniform(fp, "u_depth"), 1);
         gl_.BindVertexArray(shadow_facing_vao_[p.map]);
         gl_.DrawArrays(GL_TRIANGLES, 0, shadow_facing_count_[p.map]);
         gl_.BindVertexArray(empty_vao_);
         gl_.Disable(GL_BLEND);
         gl_.BlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
-        gl_.Disable(GL_POLYGON_OFFSET_FILL);
-        gl_.Disable(GL_DEPTH_TEST);
-        gl_.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+        gl_.ActiveTexture(GL_TEXTURE1);
+        gl_.BindTexture(GL_TEXTURE_2D, 0);
+        gl_.ActiveTexture(GL_TEXTURE0);
     }
     if (shadow_clear_count_[p.map] != 0) {
         // The listed pieces of the air write depth, so the map's shadows land on them: those are taken off here. The factor's
@@ -3208,6 +3241,7 @@ void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float 
         gl_.UseProgram(fp);
         facing_uniforms(fp);
         gl_.Uniform1i(uniform(fp, "u_clear"), 1);
+        gl_.Uniform1i(uniform(fp, "u_down"), down);
         gl_.Uniform1i(uniform(fp, "u_depth"), 1);
         gl_.ActiveTexture(GL_TEXTURE1);
         gl_.BindTexture(GL_TEXTURE_2D, rt.depth);
@@ -3222,10 +3256,17 @@ void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float 
 
     shadow_time_end();
     gl_.BindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
+    // The target's depth is read here, so it must not stay attached while it is.
+    gl_.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+    gl_.Viewport(0, 0, full_w, full_h);
     gl_.UseProgram(shadow_apply_program_);
     shadow_time_begin(4);
     gl_.Uniform1i(uniform(shadow_apply_program_, "u_factor"), 2);
-    gl_.Uniform1i(uniform(shadow_apply_program_, "u_step"), std::max(1, scale_ / 2));
+    gl_.Uniform1i(uniform(shadow_apply_program_, "u_depth"), 1);
+    gl_.Uniform1i(uniform(shadow_apply_program_, "u_down"), down);
+    gl_.Uniform1i(uniform(shadow_apply_program_, "u_step"), std::max(1, scale_ / (2 * down)));
+    gl_.ActiveTexture(GL_TEXTURE1);
+    gl_.BindTexture(GL_TEXTURE_2D, rt.depth);
     gl_.ActiveTexture(GL_TEXTURE2);
     gl_.BindTexture(GL_TEXTURE_2D, shadow_factor_tex_);
     gl_.Enable(GL_BLEND);
@@ -3234,8 +3275,11 @@ void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float 
     gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
     gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     shadow_time_end();
+    gl_.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, rt.depth, 0);
     gl_.Disable(GL_BLEND);
     gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    gl_.BindTexture(GL_TEXTURE_2D, 0);
+    gl_.ActiveTexture(GL_TEXTURE1);
     gl_.BindTexture(GL_TEXTURE_2D, 0);
     gl_.ActiveTexture(GL_TEXTURE0);
 }

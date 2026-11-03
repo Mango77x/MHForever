@@ -55,6 +55,7 @@ struct LiveSettings {
     std::atomic<bool> shadow{false};
     std::atomic<bool> shadow_whole_map{true};
     std::atomic<bool> shadow_whole_map_in_caves{false}; // the zones listed as caves get the whole map too
+    std::atomic<bool> shadow_half_resolution{true};     // shadows worked out at half the picture's size, then brought up to it
     std::atomic<float> shadow_sun_height{0.0f};         // degrees the sun is raised to at least; 0: as the game has it
     // For finding faults: 0 everything, 1 only the shadows that fall on things, 2 only the shade of sides turned from the sun.
     std::atomic<int> shadow_part{0};
