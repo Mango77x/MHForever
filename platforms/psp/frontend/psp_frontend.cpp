@@ -462,7 +462,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowWholeMapInCaves, kShadowHalfResolution, kShadowSunHeight, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing, kShadowPick
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowWholeMapInCaves, kShadowHalfResolution, kShadowQuality, kShadowKeepScenery, kShadowSunHeight, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing, kShadowPick
 };
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
 
@@ -753,6 +753,14 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         overlay::MenuItem half = menu_item(Kind::Toggle, kShadowHalfResolution, "Half resolution shadows", impl.live.shadow_half_resolution ? 1 : 0);
         half.detail = "Faster, with slightly softer edges.";
         video.items.push_back(half);
+        overlay::MenuItem quality = menu_item(Kind::Choice, kShadowQuality, "Shadow quality");
+        quality.options = {"Low", "Medium", "High"};
+        quality.value = impl.live.shadow_quality.load();
+        quality.detail = "How much detail the scenery's shadows have. Lower is faster.";
+        video.items.push_back(quality);
+        overlay::MenuItem keep = menu_item(Kind::Toggle, kShadowKeepScenery, "Remember the scenery", impl.live.shadow_keep_scenery ? 1 : 0);
+        keep.detail = "Keeps what the camera has seen casting shadows, and draws it less often. Experimental.";
+        video.items.push_back(keep);
         video.items.push_back(menu_item(Kind::Slider, kShadowStrength, "Shadow darkness", static_cast<int>(impl.live.shadow_strength * 100.0f + 0.5f)));
         // All the way down: as the game has it. All the way up: straight overhead (35 to 90 degrees).
         const float sun_height = impl.live.shadow_sun_height;
@@ -1142,6 +1150,8 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         case kShadowWholeMap: impl.live.shadow_whole_map = e.value != 0; break;
         case kShadowWholeMapInCaves: impl.live.shadow_whole_map_in_caves = e.value != 0; break;
         case kShadowHalfResolution: impl.live.shadow_half_resolution = e.value != 0; break;
+        case kShadowKeepScenery: impl.live.shadow_keep_scenery = e.value != 0; break;
+        case kShadowQuality: impl.live.shadow_quality = std::clamp(e.value, 0, 2); break;
         case kShadowPick: impl.live.shadow_pick = e.value != 0; break;
         case kShadowOnlyCast:
             impl.live.shadow_part = e.value != 0 ? 1 : 0;
