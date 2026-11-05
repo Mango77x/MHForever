@@ -1,6 +1,7 @@
 // Region data (recomp/emitter.*): the entries of the active region map with the names only other region maps list,
 // the header written from them (address or std::nullopt), the file left as it is when nothing changed, and a name that
-// is not a C++ identifier refused. Everything is written in a temporary folder from synthetic maps.
+// is not a C++ identifier refused; the [patches] entries read or refused, and which instructions each patch kind fits.
+// Everything is written in a temporary folder from synthetic maps.
 
 #include "emitter.hpp"
 
@@ -82,6 +83,51 @@ int main() {
         refused = true;
     }
     MHF_CHECK(refused);
+
+    // Instruction patches ([patches]): both kinds read, with their module and address; an entry that cannot be read is
+    // refused; each kind only fits the instructions it can change.
+    using mhf::psp::recomp::InstructionPatch;
+    using mhf::psp::recomp::patch_mismatch;
+    using mhf::psp::recomp::region_patches;
+    const auto patched = dir.path / "regions" / "patched_region" / "symbols.toml";
+    write(patched, "[patches]\nclear_flag_test = \"lobby_task.ovl 0x09AA2F3C immediate 0\"\n"
+                   "skip_branch = \"executable 0x08804010 never\" # comment\n");
+    const auto patches = region_patches(patched);
+    MHF_CHECK(patches.size() == 2);
+    for (const auto &p : patches) {
+        if (p.patch.name == "clear_flag_test") {
+            MHF_CHECK(p.module == "lobby_task.ovl" && p.address == 0x09AA2F3Cu);
+            MHF_CHECK(p.patch.kind == InstructionPatch::Kind::Immediate && p.patch.immediate == 0);
+        } else {
+            MHF_CHECK(p.patch.name == "skip_branch" && p.module == "executable" && p.address == 0x08804010u);
+            MHF_CHECK(p.patch.kind == InstructionPatch::Kind::Never);
+        }
+    }
+    for (const char *bad : {"\"lobby_task.ovl 0x09AA2F3C immediate\"", "\"lobby_task.ovl 0x09AA2F3C sometimes\"",
+                            "\"lobby_task.ovl 0x09AA2F3C immediate 0x10000\"", "\"0x09AA2F3C never\""}) {
+        write(patched, std::string("[patches]\nbad = ") + bad + "\n");
+        bool rejected = false;
+        try {
+            (void)region_patches(patched);
+        } catch (const std::invalid_argument &) {
+            rejected = true;
+        }
+        MHF_CHECK(rejected);
+    }
+    InstructionPatch immediate;
+    immediate.kind = InstructionPatch::Kind::Immediate;
+    InstructionPatch never;
+    never.kind = InstructionPatch::Kind::Never;
+    const auto andi = psprecomp::decode_allegrex(0x30420020u);  // andi v0, v0, 0x20
+    const auto bne = psprecomp::decode_allegrex(0x1440015Fu);   // bne v0, zero, +0x15F
+    const auto b = psprecomp::decode_allegrex(0x10000004u);     // beq zero, zero (always taken)
+    const auto lw = psprecomp::decode_allegrex(0x8E62004Cu);    // lw v0, 0x4C(s3)
+    MHF_CHECK(patch_mismatch(andi, immediate).empty());
+    MHF_CHECK(!patch_mismatch(lw, immediate).empty());
+    MHF_CHECK(!patch_mismatch(bne, immediate).empty());
+    MHF_CHECK(patch_mismatch(bne, never).empty());
+    MHF_CHECK(!patch_mismatch(b, never).empty());
+    MHF_CHECK(!patch_mismatch(andi, never).empty());
 
     return mhf::test::finish("region_data");
 }

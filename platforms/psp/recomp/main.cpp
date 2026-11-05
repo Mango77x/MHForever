@@ -257,6 +257,36 @@ int main(int argc, char **argv) {
             o.input.imports = {};
             o.input.hooks = input.hooks;
         }
+        // Instruction patches (region map [patches], docs/04-recompiler.md §6), each in the module it names.
+        const std::vector<RegionPatch> patches =
+            symbols_path.empty() ? std::vector<RegionPatch>{} : region_patches(symbols_path);
+        for (const auto &p : patches) {
+            if (p.module == "executable") {
+                input.patches[p.address] = p.patch;
+                continue;
+            }
+            const auto o = std::find_if(overlays.begin(), overlays.end(),
+                                        [&](const OverlayModule &m) { return m.file_name == p.module; });
+            if (o == overlays.end()) {
+                throw std::runtime_error("patch " + p.patch.name + ": no module " + p.module);
+            }
+            o->input.patches[p.address] = p.patch;
+        }
+        // A patch must land on a recompiled instruction of the kind it changes (the module's bytes are in memory).
+        auto check_patches = [&](const ProgramInput &module_input, const Analysis &analysis) {
+            for (const auto &[address, patch] : module_input.patches) {
+                const bool emitted = std::any_of(analysis.functions.begin(), analysis.functions.end(),
+                                                 [&](const auto &f) { return f.second.instructions.contains(address); });
+                if (!emitted) {
+                    throw std::runtime_error("patch " + patch.name + ": no recompiled instruction at " +
+                                             psprecomp::hex32(address));
+                }
+                const auto d = psprecomp::decode_allegrex(memory.load32(address));
+                if (const auto why = patch_mismatch(d, patch); !why.empty()) {
+                    throw std::runtime_error("patch " + patch.name + " at " + psprecomp::hex32(address) + ": " + why);
+                }
+            }
+        };
         auto route = [&](std::uint32_t target, bool from_main) {
             if (in_ranges(input.code, target)) {
                 if (!from_main) input.extra_entries.push_back(target);
@@ -297,6 +327,7 @@ int main(int argc, char **argv) {
         }
         const auto analysis = analyze(input);
         for (const auto t : analysis.external_calls) route(t, true);
+        check_patches(input, analysis);
 
         EmitOptions options;
         options.program_name = name;
@@ -315,6 +346,7 @@ int main(int argc, char **argv) {
         for (auto &o : overlays) { // round 2: final analysis and emission
             memory.copy_in(o.load_address, o.bytes);
             const auto overlay_analysis = analyze(o.input);
+            check_patches(o.input, overlay_analysis);
             EmitOptions overlay_options;
             overlay_options.program_name = o.identifier;
             overlay_options.gp = module->gp;
