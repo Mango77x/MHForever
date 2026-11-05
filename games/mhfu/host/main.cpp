@@ -4,6 +4,7 @@
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
 //             [--smooth-textures] [--fps 30..180] [--hud-size 50-100] [--true-weapon-values] [--fast-supply-box]
+//             [--smithy-browse]
 //             [--horn-songs [--horn-songs-place next-to-sheet|top-middle|under-names|bottom-left|custom:X,Y]]
 //             [--music-volume 0-100] [--sfx-volume 0-100]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
@@ -171,6 +172,58 @@ void on_supply_box_update(Runtime &rt, Context &ctx) {
     }
 }
 
+// --smithy-browse. The smithy's lists ignore the d-pad while the R panel (the materials) or the Info panel is open; the
+// region map's [patches] take those tests away, so the cursor moves under the panel. The R panel reads the item under
+// the cursor every frame, but the Info panel is built once, when the player opens it: after a move it is built again.
+constexpr const char *kSmithyBrowsePatches[] = {
+    "mh_smithy_create_requires_blocks_up_down",  "mh_smithy_create_requires_blocks_paging",
+    "mh_smithy_create_info_blocks_up_down",      "mh_smithy_improve_requires_blocks_up_down",
+    "mh_smithy_improve_info_blocks_up_down",     "mh_smithy_decoration_requires_blocks_up_down",
+    "mh_smithy_decoration_requires_blocks_paging",
+};
+constexpr bool kSmithyBrowseMapped = region::mh_smithy_create_info_setup && region::mh_smithy_improve_info_setup;
+constexpr std::uint32_t kSmithyListInfoLevel = 0x22; // u8 in the list: 0 the list alone, 1 and up Info
+constexpr std::uint32_t kSmithyListCursor = 0x3C;    // s16 in the list: the highlighted row
+constexpr std::uint32_t kSmithyListInfoPage = 0x36;  // s16 in the list: the Info page shown (left/right)
+constexpr std::uint32_t kSmithyListInfoPages = 0x38; // u8 in the list: how many pages Info has, set when it is built
+
+struct SmithyInfoState {
+    std::uint32_t list = 0;
+    std::int16_t cursor = 0;
+};
+SmithyInfoState g_smithy_create_info, g_smithy_improve_info;
+
+// Called on entry to a smithy list's per-frame function (List* in a0): when Info is open and the cursor has moved since
+// the panel was built, build it again with the game's own function `setup`, on the page the player was reading (the
+// game builds it on the first page).
+void refresh_smithy_info(Runtime &rt, Context &ctx, std::uint32_t setup, SmithyInfoState &seen) {
+    // The hooked address starts a function in other overlays too.
+    const mhf::psp::Program *overlay = rt.active_overlay_at(setup);
+    if (overlay == nullptr || !std::string_view(overlay->name).ends_with("_ovl_lobby_task")) return;
+    const std::uint32_t list = ctx.gpr[4];
+    psprecomp::GuestMemory &memory = rt.memory();
+    if (!memory.contains(list, kSmithyListCursor + 2)) return;
+    const auto cursor = static_cast<std::int16_t>(memory.load16(list + kSmithyListCursor));
+    if (memory.load8(list + kSmithyListInfoLevel) == 0 || list != seen.list) {
+        seen = {list, cursor};
+        return;
+    }
+    if (cursor == seen.cursor) return;
+    seen.cursor = cursor;
+    const std::uint16_t page = memory.load16(list + kSmithyListInfoPage);
+    Context call = ctx;
+    rt.call(call, setup);
+    if (page < memory.load8(list + kSmithyListInfoPages)) memory.store16(list + kSmithyListInfoPage, page);
+}
+
+void on_smithy_create_list_update(Runtime &rt, Context &ctx) {
+    if constexpr (kSmithyBrowseMapped) refresh_smithy_info(rt, ctx, *region::mh_smithy_create_info_setup, g_smithy_create_info);
+}
+
+void on_smithy_improve_list_update(Runtime &rt, Context &ctx) {
+    if constexpr (kSmithyBrowseMapped) refresh_smithy_info(rt, ctx, *region::mh_smithy_improve_info_setup, g_smithy_improve_info);
+}
+
 // The disc's product code ("ULES01213") from its PARAM.SFO, which ad hoc servers use to group the players of one game.
 std::string disc_product_code(const std::filesystem::path &disc_image) {
     try {
@@ -251,6 +304,7 @@ int main(int argc, char **argv) {
     int hud_size = 100; // --hud-size N: the quest HUD's size in percent (enhancement)
     bool true_weapon_values = false; // --true-weapon-values: menus show attack and element without display multipliers
     bool fast_supply_box = false; // --fast-supply-box: the supply box takes the next button soon after a take-out
+    bool smithy_browse = false; // --smithy-browse: the smithy's lists scroll with the R or Info panel open
     bool horn_songs = false; // --horn-songs: the hunting horn's songs over the quest HUD (enhancement)
     std::string horn_songs_place = "next-to-sheet"; // --horn-songs-place: where (overlay/song_panel.hpp, parse_song_spot)
     mhf::host::KeyBindings keyboard; // --keymap: the launcher's keyboard bindings
@@ -280,6 +334,7 @@ int main(int argc, char **argv) {
         else if (a == "--hud-size" && i + 1 < argc) hud_size = std::clamp(std::stoi(argv[++i]), 50, 100); // enhancement
         else if (a == "--true-weapon-values") true_weapon_values = true; // enhancement, off by default
         else if (a == "--fast-supply-box") fast_supply_box = true; // enhancement, off by default
+        else if (a == "--smithy-browse") smithy_browse = true; // enhancement, off by default
         else if (a == "--horn-songs") horn_songs = true; // enhancement
         else if (a == "--horn-songs-place" && i + 1 < argc) horn_songs_place = argv[++i];
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
@@ -337,6 +392,13 @@ int main(int argc, char **argv) {
         }
         runtime.register_hook("mh_overlay_prepare", &on_overlay_prepare);
         if (fast_supply_box) runtime.register_hook("mh_supply_box_update", &on_supply_box_update);
+        if (smithy_browse && kSmithyBrowseMapped) {
+            for (const char *patch : kSmithyBrowsePatches) runtime.enable_patch(patch);
+            runtime.register_hook("mh_smithy_create_list_update", &on_smithy_create_list_update);
+            runtime.register_hook("mh_smithy_improve_list_update", &on_smithy_improve_list_update);
+        } else if (smithy_browse) {
+            std::fprintf(stderr, "[mhfu] --smithy-browse: not mapped for this release, ignored\n");
+        }
         std::function<void()> extra;
         if (!dump_folder.empty() || seconds > 0 || !script.empty()) {
             if (!dump_folder.empty()) std::filesystem::create_directories(dump_folder);

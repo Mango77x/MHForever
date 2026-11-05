@@ -2,7 +2,8 @@
 // every release maps the data entries of --true-weapon-values for each of its languages, a map's per-language format
 // entries never share an address (the game program writes only where the loaded language's format is), and every map
 // declares every language's names, so the game program builds for every release. Every map also lists the functions
-// games/mhfu/tools/prepare.py hooks, since mhf_recomp stops when a hooked name is missing.
+// games/mhfu/tools/prepare.py hooks (mhf_recomp stops when a hooked name is missing) and every instruction patch the
+// game program switches on, each one readable.
 
 #include "emitter.hpp"
 #include "mini_toml.hpp"
@@ -50,15 +51,26 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
     for (const auto &name : all) MHF_CHECK(entries.contains(name));
     MHF_CHECK(entries.contains("mh_overlay_region_bases") && entries.at("mh_overlay_region_bases").has_value());
 
-    // The functions prepare.py passes to mhf_recomp as --hook.
-    const auto map = mhf::psp::recomp::toml::parse_file(fs::path(MHF_MHFU_REGIONS_DIR) / disc_id / "symbols.toml");
+    const fs::path map_path = fs::path(MHF_MHFU_REGIONS_DIR) / disc_id / "symbols.toml";
+    const auto map = mhf::psp::recomp::toml::parse_file(map_path);
     const auto functions = map.tables.find("functions");
     MHF_CHECK(functions != map.tables.end());
     if (functions != map.tables.end()) {
-        for (const char *hooked : {"mh_overlay_prepare", "mh_supply_box_update"}) {
+        for (const char *hooked :
+             {"mh_overlay_prepare", "mh_supply_box_update", "mh_smithy_create_list_update",
+              "mh_smithy_improve_list_update"}) {
             MHF_CHECK(mhf::psp::recomp::toml::get(functions->second, hooked).has_value());
         }
     }
+    // --smithy-browse: its seven patches, all in the village overlay, and the two Info functions it calls.
+    std::set<std::string> patches;
+    for (const auto &p : mhf::psp::recomp::region_patches(map_path)) {
+        MHF_CHECK(p.module == "lobby_task.ovl");
+        patches.insert(p.patch.name);
+    }
+    MHF_CHECK(patches.size() == 7);
+    MHF_CHECK(entries.contains("mh_smithy_create_info_setup") && entries.at("mh_smithy_create_info_setup").has_value());
+    MHF_CHECK(entries.contains("mh_smithy_improve_info_setup") && entries.at("mh_smithy_improve_info_setup").has_value());
 }
 
 } // namespace

@@ -213,6 +213,15 @@ int main(int argc, char **argv) {
         fast_box["fastSupplyBox"] = "no";
         l.set_settings(fast_box);
         CHECK(l.state()["settings"]["fastSupplyBox"].as_bool());
+        // Smithy browsing: off by default, a bool turns it on, anything else is ignored.
+        CHECK(!l.state()["settings"]["smithyBrowse"].as_bool(true));
+        Json smithy;
+        smithy["smithyBrowse"] = true;
+        l.set_settings(smithy);
+        CHECK(l.state()["settings"]["smithyBrowse"].as_bool());
+        smithy["smithyBrowse"] = "no";
+        l.set_settings(smithy);
+        CHECK(l.state()["settings"]["smithyBrowse"].as_bool());
         // Hunting horn songs: off by default, a bool turns them on, anything else is ignored.
         CHECK(!l.state()["settings"]["hornSongs"].as_bool(true));
         Json horn;
