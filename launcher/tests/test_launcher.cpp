@@ -204,6 +204,15 @@ int main(int argc, char **argv) {
         true_values["trueWeaponValues"] = "no";
         l.set_settings(true_values);
         CHECK(l.state()["settings"]["trueWeaponValues"].as_bool());
+        // Fast supply box: off by default, a bool turns it on, anything else is ignored.
+        CHECK(!l.state()["settings"]["fastSupplyBox"].as_bool(true));
+        Json fast_box;
+        fast_box["fastSupplyBox"] = true;
+        l.set_settings(fast_box);
+        CHECK(l.state()["settings"]["fastSupplyBox"].as_bool());
+        fast_box["fastSupplyBox"] = "no";
+        l.set_settings(fast_box);
+        CHECK(l.state()["settings"]["fastSupplyBox"].as_bool());
         // Hunting horn songs: off by default, a bool turns them on, anything else is ignored.
         CHECK(!l.state()["settings"]["hornSongs"].as_bool(true));
         Json horn;

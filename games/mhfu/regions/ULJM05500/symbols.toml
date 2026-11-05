@@ -15,6 +15,11 @@ mh_overlay_is_active    = 0x0888FF8C # (System*, group, file_id) -> bool
 mh_overlay_prepare      = 0x0890B844 # (image*, size): cache maintenance, clears .bss after the image, runs its static initializers
 mh_static_init_run      = 0x08909DA4 # (begin, end, ...): runs a static-initializer table (used for overlays and the executable)
 
+# Supply box (--fast-supply-box; found 2026-11-05 by matching the EU function; 0x50 lower than in EU). Taking an item
+# out sets a u8 cooldown in the Player to 30 frames; this function counts it down once per frame and ignores the buttons
+# until it reaches 0.
+mh_supply_box_update    = 0x088476A4 # (?, Player*): the supply box menu, once per frame while it is open
+
 [data]
 mh_overlay_region_bases = 0x089C6B40 # u32[6], region base address per group
 

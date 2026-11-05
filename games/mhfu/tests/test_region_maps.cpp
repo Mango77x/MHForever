@@ -1,9 +1,11 @@
 // Tests the region maps in games/mhfu/regions (identification data in the repository, no game data): every map parses,
 // every release maps the data entries of --true-weapon-values for each of its languages, a map's per-language format
 // entries never share an address (the game program writes only where the loaded language's format is), and every map
-// declares every language's names, so the game program builds for every release.
+// declares every language's names, so the game program builds for every release. Every map also lists the functions
+// games/mhfu/tools/prepare.py hooks, since mhf_recomp stops when a hooked name is missing.
 
 #include "emitter.hpp"
+#include "mini_toml.hpp"
 
 #include "check.hpp"
 
@@ -47,6 +49,16 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
     MHF_CHECK(addresses.size() == own.size());
     for (const auto &name : all) MHF_CHECK(entries.contains(name));
     MHF_CHECK(entries.contains("mh_overlay_region_bases") && entries.at("mh_overlay_region_bases").has_value());
+
+    // The functions prepare.py passes to mhf_recomp as --hook.
+    const auto map = mhf::psp::recomp::toml::parse_file(fs::path(MHF_MHFU_REGIONS_DIR) / disc_id / "symbols.toml");
+    const auto functions = map.tables.find("functions");
+    MHF_CHECK(functions != map.tables.end());
+    if (functions != map.tables.end()) {
+        for (const char *hooked : {"mh_overlay_prepare", "mh_supply_box_update"}) {
+            MHF_CHECK(mhf::psp::recomp::toml::get(functions->second, hooked).has_value());
+        }
+    }
 }
 
 } // namespace

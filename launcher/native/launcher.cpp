@@ -125,6 +125,7 @@ Json default_settings() {
     s["fps"] = 30; // output rate: the game's own 30, or a multiple of it up to 180 (in-between pictures)
     s["hudSize"] = 100; // the quest HUD's size in percent, 50..100 in steps of 10
     s["trueWeaponValues"] = false; // menus show attack and element without the game's display multipliers
+    s["fastSupplyBox"] = false; // the supply box takes the next button soon after a take-out
     s["hornSongs"] = false; // the hunting horn's songs over the quest HUD
     s["hornSongsPlace"] = "next-to-sheet"; // and where: a place's name, or "custom:X,Y" (overlay/song_panel.hpp)
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
@@ -912,7 +913,7 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     if (partial["hudSize"].is_number()) { // the in-game menu's steps: 50, 60, ... 100
         s["hudSize"] = std::clamp(std::round(partial["hudSize"].as_number() / 10.0), 5.0, 10.0) * 10.0;
     }
-    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "hornSongs"}) {
+    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox", "hornSongs"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
     if (partial["hornSongsPlace"].is_string() && overlay::parse_song_spot(partial["hornSongsPlace"].as_string())) {
@@ -1231,6 +1232,7 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back(num("hudSize"));
     }
     if (s["trueWeaponValues"].as_bool()) plan.args.push_back("--true-weapon-values");
+    if (s["fastSupplyBox"].as_bool()) plan.args.push_back("--fast-supply-box");
     if (s["hornSongs"].as_bool()) {
         plan.args.push_back("--horn-songs");
         if (s["hornSongsPlace"].is_string()) {

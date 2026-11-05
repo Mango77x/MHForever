@@ -503,6 +503,10 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           <Toggle on={s.trueWeaponValues} onToggle={() => onChange({ trueWeaponValues: !s.trueWeaponValues })} label="Show true weapon values" />
         </div>
         <div className="srow">
+          <div className="slabel"><b>Fast supply box</b><span>Optional enhancement: after you take an item out of the supply box, the menu waits 2 frames instead of 30 before it accepts the next button. Off is faithful to the original.</span></div>
+          <Toggle on={s.fastSupplyBox ?? false} onToggle={() => onChange({ fastSupplyBox: !(s.fastSupplyBox ?? false) })} label="Fast supply box" />
+        </div>
+        <div className="srow">
           <div className="slabel"><b>Show hunting horn songs</b><span>Optional enhancement: in quests with a hunting horn, the songs it can play are listed on screen, the one being played lights up and the ones in effect turn green. Off is faithful to the original.</span></div>
           <Toggle on={s.hornSongs ?? false} onToggle={() => onChange({ hornSongs: !(s.hornSongs ?? false) })} label="Show hunting horn songs" />
         </div>
