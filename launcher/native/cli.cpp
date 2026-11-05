@@ -22,7 +22,7 @@ namespace {
 #endif
 
 // The settings `--set` changes (the others, such as the controls, are changed in the game's own menu).
-constexpr const char *kBoolSettings[] = {"fullscreen", "smoothTextures", "trueWeaponValues"};
+constexpr const char *kBoolSettings[] = {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox"};
 constexpr const char *kNumberSettings[] = {"scale", "fps", "hudSize", "musicVolume", "sfxVolume"};
 
 void usage() {
@@ -31,7 +31,7 @@ void usage() {
                  "  --install <image.iso> [--in-place | --copy]   add your copy of the game (once)\n"
                  "  --list                                        your copies and their settings\n"
                  "  --set <name>=<value>... [--disc <disc id>]    change a copy's settings\n"
-                 "        fullscreen, smoothTextures, trueWeaponValues: true or false\n"
+                 "        fullscreen, smoothTextures, trueWeaponValues, fastSupplyBox: true or false\n"
                  "        scale 1-10, fps 30-180, hudSize 50-100, musicVolume 0-100, sfxVolume 0-100\n"
                  "  --play [<disc id>]                            start the game and wait until it ends\n"
                  "  --update                                      update MHForever\n"

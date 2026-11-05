@@ -3,7 +3,7 @@
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
-//             [--smooth-textures] [--fps 30..180] [--hud-size 50-100] [--true-weapon-values]
+//             [--smooth-textures] [--fps 30..180] [--hud-size 50-100] [--true-weapon-values] [--fast-supply-box]
 //             [--horn-songs [--horn-songs-place next-to-sheet|top-middle|under-names|bottom-left|custom:X,Y]]
 //             [--music-volume 0-100] [--sfx-volume 0-100]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
@@ -158,6 +158,19 @@ void on_overlay_prepare(Runtime &rt, Context &ctx) {
     }
 }
 
+// --fast-supply-box. Taking an item out of the supply box sets a cooldown in the Player to 30 frames, and the box ignores
+// every button until mh_supply_box_update has counted it down to 0. The offset is the same in the three releases.
+constexpr std::uint32_t kPlayerSupplyBoxCooldown = 0x55E; // u8, frames
+constexpr std::uint8_t kFastSupplyBoxFrames = 2;          // what is left of it: the box takes the next button 2 frames later
+
+// Hook on mh_supply_box_update(?, Player*), before the game counts the cooldown down.
+void on_supply_box_update(Runtime &rt, Context &ctx) {
+    const std::uint32_t cooldown = ctx.gpr[5] + kPlayerSupplyBoxCooldown;
+    if (rt.memory().contains(cooldown) && rt.memory().load8(cooldown) > kFastSupplyBoxFrames) {
+        rt.memory().store8(cooldown, kFastSupplyBoxFrames);
+    }
+}
+
 // The disc's product code ("ULES01213") from its PARAM.SFO, which ad hoc servers use to group the players of one game.
 std::string disc_product_code(const std::filesystem::path &disc_image) {
     try {
@@ -237,6 +250,7 @@ int main(int argc, char **argv) {
     int target_fps = 30; // --fps N: 30 (the game's own rate) or a multiple of it up to 180
     int hud_size = 100; // --hud-size N: the quest HUD's size in percent (enhancement)
     bool true_weapon_values = false; // --true-weapon-values: menus show attack and element without display multipliers
+    bool fast_supply_box = false; // --fast-supply-box: the supply box takes the next button soon after a take-out
     bool horn_songs = false; // --horn-songs: the hunting horn's songs over the quest HUD (enhancement)
     std::string horn_songs_place = "next-to-sheet"; // --horn-songs-place: where (overlay/song_panel.hpp, parse_song_spot)
     mhf::host::KeyBindings keyboard; // --keymap: the launcher's keyboard bindings
@@ -265,6 +279,7 @@ int main(int argc, char **argv) {
         else if (a == "--fps" && i + 1 < argc) target_fps = std::clamp(std::stoi(argv[++i]), 30, 180); // enhancement
         else if (a == "--hud-size" && i + 1 < argc) hud_size = std::clamp(std::stoi(argv[++i]), 50, 100); // enhancement
         else if (a == "--true-weapon-values") true_weapon_values = true; // enhancement, off by default
+        else if (a == "--fast-supply-box") fast_supply_box = true; // enhancement, off by default
         else if (a == "--horn-songs") horn_songs = true; // enhancement
         else if (a == "--horn-songs-place" && i + 1 < argc) horn_songs_place = argv[++i];
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
@@ -321,6 +336,7 @@ int main(int argc, char **argv) {
             runtime.add_overlay(*programs[i]);
         }
         runtime.register_hook("mh_overlay_prepare", &on_overlay_prepare);
+        if (fast_supply_box) runtime.register_hook("mh_supply_box_update", &on_supply_box_update);
         std::function<void()> extra;
         if (!dump_folder.empty() || seconds > 0 || !script.empty()) {
             if (!dump_folder.empty()) std::filesystem::create_directories(dump_folder);

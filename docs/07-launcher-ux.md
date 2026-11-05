@@ -49,7 +49,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   pseudonym, identity seed, settings, library, stats. Adding a copy reads PARAM.SFO (`platforms/psp/tools/param_sfo`)
   and compares size + SHA-1 with `games/*/regions/*/region.toml` (catalog generated at configure time; identification
   data only). Launching runs `mhfu(.exe)` next to the launcher with the settings as flags (`--scale`, `--fullscreen`,
-  `--smooth-textures`, `--fps`, `--true-weapon-values`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`), logs to `game.log`, and records play time and
+  `--smooth-textures`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`), logs to `game.log`, and records play time and
   sessions. The game also needs the prepared executable: the installer produces it (below); developer builds can instead use
   `../exe/<DISC_ID>_EBOOT.BIN` (or one next to the ISO), checked against `dev_executable` in region.toml.
 - **Friend code**: generated locally (SHA-256 of a random identity seed, Crockford base32). Provisional: online play will
@@ -104,7 +104,9 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   Its position (`hornSongsPlace`, `--horn-songs-place`): next to the horn's note sheet (default), top middle, under the
   name plates, bottom left, or `custom:X,Y`. The in-game menu's Game tab picks the position or drags the list anywhere;
   the game writes the choice to the controls file and the launcher keeps it. The same Game section holds **Show true weapon
-  values** (`trueWeaponValues`, `--true-weapon-values`): the game's options live there, Video keeps the picture's.
+  values** (`trueWeaponValues`, `--true-weapon-values`) and **Fast supply box** (`fastSupplyBox`, `--fast-supply-box`,
+  off by default: the supply box takes the next button 2 frames after a take-out instead of 30): the game's options live
+  there, Video keeps the picture's.
 - **Updates (2026-10-29)**: when the launcher starts (Settings > About > Check for updates, on by default) it asks GitHub for
   the latest release; when it is newer, Home offers "Update now". The launcher downloads the archive for its system with the
   system's `curl`, checks it against the SHA-256 GitHub computes for every release asset (nothing to publish besides the
