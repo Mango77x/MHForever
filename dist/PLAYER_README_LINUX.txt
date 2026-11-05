@@ -61,7 +61,7 @@ Mode) and:
     ./MHForever-cli --install "/path/to/your game.iso"      add your copy (once; --copy keeps a copy of the image)
     ./MHForever-cli --set fullscreen=true                    settings: fullscreen, scale (1-10), fps (30-180), hudSize (50-100),
                                                              smoothTextures, trueWeaponValues, fastSupplyBox, smithyBrowse,
-                                                             musicVolume, sfxVolume (0-100)
+                                                             smithyLayout, musicVolume, sfxVolume (0-100)
     ./MHForever-cli --list                                   your copies (and their disc IDs) and settings
     ./MHForever-cli --play                                   start the game (--play ULES01213 picks another copy)
 To play from Game Mode, add MHForever-cli to Steam as a non-Steam game (Desktop Mode > Add a Game > Add a Non-Steam

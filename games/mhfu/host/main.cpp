@@ -4,7 +4,7 @@
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
 //             [--smooth-textures] [--fps 30..180] [--hud-size 50-100] [--true-weapon-values] [--fast-supply-box]
-//             [--smithy-browse]
+//             [--smithy-browse [--smithy-layout]]
 //             [--horn-songs [--horn-songs-place next-to-sheet|top-middle|under-names|bottom-left|custom:X,Y]]
 //             [--music-volume 0-100] [--sfx-volume 0-100]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
@@ -182,7 +182,7 @@ constexpr const char *kSmithyBrowsePatches[] = {
     "mh_smithy_decoration_requires_blocks_paging",
 };
 constexpr bool kSmithyBrowseMapped = region::mh_smithy_create_info_setup && region::mh_smithy_improve_info_setup;
-constexpr std::uint32_t kSmithyListInfoLevel = 0x22; // u8 in the list: 0 the list alone, 1 and up Info
+constexpr std::uint32_t kSmithyListInfoLevel = 0x22; // u8 in the list: 0 the list alone, 1 Info, 2 its skill page
 constexpr std::uint32_t kSmithyListCursor = 0x3C;    // s16 in the list: the highlighted row
 constexpr std::uint32_t kSmithyListInfoPage = 0x36;  // s16 in the list: the Info page shown (left/right)
 constexpr std::uint32_t kSmithyListInfoPages = 0x38; // u8 in the list: how many pages Info has, set when it is built
@@ -193,16 +193,16 @@ struct SmithyInfoState {
 };
 SmithyInfoState g_smithy_create_info, g_smithy_improve_info;
 
-// Called on entry to a smithy list's per-frame function (List* in a0): when Info is open and the cursor has moved since
-// the panel was built, build it again with the game's own function `setup`, on the page the player was reading (the
-// game builds it on the first page).
-void refresh_smithy_info(Runtime &rt, Context &ctx, std::uint32_t setup, SmithyInfoState &seen) {
-    // The hooked address starts a function in other overlays too.
-    const mhf::psp::Program *overlay = rt.active_overlay_at(setup);
-    if (overlay == nullptr || !std::string_view(overlay->name).ends_with("_ovl_lobby_task")) return;
-    const std::uint32_t list = ctx.gpr[4];
+// The hooked smithy functions start functions in other overlays too: only the village overlay's are the smithy's.
+bool village_overlay_at(const Runtime &rt, std::uint32_t address) {
+    const mhf::psp::Program *overlay = rt.active_overlay_at(address);
+    return overlay != nullptr && std::string_view(overlay->name).ends_with("_ovl_lobby_task");
+}
+
+// When Info is open and the cursor has moved since the panel was built, build it again with the game's own function
+// `setup`, on the page the player was reading (the game builds it on the first page).
+void refresh_smithy_info(Runtime &rt, Context &ctx, std::uint32_t list, std::uint32_t setup, SmithyInfoState &seen) {
     psprecomp::GuestMemory &memory = rt.memory();
-    if (!memory.contains(list, kSmithyListCursor + 2)) return;
     const auto cursor = static_cast<std::int16_t>(memory.load16(list + kSmithyListCursor));
     if (memory.load8(list + kSmithyListInfoLevel) == 0 || list != seen.list) {
         seen = {list, cursor};
@@ -216,12 +216,166 @@ void refresh_smithy_info(Runtime &rt, Context &ctx, std::uint32_t setup, SmithyI
     if (page < memory.load8(list + kSmithyListInfoPages)) memory.store16(list + kSmithyListInfoPage, page);
 }
 
+// --smithy-layout (needs --smithy-browse). While Info is open: Info in the left column, where the weapon model, its box,
+// the question box and the help bar were (all moved off screen; the model is drawn into an empty rectangle); the list
+// stays visible on the right (a patch), with the materials panel under it without its item header (both panels are
+// drawn: on_smithy_panel_draw); left/right pages the list (a patch) and the left stick turns Info's pages. Everything
+// is the game's own tables, changed when Info opens and put back when it closes.
+constexpr const char *kSmithyLayoutPatches[] = {"mh_smithy_list_hidden_with_info",
+                                                "mh_smithy_create_info_takes_left_right"};
+constexpr bool kSmithyLayoutMapped = kSmithyBrowseMapped && region::mh_smithy_panel_layout &&
+                                     region::mh_smithy_side_layout && region::mh_smithy_question_box &&
+                                     region::mh_smithy_skill_info_hint && region::mh_smithy_model_scissor &&
+                                     region::mh_smithy_panel_draw_entry && region::mh_pad_input;
+constexpr std::uint32_t kSmithyListFlags = 0x4C;        // u32 in the list: 0x20 while the materials panel is open
+constexpr std::uint32_t kSmithyMaterialsOpen = 0x20u;
+bool g_smithy_layout = false;
+
+struct SmithyLayoutWrite {
+    std::uint32_t address;
+    std::uint16_t value;
+};
+
+std::vector<SmithyLayoutWrite> smithy_layout_writes() {
+    if constexpr (!kSmithyLayoutMapped) {
+        return {};
+    } else {
+        constexpr std::uint16_t kOffScreen = 600; // x past the 480-pixel screen
+        const std::uint32_t panel = *region::mh_smithy_panel_layout, side = *region::mh_smithy_side_layout;
+        const std::uint32_t question = *region::mh_smithy_question_box, hint = *region::mh_smithy_skill_info_hint;
+        const std::uint32_t model = *region::mh_smithy_model_scissor;
+        const auto pair = [](std::uint32_t table, std::uint32_t entry) { return table + entry * 4u; };
+        return {
+            {pair(panel, 10), 0},              // Info: the left column
+            {pair(panel, 11) + 2, 180},        // materials: under the list's last row...
+            {pair(panel, 12) + 2, 76},         // ...down to the list's bottom frame
+            {pair(panel, 13), kOffScreen},     // materials: no item icon...
+            {pair(panel, 14), kOffScreen},     // ...nor name
+            {pair(panel, 15) + 2, 6},          // the first material row at the top
+            {pair(panel, 17), 0},              // the list is not darkened under the materials
+            {pair(panel, 17) + 2, 0},
+            {pair(side, 0), kOffScreen},       // the weapon model's box
+            {pair(side, 2), kOffScreen},       // the text in it (the Japanese release shows the model on SELECT)
+            {pair(side, 3), kOffScreen},       // the help bar (zoom, turn the model)
+            {question, kOffScreen},            // the question box...
+            {question + 0xCu, kOffScreen},     // ...and its text
+            {hint, 460},                       // the Skill Info hint ends under the list's right edge
+            {hint + 2, 257},
+            {model, 1},                        // the weapon model is drawn into an empty rectangle
+            {model + 2, 1},
+            {model + 4, 0},
+            {model + 6, 0},
+        };
+    }
+}
+
+struct SmithyLayoutState {
+    bool applied = false;
+    std::vector<std::uint16_t> saved;
+    bool stick_armed = true;
+};
+SmithyLayoutState g_smithy_layout_state;
+
+void update_smithy_layout(Runtime &rt, bool info_open) {
+    static const std::vector<SmithyLayoutWrite> writes = smithy_layout_writes();
+    psprecomp::GuestMemory &memory = rt.memory();
+    SmithyLayoutState &state = g_smithy_layout_state;
+    if (info_open && !state.applied) {
+        state.saved.clear();
+        for (const auto &w : writes) {
+            if (!memory.contains(w.address, 2)) return;
+            state.saved.push_back(memory.load16(w.address));
+        }
+        for (const auto &w : writes) memory.store16(w.address, w.value);
+        state.applied = true;
+    } else if (!info_open && state.applied) {
+        // Put the game's values back, unless the overlay was loaded again meanwhile (then they are fresh already).
+        const bool ours = std::ranges::all_of(writes, [&](const SmithyLayoutWrite &w) {
+            return memory.load16(w.address) == w.value;
+        });
+        if (ours) {
+            for (std::size_t i = 0; i < writes.size(); ++i) memory.store16(writes[i].address, state.saved[i]);
+        }
+        state.applied = false;
+    }
+}
+
+// The left stick turns Info's pages, one per push (the d-pad's left/right pages the list).
+void page_smithy_info_with_stick(Runtime &rt, std::uint32_t list) {
+    const int x = static_cast<int>(mhf::psp::controller_state(rt).lx) - 128;
+    SmithyLayoutState &state = g_smithy_layout_state;
+    if (std::abs(x) < 40) {
+        state.stick_armed = true;
+        return;
+    }
+    if (!state.stick_armed || std::abs(x) < 80) return;
+    state.stick_armed = false;
+    psprecomp::GuestMemory &memory = rt.memory();
+    const unsigned pages = memory.load8(list + kSmithyListInfoPages);
+    if (pages < 2) return;
+    const unsigned page = memory.load16(list + kSmithyListInfoPage) % pages;
+    memory.store16(list + kSmithyListInfoPage, static_cast<std::uint16_t>(x > 0 ? (page + 1) % pages : (page + pages - 1) % pages));
+}
+
+// On entry to a smithy list's per-frame function (List* in a0).
+void on_smithy_list_update(Runtime &rt, Context &ctx, std::uint32_t setup, SmithyInfoState &seen) {
+    if (!village_overlay_at(rt, setup)) return;
+    const std::uint32_t list = ctx.gpr[4];
+    if (!rt.memory().contains(list, kSmithyListFlags + 4)) return;
+    refresh_smithy_info(rt, ctx, list, setup, seen);
+    if (!g_smithy_layout) return;
+    // Info only: its skill page (X again) keeps the game's own layout.
+    const bool info_open = rt.memory().load8(list + kSmithyListInfoLevel) == 1;
+    update_smithy_layout(rt, info_open);
+    if (info_open) page_smithy_info_with_stick(rt, list);
+}
+
 void on_smithy_create_list_update(Runtime &rt, Context &ctx) {
-    if constexpr (kSmithyBrowseMapped) refresh_smithy_info(rt, ctx, *region::mh_smithy_create_info_setup, g_smithy_create_info);
+    if constexpr (kSmithyBrowseMapped) on_smithy_list_update(rt, ctx, *region::mh_smithy_create_info_setup, g_smithy_create_info);
 }
 
 void on_smithy_improve_list_update(Runtime &rt, Context &ctx) {
-    if constexpr (kSmithyBrowseMapped) refresh_smithy_info(rt, ctx, *region::mh_smithy_improve_info_setup, g_smithy_improve_info);
+    if constexpr (kSmithyBrowseMapped) on_smithy_list_update(rt, ctx, *region::mh_smithy_improve_info_setup, g_smithy_improve_info);
+}
+
+// Hook on mh_smithy_model_update(Model*): the left stick turns Info's pages while the layout is on, so the hidden weapon
+// model must not turn with it (it would come back turned): the stick reads as centred for the model.
+void on_smithy_model_update(Runtime &rt, Context &) {
+    if constexpr (kSmithyLayoutMapped) {
+        if (!g_smithy_layout_state.applied || !village_overlay_at(rt, *region::mh_smithy_panel_layout)) return;
+        psprecomp::GuestMemory &memory = rt.memory();
+        const std::uint32_t pad = memory.load32(*region::mh_pad_input);
+        if (!memory.contains(pad, 5)) return;
+        memory.store8(pad + 2, std::uint8_t{0});
+        memory.store8(pad + 4, std::uint8_t{0});
+    } else {
+        (void)rt;
+    }
+}
+
+// Hook on mh_smithy_panel_draw(List*): the game draws the materials panel or Info, never both. With the layout on and
+// Info open, draw the materials first (the same function with the materials flag set for the call), then let it draw
+// Info as usual.
+void on_smithy_panel_draw(Runtime &rt, Context &ctx) {
+    static bool drawing_materials = false;
+    if constexpr (kSmithyLayoutMapped) {
+        if (drawing_materials || !g_smithy_layout_state.applied) return;
+        if (!village_overlay_at(rt, *region::mh_smithy_panel_layout)) return;
+        const std::uint32_t list = ctx.gpr[4];
+        psprecomp::GuestMemory &memory = rt.memory();
+        if (!memory.contains(list, kSmithyListFlags + 4) || memory.load8(list + kSmithyListInfoLevel) != 1) return;
+        const std::uint32_t flags = memory.load32(list + kSmithyListFlags);
+        if ((flags & kSmithyMaterialsOpen) != 0) return;
+        memory.store32(list + kSmithyListFlags, flags | kSmithyMaterialsOpen);
+        drawing_materials = true;
+        Context call = ctx;
+        rt.call(call, *region::mh_smithy_panel_draw_entry);
+        drawing_materials = false;
+        memory.store32(list + kSmithyListFlags, flags);
+    } else {
+        (void)rt;
+        (void)ctx;
+    }
 }
 
 // The disc's product code ("ULES01213") from its PARAM.SFO, which ad hoc servers use to group the players of one game.
@@ -305,6 +459,7 @@ int main(int argc, char **argv) {
     bool true_weapon_values = false; // --true-weapon-values: menus show attack and element without display multipliers
     bool fast_supply_box = false; // --fast-supply-box: the supply box takes the next button soon after a take-out
     bool smithy_browse = false; // --smithy-browse: the smithy's lists scroll with the R or Info panel open
+    bool smithy_layout = false; // --smithy-layout: with Info open, Info on the left and the list with materials on the right
     bool horn_songs = false; // --horn-songs: the hunting horn's songs over the quest HUD (enhancement)
     std::string horn_songs_place = "next-to-sheet"; // --horn-songs-place: where (overlay/song_panel.hpp, parse_song_spot)
     mhf::host::KeyBindings keyboard; // --keymap: the launcher's keyboard bindings
@@ -335,6 +490,7 @@ int main(int argc, char **argv) {
         else if (a == "--true-weapon-values") true_weapon_values = true; // enhancement, off by default
         else if (a == "--fast-supply-box") fast_supply_box = true; // enhancement, off by default
         else if (a == "--smithy-browse") smithy_browse = true; // enhancement, off by default
+        else if (a == "--smithy-layout") smithy_layout = true; // enhancement, off by default; needs --smithy-browse
         else if (a == "--horn-songs") horn_songs = true; // enhancement
         else if (a == "--horn-songs-place" && i + 1 < argc) horn_songs_place = argv[++i];
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
@@ -392,10 +548,19 @@ int main(int argc, char **argv) {
         }
         runtime.register_hook("mh_overlay_prepare", &on_overlay_prepare);
         if (fast_supply_box) runtime.register_hook("mh_supply_box_update", &on_supply_box_update);
+        if (smithy_layout) smithy_browse = true; // the layout scrolls the list with Info open
         if (smithy_browse && kSmithyBrowseMapped) {
             for (const char *patch : kSmithyBrowsePatches) runtime.enable_patch(patch);
             runtime.register_hook("mh_smithy_create_list_update", &on_smithy_create_list_update);
             runtime.register_hook("mh_smithy_improve_list_update", &on_smithy_improve_list_update);
+            if (smithy_layout && kSmithyLayoutMapped) {
+                for (const char *patch : kSmithyLayoutPatches) runtime.enable_patch(patch);
+                runtime.register_hook("mh_smithy_panel_draw", &on_smithy_panel_draw);
+                runtime.register_hook("mh_smithy_model_update", &on_smithy_model_update);
+                g_smithy_layout = true;
+            } else if (smithy_layout) {
+                std::fprintf(stderr, "[mhfu] --smithy-layout: not mapped for this release, ignored\n");
+            }
         } else if (smithy_browse) {
             std::fprintf(stderr, "[mhfu] --smithy-browse: not mapped for this release, ignored\n");
         }
