@@ -25,6 +25,7 @@ export interface Settings {
   hudSize?: number; // the quest HUD's size in percent, 50..100 in steps of 10
   trueWeaponValues: boolean; // menus show attack and element without the game's display multipliers
   fastSupplyBox?: boolean; // the supply box takes the next button soon after a take-out
+  smithyBrowse?: boolean; // the smithy's lists scroll with the R (materials) or Info panel open
   hornSongs?: boolean; // the hunting horn's songs over the quest HUD
   hornSongsPlace?: string; // and where: 'next-to-sheet', 'top-middle', 'under-names', 'bottom-left', or 'custom:X,Y' (moved in the game)
   copyImage: boolean; // keep a copy of the disc image in MHForever's own folder
@@ -207,7 +208,7 @@ function simulated(): Native {
     blocked: [],
     settings: {
       scale: 4, fullscreen: false, smoothTextures: false, fps: 30, hudSize: 100, trueWeaponValues: false, fastSupplyBox: false,
-      hornSongs: false, hornSongsPlace: 'next-to-sheet', copyImage: false, musicVolume: 80, sfxVolume: 90,
+      smithyBrowse: false, hornSongs: false, hornSongsPlace: 'next-to-sheet', copyImage: false, musicVolume: 80, sfxVolume: 90,
       keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '', adhocRoom: '', checkUpdates: true,
       friendRelays: ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom', 'wss://offchain.pub', 'wss://relay.nostr.net'],
     },

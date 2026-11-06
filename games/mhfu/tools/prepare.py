@@ -43,7 +43,8 @@ def main():
     subprocess.run([tool(a.tools, "mhf_recomp"), "--elf", a.exe, "--out", generated, "--name", "mhfu", "--parts", a.parts,
                     "--overlays", os.path.join(overlays, "overlays.toml"),
                     "--symbols", os.path.join(region_dir, "symbols.toml"), "--hook", "mh_overlay_prepare",
-                    "--hook", "mh_supply_box_update"], check=True)
+                    "--hook", "mh_supply_box_update", "--hook", "mh_smithy_create_list_update",
+                    "--hook", "mh_smithy_improve_list_update"], check=True)
     print(f"\nGenerated code: {generated}\nConfigure with: cmake --preset <preset> -DMHF_MHFU_GENERATED={generated}")
 
 

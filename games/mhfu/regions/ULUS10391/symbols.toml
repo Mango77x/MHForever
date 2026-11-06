@@ -20,6 +20,12 @@ mh_static_init_run      = 0x0890C41C # (begin, end, ...): runs a static-initiali
 # until it reaches 0.
 mh_supply_box_update    = 0x088476F4 # (?, Player*): the supply box menu, once per frame while it is open
 
+# Smithy lists in lobby_task.ovl (--smithy-browse; found 2026-11-05 by matching the EU code; 0x100 higher, like the
+# overlay). The list a function gets holds the cursor (s16 at +0x3C), the Info level (u8 at +0x22: 0 the list, 1 Info)
+# and flags (u32 at +0x4C, 0x20: the R panel).
+mh_smithy_create_list_update  = 0x09AA2EE0 # (List*): the create lists (weapons, armor), once per frame
+mh_smithy_improve_list_update = 0x09AA4A60 # (List*): the improve list, once per frame
+
 [data]
 mh_overlay_region_bases = 0x089CBB90 # u32[6], region base address per group
 
@@ -50,5 +56,22 @@ mh_resource_manager     = 0x09A0B680 # ResourceManager*: the loaded resources by
 mh_quest_message_texts  = 0x089B56C4 # u16 per quest message (the songs' effects first): its text id in the quest text
 mh_cockpit              = 0x089CBD0C # Cockpit*: the quest HUD and its menus (Cockpit_menu_chk: a game menu is open)
 
+# Smithy Info panels (--smithy-browse): functions in lobby_task.ovl the game program calls, (List*): build the
+# Info panel for the item under the list's cursor.
+mh_smithy_create_info_setup  = 0x09AA3650
+mh_smithy_improve_info_setup = 0x09AA4F38
+
 [offsets]
 system_active_overlays  = 0x00F7A580 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none); built by the same instructions as in EU
+
+# Instruction patches (docs/04-recompiler.md section 6), switched on by --smithy-browse. Each list skips the cursor
+# move (and paging) while the R panel is open (a test of flag 0x20; immediate 0 never finds it set) and while
+# Info is open (a branch on the Info level, never taken).
+[patches]
+mh_smithy_create_requires_blocks_up_down     = "lobby_task.ovl 0x09AA303C immediate 0"
+mh_smithy_create_requires_blocks_paging      = "lobby_task.ovl 0x09AA3100 immediate 0"
+mh_smithy_create_info_blocks_up_down         = "lobby_task.ovl 0x09AA3030 never"
+mh_smithy_improve_requires_blocks_up_down    = "lobby_task.ovl 0x09AA4BC4 immediate 0"
+mh_smithy_improve_info_blocks_up_down        = "lobby_task.ovl 0x09AA4BB8 never"
+mh_smithy_decoration_requires_blocks_up_down = "lobby_task.ovl 0x09AA7BF4 immediate 0"
+mh_smithy_decoration_requires_blocks_paging  = "lobby_task.ovl 0x09AA7CDC immediate 0"

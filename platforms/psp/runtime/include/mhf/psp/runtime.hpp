@@ -125,6 +125,10 @@ public:
     // Hooks called by generated code on entry to selected guest functions.
     void register_hook(std::string name, HookFunction function);
     [[nodiscard]] HookFunction find_hook(std::string_view name) const;
+    // Instruction patches (region map [patches]): generated code reads the switch the first time it runs the
+    // instruction, so the game program turns patches on before the game starts.
+    void enable_patch(std::string name);
+    [[nodiscard]] bool patch_enabled(std::string_view name) const;
     void add_hle(std::span<const HleFunction> functions);
     [[nodiscard]] const HleFunction *find_hle(std::string_view library, std::uint32_t nid) const;
 
@@ -216,6 +220,7 @@ private:
     std::vector<OverlayRegion> overlay_regions_;
     std::unordered_map<std::int32_t, const Program *> overlays_;
     std::unordered_map<std::string, HookFunction> hooks_;
+    std::unordered_map<std::string, bool> patches_;
     std::unordered_map<std::uint64_t, const HleFunction *> hle_;
     std::unordered_map<std::uint64_t, bool> reported_unimplemented_;
     std::uint64_t overlay_activations_{};

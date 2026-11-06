@@ -149,6 +149,10 @@ HookFunction Runtime::find_hook(std::string_view name) const {
     return it != hooks_.end() ? it->second : nullptr;
 }
 
+void Runtime::enable_patch(std::string name) { patches_[std::move(name)] = true; }
+
+bool Runtime::patch_enabled(std::string_view name) const { return patches_.contains(std::string(name)); }
+
 const HleFunction *Runtime::find_hle(std::string_view library, std::uint32_t nid) const {
     const auto it = hle_.find(hle_key(library, nid));
     return it != hle_.end() ? it->second : nullptr;
@@ -379,6 +383,7 @@ void unsupported(Runtime &rt, std::uint32_t pc, std::uint32_t word, const char *
 }
 void arithmetic_overflow(Runtime &rt, std::uint32_t pc, std::uint32_t word) { rt.arithmetic_overflow(pc, word); }
 HookFunction find_hook(Runtime &rt, const char *name) { return rt.find_hook(name); }
+bool patch_enabled(Runtime &rt, const char *name) { return rt.patch_enabled(name); }
 void call_import(Runtime &rt, Context &ctx, ImportEntry &import) { mhf::psp::call_import(rt, ctx, import); }
 
 std::atomic<bool> interrupt_pending{false};

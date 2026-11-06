@@ -41,6 +41,22 @@ RegionData region_data_entries(const std::filesystem::path &symbols);
 std::filesystem::path emit_region_data(const std::string &program_name, const RegionData &entries,
                                        const std::filesystem::path &out_dir);
 
+// One [patches] entry of a region map: `name = "<module> <address> immediate <value>"` or `"<module> <address> never"`,
+// where <module> is "executable" or an overlay's file name ("lobby_task.ovl"). Overlays share addresses, so the module
+// says which one the address is in.
+struct RegionPatch {
+    std::string module;
+    std::uint32_t address{};
+    InstructionPatch patch;
+};
+
+// The [patches] entries of the region map `symbols`. Throws std::invalid_argument on an entry it cannot read.
+std::vector<RegionPatch> region_patches(const std::filesystem::path &symbols);
+
+// Empty when `patch` can be applied to `d`; otherwise why not. Immediate: an ALU instruction with an immediate operand
+// (addiu, slti, sltiu, andi, ori, xori). Never: a conditional branch that does not link and is not always taken.
+std::string patch_mismatch(const psprecomp::DecodedInstruction &d, const InstructionPatch &patch);
+
 struct EmitResult {
     std::vector<std::filesystem::path> files;
     std::size_t functions{};
