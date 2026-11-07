@@ -13,6 +13,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <mutex>
+#include <set>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -384,6 +386,17 @@ void unsupported(Runtime &rt, std::uint32_t pc, std::uint32_t word, const char *
 void arithmetic_overflow(Runtime &rt, std::uint32_t pc, std::uint32_t word) { rt.arithmetic_overflow(pc, word); }
 HookFunction find_hook(Runtime &rt, const char *name) { return rt.find_hook(name); }
 bool patch_enabled(Runtime &rt, const char *name) { return rt.patch_enabled(name); }
+void interpret(Runtime &rt, Context &ctx, std::uint32_t entry) {
+    static std::mutex logged_mutex;
+    static std::set<std::uint32_t> logged;
+    {
+        std::lock_guard lock(logged_mutex);
+        if (logged.insert(entry).second) {
+            std::fprintf(stderr, "[guard] %s was rewritten at run time: interpreting it\n", psprecomp::hex32(entry).c_str());
+        }
+    }
+    interpret_call(rt, ctx, entry);
+}
 void call_import(Runtime &rt, Context &ctx, ImportEntry &import) { mhf::psp::call_import(rt, ctx, import); }
 
 std::atomic<bool> interrupt_pending{false};

@@ -73,6 +73,24 @@ public:
             out_ << "    { static const HookFunction hook = abi::find_hook(rt, \"" << cpp_escape(hook->second) << "\");\n"
                  << "      if (hook != nullptr) hook(rt, ctx); }\n";
         }
+        // Guarded words (region map [guards]): code the game itself may rewrite while it runs. When any of them no
+        // longer holds the word this function was compiled from, the interpreter runs the function as it now is.
+        std::set<std::uint32_t> guarded;
+        for (const auto g : input_.guards) {
+            const std::uint32_t word = g & ~3u;
+            if (function_.instructions.contains(word)) guarded.insert(word);
+        }
+        if (!guarded.empty()) {
+            out_ << "    if (";
+            const char *separator = "";
+            for (const auto word : guarded) {
+                out_ << separator << "mem.aot_load32(" << hex32(word) << "u) != " << hex32(input_.memory->load32(word))
+                     << "u";
+                separator = " ||\n        ";
+            }
+            out_ << ") [[unlikely]] {\n        abi::interpret(rt, ctx, " << hex32(function_.entry)
+                 << "u);\n        return;\n    }\n";
+        }
         // The entry block first, then the others in address order.
         write_block(function_.entry);
         for (const auto l : function_.labels) {
@@ -504,6 +522,29 @@ std::vector<RegionPatch> region_patches(const std::filesystem::path &symbols) {
             fail("the kind is \"immediate <value>\" or \"never\"");
         }
         result.push_back(std::move(p));
+    }
+    return result;
+}
+
+std::vector<RegionGuard> region_guards(const std::filesystem::path &symbols) {
+    std::vector<RegionGuard> result;
+    const auto doc = toml::parse_file(symbols);
+    const auto table = doc.tables.find("guards");
+    if (table == doc.tables.end()) return result;
+    for (const auto &[name, value] : table->second) {
+        std::istringstream words(value);
+        RegionGuard g;
+        words >> g.module;
+        for (std::string address; words >> address;) {
+            if (address.rfind("0x", 0) != 0) {
+                throw std::invalid_argument(symbols.string() + ": guard " + name + ": " + address + " is not 0x<address>");
+            }
+            g.addresses.push_back(static_cast<std::uint32_t>(toml::to_integer(address)));
+        }
+        if (g.module.empty() || g.module.rfind("0x", 0) == 0 || g.addresses.empty()) {
+            throw std::invalid_argument(symbols.string() + ": guard " + name + ": expected \"<module> 0x<address> ...\"");
+        }
+        result.push_back(std::move(g));
     }
     return result;
 }

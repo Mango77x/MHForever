@@ -66,6 +66,8 @@ void jump(Runtime &rt, Context &ctx, std::uint32_t address);   // indirect tail 
 [[noreturn]] void arithmetic_overflow(Runtime &rt, std::uint32_t pc, std::uint32_t word);
 [[nodiscard]] HookFunction find_hook(Runtime &rt, const char *name);
 [[nodiscard]] bool patch_enabled(Runtime &rt, const char *name); // instruction patch switch (region map [patches])
+// Runs the function at `entry` in the interpreter: its code was rewritten at run time (region map [guards]).
+void interpret(Runtime &rt, Context &ctx, std::uint32_t entry);
 void call_import(Runtime &rt, Context &ctx, ImportEntry &import);
 
 // Set (from any host thread) when an interrupt may be due: the vblank ticker, a finished display list. Generated code

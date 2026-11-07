@@ -68,6 +68,9 @@ struct ProgramInput {
     std::map<std::uint32_t, std::string> hooks;
     // Instructions emitted in both forms, by address (only this module's).
     std::map<std::uint32_t, InstructionPatch> patches;
+    // Addresses the game may rewrite at run time (region map [guards], only this module's): a function holding one
+    // checks it on entry and runs in the interpreter when the word changed.
+    std::set<std::uint32_t> guards;
 };
 
 struct Analysis {

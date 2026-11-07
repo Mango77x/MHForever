@@ -53,6 +53,16 @@ struct RegionPatch {
 // The [patches] entries of the region map `symbols`. Throws std::invalid_argument on an entry it cannot read.
 std::vector<RegionPatch> region_patches(const std::filesystem::path &symbols);
 
+// One [guards] entry of a region map: `name = "<module> 0x<address> [0x<address> ...]"`, words the game may rewrite
+// while it runs (a patch loaded at run time, such as FUComplete's). <module> as for [patches].
+struct RegionGuard {
+    std::string module;
+    std::vector<std::uint32_t> addresses;
+};
+
+// The [guards] entries of the region map `symbols`. Throws std::invalid_argument on an entry it cannot read.
+std::vector<RegionGuard> region_guards(const std::filesystem::path &symbols);
+
 // Empty when `patch` can be applied to `d`; otherwise why not. Immediate: an ALU instruction with an immediate operand
 // (addiu, slti, sltiu, andi, ori, xori). Never: a conditional branch that does not link and is not always taken.
 std::string patch_mismatch(const psprecomp::DecodedInstruction &d, const InstructionPatch &patch);
