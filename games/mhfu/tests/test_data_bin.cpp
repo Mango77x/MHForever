@@ -36,8 +36,9 @@ struct Synthetic {
     std::vector<std::uint8_t> overlay;
 };
 
-// Layout: header (1 block), file 0 (1 block, exact size 100), file 1 = overlay (2 blocks), file 2 (1 block).
-Synthetic build(const SubstitutionTable& table) {
+// Layout: header (1 block), file 0 (1 block, exact size 100), file 1 = overlay (2 blocks), file 2 (1 block). Without
+// `scrambled` the container is stored plain, as patches such as FUComplete leave it.
+Synthetic build(const SubstitutionTable& table, bool scrambled = true) {
     Synthetic s;
     const std::vector<std::uint32_t> first_blocks{1, 2, 4, 5};
     s.container.assign(5 * kBlock, 0);
@@ -48,7 +49,7 @@ Synthetic build(const SubstitutionTable& table) {
     }
     put_le32(header, 16, 0);   // pair: file 0 ...
     put_le32(header, 20, 100); // ... is exactly 100 bytes
-    scramble(header, table, 0);
+    if (scrambled) scramble(header, table, 0);
     std::memcpy(&s.container[0], header.data(), header.size());
 
     s.overlay.assign(64 + 0x100 + 0x40, 0xAB);
@@ -65,11 +66,11 @@ Synthetic build(const SubstitutionTable& table) {
 
     std::vector<std::uint8_t> file1(2 * kBlock, 0);
     std::memcpy(file1.data(), s.overlay.data(), s.overlay.size());
-    scramble(file1, table, first_blocks[1]);
+    if (scrambled) scramble(file1, table, first_blocks[1]);
     std::memcpy(&s.container[first_blocks[1] * kBlock], file1.data(), file1.size());
 
     std::vector<std::uint8_t> file0(kBlock, 0x11);
-    scramble(file0, table, first_blocks[0]);
+    if (scrambled) scramble(file0, table, first_blocks[0]);
     std::memcpy(&s.container[first_blocks[0] * kBlock], file0.data(), file0.size());
     return s;
 }
@@ -143,6 +144,22 @@ int main() {
         const std::vector<SubstitutionTable> wrong{make_table(20)};
         MHF_CHECK(!DataBin::open(reader, synthetic.container.size(), wrong).has_value());
         MHF_CHECK(!DataBin::open(reader, synthetic.container.size() + 1, candidates).has_value());
+    }
+
+    // A container stored unscrambled opens with any candidates (none of them fits) and reads back as stored.
+    {
+        const auto synthetic = build(make_table(4), false);
+        auto reader = [&](std::uint64_t offset, std::size_t size) {
+            return std::vector<std::uint8_t>(synthetic.container.begin() + static_cast<std::ptrdiff_t>(offset),
+                                             synthetic.container.begin() + static_cast<std::ptrdiff_t>(offset + size));
+        };
+        const auto data_bin = DataBin::open(reader, synthetic.container.size(), {make_table(12), make_table(13)});
+        MHF_CHECK(data_bin.has_value());
+        if (data_bin) {
+            MHF_CHECK(!data_bin->table().has_value());
+            MHF_CHECK(data_bin->files().size() == 3 && data_bin->files()[0].size == 100);
+            MHF_CHECK(data_bin->read(1, static_cast<std::uint32_t>(synthetic.overlay.size())) == synthetic.overlay);
+        }
     }
     return mhf::test::finish("test_data_bin");
 }

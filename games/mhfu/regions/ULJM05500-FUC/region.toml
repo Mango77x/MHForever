@@ -1,0 +1,27 @@
+# Japan (Portable 2nd G) patched with FUComplete v1.4.0, the fan translation and update. Identification data only (hashes
+# identify a file; they contain no game content). The player patches their own Japanese image with FUComplete's own tool;
+# MHForever never patches anything. The image keeps the Japanese disc id, so it is told apart by FUComplete's files.
+disc_id = "ULJM05500-FUC"
+sfo_disc_id = "ULJM05500"
+marker_file = "/FUC/PRELOAD.BIN"
+edition = "fuc"
+edition_name = "FUComplete"
+disc_version = "1.01"
+market = "JP"
+languages = ["en"]
+status = "in-development"
+
+# No accepted dumps: the patched image depends on the Japanese edition it came from and on the patcher's options. The
+# executable below is what identifies it.
+
+# The executable on the disc (PSP_GAME/SYSDIR/EBOOT.BIN). FUComplete ships it plain, so it is also the prepared one.
+[encrypted_executable]
+size = 1889772
+sha1 = "2eeca67c5daa63a7bcfac0d56fc9aa23a090fa5e"
+
+# The prepared (plain) executable the recompiled code is generated from. Identification only: never shipped, never committed.
+[dev_executable]
+size = 1889772
+sha1 = "2eeca67c5daa63a7bcfac0d56fc9aa23a090fa5e"
+entry = 0x089094D4
+text_base = 0x08804000

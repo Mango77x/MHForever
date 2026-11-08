@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
 import { api, regionTag, selectedGame, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
 import { CopyIcon } from './icons';
+import { FucOptions } from './FucOptions';
 import { OnlineSettings } from './OnlineSettings';
 import { TexturePackSection } from './TexturePack';
 import { frameRates, hudSizes, resolutions, songPlaces } from './format';
@@ -454,6 +455,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
 }) {
   const s = state.settings;
   const game = selectedGame(state) ?? state.games[0];
+  const fucomplete = game?.discId === 'ULJM05500-FUC'; // FUComplete's own options apply
   return (
     <section className="settings">
       <motion.div className="page-title" {...rise(0)}>
@@ -505,7 +507,9 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
       <motion.div className="glass section" {...rise(0.065)}>
         <h3>Game</h3>
         <div className="srow">
-          <div className="slabel"><b>Show true weapon values</b><span>Optional enhancement: menus show attack and element without the display multipliers. Off is faithful to the original.</span></div>
+          <div className="slabel"><b>Show true weapon values</b><span>{fucomplete
+            ? "FUComplete's true raw display: menus show attack, element and status without the display multipliers."
+            : 'Optional enhancement: menus show attack and element without the display multipliers. Off is faithful to the original.'}</span></div>
           <Toggle on={s.trueWeaponValues} onToggle={() => onChange({ trueWeaponValues: !s.trueWeaponValues })} label="Show true weapon values" />
         </div>
         <div className="srow">
@@ -536,7 +540,11 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
         <h3>Texture pack</h3>
         <TexturePackSection state={state} onState={onState} say={say} toggle={(p) => <Toggle {...p} />} />
       </motion.div>
-      {game?.region !== 'Japan' && <motion.div className="glass section" {...rise(0.07)}>
+      {fucomplete && <motion.div className="glass section" {...rise(0.07)}>
+        <h3>FUComplete</h3>
+        <FucOptions s={s} onChange={onChange} toggle={(p) => <Toggle {...p} />} />
+      </motion.div>}
+      {game?.market !== 'JP' && <motion.div className="glass section" {...rise(0.07)}>
         <h3>Language</h3>
         <div className="srow">
           <div className="slabel">

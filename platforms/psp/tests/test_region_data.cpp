@@ -114,6 +114,31 @@ int main() {
         }
         MHF_CHECK(rejected);
     }
+    // Guarded words ([guards]): a module and one or more addresses; an entry without either is refused.
+    using mhf::psp::recomp::region_guards;
+    const auto guarded = dir.path / "regions" / "guarded_region" / "symbols.toml";
+    write(guarded, "[guards]\noption_hooks = \"option_task.ovl 0x09A5AE14 0x09A5AE18\" # comment\n"
+                   "boot = \"executable 0x08804010\"\n");
+    const auto guards = region_guards(guarded);
+    MHF_CHECK(guards.size() == 2);
+    for (const auto &g : guards) {
+        if (g.module == "option_task.ovl") {
+            MHF_CHECK(g.addresses == (std::vector<std::uint32_t>{0x09A5AE14u, 0x09A5AE18u}));
+        } else {
+            MHF_CHECK(g.module == "executable" && g.addresses == std::vector<std::uint32_t>{0x08804010u});
+        }
+    }
+    for (const char *bad : {"\"option_task.ovl\"", "\"0x09A5AE14\"", "\"option_task.ovl 0x09A5AE14 later\""}) {
+        write(guarded, std::string("[guards]\nbad = ") + bad + "\n");
+        bool rejected = false;
+        try {
+            (void)region_guards(guarded);
+        } catch (const std::invalid_argument &) {
+            rejected = true;
+        }
+        MHF_CHECK(rejected);
+    }
+
     InstructionPatch immediate;
     immediate.kind = InstructionPatch::Kind::Immediate;
     InstructionPatch never;

@@ -155,6 +155,12 @@ Original design notes:
   decodes the instruction at the address, stops when it is not of the kind the patch changes or is not recompiled, and
   emits the original and the changed form behind `abi::patch_enabled(rt, "<name>")`, read once. The game program
   turns a patch on with `Runtime::enable_patch` before the game starts, so one build serves both settings.
+- **Guarded words** (2026-11-07): for code a patch rewrites at run time (FUComplete's PRELOAD.BIN and MODLOAD.BIN store
+  into the executable and the overlays, by its options). A region map's `[guards]` table lists them,
+  `name = "<module> <address> <address>..."`. Every function that holds one of those words compares it in memory with
+  the word it was compiled from, on entry and after its hooks; when one changed it hands the call to the fallback
+  interpreter (`abi::interpret`, logged once per function), which runs the rewritten instructions. Untouched functions
+  stay native, so the cost is a few loads per call in the listed functions only (no frame rate difference measured).
 - Everything is declared by **canonical name** and resolved per region. Never addresses in code.
 - **Data entries** (2026-11-02): with `--symbols`, `mhf_recomp` also writes `<name>_region_data.hpp`, namespace
   `mhf::psp::generated::<name>_region_data`, one `inline constexpr std::optional<std::uint32_t>` per `[data]` name

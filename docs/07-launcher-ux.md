@@ -49,6 +49,12 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   original behaviour: the game opens its own language screen at every start. Picking one sends `--language` to the game,
   which starts in it and answers that screen itself (see `06` §8), so the player never sees it. Japanese copies have no
   such setting: their disc speaks only Japanese and has no language screen, so the section is hidden and no flag is sent.
+- **FUComplete (2026-11-08)**: a Japanese image the player patched with FUComplete is its own copy (ULJM05500-FUC,
+  "Freedom Unite (FUComplete)", program `mhfu-fuc`, `06` §2.1). Its Game settings add a FUComplete section (saves
+  region, field of view, starting camera height, Dos themes, hunting horn tweak, early Lao kill, Guildhall chest and drink).
+  Before each start the launcher fills `PSP/SAVEDATA/FUCDAT` from the image when it is missing and writes those choices
+  into its `CONFIG.BIN`; "Show true weapon values" switches FUComplete's own true raw display instead of
+  `--true-weapon-values`, and FUComplete's minimap size stays at its default.
 - **Native host** (`launcher/native`): `launcher.cpp` keeps `launcher.json` next to the executable (portable for now):
   pseudonym, identity seed, settings, library, stats. Adding a copy reads PARAM.SFO (`platforms/psp/tools/param_sfo`)
   and compares size + SHA-1 with `games/*/regions/*/region.toml` (catalog generated at configure time; identification

@@ -1,0 +1,77 @@
+# Symbol map for ULJM05500 patched with FUComplete v1.4.0 (the player's own Japanese image, patched with FUComplete's own
+# tool). See docs/06-mhfu-module.md. Addresses only; no game code or data.
+# FUComplete's executable (SHA-1 2eeca67c5daa63a7bcfac0d56fc9aa23a090fa5e) keeps the layout of the Japanese one: every
+# function and data address of ULJM05500/symbols.toml is unchanged (checked 2026-11-07 by comparing both executables and
+# the overlays), so the sections below are a copy of that map. Keep them in step with it.
+
+[functions]
+mh_main                 = 0x089094D4 # module entry point (the ELF's own entry)
+
+# Overlay manager (docs/04-recompiler.md section 4.4). Groups: 0 eboot, 1 task, 2 sub, 3 em, 4 stage, 5 debug.
+mh_overlay_request      = 0x0888FE4C # (System*, file_id, group): starts an async read of DATA.BIN file `file_id` into the group's region
+mh_overlay_finish       = 0x0888FF00 # (System*, file_id, group): completes the load, calls mh_overlay_prepare, records the active id
+mh_overlay_is_active    = 0x0888FF8C # (System*, group, file_id) -> bool
+mh_overlay_prepare      = 0x0890B844 # (image*, size): cache maintenance, clears .bss after the image, runs its static initializers
+mh_static_init_run      = 0x08909DA4 # (begin, end, ...): runs a static-initializer table (used for overlays and the executable)
+
+# Supply box (--fast-supply-box; found 2026-11-05 by matching the EU function; 0x50 lower than in EU). Taking an item
+# out sets a u8 cooldown in the Player to 30 frames; this function counts it down once per frame and ignores the buttons
+# until it reaches 0.
+mh_supply_box_update    = 0x088476A4 # (?, Player*): the supply box menu, once per frame while it is open
+
+# Smithy lists in lobby_task.ovl (--smithy-browse; found 2026-11-05 by matching the EU code). The list a function gets
+# holds the cursor (s16 at +0x3C), the Info level (u8 at +0x22: 0 the list, 1 Info) and flags (u32 at +0x4C, 0x20: the R
+# panel).
+mh_smithy_create_list_update  = 0x09A9DD78 # (List*): the create lists (weapons, armor), once per frame
+mh_smithy_improve_list_update = 0x09A9F8F8 # (List*): the improve list, once per frame
+
+[data]
+mh_overlay_region_bases = 0x089C6B40 # u32[6], region base address per group
+
+# Menu display of weapon values (--true-weapon-values; verified 2026-11-02). Damage never reads these.
+mh_attack_display_multipliers = 0x08938104 # u32[11], per weapon class: menus show attack * value / 100
+# The "0" the element value format prints after the value, and the same "0" in the dual-element total format (the only
+# language of this release; its menu text is loaded at run time).
+mh_element_value_format_zero_ja = 0x089CABCC # u8
+mh_dual_element_value_zero_ja   = 0x089CABE5 # u8
+# The hunting horn's songs (games/mhfu/host/horn_songs.cpp; found 2026-11-02 from the code that plays a note, and checked
+# in a quest). Struct offsets used with these are the same in the three releases (see horn_songs.cpp).
+mh_game_sys             = 0x089C7508 # GameSys*: the hunter's equipment, which player this machine plays
+mh_player_manager       = 0x09A4AE04 # PlayerManager*: the Player* of each player slot
+mh_blademaster_weapons  = 0x089574C8 # 24 bytes per blademaster weapon id: model id u16 at +0x00, a horn's note set u8 at +0x13
+mh_weapon_model_classes = 0x08975984 # u8 per weapon model id: its weapon class (8 = hunting horn)
+mh_horn_note_colors     = 0x089B2FB8 # u8[20][3]: the colour of notes 1-3 for each of the horns' 20 note sets
+mh_horn_songs           = 0x09C06EA8 # u8[47][4] in game_task.ovl: each song's notes, newest first (see horn_songs.cpp)
+mh_resource_manager     = 0x09A07280 # ResourceManager*: the loaded resources by id (the quest text is resource 4)
+mh_quest_message_texts  = 0x089B0744 # u16 per quest message (the songs' effects first): its text id in the quest text
+mh_cockpit              = 0x089C6CBC # Cockpit*: the quest HUD and its menus (Cockpit_menu_chk: a game menu is open)
+
+# Smithy Info panels (--smithy-browse): functions in lobby_task.ovl the game program calls, (List*): build the
+# Info panel for the item under the list's cursor.
+mh_smithy_create_info_setup  = 0x09A9E4E8
+mh_smithy_improve_info_setup = 0x09A9FDD0
+
+[offsets]
+system_active_overlays  = 0x00F7A3C0 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none)
+
+# Instruction patches (docs/04-recompiler.md section 6), switched on by --smithy-browse. Each list skips the cursor
+# move (and paging) while the R panel is open (a test of flag 0x20; immediate 0 never finds it set) and while
+# Info is open (a branch on the Info level, never taken).
+[patches]
+mh_smithy_create_requires_blocks_up_down     = "lobby_task.ovl 0x09A9DED4 immediate 0"
+mh_smithy_create_requires_blocks_paging      = "lobby_task.ovl 0x09A9DF98 immediate 0"
+mh_smithy_create_info_blocks_up_down         = "lobby_task.ovl 0x09A9DEC8 never"
+mh_smithy_improve_requires_blocks_up_down    = "lobby_task.ovl 0x09A9FA5C immediate 0"
+mh_smithy_improve_info_blocks_up_down        = "lobby_task.ovl 0x09A9FA50 never"
+mh_smithy_decoration_requires_blocks_up_down = "lobby_task.ovl 0x09AA2A8C immediate 0"
+mh_smithy_decoration_requires_blocks_paging  = "lobby_task.ovl 0x09AA2B74 immediate 0"
+
+# Words FUComplete's PRELOAD.BIN and MODLOAD.BIN rewrite at run time, according to the options in its CONFIG.BIN. A
+# function that holds one checks it on entry and runs in the interpreter when it changed, so FUComplete's options apply
+# (docs/04-recompiler.md). Found by reading where both files store into the executable and the overlays (2026-11-07).
+[guards]
+fuc_preload = "executable 0x088138BC 0x08842ED4 0x08842ED8 0x08842EE0 0x08842EE4 0x08842F04 0x08842F0C 0x08844300 0x08844314 0x08844318 0x0884E158 0x0884E15C 0x0884E730 0x0884E734 0x0886CFE8 0x0886CFEC 0x08886DA4 0x088BC38C 0x088C02E4 0x088C2384 0x088C23A4 0x088C23B0 0x088C23B8 0x088C23C0 0x088C23C8 0x088C23D0 0x088C23D8 0x088C23E0 0x088C23E8 0x088C23F0 0x088C23F8 0x088C2400 0x088C2408 0x088C2410 0x088C2418 0x088C3DA0 0x088C3F0C 0x088C3F2C 0x088C3F38 0x088C3F40 0x088C3F48 0x088C3F50 0x088C3F58 0x088C3F60 0x088C3F68 0x088C3F70 0x088C3F78 0x088C3F80 0x088C3F88 0x088C3F90 0x088C3F98 0x088C3FA0"
+fuc_arcade_task = "arcade_task.ovl 0x09A5EF1C 0x09A69514"
+fuc_game_task = "game_task.ovl 0x09A630C0 0x09A630C4 0x09A9CBA4 0x09A9CBA8 0x09AC3148 0x09AC314C 0x09AC3150 0x09AC3154 0x09AC31C4 0x09AC31C8 0x09AC31CC 0x09AC31D0 0x09BAC0B8 0x09BAC0BC 0x09BAC0C0 0x09BAC0C4 0x09BAC0C8 0x09BAC0CC 0x09BAC0D0 0x09BAC0D4 0x09BAC0D8 0x09BAC0DC 0x09BF7900 0x09BF7914 0x09BF7918 0x09BF792C 0x09BF7938 0x09BF7950"
+fuc_lobby_task = "lobby_task.ovl 0x09A822E8 0x09A822EC 0x09A834F8 0x09A834FC 0x09A835B0 0x09A835B4 0x09AA734C 0x09AA8DE8 0x09AA8DEC 0x09AA8DF4 0x09AA8DF8 0x09AA8DFC 0x09AAA0F0 0x09AAA0F4 0x09AAA0FC"
+fuc_option_task = "option_task.ovl 0x09A5AE14 0x09A5AE18"

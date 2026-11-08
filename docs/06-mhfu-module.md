@@ -15,9 +15,32 @@
 | Europe | **ULES01213** | Freedom Unite | Main development (reference copy, v1.01) |
 | North America | **ULUS10391** | Freedom Unite | Playable (v1.01): its own symbol map, overlay map and program (`mhfu-us`) |
 | Japan | **ULJM05500** | Portable 2nd G | Playable (v1.01): its own symbol map, overlay map and program (`mhfu-jp`) |
+| Japan + FUComplete | ULJM05500 (catalog id **ULJM05500-FUC**) | Portable 2nd G patched with FUComplete v1.4.0 | In development: its own maps and program (`mhfu-fuc`), see §2.1 |
 | Others | PSN, "PSP Essentials"/"The Best", Korea/Asia | — | `[VERIFY]` whether variants with other hashes exist |
 
 Known hashes for 2nd G JP (from FUCTool): UMD MD5 `1f76ee9ccbd6d39158f06e6e5354a5bd`, PSN MD5 `cc39d070b2d2c44c9ac8187e00b75dc4`.
+
+### 2.1 FUComplete (2026-11-08)
+
+FUComplete is a fan patch for the Japanese release (English translation, built-in events and DLC, options such as true
+raw display or a wider field of view). The player patches their own Japanese image with FUComplete's own tool; MHForever
+never patches anything and never links patched images. How it fits:
+
+- **Identification**: the patched image keeps the disc id ULJM05500. The launcher tells it apart by FUComplete's files
+  (`marker_file = "/FUC/PRELOAD.BIN"` in `regions/ULJM05500-FUC/region.toml`) and checks its executable, which FUComplete
+  ships plain (no decryption). The image itself varies with the Japanese edition and the patcher's options, so it has no
+  accepted dump hashes.
+- **Code**: FUComplete's executable keeps the Japanese layout (every function and data address of the Japanese map is
+  unchanged), and its DATA.BIN is stored unscrambled (`mhfu_extract_overlays` reads both kinds). Its options are applied
+  at run time by PRELOAD.BIN and MODLOAD.BIN, which rewrite instructions of the executable and the overlays. The words
+  they write are listed in the map's `[guards]` table, so the functions that hold them run in the interpreter when an
+  option changed them (`04` §6).
+- **Options**: FUComplete reads `PSP/SAVEDATA/FUCDAT/CONFIG.BIN` at every start. The launcher writes it from the copy's
+  Game settings (`launcher/native/fuc_config.cpp`); the true raw display follows "Show true weapon values", and the
+  minimap size is not offered (MHForever's HUD size scales the whole quest HUD instead).
+- **Licence**: FUComplete publishes no licence. MHForever ships none of its files (they come from the player's own patched
+  image), but a release that offers it waits for its authors' agreement.
+- Not checked yet: online play with FUComplete players, texture packs, the save region options other than North America.
 
 **Evidence that per-region maps are required**: public CWCheat codes use different addresses per region (e.g. the same
 "auto clear quest" cheat writes `0x01206628` on US and `0x012064E8` on EU). The binaries differ, so each region has its own
@@ -121,7 +144,7 @@ names and structures. **Any reconstructed C of Capcom functions in that repo is 
 | `SiD3W4y/mhfu-re` | (no visible license) | FU RE with an instrumented PPSSPP fork and traces | Instrumentation ideas |
 | `IncognitoMan/mhff` (fork of `svanheulen/mhff`) | GPL-3.0 | Python scripts for MH formats (PSP and 3DS), Blender add-ons | Understand formats (overlay extraction, mods) |
 | `codestation/mhtools` | GPL-3.0 | String tables, TMH, PAK, DATA.BIN scrambling, saves | Same; note it includes save cryptography |
-| FUComplete (`FUComplete/Patch`, `FUCTool`) | — | Patch for 2nd G: English translation, built-in events, `nativePSP` file replacer | Shows what players want; incompatible with our legal model (patches the ISO) |
+| FUComplete (`FUComplete/Patch`, `FUCTool`) | — | Patch for 2nd G: English translation, built-in events, `nativePSP` file replacer | Supported as the player's own patched image (§2.1): MHForever ships none of its files |
 | FreedomUniteColorRandomizer | — | Recolors monsters (textures) | Mod idea |
 | mfhu-hd-retexture | — | HD textures for PPSSPP | Never link (derived art) |
 

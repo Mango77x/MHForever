@@ -272,6 +272,19 @@ int main(int argc, char **argv) {
             }
             o->input.patches[p.address] = p.patch;
         }
+        // Guarded words (region map [guards]), each in the module it names.
+        const std::vector<RegionGuard> guards =
+            symbols_path.empty() ? std::vector<RegionGuard>{} : region_guards(symbols_path);
+        for (const auto &g : guards) {
+            ProgramInput *target = &input;
+            if (g.module != "executable") {
+                const auto o = std::find_if(overlays.begin(), overlays.end(),
+                                            [&](const OverlayModule &m) { return m.file_name == g.module; });
+                if (o == overlays.end()) throw std::runtime_error("guard: no module " + g.module);
+                target = &o->input;
+            }
+            target->guards.insert(g.addresses.begin(), g.addresses.end());
+        }
         // A patch must land on a recompiled instruction of the kind it changes (the module's bytes are in memory).
         auto check_patches = [&](const ProgramInput &module_input, const Analysis &analysis) {
             for (const auto &[address, patch] : module_input.patches) {

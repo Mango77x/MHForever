@@ -33,6 +33,13 @@ struct CatalogEntry {
     const char *dev_executable_sha1;
     std::uint64_t encrypted_executable_size; // PSP_GAME/SYSDIR/EBOOT.BIN on the disc; the installer accepts only this
     const char *encrypted_executable_sha1;
+    // Patched editions (FUComplete) keep the disc id of the disc they were made from: `sfo_disc_id` is that id, and the
+    // image is this edition only when it holds `marker_file`. `edition` names its own program (mhfu-fuc) and
+    // `edition_name` is shown where the region would be.
+    const char *sfo_disc_id = "";
+    const char *marker_file = "";
+    const char *edition = "";
+    const char *edition_name = "";
 };
 
 const std::vector<CatalogEntry> &catalog();

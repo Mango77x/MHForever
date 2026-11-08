@@ -38,7 +38,8 @@ void usage() {
                  "  --update                                      update MHForever\n"
                  "  --version\n\n"
                  "The copy used is the one chosen in the launcher, else the first one that can be played; a disc id such as\n"
-                 "ULES01213 (Europe), ULUS10391 (North America) or ULJM05500 (Japan) picks another.\n");
+                 "ULES01213 (Europe), ULUS10391 (North America), ULJM05500 (Japan) or ULJM05500-FUC (FUComplete)\n"
+                 "picks another.\n");
 }
 
 bool contains(const char *const *list, std::size_t count, const std::string &name) {

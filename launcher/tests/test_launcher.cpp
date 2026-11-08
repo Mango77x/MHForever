@@ -1,6 +1,7 @@
 // Launcher core tests (no game data needed). With MHF_TEST_ISO set to the player's ULES01213 image, also checks that
 // a real copy is identified and verified (label requires_game_data; never run in CI).
 
+#include "fuc_config.hpp"
 #include "hash.hpp"
 #include "install/installer.hpp"
 #include "json.hpp"
@@ -14,6 +15,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <regex>
 #include <string>
 
@@ -87,6 +89,14 @@ int main(int argc, char **argv) {
         std::copy(value, value + 10, sfo.begin() + 0x30);
         auto p = mhf::psp::ParamSfo::parse(sfo);
         CHECK(p.has_value() && p->string("DISC_ID") == "ULES01213");
+        // A patched value longer than its stated length still reads to its NUL, within its reserved space.
+        const char longer[] = "ULJM05500-FUC";
+        std::copy(longer, longer + 14, sfo.begin() + 0x30);
+        p = mhf::psp::ParamSfo::parse(sfo);
+        CHECK(p.has_value() && p->string("DISC_ID") == "ULJM05500-FUC");
+        sfo[28] = 12; // reserved space shorter than the text: cut there
+        p = mhf::psp::ParamSfo::parse(sfo);
+        CHECK(p.has_value() && p->string("DISC_ID") == "ULJM05500-FU");
         sfo[16] = 200; // entries beyond the buffer
         CHECK(!mhf::psp::ParamSfo::parse(sfo).has_value());
     }
@@ -843,6 +853,37 @@ int main(int argc, char **argv) {
             CHECK(plan.error.empty());
             CHECK(std::find(plan.args.begin(), plan.args.end(), "--language") == plan.args.end());
         }
+    }
+
+    // FUComplete's options go into its CONFIG.BIN, byte by byte, and its minimap size always stays at its default.
+    {
+        std::vector<std::uint8_t> config(64, 0);
+        config[0x17] = 2; // 50%, as a player may have set it in FUComplete's own tool
+        fuc::Options options;
+        options.save_region = 2;
+        options.true_raw = true;
+        options.fov = 3;
+        options.camera = 0;
+        options.drink_buff = true;
+        CHECK(fuc::apply(config, options));
+        CHECK(config[0x11] == 2 && config[0x12] == 1 && config[0x13] == 0);
+        CHECK(config[0x14] == 0x8F && config[0x15] == 0x3F);
+        CHECK(config[0x16] == 0 && config[0x17] == 0 && config[0x1B] == 1);
+        std::vector<std::uint8_t> short_config(0x10, 0);
+        CHECK(!fuc::apply(short_config, options));
+
+        // A memory stick FUComplete already set up: only the option bytes change, the image is not read.
+        const fs::path stick = dir / "fuc_stick";
+        fs::create_directories(fuc::save_folder(stick));
+        std::vector<std::uint8_t> stored(64, 0xEE);
+        std::ofstream(fuc::save_folder(stick) / "CONFIG.BIN", std::ios::binary)
+            .write(reinterpret_cast<const char *>(stored.data()), static_cast<std::streamsize>(stored.size()));
+        CHECK(fuc::prepare(dir / "no_such_image.iso", stick, options).empty());
+        std::ifstream in(fuc::save_folder(stick) / "CONFIG.BIN", std::ios::binary);
+        const std::vector<std::uint8_t> written((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        CHECK(written.size() == 64 && written[0] == 0xEE && written[0x11] == 2 && written[0x17] == 0 && written[0x1C] == 0xEE);
+        // A first start needs FUComplete's files from the image; without a readable one the player is told so.
+        CHECK(!fuc::prepare(dir / "no_such_image.iso", dir / "fuc_empty_stick", options).empty());
     }
 
     // The player's copy (requires game data).

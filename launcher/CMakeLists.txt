@@ -71,6 +71,10 @@ foreach(game IN LISTS MHF_GAMES)
         set(_exe_sha1 "")
         set(_enc_size "0")
         set(_enc_sha1 "")
+        set(_sfo_disc "")
+        set(_marker "")
+        set(_edition "")
+        set(_edition_name "")
         foreach(line IN LISTS _lines)
             if(line MATCHES "^\\[\\[?([a-z_]+)\\]")
                 set(_section "${CMAKE_MATCH_1}")
@@ -86,6 +90,14 @@ foreach(game IN LISTS MHF_GAMES)
                         set(_market "${_value}")
                     elseif(_key STREQUAL "status")
                         set(_status "${_value}")
+                    elseif(_key STREQUAL "sfo_disc_id")
+                        set(_sfo_disc "${_value}")
+                    elseif(_key STREQUAL "marker_file")
+                        set(_marker "${_value}")
+                    elseif(_key STREQUAL "edition")
+                        set(_edition "${_value}")
+                    elseif(_key STREQUAL "edition_name")
+                        set(_edition_name "${_value}")
                     endif()
                 elseif(_section STREQUAL "accepted_dumps")
                     if(_key STREQUAL "size")
@@ -109,7 +121,7 @@ foreach(game IN LISTS MHF_GAMES)
             endif()
         endforeach()
         string(APPEND _catalog_text
-            "{\"${game}\", \"${_title}\", \"${_disc}\", \"${_version}\", \"${_market}\", \"${_status}\", {${_dumps}}, ${_exe_size}ULL, \"${_exe_sha1}\", ${_enc_size}ULL, \"${_enc_sha1}\"},\n")
+            "{\"${game}\", \"${_title}\", \"${_disc}\", \"${_version}\", \"${_market}\", \"${_status}\", {${_dumps}}, ${_exe_size}ULL, \"${_exe_sha1}\", ${_enc_size}ULL, \"${_enc_sha1}\", \"${_sfo_disc}\", \"${_marker}\", \"${_edition}\", \"${_edition_name}\"},\n")
     endforeach()
 endforeach()
 file(CONFIGURE OUTPUT ${_catalog} CONTENT "${_catalog_text}")
@@ -129,6 +141,7 @@ add_executable(mhf_launcher
     native/install/data_dir.cpp
     native/install/executable_preparation.cpp
     native/install/installer.cpp
+    native/fuc_config.cpp
     native/install/prx_decryptor.cpp
     ${_ui_cpp}
     ${_icon_cpp}
@@ -162,6 +175,7 @@ add_executable(mhf_launcher_cli
     native/install/data_dir.cpp
     native/install/executable_preparation.cpp
     native/install/installer.cpp
+    native/fuc_config.cpp
     native/install/prx_decryptor.cpp
 )
 target_include_directories(mhf_launcher_cli PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
@@ -229,7 +243,7 @@ if(MHF_BUILD_TESTS)
     add_executable(test_launcher tests/test_launcher.cpp native/launcher.cpp native/json.cpp native/hash.cpp
                                  native/platform.cpp native/updater.cpp native/install/data_dir.cpp
                                  native/install/executable_preparation.cpp native/install/installer.cpp
-                                 native/install/prx_decryptor.cpp ${_icon_cpp})
+                                 native/install/prx_decryptor.cpp native/fuc_config.cpp ${_icon_cpp})
     target_include_directories(test_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(test_launcher PRIVATE mhf_core mhf_psp_tools mhf_webview mhf_prx mhf_texture_pack)
     if(WIN32)

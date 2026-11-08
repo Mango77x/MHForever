@@ -83,6 +83,16 @@ int main() {
     check_release("ULES01213", european, all);
     check_release("ULUS10391", european, all);
     check_release("ULJM05500", japanese, all);
+    // FUComplete keeps the Japanese layout: the same map, plus the words it rewrites at run time ([guards]).
+    check_release("ULJM05500-FUC", japanese, all);
+    {
+        const fs::path fuc = fs::path(MHF_MHFU_REGIONS_DIR) / "ULJM05500-FUC" / "symbols.toml";
+        std::set<std::string> modules;
+        for (const auto &g : mhf::psp::recomp::region_guards(fuc)) modules.insert(g.module);
+        MHF_CHECK(modules == std::set<std::string>({"executable", "arcade_task.ovl", "game_task.ovl", "lobby_task.ovl",
+                                                    "option_task.ovl"}));
+        MHF_CHECK(mhf::psp::recomp::region_guards(fs::path(MHF_MHFU_REGIONS_DIR) / "ULJM05500" / "symbols.toml").empty());
+    }
 
     return mhf::test::finish("mhfu_region_maps");
 }
