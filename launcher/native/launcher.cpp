@@ -1241,8 +1241,10 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
                  data_["pseudonym"].as_string(), "--music-volume", num("musicVolume"), "--sfx-volume", num("sfxVolume")};
     if (s["fullscreen"].as_bool()) plan.args.push_back("--fullscreen");
     if (s["smoothTextures"].as_bool()) plan.args.push_back("--smooth-textures");
-    if (const std::string language = s["language"].as_string(); !language.empty()) {
-        // Straight into the chosen language: the game answers its own language screen (docs/06-mhfu-module.md).
+    const std::string language = s["language"].as_string();
+    if (!language.empty() && std::string_view(entry->market) != "JP") {
+        // Straight into the chosen language: the game answers its own language screen (docs/06-mhfu-module.md). The
+        // Japanese disc speaks only Japanese and has no such screen, so its copies never get the flag.
         plan.args.push_back("--language");
         plan.args.push_back(language);
     }

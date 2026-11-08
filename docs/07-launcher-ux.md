@@ -47,7 +47,8 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   keep what is shared: profile, whether to keep a copy of the disc image, and About.
 - **Language (2026-10-28)**: each copy also has a language (Ask / EN / FR / DE / ES / IT) in its Game settings. *Ask* is the
   original behaviour: the game opens its own language screen at every start. Picking one sends `--language` to the game,
-  which starts in it and answers that screen itself (see `06` §8), so the player never sees it.
+  which starts in it and answers that screen itself (see `06` §8), so the player never sees it. Japanese copies have no
+  such setting: their disc speaks only Japanese and has no language screen, so the section is hidden and no flag is sent.
 - **Native host** (`launcher/native`): `launcher.cpp` keeps `launcher.json` next to the executable (portable for now):
   pseudonym, identity seed, settings, library, stats. Adding a copy reads PARAM.SFO (`platforms/psp/tools/param_sfo`)
   and compares size + SHA-1 with `games/*/regions/*/region.toml` (catalog generated at configure time; identification
