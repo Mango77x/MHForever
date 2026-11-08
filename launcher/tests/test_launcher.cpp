@@ -813,6 +813,38 @@ int main(int argc, char **argv) {
         CHECK(again.state()["games"].as_array().size() == 1 && again.state()["selectedDisc"].as_string() == "ULES01213");
     }
 
+    // The Japanese disc speaks only Japanese and has no language screen: a language chosen for its copy never reaches
+    // the game.
+    {
+        const fs::path base = dir / "japan_base", data = dir / "japan_data";
+        fs::create_directories(base);
+        fs::create_directories(data);
+        const fs::path image = base / "disc.iso";
+        std::ofstream(image) << "x";
+        const CatalogEntry *japan = nullptr;
+        for (const auto &e : catalog()) {
+            if (std::string(e.disc_id) == "ULJM05500") japan = &e;
+        }
+        CHECK(japan != nullptr);
+        if (japan) {
+            std::ofstream(base / "ULJM05500_EBOOT.BIN", std::ios::binary) << std::string(japan->dev_executable_size, '\0');
+#if defined(_WIN32)
+            std::ofstream(base / "mhfu-jp.exe") << "jp program";
+#else
+            std::ofstream(base / "mhfu-jp") << "jp program";
+#endif
+            std::ofstream(data / "launcher.json") << R"({"games": [{"discId": "ULJM05500", "isoPath": ")"
+                                                  << image.generic_string() << R"("}]})";
+            Launcher l(base, data);
+            Json english;
+            english["language"] = "en";
+            l.set_settings(english);
+            const auto plan = l.plan_launch("mhfu");
+            CHECK(plan.error.empty());
+            CHECK(std::find(plan.args.begin(), plan.args.end(), "--language") == plan.args.end());
+        }
+    }
+
     // The player's copy (requires game data).
     if (const char *iso = std::getenv("MHF_TEST_ISO")) {
         // Identification: a developer executable of the right size is already known, so only the image is checked.

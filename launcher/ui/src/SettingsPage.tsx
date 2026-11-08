@@ -536,7 +536,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
         <h3>Texture pack</h3>
         <TexturePackSection state={state} onState={onState} say={say} toggle={(p) => <Toggle {...p} />} />
       </motion.div>
-      <motion.div className="glass section" {...rise(0.07)}>
+      {game?.region !== 'Japan' && <motion.div className="glass section" {...rise(0.07)}>
         <h3>Language</h3>
         <div className="srow">
           <div className="slabel">
@@ -555,7 +555,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
             ))}
           </div>
         </div>
-      </motion.div>
+      </motion.div>}
       <motion.div className="glass section" {...rise(0.08)}>
         <h3>Controls</h3>
         <Controls keys={s.keys ?? {}} pad={s.pad ?? {}} keyDefaults={state.keyDefaults ?? {}} padDefaults={state.padDefaults ?? {}} onChange={onChange} />
