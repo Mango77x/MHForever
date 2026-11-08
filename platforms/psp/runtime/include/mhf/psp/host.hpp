@@ -42,8 +42,15 @@ inline constexpr std::uint32_t kHome = 0x010000u;
 
 struct ControllerState {
     std::uint32_t buttons{};
+    // Of the d-pad directions in `buttons`, the ones held on the d-pad itself; the others come from the host's right
+    // stick, which presses the d-pad too (host hooks that read the stick can tell them apart).
+    std::uint32_t dpad_buttons{};
     std::uint8_t lx{128};
     std::uint8_t ly{128};
+    // The host's right stick, which the PSP does not have (the game never reads it; host hooks can): -1 full left or
+    // up, 0 centred, 1 full right or down.
+    float right_stick_x{};
+    float right_stick_y{};
 };
 
 [[nodiscard]] const DisplayState &display_state(Runtime &rt);
