@@ -9,7 +9,8 @@ export type Verification = 'verified' | 'unverified';
 export interface Game {
   id: string;
   title: string;
-  region: string;
+  region: string; // or a patched edition's own name (FUComplete)
+  market?: string; // EU, US or JP: the disc the copy comes from
   discId: string;
   version: string;
   isoPath: string;
@@ -30,6 +31,16 @@ export interface Settings {
   hornSongsPlace?: string; // and where: 'next-to-sheet', 'top-middle', 'under-names', 'bottom-left', or 'custom:X,Y' (moved in the game)
   // The language the game speaks and reads: 'en', 'fr', 'de', 'es', 'it'; '' keeps the game's own language screen.
   language: string;
+  // FUComplete's own options, for FUComplete copies (launcher/native/fuc_config.hpp); its true raw display follows
+  // trueWeaponValues.
+  fucSaveRegion?: string; // 'ULJM05500', 'ULUS10391' or 'ULES01213': whose saves it loads
+  fucDosAudio?: boolean;
+  fucFov?: string; // 'default', 'minor', 'moderate' or 'extreme'
+  fucCamera?: number; // 1..5, 4 is the game's own
+  fucHornTweak?: boolean;
+  fucLaoEarlyKill?: boolean;
+  fucFullChest?: boolean;
+  fucDrinkBuff?: boolean;
   copyImage: boolean; // keep a copy of the disc image in MHForever's own folder
   musicVolume: number; // 0..100
   sfxVolume: number; // 0..100

@@ -21,6 +21,12 @@ PrepareResult prepare_executable(const Bytes &encrypted, const ExecutableIdentit
         result.status = PrepareStatus::EncryptedMismatch;
         return result;
     }
+    if (identity.encrypted_size == identity.executable_size && identity.encrypted_sha1 == identity.executable_sha1) {
+        // Patched editions (FUComplete) ship the executable already plain: it is the one the code was generated from.
+        result.status = PrepareStatus::Ok;
+        result.executable = encrypted;
+        return result;
+    }
     if (!decrypt) {
         result.status = PrepareStatus::DecryptorUnavailable;
         return result;

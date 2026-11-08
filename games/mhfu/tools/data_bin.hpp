@@ -54,23 +54,24 @@ public:
     // Reads `size` bytes at byte `offset` of DATA.BIN.
     using Reader = std::function<std::vector<std::uint8_t>(std::uint64_t offset, std::size_t size)>;
 
-    // Tries each candidate table and keeps the one that yields a consistent header for a container of
-    // `total_size` bytes. Returns std::nullopt if none does.
+    // Tries each candidate table, then an unscrambled container, and keeps the first that yields a consistent header
+    // for a container of `total_size` bytes. Returns std::nullopt if none does.
     static std::optional<DataBin> open(Reader reader, std::uint64_t total_size,
                                        const std::vector<SubstitutionTable>& candidates);
 
     [[nodiscard]] const std::vector<FileEntry>& files() const noexcept { return files_; }
-    [[nodiscard]] const SubstitutionTable& table() const noexcept { return table_; }
+    // The table the container is scrambled with; std::nullopt when it is stored unscrambled.
+    [[nodiscard]] const std::optional<SubstitutionTable>& table() const noexcept { return table_; }
 
     // Returns the unscrambled first `size` bytes of file `id` (all of it when size is std::nullopt).
     [[nodiscard]] std::vector<std::uint8_t> read(std::uint32_t id, std::optional<std::uint32_t> size = std::nullopt) const;
 
 private:
-    DataBin(Reader reader, SubstitutionTable table, std::vector<FileEntry> files)
+    DataBin(Reader reader, std::optional<SubstitutionTable> table, std::vector<FileEntry> files)
         : reader_(std::move(reader)), table_(table), files_(std::move(files)) {}
 
     Reader reader_;
-    SubstitutionTable table_{};
+    std::optional<SubstitutionTable> table_;
     std::vector<FileEntry> files_;
 };
 

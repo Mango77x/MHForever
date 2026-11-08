@@ -1,5 +1,6 @@
 #include "launcher.hpp"
 
+#include "fuc_config.hpp"
 #include "hash.hpp"
 #include "host/keymap.hpp"
 #include "host/padmap.hpp"
@@ -36,7 +37,10 @@ const std::vector<CatalogEntry> &catalog() {
 
 namespace {
 
-const char *region_name(const std::string &market) {
+// Where the copy comes from, as the Library shows it; a patched edition shows its own name instead (FUComplete).
+const char *region_name(const CatalogEntry &e) {
+    if (*e.edition_name != '\0') return e.edition_name;
+    const std::string market = e.market;
     if (market == "EU") return "Europe";
     if (market == "US") return "North America";
     if (market == "JP") return "Japan";
@@ -50,10 +54,13 @@ constexpr const char *kProgramSuffix = "";
 #endif
 
 // One program per region: the recompiled code is the game's own, so it differs between releases. The European one keeps
-// the plain name (mhfu), the others add the market (mhfu-us).
+// the plain name (mhfu), the others add the market (mhfu-us) or their edition (mhfu-fuc).
 std::string game_program_name(const CatalogEntry &e) {
     std::string name = e.game;
-    if (std::string(e.market) != "EU") {
+    if (*e.edition != '\0') {
+        name += '-';
+        name += e.edition;
+    } else if (std::string(e.market) != "EU") {
         name += '-';
         for (const char c : std::string(e.market)) name += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
@@ -137,6 +144,16 @@ Json default_settings() {
     // the languages of the disc makes the game start in it (the game's screen is answered, see `--language` in
     // docs/06-mhfu-module.md). The regional releases offer their own set, so anything else is ignored.
     s["language"] = "";
+    // FUComplete's own options, for FUComplete copies only (fuc_config.hpp). Its true raw display follows
+    // "trueWeaponValues", and its minimap size is never offered: the HUD size above does that for the whole HUD.
+    s["fucSaveRegion"] = fuc::kSaveRegions[1]; // which release's saves it loads (FUComplete's own default)
+    s["fucDosAudio"] = false;
+    s["fucFov"] = fuc::kFieldsOfView[0];
+    s["fucCamera"] = 4; // starting vertical camera position in quests, 1 (lowest) to 5 (highest)
+    s["fucHornTweak"] = false;
+    s["fucLaoEarlyKill"] = false;
+    s["fucFullChest"] = false;
+    s["fucDrinkBuff"] = false;
     // Keyboard bindings (docs/07-launcher-ux.md section 5). Values are UI Events codes, so they name the key's
     // position rather than the character printed on it, and they are the same on every keyboard layout.
     const host::KeyBindings defaults;
@@ -315,7 +332,7 @@ Json Launcher::review_texture_pack(const std::string &disc_id, const fs::path &c
     out["folder"] = platform::to_utf8(folder);
     out["game"] = disc_id;
     const CatalogEntry *entry = entry_for(disc_id);
-    out["label"] = std::string(entry != nullptr ? region_name(entry->market) : "this release");
+    out["label"] = std::string(entry != nullptr ? region_name(*entry) : "this release");
     out["ok"] = false;
     out["error"] = std::string();
     out["ini"] = std::string();
@@ -735,6 +752,26 @@ const CatalogEntry *Launcher::entry_for(const std::string &disc_id) const {
     return nullptr;
 }
 
+namespace {
+
+// The catalog entry of a disc image whose PARAM.SFO says `sfo_disc_id`, or nullptr.
+const CatalogEntry *identify(const psp::IsoImage &image, const std::string &sfo_disc_id) {
+    // A patched edition (its marker file is on the disc) wins over the plain release with the same disc id.
+    const CatalogEntry *plain = nullptr;
+    for (const auto &e : catalog()) {
+        const std::string id = *e.sfo_disc_id != '\0' ? e.sfo_disc_id : e.disc_id;
+        if (id != sfo_disc_id) continue;
+        if (*e.marker_file == '\0') {
+            if (plain == nullptr) plain = &e;
+        } else if (image.find(e.marker_file)) {
+            return &e;
+        }
+    }
+    return plain;
+}
+
+} // namespace
+
 fs::path Launcher::find_executable(const CatalogEntry &entry) {
     std::vector<fs::path> candidates;
     const std::string configured = data_["executablePath"].as_string();
@@ -791,7 +828,8 @@ Json Launcher::state() {
         Json out;
         out["id"] = e->game;
         out["title"] = e->title;
-        out["region"] = region_name(e->market);
+        out["region"] = region_name(*e);
+        out["market"] = e->market;
         out["discId"] = e->disc_id;
         out["version"] = e->version;
         out["isoPath"] = g["isoPath"];
@@ -918,8 +956,16 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     if (partial["hudSize"].is_number()) { // the in-game menu's steps: 50, 60, ... 100
         s["hudSize"] = std::clamp(std::round(partial["hudSize"].as_number() / 10.0), 5.0, 10.0) * 10.0;
     }
-    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "hornSongs"}) {
+    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "hornSongs",
+                            "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest", "fucDrinkBuff"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
+    }
+    num("fucCamera", 1, 5);
+    for (const auto &[key, names] : {std::pair{"fucSaveRegion", std::vector<const char *>(fuc::kSaveRegions.begin(), fuc::kSaveRegions.end())},
+                                     std::pair{"fucFov", std::vector<const char *>(fuc::kFieldsOfView.begin(), fuc::kFieldsOfView.end())}}) {
+        if (!partial[key].is_string()) continue;
+        const std::string value = partial[key].as_string();
+        if (std::find(names.begin(), names.end(), value) != names.end()) s[key] = value;
     }
     if (partial["hornSongsPlace"].is_string() && overlay::parse_song_spot(partial["hornSongsPlace"].as_string())) {
         s["hornSongsPlace"] = partial["hornSongsPlace"];
@@ -1083,6 +1129,8 @@ Launcher::AddResult Launcher::add_game(const fs::path &iso, const Progress &prog
     }
     if (progress.report) progress.report("reading", 0);
     std::string disc_id, version;
+    const CatalogEntry *entry = nullptr;
+    bool edition_verified = false; // a patched edition is told by its executable, its image varies (region.toml)
     try {
         psp::IsoImage image(iso);
         const auto sfo_entry = image.find("/PSP_GAME/PARAM.SFO");
@@ -1091,18 +1139,23 @@ Launcher::AddResult Launcher::add_game(const fs::path &iso, const Progress &prog
         if (!sfo) throw std::runtime_error("bad PARAM.SFO");
         disc_id = sfo->string("DISC_ID");
         version = sfo->string("DISC_VERSION");
+        entry = identify(image, disc_id);
+        if (entry != nullptr && *entry->marker_file != 0 && entry->dumps.empty()) {
+            const auto exe = image.find("/PSP_GAME/SYSDIR/EBOOT.BIN");
+            edition_verified = exe && exe->size == entry->encrypted_executable_size &&
+                               install::sha1_hex(image.read_file(*exe, 0, exe->size)) == entry->encrypted_executable_sha1;
+        }
     } catch (const std::exception &) {
         result.error = "This file is not a PSP disc image. Choose the .iso you made from your own UMD.";
         return result;
     }
-    const CatalogEntry *entry = entry_for(disc_id);
     if (entry == nullptr) {
         result.error = "This disc (" + disc_id + ") is not one MHForever can run.";
         return result;
     }
     bool size_known = false;
     for (const auto &d : entry->dumps) size_known |= d.size == size;
-    std::string verification = "unverified";
+    std::string verification = edition_verified ? "verified" : "unverified";
     if (size_known) {
         const auto sha1 = sha1_file(iso, size, &progress);
         if (!sha1) {
@@ -1154,7 +1207,8 @@ Launcher::AddResult Launcher::add_game(const fs::path &iso, const Progress &prog
     Json out;
     out["id"] = entry->game;
     out["title"] = entry->title;
-    out["region"] = region_name(entry->market);
+    out["region"] = region_name(*entry);
+    out["market"] = entry->market;
     out["discId"] = entry->disc_id;
     out["version"] = version.empty() ? std::string(entry->version) : version;
     out["isoPath"] = platform::to_utf8(stored_iso);
@@ -1252,7 +1306,31 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back("--hud-size");
         plan.args.push_back(num("hudSize"));
     }
-    if (s["trueWeaponValues"].as_bool()) plan.args.push_back("--true-weapon-values");
+    const bool fucomplete = std::string_view(entry->edition) == "fuc";
+    if (fucomplete) {
+        // FUComplete reads its options from its save folder at every start: they are written there now. Its own true
+        // raw display stands for "True weapon values" (it also covers element and status).
+        fuc::Options options;
+        const auto index = [](const std::string &value, const auto &names) {
+            const auto it = std::find(names.begin(), names.end(), value);
+            return it != names.end() ? static_cast<int>(it - names.begin()) : 0;
+        };
+        options.save_region = s["fucSaveRegion"].is_string() ? index(s["fucSaveRegion"].as_string(), fuc::kSaveRegions) : 1;
+        options.true_raw = s["trueWeaponValues"].as_bool();
+        options.dos_audio = s["fucDosAudio"].as_bool();
+        options.fov = s["fucFov"].is_string() ? index(s["fucFov"].as_string(), fuc::kFieldsOfView) : 0;
+        options.camera = s["fucCamera"].is_number() ? static_cast<int>(s["fucCamera"].as_number()) - 1 : 3;
+        options.horn_tweak = s["fucHornTweak"].as_bool();
+        options.lao_early_kill = s["fucLaoEarlyKill"].as_bool();
+        options.full_chest = s["fucFullChest"].as_bool();
+        options.drink_buff = s["fucDrinkBuff"].as_bool();
+        if (const std::string problem = fuc::prepare(iso, stick, options); !problem.empty()) {
+            plan.error = problem;
+            return plan;
+        }
+    } else if (s["trueWeaponValues"].as_bool()) {
+        plan.args.push_back("--true-weapon-values");
+    }
     if (s["fastSupplyBox"].as_bool()) plan.args.push_back("--fast-supply-box");
     if (s["smithyBrowse"].as_bool()) plan.args.push_back("--smithy-browse");
     if (s["hornSongs"].as_bool()) {

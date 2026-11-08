@@ -160,6 +160,9 @@ def main() -> int:
                     help="the North America program (mhfu-us[.exe]); the archive carries one program per region")
     ap.add_argument("--game-jp", type=pathlib.Path, default=None,
                     help="the Japanese program (mhfu-jp[.exe])")
+    ap.add_argument("--game-fuc", type=pathlib.Path, default=None,
+                    help="the program for Japanese images patched with FUComplete (mhfu-fuc[.exe]); only with its "
+                         "authors' agreement (docs/06-mhfu-module.md section 2.1)")
     ap.add_argument("--launcher-cli", type=pathlib.Path, default=None,
                     help="the launcher without a window (MHForever-cli[.exe]): installs and starts the game where the "
                          "launcher's window cannot start (no WebKitGTK, as on the Steam Deck's SteamOS)")
@@ -181,7 +184,7 @@ def main() -> int:
     if files is None:
         return 2
     programs = {game_name}
-    for market, program in (("us", args.game_us), ("jp", args.game_jp)):
+    for market, program in (("us", args.game_us), ("jp", args.game_jp), ("fuc", args.game_fuc)):
         if program is None:
             continue
         name = game_name.replace("mhfu", f"mhfu-{market}")

@@ -7,6 +7,10 @@
 Everything is written under user_data/ (git-ignored). Then configure CMake with -DMHF_MHFU_GENERATED=<printed folder>.
 
 usage: games/mhfu/tools/prepare.py --iso <image.iso> --exe <decrypted executable> --tools <build dir> [--region ULES01213]
+
+--region is a folder of games/mhfu/regions: ULES01213, ULUS10391, ULJM05500, or ULJM05500-FUC for a Japanese image the
+developer patched with FUComplete (its executable is already plain: pass the image's own PSP_GAME/SYSDIR/EBOOT.BIN). Each
+region is its own program: configure with -DMHF_MHFU_PROGRAM_NAME=mhfu (EU), mhfu-us, mhfu-jp or mhfu-fuc.
 """
 import argparse
 import os
