@@ -121,7 +121,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   the camera as fast as it is pushed and tilts it smoothly from the game's lowest view to its highest; while it is on,
   **Analog camera turn speed** and **tilt speed** (`analogCameraTurnSpeed`, `analogCameraTiltSpeed`, 50% to 200% in
   steps of 10, passed as `--analog-camera-turn-speed` and `--analog-camera-tilt-speed` when not 100%) set how fast a
-  full push goes): the game's options live there, Video keeps the picture's.
+  full push goes; not offered for FUComplete copies yet): the game's options live there, Video keeps the picture's.
 - **Updates (2026-10-29)**: when the launcher starts (Settings > About > Check for updates, on by default) it asks GitHub for
   the latest release; when it is newer, Home offers "Update now". The launcher downloads the archive for its system with the
   system's `curl`, checks it against the SHA-256 GitHub computes for every release asset (nothing to publish besides the

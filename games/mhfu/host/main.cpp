@@ -641,7 +641,7 @@ int main(int argc, char **argv) {
         } else if (smithy_browse) {
             std::fprintf(stderr, "[mhfu] --smithy-browse: not mapped for this release, ignored\n");
         }
-        if (analog_camera) { // the region map's call patches (every release maps them: tests/test_region_maps.cpp)
+        if (analog_camera) { // the region map's call patches (EU, US and JP map them; FUComplete not yet)
             runtime.register_hook("mh_camera_buttons_copied", &on_camera_buttons_copied);
             runtime.register_hook("mh_camera_turn_buttons_test", &on_camera_turn_buttons_test);
             runtime.register_hook("mh_camera_turn_amount_chosen", &on_camera_turn_amount_chosen);

@@ -38,7 +38,7 @@ RegionData entries_for(const std::string &disc_id) {
 // The release maps the multipliers and both formats of each of its languages, at different addresses, and declares
 // every language's names.
 void check_release(const std::string &disc_id, const std::vector<std::string> &own,
-                   const std::vector<std::string> &all) {
+                   const std::vector<std::string> &all, bool camera_mapped = true) {
     const RegionData entries = entries_for(disc_id);
     MHF_CHECK(entries.contains("mh_attack_display_multipliers") &&
               entries.at("mh_attack_display_multipliers").has_value());
@@ -63,7 +63,8 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
         }
     }
     // --smithy-browse: its seven patches, all in the village overlay, and the two Info functions it calls.
-    // --analog-camera: its three call patches, in the camera's d-pad code in the executable.
+    // --analog-camera: its four call patches, in the camera's d-pad code in the executable (not mapped for every
+    // release: then none).
     std::set<std::string> smithy_patches, camera_patches;
     for (const auto &p : mhf::psp::recomp::region_patches(map_path)) {
         if (p.patch.name.starts_with("mh_smithy_")) {
@@ -75,8 +76,11 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
         }
     }
     MHF_CHECK(smithy_patches.size() == 7);
-    MHF_CHECK(camera_patches == std::set<std::string>({"mh_camera_buttons_copied", "mh_camera_tilt_preset_chosen",
-                                                       "mh_camera_turn_buttons_test", "mh_camera_turn_amount_chosen"}));
+    MHF_CHECK(camera_patches == (camera_mapped ? std::set<std::string>({"mh_camera_buttons_copied",
+                                                                        "mh_camera_tilt_preset_chosen",
+                                                                        "mh_camera_turn_buttons_test",
+                                                                        "mh_camera_turn_amount_chosen"})
+                                               : std::set<std::string>{}));
     MHF_CHECK(entries.contains("mh_smithy_create_info_setup") && entries.at("mh_smithy_create_info_setup").has_value());
     MHF_CHECK(entries.contains("mh_smithy_improve_info_setup") && entries.at("mh_smithy_improve_info_setup").has_value());
 }
@@ -91,8 +95,9 @@ int main() {
     check_release("ULES01213", european, all);
     check_release("ULUS10391", european, all);
     check_release("ULJM05500", japanese, all);
-    // FUComplete keeps the Japanese layout: the same map, plus the words it rewrites at run time ([guards]).
-    check_release("ULJM05500-FUC", japanese, all);
+    // FUComplete keeps the Japanese layout: the same map, plus the words it rewrites at run time ([guards]). Its
+    // executable is its own, and the analog camera is not mapped in it yet (the launcher hides the option there).
+    check_release("ULJM05500-FUC", japanese, all, false);
     {
         const fs::path fuc = fs::path(MHF_MHFU_REGIONS_DIR) / "ULJM05500-FUC" / "symbols.toml";
         std::set<std::string> modules;
