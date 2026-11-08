@@ -89,6 +89,14 @@ int main(int argc, char **argv) {
         std::copy(value, value + 10, sfo.begin() + 0x30);
         auto p = mhf::psp::ParamSfo::parse(sfo);
         CHECK(p.has_value() && p->string("DISC_ID") == "ULES01213");
+        // A patched value longer than its stated length still reads to its NUL, within its reserved space.
+        const char longer[] = "ULJM05500-FUC";
+        std::copy(longer, longer + 14, sfo.begin() + 0x30);
+        p = mhf::psp::ParamSfo::parse(sfo);
+        CHECK(p.has_value() && p->string("DISC_ID") == "ULJM05500-FUC");
+        sfo[28] = 12; // reserved space shorter than the text: cut there
+        p = mhf::psp::ParamSfo::parse(sfo);
+        CHECK(p.has_value() && p->string("DISC_ID") == "ULJM05500-FU");
         sfo[16] = 200; // entries beyond the buffer
         CHECK(!mhf::psp::ParamSfo::parse(sfo).has_value());
     }

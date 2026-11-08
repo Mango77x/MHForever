@@ -286,6 +286,22 @@ std::string window_title(const std::filesystem::path &disc_image) {
         for (std::size_t at = title.find(mark); at != std::string::npos; at = title.find(mark)) title.erase(at, std::strlen(mark));
     }
     while (!title.empty() && (title.back() == ' ' || title.back() == '\n')) title.pop_back();
+    // A patched disc may end its title with its own version ("... COMPLETE v1.4.0"): dropped.
+    if (const auto space = title.rfind(' '); space != std::string::npos && space + 2 < title.size() &&
+        (title[space + 1] == 'v' || title[space + 1] == 'V') && title[space + 2] >= '0' && title[space + 2] <= '9') {
+        title.erase(space);
+    }
+    // The taskbar cuts long window titles: a title longer than the retail "MONSTER HUNTER FREEDOM UNITE" (FUComplete's
+    // "MONSTER HUNTER FREEDOM UNITE COMPLETE") drops its "MONSTER HUNTER " prefix, as the window already says MHForever.
+    constexpr std::string_view kPrefix = "MONSTER HUNTER ";
+    if (title.size() > 30 && title.size() > kPrefix.size()) {
+        bool prefix = true;
+        for (std::size_t i = 0; i < kPrefix.size(); ++i) {
+            const char c = title[i] >= 'a' && title[i] <= 'z' ? static_cast<char>(title[i] - 'a' + 'A') : title[i];
+            prefix = prefix && c == kPrefix[i];
+        }
+        if (prefix) title.erase(0, kPrefix.size());
+    }
     if (title.empty()) return "MHForever";
     bool all_upper = true;
     for (const char c : title) all_upper = all_upper && !(c >= 'a' && c <= 'z');
