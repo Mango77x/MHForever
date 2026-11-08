@@ -15,7 +15,7 @@
 | Europe | **ULES01213** | Freedom Unite | Main development (reference copy, v1.01) |
 | North America | **ULUS10391** | Freedom Unite | Playable (v1.01): its own symbol map, overlay map and program (`mhfu-us`) |
 | Japan | **ULJM05500** | Portable 2nd G | Playable (v1.01): its own symbol map, overlay map and program (`mhfu-jp`) |
-| Japan + FUComplete | ULJM05500 (catalog id **ULJM05500-FUC**) | Portable 2nd G patched with FUComplete v1.4.0 | In development: its own maps and program (`mhfu-fuc`), see §2.1 |
+| Japan + FUComplete | ULJM05500 (catalog id **ULJM05500-FUC**) | Portable 2nd G patched with FUComplete v1.4.0 | Playable: its own maps and program (`mhfu-fuc`), see §2.1 |
 | Others | PSN, "PSP Essentials"/"The Best", Korea/Asia | — | `[VERIFY]` whether variants with other hashes exist |
 
 Known hashes for 2nd G JP (from FUCTool): UMD MD5 `1f76ee9ccbd6d39158f06e6e5354a5bd`, PSN MD5 `cc39d070b2d2c44c9ac8187e00b75dc4`.
@@ -38,8 +38,8 @@ never patches anything and never links patched images. How it fits:
 - **Options**: FUComplete reads `PSP/SAVEDATA/FUCDAT/CONFIG.BIN` at every start. The launcher writes it from the copy's
   Game settings (`launcher/native/fuc_config.cpp`); the true raw display follows "Show true weapon values", and the
   minimap size is not offered (MHForever's HUD size scales the whole quest HUD instead).
-- **Licence**: FUComplete publishes no licence. MHForever ships none of its files (they come from the player's own patched
-  image), but a release that offers it waits for its authors' agreement.
+- **Credit**: FUComplete publishes no licence. MHForever ships none of its files (they come from the player's own patched
+  image) and credits its team in the README's special thanks.
 - Not checked yet: online play with FUComplete players, texture packs, the save region options other than North America.
 
 **Evidence that per-region maps are required**: public CWCheat codes use different addresses per region (e.g. the same
