@@ -8,21 +8,9 @@ set(MHF_NOTO_SANS_JP_SHA256 "dff723ba59d57d136764a04b9b2d03205544f7cd785a711442d
 set(MHF_NOTO_SANS_JP "${CMAKE_BINARY_DIR}/_deps/fonts/NotoSansJP-Regular.otf" CACHE FILEPATH
     "Noto Sans JP Regular (noto-cjk Sans2.004), downloaded when missing")
 
-set(_noto_ok OFF)
-if(EXISTS "${MHF_NOTO_SANS_JP}")
-    file(SHA256 "${MHF_NOTO_SANS_JP}" _noto_hash)
-    if(_noto_hash STREQUAL MHF_NOTO_SANS_JP_SHA256)
-        set(_noto_ok ON)
-    endif()
-endif()
-if(NOT _noto_ok)
-    message(STATUS "Downloading Noto Sans JP (${MHF_NOTO_SANS_JP_URL})")
-    file(DOWNLOAD "${MHF_NOTO_SANS_JP_URL}" "${MHF_NOTO_SANS_JP}"
-         EXPECTED_HASH SHA256=${MHF_NOTO_SANS_JP_SHA256} TLS_VERIFY ON STATUS _noto_status)
-    list(GET _noto_status 0 _noto_code)
-    if(NOT _noto_code EQUAL 0)
-        list(GET _noto_status 1 _noto_message)
-        message(FATAL_ERROR "Could not download Noto Sans JP: ${_noto_message}. "
-                            "Download it from ${MHF_NOTO_SANS_JP_URL} and pass -DMHF_NOTO_SANS_JP=<path>.")
-    endif()
+include(${CMAKE_CURRENT_LIST_DIR}/download.cmake)
+mhf_download("${MHF_NOTO_SANS_JP_URL}" "${MHF_NOTO_SANS_JP}" "${MHF_NOTO_SANS_JP_SHA256}" _noto_problem)
+if(_noto_problem)
+    message(FATAL_ERROR "Could not get Noto Sans JP: ${_noto_problem}. "
+                        "Download it from ${MHF_NOTO_SANS_JP_URL} and pass -DMHF_NOTO_SANS_JP=<path>.")
 endif()

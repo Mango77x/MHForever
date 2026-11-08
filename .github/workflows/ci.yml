@@ -46,7 +46,7 @@ jobs:
           PSPDEV_RELEASE: v20261001
           PSPDEV_SHA256: a86efe624e770005290919617859e9df24bd8fcd3e364f4587f23ec7364b0acd
         run: |
-          curl -sSfL -o pspdev.tar.gz \
+          curl -sSfL --retry 5 --retry-delay 15 --retry-all-errors -o pspdev.tar.gz \
             "https://github.com/pspdev/pspdev/releases/download/${PSPDEV_RELEASE}/pspdev-ubuntu-latest-x86_64.tar.gz"
           echo "${PSPDEV_SHA256}  pspdev.tar.gz" | sha256sum --check -
           sudo tar xzf pspdev.tar.gz -C /opt
@@ -100,7 +100,7 @@ jobs:
           PSPDEV_RELEASE: v20261001
           PSPDEV_SHA256: a86efe624e770005290919617859e9df24bd8fcd3e364f4587f23ec7364b0acd
         run: |
-          curl -sSfL -o pspdev.tar.gz \
+          curl -sSfL --retry 5 --retry-delay 15 --retry-all-errors -o pspdev.tar.gz \
             "https://github.com/pspdev/pspdev/releases/download/${PSPDEV_RELEASE}/pspdev-ubuntu-latest-x86_64.tar.gz"
           echo "${PSPDEV_SHA256}  pspdev.tar.gz" | sha256sum --check -
           sudo tar xzf pspdev.tar.gz -C /opt
