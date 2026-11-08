@@ -59,6 +59,33 @@ function Volume({ id, label, value, onCommit }: { id: string; label: string; val
   );
 }
 
+// A setting in percent between `min` and `max`, in steps of `step`, with its help line.
+function PercentSlider({ id, label, help, min, max, step, value, onCommit }: {
+  id: string; label: string; help: string; min: number; max: number; step: number; value: number; onCommit: (v: number) => void;
+}) {
+  const [v, setV] = useState(value);
+  useEffect(() => setV(value), [value]);
+  return (
+    <div className="srow">
+      <label htmlFor={id} className="slabel"><b>{label}</b><span className="prose">{help}</span></label>
+      <div className="slider" style={{ flex: '0 1 300px' }}>
+        <input
+          id={id}
+          className="rng"
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={v}
+          style={{ ['--v' as string]: `${((v - min) / (max - min)) * 100}%` }}
+          onChange={(e) => { const n = Number(e.target.value); setV(n); onCommit(n); }}
+        />
+        <output htmlFor={id} style={{ width: 52 }}>{v}%</output>
+      </div>
+    </div>
+  );
+}
+
 // Bringing in saves made by a PSP or PPSSPP: choose the folder, see what was found, confirm.
 function ImportSaves({ gameId }: { gameId: string | undefined }) {
   const [scan, setScan] = useState<SaveScan | null>(null);
@@ -520,6 +547,16 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           <div className="slabel"><b>Smithy: browse with panels open</b><span>Optional enhancement: in the smithy, the list keeps scrolling while the materials (R) or Info panel is open, and the panel shows the highlighted item. Off is faithful to the original.</span></div>
           <Toggle on={s.smithyBrowse ?? false} onToggle={() => onChange({ smithyBrowse: !(s.smithyBrowse ?? false) })} label="Smithy: browse with panels open" />
         </div>
+        <div className="srow">
+          <div className="slabel"><b>Analog camera</b><span>Optional enhancement: the right stick turns the camera as fast as you push it, and tilts it smoothly from the game's lowest view to its highest. Off is faithful to the original (the stick works as the d-pad).</span></div>
+          <Toggle on={s.analogCamera ?? false} onToggle={() => onChange({ analogCamera: !(s.analogCamera ?? false) })} label="Analog camera" />
+        </div>
+        {s.analogCamera && (
+          <>
+            <PercentSlider id="camera-turn-speed" label="Analog camera turn speed" help="How fast a full push turns the camera. 100% is as fast as the d-pad." min={50} max={200} step={10} value={s.analogCameraTurnSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTurnSpeed: v })} />
+            <PercentSlider id="camera-tilt-speed" label="Analog camera tilt speed" help="How fast a full push tilts the camera. At 100% it goes from the lowest view to the highest in about a second." min={50} max={200} step={10} value={s.analogCameraTiltSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTiltSpeed: v })} />
+          </>
+        )}
         <div className="srow">
           <div className="slabel"><b>Show hunting horn songs</b><span>Optional enhancement: in quests with a hunting horn, the songs it can play are listed on screen, the one being played lights up and the ones in effect turn green. Off is faithful to the original.</span></div>
           <Toggle on={s.hornSongs ?? false} onToggle={() => onChange({ hornSongs: !(s.hornSongs ?? false) })} label="Show hunting horn songs" />

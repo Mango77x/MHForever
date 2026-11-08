@@ -134,6 +134,9 @@ Json default_settings() {
     s["trueWeaponValues"] = false; // menus show attack and element without the game's display multipliers
     s["fastSupplyBox"] = false; // the supply box takes the next button soon after a take-out
     s["smithyBrowse"] = false; // the smithy's lists scroll with the R (materials) or Info panel open
+    s["analogCamera"] = false; // the right stick turns and tilts the camera by how far it is pushed
+    s["analogCameraTurnSpeed"] = 100; // and how fast, in percent of a full push: 50..200 in steps of 10
+    s["analogCameraTiltSpeed"] = 100;
     s["hornSongs"] = false; // the hunting horn's songs over the quest HUD
     s["hornSongsPlace"] = "next-to-sheet"; // and where: a place's name, or "custom:X,Y" (overlay/song_panel.hpp)
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
@@ -956,8 +959,12 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     if (partial["hudSize"].is_number()) { // the in-game menu's steps: 50, 60, ... 100
         s["hudSize"] = std::clamp(std::round(partial["hudSize"].as_number() / 10.0), 5.0, 10.0) * 10.0;
     }
-    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "hornSongs",
-                            "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest", "fucDrinkBuff"}) {
+    for (const char *key : {"analogCameraTurnSpeed", "analogCameraTiltSpeed"}) { // 50, 60, ... 200
+        if (partial[key].is_number()) s[key] = std::clamp(std::round(partial[key].as_number() / 10.0), 5.0, 20.0) * 10.0;
+    }
+    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox", "smithyBrowse",
+                            "analogCamera", "hornSongs", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill",
+                            "fucFullChest", "fucDrinkBuff"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
     num("fucCamera", 1, 5);
@@ -1333,6 +1340,16 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
     }
     if (s["fastSupplyBox"].as_bool()) plan.args.push_back("--fast-supply-box");
     if (s["smithyBrowse"].as_bool()) plan.args.push_back("--smithy-browse");
+    if (s["analogCamera"].as_bool()) {
+        plan.args.push_back("--analog-camera");
+        for (const auto &[key, flag] : {std::pair{"analogCameraTurnSpeed", "--analog-camera-turn-speed"},
+                                        std::pair{"analogCameraTiltSpeed", "--analog-camera-tilt-speed"}}) {
+            if (s[key].is_number() && s[key].as_number() != 100) {
+                plan.args.push_back(flag);
+                plan.args.push_back(num(key));
+            }
+        }
+    }
     if (s["hornSongs"].as_bool()) {
         plan.args.push_back("--horn-songs");
         if (s["hornSongsPlace"].is_string()) {
