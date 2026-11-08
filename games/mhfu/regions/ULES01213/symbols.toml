@@ -24,6 +24,7 @@ mh_smithy_create_list_update  = 0x09AA2DE0 # (List*): the create lists (weapons,
 mh_smithy_improve_list_update = 0x09AA4960 # (List*): the improve list, once per frame
 
 [data]
+mh_language_screen_stage = 0x08B21704 # u32, boot scene counter: 7 while the language screen waits (docs/06-mhfu-module.md §8)
 mh_overlay_region_bases = 0x089CBA70 # u32[6], region base address per group
 
 # Menu display of weapon values (--true-weapon-values; verified 2026-11-02). Damage never reads these.

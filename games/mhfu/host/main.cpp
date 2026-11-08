@@ -7,6 +7,7 @@
 //             [--smithy-browse]
 //             [--horn-songs [--horn-songs-place next-to-sheet|top-middle|under-names|bottom-left|custom:X,Y]]
 //             [--music-volume 0-100] [--sfx-volume 0-100]
+//             [--language en|fr|de|es|it|jp]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
 //             [--controls-file <path>]
 //             [--adhoc-server host[:port]] [--adhoc-nick <name>] [--adhoc-mac AA:BB:CC:DD:EE:FF] [--adhoc-room CODE]
@@ -43,8 +44,22 @@
 #include <exception>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
+
+// The PSP's system languages, by the value sceUtilityGetSystemParamInt(8) reports for each.
+constexpr std::pair<std::string_view, int> kLanguages[] = {
+    {"jp", 0}, {"en", 1}, {"fr", 2}, {"es", 3}, {"de", 4}, {"it", 5},
+};
+
+// Where the boot's language screen waits: the region map's data entry (`mh_language_screen_stage` in its
+// symbols.toml), generated into mhfu_region_data.hpp. Never a number here — the same address means something else in
+// another build, so pressing at it there could answer the wrong screen. A release whose map does not name it (the
+// Japanese one, single-language and with no such screen) only gets the language preselected, with no press at all.
+constexpr std::optional<std::uint32_t> kLanguageScreenStageAddress =
+    mhf::psp::generated::mhfu_region_data::mh_language_screen_stage;
+constexpr std::uint32_t kLanguageScreenStageValue = 7u;
 
 namespace mhf::psp::generated {
 std::span<const Program *const> mhfu_programs();
@@ -314,6 +329,7 @@ int main(int argc, char **argv) {
     std::string friends_file, friend_actions_file; // --friends-file, --friend-actions-file: friends in the Online tab
     std::string adhoc_nick;            // --adhoc-nick: the name other players see online (default: --name)
     std::vector<ScriptedPress> script;
+    bool language_pick = false; // --language was given: the game screen that confirms it is answered by one press
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--iso" && i + 1 < argc) options.disc_image = argv[++i];
@@ -339,6 +355,19 @@ int main(int argc, char **argv) {
         else if (a == "--horn-songs-place" && i + 1 < argc) horn_songs_place = argv[++i];
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--sfx-volume" && i + 1 < argc) options.sfx_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
+        else if (a == "--language" && i + 1 < argc) {
+            // The PSP's system language, which the game reads with sceUtilityGetSystemParamInt(8). English by default.
+            const std::string_view code = argv[++i];
+            const auto found = std::find_if(std::begin(kLanguages), std::end(kLanguages),
+                                            [code](const auto &entry) { return entry.first == code; });
+            if (found == std::end(kLanguages)) {
+                std::fprintf(stderr, "error: unknown --language '%.*s' (en, fr, de, es, it, jp)\n",
+                             static_cast<int>(code.size()), code.data());
+                return 2;
+            }
+            options.system_language = found->second;
+            language_pick = true; // the screen that answers after the highlight is satisfied by the game itself
+        }
         else if (a == "--keymap" && i + 1 < argc) keyboard = mhf::host::parse_keymap(argv[++i]);
         else if (a == "--padmap" && i + 1 < argc) controller = mhf::host::parse_padmap(argv[++i]);
         else if (a == "--controls-file" && i + 1 < argc) controls_file = argv[++i];
@@ -400,11 +429,29 @@ int main(int argc, char **argv) {
             std::fprintf(stderr, "[mhfu] --smithy-browse: not mapped for this release, ignored\n");
         }
         std::function<void()> extra;
-        if (!dump_folder.empty() || seconds > 0 || !script.empty()) {
+        if (!dump_folder.empty() || seconds > 0 || !script.empty() || language_pick) {
             if (!dump_folder.empty()) std::filesystem::create_directories(dump_folder);
             auto *rt = &runtime;
             std::uint64_t last_vblank = 0;
             unsigned frame = 0;
+            // The boot's language screen is the first screen that waits for input. When the player picked a language
+            // with --language (the launcher shortcut already selects it), the game highlights that language, so one
+            // confirm press satisfies the screen and the boot goes on without a language step.
+            //
+            // Sending the press blind (a fixed time after the boot) races the player's first seconds: on a slow boot
+            // it could land before the screen, on a fast one long after. Instead the press waits for the screen: the
+            // boot's scene counter (a data symbol of the region, see kLanguageScreenStageAddress) steps through its
+            // start-up screens and holds a known value while the language screen waits, verified against dumps of the
+            // whole guest RAM paired with the dumped display.
+            // The language is preselected by the runtime's answer either way; the press only happens where the
+            // region's symbol map names that counter.
+            // The marker fires while the screen is still fading in and ignoring input, so the cross is pulsed (press
+            // and release, each ~150 ms) until the screen answers and the stage moves on. A fresh press is what the
+            // screen reads; a cross merely held since the fade-in never counts. The sequence is capped and sent once.
+            constexpr std::uint64_t kLanguagePressMaxUs = 6000000;
+            constexpr std::uint64_t kLanguagePulseUs = 9 * mhf::psp::kVblankPeriodUs;
+            bool language_screen_handled = false;
+            std::uint64_t language_press_deadline = 0;
             extra = [=]() mutable {
                 const std::uint64_t now = rt->now_us();
                 if (seconds > 0 && static_cast<double>(now) > seconds * 1e6) {
@@ -412,7 +459,22 @@ int main(int argc, char **argv) {
                     rt->dump_threads();
                     rt->exit_program_from_host(0);
                 }
-                if (!script.empty()) {
+                const std::uint32_t stage =
+                    kLanguageScreenStageAddress ? rt->memory().load32(*kLanguageScreenStageAddress) : 0u;
+                const bool language_screen_up =
+                    kLanguageScreenStageAddress.has_value() && stage == kLanguageScreenStageValue;
+                if (language_pick && !language_screen_handled && language_screen_up) {
+                    language_screen_handled = true; // one press sequence: the screen answers and the boot continues
+                    language_press_deadline = now + kLanguagePressMaxUs;
+                }
+                const bool answering_language_screen =
+                    language_pick && language_screen_handled && language_screen_up && now < language_press_deadline;
+                const bool press_language = answering_language_screen && (now / kLanguagePulseUs) % 2 == 0;
+                // The pad state is refreshed on every poll while answering, including the released half: leaving it
+                // untouched would keep the cross latched and the screen would never see a fresh press. Only while
+                // answering, though: the frontend sets the player's own input on the same poll before this runs, so
+                // writing here afterwards would throw it away and leave the controls dead.
+                if (!script.empty() || answering_language_screen) {
                     mhf::psp::ControllerState pad;
                     for (const auto &p : script) {
                         const double t = static_cast<double>(now) / 1e6;
@@ -421,6 +483,7 @@ int main(int argc, char **argv) {
                         if (p.stick_x != 0) pad.lx = static_cast<std::uint8_t>(128 + p.stick_x);
                         if (p.stick_y != 0) pad.ly = static_cast<std::uint8_t>(128 + p.stick_y);
                     }
+                    if (press_language) pad.buttons |= mhf::psp::buttons::kCross;
                     mhf::psp::set_controller_state(*rt, pad);
                 }
                 // One dump per `dump_every` vblanks, even when the host is not polled on that exact vblank.

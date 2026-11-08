@@ -133,6 +133,10 @@ Json default_settings() {
     s["checkUpdates"] = true; // ask GitHub for a newer release when the launcher starts
     s["musicVolume"] = 100;
     s["sfxVolume"] = 100;
+    // The language the game speaks and reads: empty keeps the game's own language screen at every start, and one of
+    // the languages of the disc makes the game start in it (the game's screen is answered, see `--language` in
+    // docs/06-mhfu-module.md). The regional releases offer their own set, so anything else is ignored.
+    s["language"] = "";
     // Keyboard bindings (docs/07-launcher-ux.md section 5). Values are UI Events codes, so they name the key's
     // position rather than the character printed on it, and they are the same on every keyboard layout.
     const host::KeyBindings defaults;
@@ -920,6 +924,15 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     if (partial["hornSongsPlace"].is_string() && overlay::parse_song_spot(partial["hornSongsPlace"].as_string())) {
         s["hornSongsPlace"] = partial["hornSongsPlace"];
     }
+    if (partial["language"].is_string()) {
+        const std::string language = partial["language"].as_string();
+        for (const char *known : {"", "en", "fr", "de", "es", "it"}) {
+            if (language == known) {
+                s["language"] = language;
+                break;
+            }
+        }
+    }
     if (partial["copyImage"].is_bool()) launcher_settings["copyImage"] = partial["copyImage"];
     if (partial["checkUpdates"].is_bool()) launcher_settings["checkUpdates"] = partial["checkUpdates"];
     if (partial["adhocServer"].is_string() && valid_server(partial["adhocServer"].as_string())) launcher_settings["adhocServer"] = partial["adhocServer"];
@@ -1228,6 +1241,11 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
                  data_["pseudonym"].as_string(), "--music-volume", num("musicVolume"), "--sfx-volume", num("sfxVolume")};
     if (s["fullscreen"].as_bool()) plan.args.push_back("--fullscreen");
     if (s["smoothTextures"].as_bool()) plan.args.push_back("--smooth-textures");
+    if (const std::string language = s["language"].as_string(); !language.empty()) {
+        // Straight into the chosen language: the game answers its own language screen (docs/06-mhfu-module.md).
+        plan.args.push_back("--language");
+        plan.args.push_back(language);
+    }
     if (s["hudSize"].is_number() && s["hudSize"].as_number() < 100) {
         plan.args.push_back("--hud-size");
         plan.args.push_back(num("hudSize"));
