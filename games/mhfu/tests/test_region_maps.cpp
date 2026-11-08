@@ -58,17 +58,23 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
     if (functions != map.tables.end()) {
         for (const char *hooked :
              {"mh_overlay_prepare", "mh_supply_box_update", "mh_smithy_create_list_update",
-              "mh_smithy_improve_list_update"}) {
+              "mh_smithy_improve_list_update", "mh_smithy_panel_draw", "mh_smithy_model_update"}) {
             MHF_CHECK(mhf::psp::recomp::toml::get(functions->second, hooked).has_value());
         }
     }
-    // --smithy-browse: its seven patches, all in the village overlay, and the two Info functions it calls.
+    // --smithy-browse and --smithy-layout: their nine patches, all in the village overlay, the two Info functions and
+    // the layout tables.
     std::set<std::string> patches;
     for (const auto &p : mhf::psp::recomp::region_patches(map_path)) {
         MHF_CHECK(p.module == "lobby_task.ovl");
         patches.insert(p.patch.name);
     }
-    MHF_CHECK(patches.size() == 7);
+    MHF_CHECK(patches.size() == 9);
+    for (const char *table : {"mh_smithy_panel_layout", "mh_smithy_side_layout", "mh_smithy_question_box",
+                              "mh_smithy_skill_info_hint", "mh_smithy_model_scissor", "mh_smithy_panel_draw_entry",
+                              "mh_pad_input"}) {
+        MHF_CHECK(entries.contains(table) && entries.at(table).has_value());
+    }
     MHF_CHECK(entries.contains("mh_smithy_create_info_setup") && entries.at("mh_smithy_create_info_setup").has_value());
     MHF_CHECK(entries.contains("mh_smithy_improve_info_setup") && entries.at("mh_smithy_improve_info_setup").has_value());
 }

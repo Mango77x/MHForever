@@ -134,6 +134,7 @@ Json default_settings() {
     s["trueWeaponValues"] = false; // menus show attack and element without the game's display multipliers
     s["fastSupplyBox"] = false; // the supply box takes the next button soon after a take-out
     s["smithyBrowse"] = false; // the smithy's lists scroll with the R (materials) or Info panel open
+    s["smithyLayout"] = false; // and with Info open, Info on the left, the list and its materials on the right
     s["hornSongs"] = false; // the hunting horn's songs over the quest HUD
     s["hornSongsPlace"] = "next-to-sheet"; // and where: a place's name, or "custom:X,Y" (overlay/song_panel.hpp)
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
@@ -956,8 +957,8 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     if (partial["hudSize"].is_number()) { // the in-game menu's steps: 50, 60, ... 100
         s["hudSize"] = std::clamp(std::round(partial["hudSize"].as_number() / 10.0), 5.0, 10.0) * 10.0;
     }
-    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "hornSongs",
-                            "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest", "fucDrinkBuff"}) {
+    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
+                            "hornSongs", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest", "fucDrinkBuff"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
     num("fucCamera", 1, 5);
@@ -1332,7 +1333,10 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back("--true-weapon-values");
     }
     if (s["fastSupplyBox"].as_bool()) plan.args.push_back("--fast-supply-box");
-    if (s["smithyBrowse"].as_bool()) plan.args.push_back("--smithy-browse");
+    if (s["smithyBrowse"].as_bool()) {
+        plan.args.push_back("--smithy-browse");
+        if (s["smithyLayout"].as_bool()) plan.args.push_back("--smithy-layout");
+    }
     if (s["hornSongs"].as_bool()) {
         plan.args.push_back("--horn-songs");
         if (s["hornSongsPlace"].is_string()) {

@@ -520,6 +520,12 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           <div className="slabel"><b>Smithy: browse with panels open</b><span>Optional enhancement: in the smithy, the list keeps scrolling while the materials (R) or Info panel is open, and the panel shows the highlighted item. Off is faithful to the original.</span></div>
           <Toggle on={s.smithyBrowse ?? false} onToggle={() => onChange({ smithyBrowse: !(s.smithyBrowse ?? false) })} label="Smithy: browse with panels open" />
         </div>
+        {s.smithyBrowse && (
+          <div className="srow">
+            <div className="slabel"><b>Smithy: improved layout</b><span>Optional enhancement: with Info open (X), Info sits on the left, the list stays visible with the materials under it, and the left stick turns Info's pages. Off is faithful to the original.</span></div>
+            <Toggle on={s.smithyLayout ?? false} onToggle={() => onChange({ smithyLayout: !(s.smithyLayout ?? false) })} label="Smithy: improved layout" />
+          </div>
+        )}
         <div className="srow">
           <div className="slabel"><b>Show hunting horn songs</b><span>Optional enhancement: in quests with a hunting horn, the songs it can play are listed on screen, the one being played lights up and the ones in effect turn green. Off is faithful to the original.</span></div>
           <Toggle on={s.hornSongs ?? false} onToggle={() => onChange({ hornSongs: !(s.hornSongs ?? false) })} label="Show hunting horn songs" />

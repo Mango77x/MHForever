@@ -59,7 +59,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   pseudonym, identity seed, settings, library, stats. Adding a copy reads PARAM.SFO (`platforms/psp/tools/param_sfo`)
   and compares size + SHA-1 with `games/*/regions/*/region.toml` (catalog generated at configure time; identification
   data only). Launching runs `mhfu(.exe)` next to the launcher with the settings as flags (`--scale`, `--fullscreen`,
-  `--smooth-textures`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--smithy-browse`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
+  `--smooth-textures`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--smithy-browse`, `--smithy-layout`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
   sessions. The game also needs the prepared executable: the installer produces it (below); developer builds can instead use
   `../exe/<DISC_ID>_EBOOT.BIN` (or one next to the ISO), checked against `dev_executable` in region.toml.
 - **Friend code**: generated locally (SHA-256 of a random identity seed, Crockford base32). Provisional: online play will
@@ -117,7 +117,9 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   values** (`trueWeaponValues`, `--true-weapon-values`), **Fast supply box** (`fastSupplyBox`, `--fast-supply-box`,
   off by default: the supply box takes the next button 2 frames after a take-out instead of 30) and **Smithy: browse
   with panels open** (`smithyBrowse`, `--smithy-browse`, off by default: the smithy's lists scroll with the materials
-  or Info panel open): the game's options live there, Video keeps the picture's.
+  or Info panel open), and under it, once that is on, **Smithy: improved layout** (`smithyLayout`, `--smithy-layout`,
+  off by default: with Info open, Info on the left, the list with the materials on the right): the game's options
+  live there, Video keeps the picture's.
 - **Updates (2026-10-29)**: when the launcher starts (Settings > About > Check for updates, on by default) it asks GitHub for
   the latest release; when it is newer, Home offers "Update now". The launcher downloads the archive for its system with the
   system's `curl`, checks it against the SHA-256 GitHub computes for every release asset (nothing to publish besides the

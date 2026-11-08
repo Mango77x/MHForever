@@ -22,6 +22,8 @@ mh_supply_box_update    = 0x088476F4 # (?, Player*): the supply box menu, once p
 # +0x4C, 0x20: the R panel).
 mh_smithy_create_list_update  = 0x09AA2DE0 # (List*): the create lists (weapons, armor), once per frame
 mh_smithy_improve_list_update = 0x09AA4960 # (List*): the improve list, once per frame
+mh_smithy_panel_draw          = 0x09A83BD8 # (List*): the panel the list shows (details, materials or Info)
+mh_smithy_model_update        = 0x09AB70C8 # (Model*): the smithy's weapon model; the left stick turns it
 
 [data]
 mh_language_screen_stage = 0x08B21704 # u32, boot scene counter: 7 while the language screen waits (docs/06-mhfu-module.md §8)
@@ -57,6 +59,15 @@ mh_cockpit              = 0x089CBBEC # Cockpit*: the quest HUD and its menus (Co
 # Info panel for the item under the list's cursor.
 mh_smithy_create_info_setup  = 0x09AA3550
 mh_smithy_improve_info_setup = 0x09AA4E38
+# Smithy layout (--smithy-layout): tables in lobby_task.ovl the smithy screens draw from, (s16 x, s16 y) pairs. The
+# game program changes some entries while Info is open and puts them back when it closes.
+mh_smithy_panel_layout   = 0x09B04438 # 19 pairs, copied every frame by mh_smithy_panel_draw (10 Info, 11-15 materials)
+mh_smithy_side_layout    = 0x09B04558 # 5 pairs: the weapon model's box (0, 1) and the bottom help bar (3, 4)
+mh_smithy_question_box   = 0x09B041C8 # the question box: position, size, then its text's position at +0xC
+mh_smithy_skill_info_hint = 0x09B04238 # 1 pair: where the Skill Info hint ends (it is right-aligned)
+mh_smithy_model_scissor  = 0x09B085D0 # first entry: the screen rectangle the weapon model is drawn in
+mh_smithy_panel_draw_entry = 0x09A83BD8 # mh_smithy_panel_draw, which the game program also calls (both panels at once)
+mh_pad_input             = 0x08A62C64 # Pad*: this frame's buttons and sticks as the game reads them (s8 stick x at +2, y at +4)
 
 [offsets]
 system_active_overlays  = 0x00F7A580 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none)
@@ -72,3 +83,6 @@ mh_smithy_improve_requires_blocks_up_down    = "lobby_task.ovl 0x09AA4AC4 immedi
 mh_smithy_improve_info_blocks_up_down        = "lobby_task.ovl 0x09AA4AB8 never"
 mh_smithy_decoration_requires_blocks_up_down = "lobby_task.ovl 0x09AA7AF4 immediate 0"
 mh_smithy_decoration_requires_blocks_paging  = "lobby_task.ovl 0x09AA7BDC immediate 0"
+# --smithy-layout: the list is drawn while Info is open, and left/right pages the list instead of Info.
+mh_smithy_list_hidden_with_info              = "lobby_task.ovl 0x09A824D0 never"
+mh_smithy_create_info_takes_left_right       = "lobby_task.ovl 0x09AA2FF4 never"

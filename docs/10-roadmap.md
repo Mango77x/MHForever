@@ -155,6 +155,8 @@ Done too: a fast supply box, the box takes the next button 2 frames after a take
 launcher setting; `06-mhfu-module.md` §9).
 Done too: the smithy's lists scroll with the materials (R) or Info panel open, the panel following the highlighted item
 (`--smithy-browse`, launcher setting; the first instruction patches, `04-recompiler.md` §6; `06-mhfu-module.md` §9).
+Done too: an improved smithy layout, Info on the left with the list and its materials on the right while Info is open
+(`--smithy-layout`, launcher setting; `06-mhfu-module.md` §9).
 Done too: the hunting horn's songs over the quest HUD, from the game's own tables, with the song being played and the songs
 in effect marked, named in the game's own language (`--horn-songs`, launcher setting; `06-mhfu-module.md` §9).
 Done too: an in-game menu on Escape (pause, blurred full-screen backdrop, tabs, mouse, controller) that changes the volumes,
