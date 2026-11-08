@@ -78,3 +78,10 @@ mh_smithy_improve_requires_blocks_up_down    = "lobby_task.ovl 0x09AA4BC4 immedi
 mh_smithy_improve_info_blocks_up_down        = "lobby_task.ovl 0x09AA4BB8 never"
 mh_smithy_decoration_requires_blocks_up_down = "lobby_task.ovl 0x09AA7BF4 immediate 0"
 mh_smithy_decoration_requires_blocks_paging  = "lobby_task.ovl 0x09AA7CDC immediate 0"
+
+# Call patches registered by --analog-camera: the European camera code, at the same addresses (found 2026-11-08 by
+# matching it in this executable).
+mh_camera_buttons_copied     = "executable 0x0888D094 call" # the camera has copied its buttons from the pad (a0 is 1 when it took them all)
+mh_camera_tilt_preset_chosen = "executable 0x088870B4 call" # the tilt level has picked the preset the camera moves to
+mh_camera_turn_buttons_test  = "executable 0x08887474 call" # the camera tests whether Left or Right is held (a1)
+mh_camera_turn_amount_chosen = "executable 0x088874A4 call" # v1 holds this frame's turn amount (Left adds, Right subtracts)

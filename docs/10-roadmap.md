@@ -157,11 +157,14 @@ Done too: the smithy's lists scroll with the materials (R) or Info panel open, t
 (`--smithy-browse`, launcher setting; the first instruction patches, `04-recompiler.md` §6; `06-mhfu-module.md` §9).
 Done too: the hunting horn's songs over the quest HUD, from the game's own tables, with the song being played and the songs
 in effect marked, named in the game's own language (`--horn-songs`, launcher setting; `06-mhfu-module.md` §9).
+Done too: an analog camera, the right stick turning it as fast as it is pushed and tilting it smoothly from the game's
+lowest view to its highest (turn and tilt speeds of 50-200%), inside the game's own D-pad camera code (`--analog-camera`,
+launcher setting; the first call patches, `04-recompiler.md` §6; `06-mhfu-module.md` §9).
 Done too: an in-game menu on Escape (pause, blurred full-screen backdrop, tabs, mouse, controller) that changes the volumes,
 internal resolution (1x to 10x), frame rate, fullscreen and texture smoothing while playing (`07-launcher-ux.md` §3c).
 Done too: the keyboard bindings are chosen in the launcher (Settings → Controls; `07-launcher-ux.md` §5), and so are the
 controller's buttons and stick; both can also be changed from the in-game menu (Controls tab) and are kept (2026-10-23).
-Pending: widescreen, analog camera hook, per-controller profiles, per-controller icons, vsync, and in-between
+Pending: widescreen, mouse camera, per-controller profiles, per-controller icons, vsync, and in-between
 pictures made on a thread of their own:
 the GE runs the game's display lists (about 10 ms per frame in heavy scenes) on the same thread, which caps 180 fps at
 about 150 there (measured with `MHF_PROFILE=1`, 0.2.3). See `06-mhfu-module.md` §9.

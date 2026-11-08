@@ -63,12 +63,20 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
         }
     }
     // --smithy-browse: its seven patches, all in the village overlay, and the two Info functions it calls.
-    std::set<std::string> patches;
+    // --analog-camera: its three call patches, in the camera's d-pad code in the executable.
+    std::set<std::string> smithy_patches, camera_patches;
     for (const auto &p : mhf::psp::recomp::region_patches(map_path)) {
-        MHF_CHECK(p.module == "lobby_task.ovl");
-        patches.insert(p.patch.name);
+        if (p.patch.name.starts_with("mh_smithy_")) {
+            MHF_CHECK(p.module == "lobby_task.ovl");
+            smithy_patches.insert(p.patch.name);
+        } else {
+            MHF_CHECK(p.module == "executable" && p.patch.kind == mhf::psp::recomp::InstructionPatch::Kind::Call);
+            camera_patches.insert(p.patch.name);
+        }
     }
-    MHF_CHECK(patches.size() == 7);
+    MHF_CHECK(smithy_patches.size() == 7);
+    MHF_CHECK(camera_patches == std::set<std::string>({"mh_camera_buttons_copied", "mh_camera_tilt_preset_chosen",
+                                                       "mh_camera_turn_buttons_test", "mh_camera_turn_amount_chosen"}));
     MHF_CHECK(entries.contains("mh_smithy_create_info_setup") && entries.at("mh_smithy_create_info_setup").has_value());
     MHF_CHECK(entries.contains("mh_smithy_improve_info_setup") && entries.at("mh_smithy_improve_info_setup").has_value());
 }
