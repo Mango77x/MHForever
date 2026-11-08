@@ -155,6 +155,12 @@ void Runtime::enable_patch(std::string name) { patches_[std::move(name)] = true;
 
 bool Runtime::patch_enabled(std::string_view name) const { return patches_.contains(std::string(name)); }
 
+std::optional<std::uint32_t> Runtime::allocate_kernel_block(const std::string &name, std::uint32_t size) {
+    const auto block = kernel_->sysmem().allocate(1, name, SysMem::Placement::High, size);
+    if (!block) return std::nullopt;
+    return block->address;
+}
+
 const HleFunction *Runtime::find_hle(std::string_view library, std::uint32_t nid) const {
     const auto it = hle_.find(hle_key(library, nid));
     return it != hle_.end() ? it->second : nullptr;

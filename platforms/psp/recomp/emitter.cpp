@@ -182,6 +182,12 @@ private:
                 return;
             }
             const auto d = decode(pc);
+            // A Call patch runs its host hook (when the game program registered one) before the instruction.
+            if (const InstructionPatch *patch = patch_at(pc);
+                patch != nullptr && patch->kind == InstructionPatch::Kind::Call) {
+                out_ << "    { static const HookFunction hook = abi::find_hook(rt, \"" << cpp_escape(patch->name)
+                     << "\");\n      if (hook != nullptr) hook(rt, ctx); }\n";
+            }
             if (!d.has_delay_slot() && d.kind != OpcodeKind::Jr && d.kind != OpcodeKind::Jalr) {
                 out_ << instruction_code(d, pc);
                 if (ends_block(d)) {
@@ -518,8 +524,10 @@ std::vector<RegionPatch> region_patches(const std::filesystem::path &symbols) {
             p.patch.immediate = static_cast<std::uint16_t>(v);
         } else if (kind == "never" && immediate.empty()) {
             p.patch.kind = InstructionPatch::Kind::Never;
+        } else if (kind == "call" && immediate.empty()) {
+            p.patch.kind = InstructionPatch::Kind::Call;
         } else {
-            fail("the kind is \"immediate <value>\" or \"never\"");
+            fail("the kind is \"immediate <value>\", \"never\" or \"call\"");
         }
         result.push_back(std::move(p));
     }
@@ -569,6 +577,8 @@ std::string patch_mismatch(const DecodedInstruction &d, const InstructionPatch &
         default:
             return "not a conditional branch (" + d.mnemonic + ")";
         }
+    case InstructionPatch::Kind::Call:
+        return {}; // any instruction, but not in a delay slot (main.cpp checks the one before it)
     }
     return "unknown patch kind";
 }

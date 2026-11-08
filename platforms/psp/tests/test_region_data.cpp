@@ -84,27 +84,32 @@ int main() {
     }
     MHF_CHECK(refused);
 
-    // Instruction patches ([patches]): both kinds read, with their module and address; an entry that cannot be read is
+    // Instruction patches ([patches]): every kind read, with its module and address; an entry that cannot be read is
     // refused; each kind only fits the instructions it can change.
     using mhf::psp::recomp::InstructionPatch;
     using mhf::psp::recomp::patch_mismatch;
     using mhf::psp::recomp::region_patches;
     const auto patched = dir.path / "regions" / "patched_region" / "symbols.toml";
     write(patched, "[patches]\nclear_flag_test = \"lobby_task.ovl 0x09AA2F3C immediate 0\"\n"
-                   "skip_branch = \"executable 0x08804010 never\" # comment\n");
+                   "skip_branch = \"executable 0x08804010 never\" # comment\n"
+                   "host_step = \"executable 0x08804020 call\"\n");
     const auto patches = region_patches(patched);
-    MHF_CHECK(patches.size() == 2);
+    MHF_CHECK(patches.size() == 3);
     for (const auto &p : patches) {
         if (p.patch.name == "clear_flag_test") {
             MHF_CHECK(p.module == "lobby_task.ovl" && p.address == 0x09AA2F3Cu);
             MHF_CHECK(p.patch.kind == InstructionPatch::Kind::Immediate && p.patch.immediate == 0);
-        } else {
-            MHF_CHECK(p.patch.name == "skip_branch" && p.module == "executable" && p.address == 0x08804010u);
+        } else if (p.patch.name == "skip_branch") {
+            MHF_CHECK(p.module == "executable" && p.address == 0x08804010u);
             MHF_CHECK(p.patch.kind == InstructionPatch::Kind::Never);
+        } else {
+            MHF_CHECK(p.patch.name == "host_step" && p.module == "executable" && p.address == 0x08804020u);
+            MHF_CHECK(p.patch.kind == InstructionPatch::Kind::Call);
         }
     }
     for (const char *bad : {"\"lobby_task.ovl 0x09AA2F3C immediate\"", "\"lobby_task.ovl 0x09AA2F3C sometimes\"",
-                            "\"lobby_task.ovl 0x09AA2F3C immediate 0x10000\"", "\"0x09AA2F3C never\""}) {
+                            "\"lobby_task.ovl 0x09AA2F3C immediate 0x10000\"", "\"0x09AA2F3C never\"",
+                            "\"executable 0x08804020 call 1\""}) {
         write(patched, std::string("[patches]\nbad = ") + bad + "\n");
         bool rejected = false;
         try {
@@ -153,6 +158,9 @@ int main() {
     MHF_CHECK(patch_mismatch(bne, never).empty());
     MHF_CHECK(!patch_mismatch(b, never).empty());
     MHF_CHECK(!patch_mismatch(andi, never).empty());
+    InstructionPatch call;
+    call.kind = InstructionPatch::Kind::Call;
+    MHF_CHECK(patch_mismatch(andi, call).empty() && patch_mismatch(lw, call).empty() && patch_mismatch(bne, call).empty());
 
     return mhf::test::finish("region_data");
 }
