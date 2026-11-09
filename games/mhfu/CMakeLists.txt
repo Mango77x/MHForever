@@ -60,6 +60,8 @@ if(MHF_MHFU_GENERATED)
     # One program per region; the launcher picks it by the disc (launcher.cpp, game_program_name).
     set(MHF_MHFU_PROGRAM_NAME "mhfu" CACHE STRING "File name of the Freedom Unite program: mhfu (EU), mhfu-us (NA), mhfu-jp (JP) or mhfu-fuc (FUComplete)")
     set_target_properties(mhfu PROPERTIES OUTPUT_NAME ${MHF_MHFU_PROGRAM_NAME})
+    # The FUComplete program leaves out what FUComplete's own options replace (host/main.cpp, kFucomplete).
+    target_compile_definitions(mhfu PRIVATE MHF_MHFU_FUC=$<STREQUAL:${MHF_MHFU_PROGRAM_NAME},mhfu-fuc>)
     target_include_directories(mhfu PRIVATE ${MHF_MHFU_GENERATED})
     target_link_libraries(mhfu PRIVATE mhfu_generated mhf_psp_runtime mhf_psp_tools mhf_core)
     mhf_psp_copy_fonts(mhfu)

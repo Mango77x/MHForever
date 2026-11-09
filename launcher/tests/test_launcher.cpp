@@ -409,6 +409,22 @@ int main(int argc, char **argv) {
         CHECK(l.state()["settings"]["adhocServer"].as_string() == "psp.mgn.pub"); // not a server: unchanged
         CHECK(l.state()["settings"]["musicVolume"].as_number() == 100); // kept within 0..100
         CHECK(l.state()["settings"]["sfxVolume"].as_number() == 35);    // not a number: unchanged
+        // The options the game's menu changes while playing come back under the launcher's names; others are ignored.
+        const bool true_values_before = l.state()["settings"]["trueWeaponValues"].as_bool();
+        {
+            std::ofstream(l.controls_file()) << "horn-songs=true\nhud-size=70\noption.fastSupplyBox=true\noption.analogCamera=true\n"
+                                             << "option.analogCameraTurnSpeed=140\noption.analogCameraTiltSpeed=999\n"
+                                             << "option.trueWeaponValues=maybe\noption.copyImage=true\n";
+        }
+        l.import_game_controls();
+        CHECK(l.state()["settings"]["hornSongs"].as_bool());
+        CHECK(l.state()["settings"]["hudSize"].as_number() == 70);
+        CHECK(l.state()["settings"]["fastSupplyBox"].as_bool());
+        CHECK(l.state()["settings"]["analogCamera"].as_bool());
+        CHECK(l.state()["settings"]["analogCameraTurnSpeed"].as_number() == 140);
+        CHECK(l.state()["settings"]["analogCameraTiltSpeed"].as_number() == 200); // kept within 50..200
+        CHECK(l.state()["settings"]["trueWeaponValues"].as_bool() == true_values_before); // not a switch: unchanged
+        CHECK(!l.state()["settings"]["copyImage"].as_bool(true));                // not one the game changes
 
         auto plan = l.plan_launch("mhfu");
         CHECK(!plan.error.empty()); // no game files here
@@ -970,7 +986,9 @@ int main(int argc, char **argv) {
             camera_speed["analogCamera"] = false;
             l.set_settings(camera_speed);
             const auto off = l.plan_launch("mhfu");
-            CHECK(std::find(off.args.begin(), off.args.end(), "--analog-camera-turn-speed") == off.args.end());
+            // With the camera off the speeds still go (the in-game menu can turn it on), the switch does not.
+            CHECK(std::find(off.args.begin(), off.args.end(), "--analog-camera") == off.args.end());
+            CHECK(std::find(off.args.begin(), off.args.end(), "--analog-camera-turn-speed") != off.args.end());
         }
         // Executable preparation: the encrypted executable on the disc must pass the identity gate of the catalog.
         // Without a decryptor in this build the only acceptable outcome is "unavailable", never "another release".
