@@ -523,11 +523,22 @@ std::optional<psp::ParamSfo> read_save_sfo(const fs::path &dir) {
 
 } // namespace
 
-Launcher::SaveScan Launcher::scan_saves(const std::string &disc_id, const fs::path &source) const {
+Launcher::SaveScan Launcher::scan_saves(const std::string &disc_id, const fs::path &source) {
     SaveScan scan;
     std::error_code ec;
     const fs::path mine = install::game_saves_dir(saves_dir_, disc_id) / "PSP" / "SAVEDATA";
-    const std::string wanted = upper_ascii(disc_id);
+    // The saves a copy reads are named after its game id; FUComplete reads the saves of the release its Saves setting
+    // picks (its folders carry that release's id), and decrypts them with that release's key.
+    std::string wanted = upper_ascii(disc_id);
+    const CatalogEntry *entry = entry_for(disc_id);
+    const bool fucomplete = entry != nullptr && std::string_view(entry->edition) == "fuc";
+    if (fucomplete) {
+        std::lock_guard lock(mutex_);
+        const Json s = settings_for(data_, disc_id);
+        const std::string region = s["fucSaveRegion"].is_string() ? s["fucSaveRegion"].as_string() : "";
+        const bool known = std::find(fuc::kSaveRegions.begin(), fuc::kSaveRegions.end(), region) != fuc::kSaveRegions.end();
+        wanted = known ? region : fuc::kSaveRegions[1];
+    }
     std::set<std::string> seen, other_versions;
     const auto consider = [&](const fs::path &dir) {
         const auto sfo = read_save_sfo(dir);
@@ -558,10 +569,15 @@ Launcher::SaveScan Launcher::scan_saves(const std::string &disc_id, const fs::pa
         if (!other_versions.empty()) {
             std::string ids;
             for (const auto &id : other_versions) ids += (ids.empty() ? "" : ", ") + id;
-            scan.note = "Found a save of another version of the game (" + ids + "). Only saves of your own version (" + disc_id +
-                        ") can be imported for now: each version encrypts its saves with a different key.";
+            if (fucomplete) {
+                scan.note = "Found a save of another version of the game (" + ids + "). FUComplete is set to load " + wanted +
+                            " saves: pick that version under FUComplete > Saves in Game settings, then choose the folder again.";
+            } else {
+                scan.note = "Found a save of another version of the game (" + ids + "). Only saves of your own version (" +
+                            disc_id + ") can be imported for now: each version encrypts its saves with a different key.";
+            }
         } else {
-            scan.note = "No " + disc_id + " save found there. Choose the folder that holds your saves: the PSP/SAVEDATA folder of the "
+            scan.note = "No " + wanted + " save found there. Choose the folder that holds your saves: the PSP/SAVEDATA folder of the "
                         "memory stick, or PPSSPP's memory stick folder.";
         }
     }

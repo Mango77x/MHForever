@@ -652,6 +652,17 @@ int main(int argc, char **argv) {
         fs::create_directories(base / "empty");
         const auto nothing = l.scan_saves("ULES01213", base / "empty");
         CHECK(nothing.found.empty() && nothing.note.find("ULES01213") != std::string::npos);
+        // FUComplete takes the saves of the release its Saves setting picks (North American by default), not its own id.
+        {
+            Launcher f(base / "fapp", base / "fdata", base / "fsaves");
+            const auto na = f.scan_saves("ULJM05500-FUC", base / "us");
+            CHECK(na.found.size() == 1 && na.found[0].folder == "ULUS10391" && na.note.empty());
+            Json eu;
+            eu["fucSaveRegion"] = "ULES01213";
+            f.set_settings(eu);
+            const auto other = f.scan_saves("ULJM05500-FUC", base / "us");
+            CHECK(other.found.empty() && other.note.find("FUComplete > Saves") != std::string::npos);
+        }
 
         // The first import: the files arrive (not the junk), nothing is left in the staging folder.
         const auto found = l.scan_saves("ULES01213", base / "from").found;
