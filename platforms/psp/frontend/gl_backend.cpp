@@ -1803,6 +1803,13 @@ template <typename Box> bool hud_name_plate(const Box &b) {
 template <typename Box> bool hud_vitals_piece(const Box &b, bool after_name) {
     return hud_name_plate(b) || (!after_name && b.y2 <= 41.0f);
 }
+// The status icons of an effect (a hot drink, seen in a report; the others alike) sit in a name plate's rows, right of its
+// edge at x 104, one after the other: a small piece there that starts at most 16 pixels right of what that row holds so
+// far. Without it the first icon ended the run, and the minimap and the item bar kept their size.
+template <typename Box> bool hud_status_icon(const Box &b, float row_right) {
+    return b.y1 >= 54.0f && b.y2 <= kHudPlatesBottom && b.x1 >= 100.0f && b.x1 <= row_right + 16.0f && b.x2 - b.x1 <= 32.0f &&
+           b.y2 - b.y1 <= 32.0f;
+}
 template <typename Box> bool hud_touch(const Box &a, const Box &b) {
     return a.x1 <= b.x2 + 1 && b.x1 <= a.x2 + 1 && a.y1 <= b.y2 + 1 && b.y1 <= a.y2 + 1;
 }
@@ -1856,6 +1863,14 @@ void GlBackend::size_hud() {
             for (const HudBox &v : hud_vitals_) bottom = std::max(bottom, v.y2);
             return box.y1 <= bottom + 12.0f;
         };
+        // How far right the plate rows this draw is in reach so far (a plate ends at x 104).
+        const auto row_right = [&] {
+            float right = 104.0f;
+            for (const HudBox &v : hud_vitals_) {
+                if (v.y1 <= box.y2 && box.y1 <= v.y2 && v.y1 >= 54.0f) right = std::max(right, v.x2);
+            }
+            return right;
+        };
         if (hud_phase_ == HudPhase::before && hud_is_clock(box)) {
             hud_phase_ = HudPhase::vitals;
             hud_vitals_.assign(1, box);
@@ -1864,6 +1879,8 @@ void GlBackend::size_hud() {
                    (touches_vitals() || (hud_name_plate(box) && under_vitals()))) {
             hud_vitals_.push_back(box);
             hud_after_name_ = hud_after_name_ || hud_name_plate(box);
+        } else if (hud_phase_ == HudPhase::vitals && hud_status_icon(box, row_right())) {
+            hud_vitals_.push_back(box);
         } else if (hud_phase_ != HudPhase::before && hud_phase_ != HudPhase::rest) {
             if (hud_phase_ == HudPhase::vitals) hud_phase_ = HudPhase::after_vitals;
             if ((hud_phase_ == HudPhase::after_vitals || hud_phase_ == HudPhase::map) && hud_on_map(box)) {
