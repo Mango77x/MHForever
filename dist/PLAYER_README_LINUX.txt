@@ -20,7 +20,8 @@ What you need
   FFmpeg (the movies and the music) is linked into the programs too, so it does not need to be installed either.
 * A plain (uncompressed) .iso image of your own copy of Monster Hunter Freedom Unite,
   European (disc ID ULES01213) or North American (disc ID ULUS10391) release, or of Monster Hunter Portable 2nd G,
-  the Japanese release (disc ID ULJM05500), version 1.01.
+  the Japanese release (disc ID ULJM05500), version 1.01. A Japanese image patched with FUComplete's own tool
+  (v1.4.0, https://fucomplete.github.io) works too, as its own copy.
   CSO/ZSO compressed images are not supported. You can add several: choose which one to play in the Library.
 * A controller is optional. Gamepads work out of the box (tested with a PS5 DualSense).
   Keyboard: arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle,
@@ -34,7 +35,7 @@ How to play
 -----------
 1. Extract this folder anywhere you can write to, for example your home folder.
    The programs must keep their execute permission. If your file manager removed it:
-       chmod +x MHForever MHForever-cli mhfu mhfu-us mhfu-jp
+       chmod +x MHForever MHForever-cli mhfu mhfu-us mhfu-jp mhfu-fuc
 2. Open MHForever.
 3. Add your .iso. The launcher checks your copy and prepares what it needs from it.
    In Settings you can choose to keep a copy of the image in MHForever's own folder.
