@@ -32,6 +32,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cmath>
 #include <cstdio>
@@ -90,6 +91,14 @@ constexpr std::optional<std::uint32_t> kElementValueFormatZeros[] = {
 
 // --true-weapon-values needs the multipliers and the formats of at least one language; a release without them does not
 // offer it.
+// The FUComplete program (MHF_MHFU_PROGRAM_NAME mhfu-fuc): its own options replace true weapon values, and it rewrites
+// the camera function the analog camera's call patches are in (they do not run there).
+#if defined(MHF_MHFU_FUC) && MHF_MHFU_FUC
+constexpr bool kFucomplete = true;
+#else
+constexpr bool kFucomplete = false;
+#endif
+
 constexpr bool kTrueWeaponValuesMapped =
     region::mh_attack_display_multipliers &&
     std::ranges::any_of(kElementValueFormatZeros,
@@ -108,15 +117,41 @@ bool is_value_format_zero(const psprecomp::GuestMemory &memory, std::uint32_t ze
 // values; damage uses the stored values. Writing 100 into every multiplier and ending the format text before that "0"
 // shows the stored values. Done on every host poll: the game loads the format text after start-up and again when the
 // player changes the language.
+// The in-game menu turns it on and off while playing: off puts the game's multipliers back (read when the executable
+// is loaded) and the "0" this cut, when the format text it cut is still there.
+constexpr std::uint32_t kWeaponClasses = 11;
+std::atomic<bool> g_true_weapon_values{false};
+std::array<std::uint32_t, kWeaponClasses> g_display_multipliers{}; // the game's own, from the executable
+bool g_true_values_shown = false;                                   // the multipliers hold 100 now
+
+void read_display_multipliers([[maybe_unused]] Runtime &rt) {
+    if constexpr (kTrueWeaponValuesMapped) {
+        for (std::uint32_t i = 0; i < kWeaponClasses; ++i) {
+            g_display_multipliers[i] = rt.memory().load32(*region::mh_attack_display_multipliers + i * 4u);
+        }
+    }
+}
+
+// True when the format at `zero` is one this cut short: "%<digit>d" then the end of the text where the "0" was.
+bool is_cut_value_format(const psprecomp::GuestMemory &memory, std::uint32_t zero) {
+    const std::uint8_t width = memory.load8(zero - 2u);
+    return memory.load8(zero - 3u) == '%' && width >= '0' && width <= '9' && memory.load8(zero - 1u) == 'd' &&
+           memory.load8(zero) == 0 && memory.load8(zero + 1u) == 0;
+}
+
 void show_true_weapon_values([[maybe_unused]] Runtime &rt) {
     if constexpr (kTrueWeaponValuesMapped) {
-        constexpr std::uint32_t kWeaponClasses = 11;
+        const bool on = g_true_weapon_values.load();
+        if (!on && !g_true_values_shown) return;
         for (std::uint32_t i = 0; i < kWeaponClasses; ++i) {
-            rt.memory().store32(*region::mh_attack_display_multipliers + i * 4u, 100u);
+            rt.memory().store32(*region::mh_attack_display_multipliers + i * 4u, on ? 100u : g_display_multipliers[i]);
         }
         for (const auto &zero : kElementValueFormatZeros) {
-            if (zero && is_value_format_zero(rt.memory(), *zero)) rt.memory().store8(*zero, std::uint8_t{0});
+            if (!zero) continue;
+            if (on && is_value_format_zero(rt.memory(), *zero)) rt.memory().store8(*zero, std::uint8_t{0});
+            if (!on && is_cut_value_format(rt.memory(), *zero)) rt.memory().store8(*zero, std::uint8_t{'0'});
         }
+        g_true_values_shown = on;
     }
 }
 
@@ -183,7 +218,10 @@ constexpr std::uint32_t kPlayerSupplyBoxCooldown = 0x55E; // u8, frames
 constexpr std::uint8_t kFastSupplyBoxFrames = 2;          // what is left of it: the box takes the next button 2 frames later
 
 // Hook on mh_supply_box_update(?, Player*), before the game counts the cooldown down.
+std::atomic<bool> g_fast_supply_box{false}; // the in-game menu turns it on and off while playing
+
 void on_supply_box_update(Runtime &rt, Context &ctx) {
+    if (!g_fast_supply_box.load()) return;
     const std::uint32_t cooldown = ctx.gpr[5] + kPlayerSupplyBoxCooldown;
     if (rt.memory().contains(cooldown) && rt.memory().load8(cooldown) > kFastSupplyBoxFrames) {
         rt.memory().store8(cooldown, kFastSupplyBoxFrames);
@@ -438,8 +476,9 @@ struct CameraView {
     [[nodiscard]] float pitch() const { return std::atan2(rise(), preset[kEyeBack]); }
 };
 
-float g_turn_speed = 1.0f;     // --analog-camera-turn-speed: a full push turns this many times as fast as the d-pad
-float g_tilt_speed = 1.0f;     // --analog-camera-tilt-speed: scales kTiltPerFrame
+std::atomic<bool> g_analog_camera{false}; // --analog-camera, or the in-game menu while playing
+std::atomic<float> g_turn_speed{1.0f};  // --analog-camera-turn-speed: a full push turns this many times as fast as the d-pad
+std::atomic<float> g_tilt_speed{1.0f};  // --analog-camera-tilt-speed: scales kTiltPerFrame
 bool g_camera_has_pad = false; // the camera got the whole pad this frame (no menu or scene has it)
 float g_turn_push = 0.0f;      // the stick's push for this frame's turn, 0 when the stick is not turning
 bool g_tilt_known = false;
@@ -453,7 +492,7 @@ std::optional<std::uint32_t> g_tilt_preset_block; // where the curve's preset is
 // too. The right stick presses the d-pad as well (bowgun aiming reads it), but the camera takes only the d-pad's own
 // presses: a quick push would step its tilt level.
 void on_camera_buttons_copied(Runtime &rt, Context &ctx) {
-    g_camera_has_pad = ctx.gpr[kRegA0] == 1u;
+    g_camera_has_pad = g_analog_camera.load() && ctx.gpr[kRegA0] == 1u; // off: the stick is the d-pad, as on the PSP
     if (!g_camera_has_pad) return;
     constexpr std::uint32_t kDpad =
         mhf::psp::buttons::kUp | mhf::psp::buttons::kDown | mhf::psp::buttons::kLeft | mhf::psp::buttons::kRight;
@@ -520,6 +559,10 @@ CameraView tilt_curve_view(const TiltCurve &curve, float pitch) {
 // curve, and the level follows to the nearest one. The d-pad still steps the level, and the camera goes to that
 // level's own view until the stick tilts again.
 void on_camera_tilt_preset_chosen(Runtime &rt, Context &ctx) {
+    if (!g_analog_camera.load()) { // off (the in-game menu): the game's own views; on again, the tilt starts afresh
+        g_tilt_known = false;
+        return;
+    }
     auto &memory = rt.memory();
     const std::uint32_t camera = ctx.gpr[kRegS4];
     const std::uint32_t level_at = ctx.gpr[kRegS0] + kTiltLevel;
@@ -784,12 +827,16 @@ int main(int argc, char **argv) {
     try {
         Runtime runtime{options};
         runtime.load_elf(exe);
+        read_display_multipliers(runtime);
+        g_true_weapon_values = true_weapon_values;
         const auto programs = mhf::psp::generated::mhfu_programs();
         for (std::size_t i = 1; i < programs.size(); ++i) {
             runtime.add_overlay(*programs[i]);
         }
         runtime.register_hook("mh_overlay_prepare", &on_overlay_prepare);
-        if (fast_supply_box) runtime.register_hook("mh_supply_box_update", &on_supply_box_update);
+        // Hooks that read a switch every time, so the in-game menu can turn their enhancement on and off.
+        g_fast_supply_box = fast_supply_box;
+        runtime.register_hook("mh_supply_box_update", &on_supply_box_update);
         if (smithy_layout) smithy_browse = true; // the layout scrolls the list with Info open
         if (smithy_browse && kSmithyBrowseMapped) {
             for (const char *patch : kSmithyBrowsePatches) runtime.enable_patch(patch);
@@ -806,7 +853,8 @@ int main(int argc, char **argv) {
         } else if (smithy_browse) {
             std::fprintf(stderr, "[mhfu] --smithy-browse: not mapped for this release, ignored\n");
         }
-        if (analog_camera) { // the region map's call patches (EU, US and JP map them; FUComplete not yet)
+        g_analog_camera = analog_camera && !kFucomplete;
+        if (!kFucomplete) { // the region map's call patches (EU, US and JP map them; they do not run in FUComplete)
             runtime.register_hook("mh_camera_buttons_copied", &on_camera_buttons_copied);
             runtime.register_hook("mh_camera_turn_buttons_test", &on_camera_turn_buttons_test);
             runtime.register_hook("mh_camera_turn_amount_chosen", &on_camera_turn_amount_chosen);
@@ -881,7 +929,8 @@ int main(int argc, char **argv) {
                 mhf::psp::dump_display(*rt, dump_folder / name);
             };
         }
-        if (true_weapon_values) {
+        // In a window the in-game menu can turn true weapon values on later, so they are looked after on every poll.
+        if (true_weapon_values || (window && kTrueWeaponValuesMapped && !kFucomplete)) {
             // Headless runs then always have a host poll, so the kernel no longer reports a deadlock (kernel.cpp).
             extra = [rt = &runtime, previous = std::move(extra)]() {
                 show_true_weapon_values(*rt);
@@ -895,17 +944,41 @@ int main(int argc, char **argv) {
             frontend.set_friends_files(friends_file, friend_actions_file);
             if (!texture_pack.empty()) frontend.set_texture_pack(texture_pack, disc_product_code(options.disc_image));
             frontend.set_hud(hud_size);
-            if (horn_songs) {
-                // The horn's songs over the quest HUD, read from the game a few times a second (horn_songs.hpp).
-                frontend.set_song_spot(mhf::overlay::parse_song_spot(horn_songs_place).value_or(mhf::overlay::SongSpot{}));
-                extra = [&frontend, rt = &runtime, songs = mhf::mhfu::HornSongs{}, read_at = std::uint64_t{0},
-                         previous = std::move(extra)]() mutable {
-                    if (const std::uint64_t now = rt->now_us(); now - read_at >= 50'000) {
-                        read_at = now;
-                        frontend.set_song_panel(songs.read(*rt));
-                    }
-                    if (previous) previous();
-                };
+            // The horn's songs over the quest HUD, read from the game a few times a second (horn_songs.hpp). The
+            // in-game menu turns them on and off, so they are read even while off.
+            frontend.offer_songs(horn_songs, mhf::overlay::parse_song_spot(horn_songs_place).value_or(mhf::overlay::SongSpot{}));
+            extra = [&frontend, rt = &runtime, songs = mhf::mhfu::HornSongs{}, read_at = std::uint64_t{0},
+                     previous = std::move(extra)]() mutable {
+                if (const std::uint64_t now = rt->now_us(); now - read_at >= 50'000) {
+                    read_at = now;
+                    frontend.set_song_panel(songs.read(*rt));
+                }
+                if (previous) previous();
+            };
+            // The enhancements the in-game menu changes while playing; the launcher keeps what is chosen there.
+            const auto percent = [](float speed) { return static_cast<int>(std::lround(speed * 100.0f)); };
+            if (kTrueWeaponValuesMapped && !kFucomplete) {
+                frontend.add_game_option({"trueWeaponValues", "Show true weapon values",
+                                          "Menus show attack and element without the game's display multipliers.", false,
+                                          g_true_weapon_values ? 1 : 0, 0, 1, 1, "",
+                                          [](int v) { g_true_weapon_values = v != 0; }});
+            }
+            frontend.add_game_option({"fastSupplyBox", "Fast supply box",
+                                      "After you take an item out, the supply box takes the next button 2 frames later instead of 30.",
+                                      false, g_fast_supply_box ? 1 : 0, 0, 1, 1, "",
+                                      [](int v) { g_fast_supply_box = v != 0; }});
+            if (!kFucomplete) {
+                frontend.add_game_option({"analogCamera", "Analog camera",
+                                          "The right stick turns the camera as fast as you push it and tilts it smoothly.",
+                                          false, g_analog_camera ? 1 : 0, 0, 1, 1, "",
+                                          [](int v) { g_analog_camera = v != 0; }});
+                frontend.add_game_option({"analogCameraTurnSpeed", "Camera turn speed", "100% is as fast as the d-pad.", true,
+                                          percent(g_turn_speed), 50, 200, 10, "analogCamera",
+                                          [](int v) { g_turn_speed = static_cast<float>(v) / 100.0f; }});
+                frontend.add_game_option({"analogCameraTiltSpeed", "Camera tilt speed",
+                                          "At 100% the camera goes from its lowest view to its highest in about a second.",
+                                          true, percent(g_tilt_speed), 50, 200, 10, "analogCamera",
+                                          [](int v) { g_tilt_speed = static_cast<float>(v) / 100.0f; }});
             }
             frontend.attach(runtime, extra);
         } else if (window) {

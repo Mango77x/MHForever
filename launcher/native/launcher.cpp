@@ -856,7 +856,7 @@ Json Launcher::state() {
 void Launcher::import_game_controls() {
     std::error_code ec;
     if (!fs::is_regular_file(controls_file(), ec)) return;
-    Json keys, pad, room, server, music, sfx, song_place;
+    Json keys, pad, room, server, music, sfx, song_place, options;
     {
         std::ifstream in(controls_file());
         for (std::string line; std::getline(in, line);) {
@@ -877,6 +877,17 @@ void Launcher::import_game_controls() {
                 int value = 0;
                 const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
                 if (error == std::errc{} && end == text.data() + text.size()) (name == "music-volume" ? music : sfx) = value;
+            } else if (name == "horn-songs" || name == "hud-size" || name.starts_with("option.")) {
+                // What the game's in-game menu changes while playing: switches ("true", "false") and percentages, under
+                // the launcher's own names. Only these settings; apply_settings checks each value.
+                static constexpr std::string_view kGameOptions[] = {"trueWeaponValues", "fastSupplyBox", "analogCamera",
+                                                                    "analogCameraTurnSpeed", "analogCameraTiltSpeed"};
+                const std::string setting = name == "horn-songs" ? "hornSongs" : name == "hud-size" ? "hudSize" : name.substr(7);
+                if (setting != "hornSongs" && setting != "hudSize" && std::ranges::find(kGameOptions, setting) == std::end(kGameOptions)) continue;
+                int value = 0;
+                const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+                if (text == "true" || text == "false") options[setting] = text == "true";
+                else if (error == std::errc{} && end == text.data() + text.size()) options[setting] = value;
             } else if (name == "horn-songs-place") { // where the game's Video tab put the hunting horn's songs (or dragged them)
                 song_place = text;
             } else if (name == "padmap") {
@@ -895,6 +906,9 @@ void Launcher::import_game_controls() {
     if (music.is_number()) partial["musicVolume"] = music; // apply_settings keeps them within 0..100
     if (sfx.is_number()) partial["sfxVolume"] = sfx;
     if (song_place.is_string()) partial["hornSongsPlace"] = song_place; // apply_settings checks the name
+    if (options.is_object()) {
+        for (const auto &[setting, value] : options.as_object()) partial[setting] = value;
+    }
     {
         std::lock_guard lock(mutex_);
         const CatalogEntry *entry = nullptr;
@@ -1344,22 +1358,19 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back("--smithy-browse");
         if (s["smithyLayout"].as_bool()) plan.args.push_back("--smithy-layout");
     }
-    if (s["analogCamera"].as_bool()) {
-        plan.args.push_back("--analog-camera");
-        for (const auto &[key, flag] : {std::pair{"analogCameraTurnSpeed", "--analog-camera-turn-speed"},
-                                        std::pair{"analogCameraTiltSpeed", "--analog-camera-tilt-speed"}}) {
-            if (s[key].is_number() && s[key].as_number() != 100) {
-                plan.args.push_back(flag);
-                plan.args.push_back(num(key));
-            }
+    if (s["analogCamera"].as_bool()) plan.args.push_back("--analog-camera");
+    // The speeds even with the camera off: the in-game menu can turn it on while playing.
+    for (const auto &[key, flag] : {std::pair{"analogCameraTurnSpeed", "--analog-camera-turn-speed"},
+                                    std::pair{"analogCameraTiltSpeed", "--analog-camera-tilt-speed"}}) {
+        if (s[key].is_number() && s[key].as_number() != 100) {
+            plan.args.push_back(flag);
+            plan.args.push_back(num(key));
         }
     }
-    if (s["hornSongs"].as_bool()) {
-        plan.args.push_back("--horn-songs");
-        if (s["hornSongsPlace"].is_string()) {
-            plan.args.push_back("--horn-songs-place");
-            plan.args.push_back(s["hornSongsPlace"].as_string());
-        }
+    if (s["hornSongs"].as_bool()) plan.args.push_back("--horn-songs");
+    if (s["hornSongsPlace"].is_string()) { // even with the songs off: the in-game menu can turn them on while playing
+        plan.args.push_back("--horn-songs-place");
+        plan.args.push_back(s["hornSongsPlace"].as_string());
     }
     if (s["texturePackEnabled"].is_bool() && s["texturePackEnabled"].as_bool() && s["texturePack"].is_string()) {
         // This copy's pack, used only while its folder is still there (a pack used where it is may have moved).

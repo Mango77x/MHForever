@@ -150,7 +150,13 @@ mode, where no second window can be shown.
 
 - Sections: **Game** (back to the game, quit with a confirmation), **Audio** (music, sound effects), **Video** (internal
   resolution 1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures, texture pack, HUD scale), **Controls**, and **Online** when a server
-  is set. The keyboard and the controller still do everything: Q / E, Tab, PageUp / PageDown or the shoulder buttons
+  is set. Since 2026-11-09 the Game section also changes, while playing, the enhancements whose hooks read a switch every
+  time (`Frontend::add_game_option`): true weapon values (not for FUComplete, which has its own), fast supply box, the
+  analog camera and its turn and tilt speeds (not for FUComplete), and the hunting horn songs on or off. The controls file
+  carries them back to the launcher (`option.<setting>=`, `horn-songs=`, and `hud-size=` for the Video section's HUD
+  scale), which keeps only those settings. The smithy options, the language and FUComplete's own options stay in the
+  launcher: the smithy's instruction patches are fixed when the game starts, and the others apply before it does.
+  The keyboard and the controller still do everything: Q / E, Tab, PageUp / PageDown or the shoulder buttons
   change section; Left from a row (or before a choice's first option) goes to the sidebar, where Up/Down pick the section
   and Right goes back; arrows or the D-pad / stick move between rows and through a row's options and buttons, Enter or A
   selects, Esc or B goes back (and, at the top, closes the menu). A focus ring and the key hints show only while keys or a
