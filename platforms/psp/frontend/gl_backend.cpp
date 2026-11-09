@@ -1791,9 +1791,15 @@ void GlBackend::draw_batch() {
 // anchored), not guesses from the outside.
 constexpr float kHudClock[4] = {8.0f, 8.0f, 60.0f, 56.0f}; // the clock's box (measured, EU, US and JP alike)
 // Where the clock's pieces lie (measured): the clock, the bars (however long) and the sharpness above y 40, then the
-// name plate at x <= 104 from y 56, which comes last. A menu's header starts at y 40, right under the sharpness, and
-// the supply box's top edge touches the stamina bar: neither is part of the run.
-template <typename Box> bool hud_name_plate(const Box &b) { return b.x2 <= 105.0f && b.y1 >= 54.0f && b.y2 <= 73.0f; }
+// name plates at x <= 104 from y 56, which come last. The hunter's own plate is the first; a Felyne comrade's and the
+// other hunters' in a group follow under it, 20 pixels apart (up to four plates, to y 133), and need not touch the
+// pieces above (seen in a report: with a comrade along, the second plate ended the run, so the minimap and the item bar
+// kept their size). A menu's header starts at y 40, right under the sharpness, and the supply box's top edge touches
+// the stamina bar: neither is part of the run.
+constexpr float kHudPlatesBottom = 73.0f + 3.0f * 20.0f;
+template <typename Box> bool hud_name_plate(const Box &b) {
+    return b.x2 <= 105.0f && b.y1 >= 54.0f && b.y2 <= kHudPlatesBottom;
+}
 template <typename Box> bool hud_vitals_piece(const Box &b, bool after_name) {
     return hud_name_plate(b) || (!after_name && b.y2 <= 41.0f);
 }
@@ -1844,11 +1850,18 @@ void GlBackend::size_hud() {
         const auto touches_vitals = [&] {
             return std::any_of(hud_vitals_.begin(), hud_vitals_.end(), [&](const HudBox &v) { return hud_touch(v, box); });
         };
+        // The next plate down: it starts at most one plate's gap under the lowest piece so far.
+        const auto under_vitals = [&] {
+            float bottom = 0.0f;
+            for (const HudBox &v : hud_vitals_) bottom = std::max(bottom, v.y2);
+            return box.y1 <= bottom + 12.0f;
+        };
         if (hud_phase_ == HudPhase::before && hud_is_clock(box)) {
             hud_phase_ = HudPhase::vitals;
             hud_vitals_.assign(1, box);
             hud_after_name_ = false;
-        } else if (hud_phase_ == HudPhase::vitals && hud_vitals_piece(box, hud_after_name_) && touches_vitals()) {
+        } else if (hud_phase_ == HudPhase::vitals && hud_vitals_piece(box, hud_after_name_) &&
+                   (touches_vitals() || (hud_name_plate(box) && under_vitals()))) {
             hud_vitals_.push_back(box);
             hud_after_name_ = hud_after_name_ || hud_name_plate(box);
         } else if (hud_phase_ != HudPhase::before && hud_phase_ != HudPhase::rest) {
