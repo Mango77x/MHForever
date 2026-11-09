@@ -42,7 +42,7 @@ no piracy talk there. Bugs can also be reported as [issues](https://github.com/M
 | Monster Hunter Portable 2nd G + FUComplete | PSP | Japan, patched with FUComplete v1.4.0 | **Playable** |
 | Other Monster Hunter games | PSP, later PS2 | | Planned, see the [roadmap](docs/10-roadmap.md) |
 
-The first five rows work today (online play is experimental). The others are plans, not promises: they are listed so you know where the project is going.
+The first four rows work today (online play is experimental). The others are plans, not promises: they are listed so you know where the project is going.
 
 ## Where the project is today
 
@@ -106,13 +106,14 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
   release of the same game): the PSP save-data cryptography that lets MHForever read and write saves in the PSP and PPSSPP
   format comes from his project, shared with his permission, along with his time and advice.
 - **[sodomon2](https://github.com/sodomon2)**, for the Linux packaging, the desktop integration and the launcher fixes that
-  came with them (pull request #7).
+  came with them (pull request #7), the keyboard bindings in the launcher (#9), the movies (#12) and the language choice
+  (#20).
 - **[ibonplix](https://github.com/ibonplix)**, for the first texture pack support (pull request #39): the PPSSPP quick hash, the
   KTX2 decoding and the launcher setting that the HD textures are built on.
 - **[Pablo1517](https://github.com/Pablo1517)**, for the hunting horn songs card (pull request #49), the true weapon values
-  (#44), keeping the volumes changed in the in-game menu (#45), the fast supply box (#59) and browsing the smithy with its
-  panels open (#60, with the recompiler's instruction patches), and for the generated region data the game's host reads
-  the region maps through.
+  (#44), keeping the volumes changed in the in-game menu (#45), the fast supply box (#59), browsing the smithy with its
+  panels open (#60, with the recompiler's instruction patches) and its improved layout (#62), and the analog camera (#68,
+  with the recompiler's call patches), and for the generated region data the game's host reads the region maps through.
 - **[The FUComplete team](https://fucomplete.github.io)** ([FUComplete/Patch](https://github.com/FUComplete/Patch)), whose fan patch for the Japanese release (its English translation, events and options) MHForever
   runs as its own copy of the game: the player patches their own image with FUComplete's tool, and the launcher sets its
   options.
