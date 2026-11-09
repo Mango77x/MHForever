@@ -39,9 +39,10 @@ no piracy talk there. Bugs can also be reported as [issues](https://github.com/M
 | **Monster Hunter Freedom Unite** | PSP | Europe (`ULES01213`, v1.01) | **Playable** |
 | **Monster Hunter Freedom Unite** | PSP | North America (`ULUS10391`, v1.01) | **Playable** |
 | Monster Hunter Portable 2nd G | PSP | Japan (`ULJM05500`, v1.01) | **Playable** |
+| Monster Hunter Portable 2nd G + FUComplete | PSP | Japan, patched with FUComplete v1.4.0 | **Playable** |
 | Other Monster Hunter games | PSP, later PS2 | | Planned, see the [roadmap](docs/10-roadmap.md) |
 
-The first four rows work today (online play is experimental). The others are plans, not promises: they are listed so you know where the project is going.
+The first five rows work today (online play is experimental). The others are plans, not promises: they are listed so you know where the project is going.
 
 ## Where the project is today
 
@@ -112,6 +113,9 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
   (#44), keeping the volumes changed in the in-game menu (#45), the fast supply box (#59) and browsing the smithy with its
   panels open (#60, with the recompiler's instruction patches), and for the generated region data the game's host reads
   the region maps through.
+- **[The FUComplete team](https://fucomplete.github.io)** ([FUComplete/Patch](https://github.com/FUComplete/Patch)), whose fan patch for the Japanese release (its English translation, events and options) MHForever
+  runs as its own copy of the game: the player patches their own image with FUComplete's tool, and the launcher sets its
+  options.
 - **Mobilozor**, for proving HD texture packs on MHForever first (on SteamOS), and for the audit and
   test logs shared with the project.
 - **[TeamGDB's Yakumo](https://github.com/TeamGDB/Yakumo)** (MIT), whose frame interpolation MHForever's is ported from, and
