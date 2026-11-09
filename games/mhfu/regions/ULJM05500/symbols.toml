@@ -80,3 +80,10 @@ mh_smithy_decoration_requires_blocks_paging  = "lobby_task.ovl 0x09AA2B74 immedi
 # --smithy-layout: the list is drawn while Info is open, and left/right pages the list instead of Info.
 mh_smithy_list_hidden_with_info              = "lobby_task.ovl 0x09A7D658 never"
 mh_smithy_create_info_takes_left_right       = "lobby_task.ovl 0x09A9DF8C never"
+
+# Call patches registered by --analog-camera: the European camera code, 0x2FC lower (found 2026-11-08 by matching it in
+# this executable).
+mh_camera_buttons_copied     = "executable 0x0888CD98 call" # the camera has copied its buttons from the pad (a0 is 1 when it took them all)
+mh_camera_tilt_preset_chosen = "executable 0x08886DB8 call" # the tilt level has picked the preset the camera moves to
+mh_camera_turn_buttons_test  = "executable 0x08887178 call" # the camera tests whether Left or Right is held (a1)
+mh_camera_turn_amount_chosen = "executable 0x088871A8 call" # v1 holds this frame's turn amount (Left adds, Right subtracts)

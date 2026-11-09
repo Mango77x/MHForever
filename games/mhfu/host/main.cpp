@@ -5,6 +5,7 @@
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
 //             [--smooth-textures] [--fps 30..180] [--hud-size 50-100] [--true-weapon-values] [--fast-supply-box]
 //             [--smithy-browse [--smithy-layout]]
+//             [--analog-camera [--analog-camera-turn-speed 50-200] [--analog-camera-tilt-speed 50-200]]
 //             [--horn-songs [--horn-songs-place next-to-sheet|top-middle|under-names|bottom-left|custom:X,Y]]
 //             [--music-volume 0-100] [--sfx-volume 0-100]
 //             [--language en|fr|de|es|it|jp]
@@ -31,6 +32,8 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <functional>
@@ -393,6 +396,194 @@ void on_smithy_panel_draw(Runtime &rt, Context &ctx) {
     }
 }
 
+// --analog-camera. The game turns its camera with the d-pad by a fixed amount per frame and tilts it in five steps (a
+// level 0-4 that picks one of five presets: where the eye sits and what it looks at). The region map's call patches
+// run inside that d-pad code, so the right stick turns and tilts the camera by how far it is pushed exactly where the
+// d-pad works. The offsets are the camera's (s4) and its tilt state's (s0) in that code.
+constexpr int kRegV1 = 3, kRegA0 = 4, kRegA1 = 5, kRegS0 = 16, kRegS4 = 20;
+constexpr std::uint32_t kCameraFov = 0x64;          // f32 in the camera: the field of view, set from the tilt level
+constexpr std::uint32_t kCameraPresetTable = 0x6C;  // u32 in the camera: the presets (the area's own, or the default)
+constexpr std::uint32_t kCameraPreset = 0x70;       // u32 in the camera: the preset the camera moves to
+constexpr std::uint32_t kCameraButtons = 0x84;      // u16 in the camera: the buttons held, copied from the pad each frame
+constexpr std::uint32_t kTiltLevel = 0x14;          // u8 in the tilt state: 0 (from above) to 4 (from below)
+constexpr std::uint32_t kGameSysCameraSetting = 0x6ADE1; // u8 in GameSys: the camera setting, not 0 reverses the tilt
+constexpr std::uint32_t kPresetSize = 0x20;         // 8 floats: the eye's offset (y, back) and the target's (y)
+constexpr std::size_t kEyeY = 1, kEyeBack = 2, kTargetY = 5; // floats of a preset
+constexpr float kFovLevel0 = std::bit_cast<float>(0x3F75BE0Bu); // the field of view the game sets at level 0 (55 degrees)
+constexpr float kFovOther = std::bit_cast<float>(0x3F5F66F3u);  // and at levels 1-4 (50 degrees)
+constexpr int kTiltLevels = 5;
+// The stick tilts along a curve through the views of levels 0, 2, 3 and 4. Level 1 is a close-up: tilting through it
+// would zoom in and out again, so the curve leaves it out (the d-pad still steps to it). Above the default view (level
+// 2) the camera keeps that view's distance and field of view, so it only turns to look down: level 0's angle at the top.
+constexpr std::array<int, 4> kTiltCurveLevels{0, 2, 3, 4};
+constexpr float kStickDeadZone = 0.15f;
+constexpr float kTiltPerFrame = 0.0384f; // radians at a full push (2.2 degrees): the whole range (about 62) in 28 frames
+
+// How far a stick axis is pushed past the dead zone, 0 to 1.
+float stick_push(float axis) {
+    const float push = (std::abs(axis) - kStickDeadZone) / (1.0f - kStickDeadZone);
+    return std::clamp(push, 0.0f, 1.0f);
+}
+
+// The preset a tilt level picks: level 0 the table's sixth entry, levels 1-4 its second to fifth.
+std::uint32_t tilt_preset(std::uint32_t table, int level) {
+    return level == 0 ? table + 5u * kPresetSize : table + static_cast<std::uint32_t>(level) * kPresetSize;
+}
+
+// The eye's offset from what it looks at, and the angle it looks down at (negative: up).
+struct CameraView {
+    std::array<float, kPresetSize / 4> preset{};
+    float fov{};
+    [[nodiscard]] float rise() const { return preset[kEyeY] - preset[kTargetY]; }
+    [[nodiscard]] float pitch() const { return std::atan2(rise(), preset[kEyeBack]); }
+};
+
+float g_turn_speed = 1.0f;     // --analog-camera-turn-speed: a full push turns this many times as fast as the d-pad
+float g_tilt_speed = 1.0f;     // --analog-camera-tilt-speed: scales kTiltPerFrame
+bool g_camera_has_pad = false; // the camera got the whole pad this frame (no menu or scene has it)
+float g_turn_push = 0.0f;      // the stick's push for this frame's turn, 0 when the stick is not turning
+bool g_tilt_known = false;
+int g_tilt_level = 0;          // the level the tilt last saw or set: when the game's differs, the d-pad stepped
+bool g_stick_tilted = false;   // the stick has tilted since that d-pad step: the curve holds the camera, not a level
+float g_tilt_pitch = 0.0f;     // where on the curve, as the angle the camera looks down at
+std::optional<std::uint32_t> g_tilt_preset_block; // where the curve's preset is written
+
+// The camera has copied this frame's buttons from the pad (into s0, its button copy): a0 is 1 when it took them all.
+// Otherwise a menu or a scene has the pad (the camera keeps only L, or nothing), and the stick leaves the camera alone
+// too. The right stick presses the d-pad as well (bowgun aiming reads it), but the camera takes only the d-pad's own
+// presses: a quick push would step its tilt level.
+void on_camera_buttons_copied(Runtime &rt, Context &ctx) {
+    g_camera_has_pad = ctx.gpr[kRegA0] == 1u;
+    if (!g_camera_has_pad) return;
+    constexpr std::uint32_t kDpad =
+        mhf::psp::buttons::kUp | mhf::psp::buttons::kDown | mhf::psp::buttons::kLeft | mhf::psp::buttons::kRight;
+    const std::uint32_t from_stick = kDpad & ~mhf::psp::controller_state(rt).dpad_buttons;
+    const std::uint32_t copy = ctx.gpr[kRegS0] + kCameraButtons;
+    if (!rt.memory().contains(copy, 4)) return;
+    rt.memory().store16(copy, static_cast<std::uint16_t>(rt.memory().load16(copy) & ~from_stick));         // held
+    rt.memory().store16(copy + 2, static_cast<std::uint16_t>(rt.memory().load16(copy + 2) & ~from_stick)); // pressed
+}
+
+// Before the camera tests the turn buttons (its button copy is in a1 as well): the stick holds Left or Right down.
+void on_camera_turn_buttons_test(Runtime &rt, Context &ctx) {
+    const float x = mhf::psp::controller_state(rt).right_stick_x;
+    g_turn_push = g_camera_has_pad ? stick_push(x) : 0.0f;
+    if (g_turn_push == 0.0f) return;
+    const std::uint32_t buttons = ctx.gpr[kRegS4] + kCameraButtons;
+    if (!rt.memory().contains(buttons, 2)) return;
+    constexpr std::uint32_t kTurn = mhf::psp::buttons::kLeft | mhf::psp::buttons::kRight;
+    const std::uint32_t held = (rt.memory().load16(buttons) & ~kTurn) |
+                               (x < 0.0f ? mhf::psp::buttons::kLeft : mhf::psp::buttons::kRight);
+    rt.memory().store16(buttons, static_cast<std::uint16_t>(held));
+    ctx.gpr[kRegA1] = held;
+}
+
+// The game has chosen this frame's turn (v1, its sign set by the camera setting): the stick's push scales it.
+void on_camera_turn_amount_chosen(Runtime &, Context &ctx) {
+    if (g_turn_push == 0.0f) return;
+    const auto amount = static_cast<float>(static_cast<std::int32_t>(ctx.gpr[kRegV1]));
+    ctx.gpr[kRegV1] =
+        static_cast<std::uint32_t>(static_cast<std::int32_t>(std::lround(amount * g_turn_push * g_turn_speed)));
+    g_turn_push = 0.0f;
+}
+
+using TiltCurve = std::array<CameraView, kTiltCurveLevels.size()>;
+
+// The view on the tilt curve at `pitch` (between the first and last views' pitches): on the segment between two of
+// the views, the point the camera looks down from at exactly that angle; above the default view, moved out to its
+// distance.
+CameraView tilt_curve_view(const TiltCurve &curve, float pitch) {
+    std::size_t segment = 0;
+    while (segment + 2 < curve.size() && pitch < curve[segment + 1].pitch()) ++segment;
+    const CameraView &a = curve[segment], &b = curve[segment + 1];
+    // rise(s) / back(s) = tan(pitch), both linear in s.
+    const float slope = std::tan(pitch);
+    const float back_a = a.preset[kEyeBack], back_b = b.preset[kEyeBack];
+    const float denominator = (b.rise() - a.rise()) - slope * (back_b - back_a);
+    const float s = denominator != 0.0f ? std::clamp((slope * back_a - a.rise()) / denominator, 0.0f, 1.0f) : 0.0f;
+    CameraView view;
+    for (std::size_t i = 0; i < view.preset.size(); ++i) view.preset[i] = a.preset[i] + (b.preset[i] - a.preset[i]) * s;
+    view.fov = a.fov + (b.fov - a.fov) * s;
+    if (pitch > curve[1].pitch()) { // above the default view: its distance and field of view
+        const CameraView &level2 = curve[1];
+        const float scale = std::hypot(level2.rise(), level2.preset[kEyeBack]) /
+                            std::hypot(view.rise(), view.preset[kEyeBack]);
+        const float rise = view.rise() * scale;
+        view.preset[kEyeBack] *= scale;
+        view.preset[kEyeY] = view.preset[kTargetY] + rise;
+        view.fov = level2.fov;
+    }
+    return view;
+}
+
+// The camera has picked its preset and field of view from the tilt level. The stick moves the camera along the tilt
+// curve, and the level follows to the nearest one. The d-pad still steps the level, and the camera goes to that
+// level's own view until the stick tilts again.
+void on_camera_tilt_preset_chosen(Runtime &rt, Context &ctx) {
+    auto &memory = rt.memory();
+    const std::uint32_t camera = ctx.gpr[kRegS4];
+    const std::uint32_t level_at = ctx.gpr[kRegS0] + kTiltLevel;
+    if (!memory.contains(camera + kCameraFov, kCameraPreset + 4u - kCameraFov) || !memory.contains(level_at)) return;
+    const std::uint32_t table = memory.load32(camera + kCameraPresetTable);
+    const int level = memory.load8(level_at);
+    // A camera with a fixed preset of its own is not tilted.
+    if (level >= kTiltLevels || memory.load32(camera + kCameraPreset) != tilt_preset(table, level)) return;
+
+    std::array<CameraView, kTiltLevels> levels;
+    for (int l = 0; l < kTiltLevels; ++l) {
+        const std::uint32_t at = tilt_preset(table, l);
+        if (!memory.contains(at, kPresetSize)) return;
+        for (std::size_t i = 0; i < levels[l].preset.size(); ++i)
+            levels[l].preset[i] = std::bit_cast<float>(memory.load32(at + static_cast<std::uint32_t>(i) * 4u));
+        levels[l].fov = l == 0 ? kFovLevel0 : kFovOther;
+    }
+    TiltCurve curve;
+    for (std::size_t i = 0; i < curve.size(); ++i) {
+        curve[i] = levels[kTiltCurveLevels[i]];
+        // The curve needs each view to look down less than the one before (the game's do); otherwise leave the levels.
+        if (curve[i].preset[kEyeBack] <= 0.0f || (i > 0 && curve[i].pitch() >= curve[i - 1].pitch())) return;
+    }
+
+    if (!g_tilt_known || level != g_tilt_level) { // the first frame, or the d-pad stepped
+        g_tilt_known = true;
+        g_tilt_level = level;
+        g_stick_tilted = false;
+        g_tilt_pitch = levels[level].pitch();
+    }
+    const float y = mhf::psp::controller_state(rt).right_stick_y;
+    const float push = g_camera_has_pad ? stick_push(y) : 0.0f;
+    if (push > 0.0f) {
+        // Up raises the level (the camera looks from lower down), as the d-pad does, unless the setting reverses it.
+        bool reversed = false;
+        if constexpr (region::mh_game_sys.has_value()) {
+            const std::uint32_t setting = memory.load32(*region::mh_game_sys) + kGameSysCameraSetting;
+            reversed = memory.contains(setting) && memory.load8(setting) != 0;
+        }
+        const float raise = (y < 0.0f) != reversed ? push : -push;
+        g_tilt_pitch = std::clamp(g_tilt_pitch - raise * kTiltPerFrame * g_tilt_speed, curve.back().pitch(),
+                                  curve.front().pitch());
+        g_stick_tilted = true;
+        int nearest = 0;
+        for (int l = 1; l < kTiltLevels; ++l) {
+            if (std::abs(levels[l].pitch() - g_tilt_pitch) < std::abs(levels[nearest].pitch() - g_tilt_pitch)) nearest = l;
+        }
+        g_tilt_level = nearest;
+        memory.store8(level_at, static_cast<std::uint8_t>(nearest));
+    }
+    if (!g_stick_tilted) return; // the game's own view of the level
+
+    if (!g_tilt_preset_block) g_tilt_preset_block = rt.allocate_kernel_block("analog camera preset", kPresetSize);
+    if (!g_tilt_preset_block) return;
+    const float pitch = std::clamp(g_tilt_pitch, curve.back().pitch(), curve.front().pitch()); // areas differ
+    const CameraView view = tilt_curve_view(curve, pitch);
+    for (std::size_t i = 0; i < view.preset.size(); ++i) {
+        memory.store32(*g_tilt_preset_block + static_cast<std::uint32_t>(i) * 4u,
+                       std::bit_cast<std::uint32_t>(view.preset[i]));
+    }
+    memory.store32(camera + kCameraPreset, *g_tilt_preset_block);
+    memory.store32(camera + kCameraFov, std::bit_cast<std::uint32_t>(view.fov)); // the game's wider one, if set, follows
+}
+
 // The disc's product code ("ULES01213") from its PARAM.SFO, which ad hoc servers use to group the players of one game.
 std::string disc_product_code(const std::filesystem::path &disc_image) {
     try {
@@ -491,6 +682,7 @@ int main(int argc, char **argv) {
     bool fast_supply_box = false; // --fast-supply-box: the supply box takes the next button soon after a take-out
     bool smithy_browse = false; // --smithy-browse: the smithy's lists scroll with the R or Info panel open
     bool smithy_layout = false; // --smithy-layout: with Info open, Info on the left and the list with materials on the right
+    bool analog_camera = false; // --analog-camera: the right stick turns and tilts the camera by how far it is pushed
     bool horn_songs = false; // --horn-songs: the hunting horn's songs over the quest HUD (enhancement)
     std::string horn_songs_place = "next-to-sheet"; // --horn-songs-place: where (overlay/song_panel.hpp, parse_song_spot)
     mhf::host::KeyBindings keyboard; // --keymap: the launcher's keyboard bindings
@@ -523,6 +715,11 @@ int main(int argc, char **argv) {
         else if (a == "--fast-supply-box") fast_supply_box = true; // enhancement, off by default
         else if (a == "--smithy-browse") smithy_browse = true; // enhancement, off by default
         else if (a == "--smithy-layout") smithy_layout = true; // enhancement, off by default; needs --smithy-browse
+        else if (a == "--analog-camera") analog_camera = true; // enhancement, off by default
+        else if (a == "--analog-camera-turn-speed" && i + 1 < argc)
+            g_turn_speed = static_cast<float>(std::clamp(std::stoi(argv[++i]), 50, 200)) / 100.0f; // in percent
+        else if (a == "--analog-camera-tilt-speed" && i + 1 < argc)
+            g_tilt_speed = static_cast<float>(std::clamp(std::stoi(argv[++i]), 50, 200)) / 100.0f; // in percent
         else if (a == "--horn-songs") horn_songs = true; // enhancement
         else if (a == "--horn-songs-place" && i + 1 < argc) horn_songs_place = argv[++i];
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
@@ -609,6 +806,12 @@ int main(int argc, char **argv) {
         } else if (smithy_browse) {
             std::fprintf(stderr, "[mhfu] --smithy-browse: not mapped for this release, ignored\n");
         }
+        if (analog_camera) { // the region map's call patches (EU, US and JP map them; FUComplete not yet)
+            runtime.register_hook("mh_camera_buttons_copied", &on_camera_buttons_copied);
+            runtime.register_hook("mh_camera_turn_buttons_test", &on_camera_turn_buttons_test);
+            runtime.register_hook("mh_camera_turn_amount_chosen", &on_camera_turn_amount_chosen);
+            runtime.register_hook("mh_camera_tilt_preset_chosen", &on_camera_tilt_preset_chosen);
+        }
         std::function<void()> extra;
         if (!dump_folder.empty() || seconds > 0 || !script.empty() || language_pick) {
             if (!dump_folder.empty()) std::filesystem::create_directories(dump_folder);
@@ -665,6 +868,8 @@ int main(int argc, char **argv) {
                         if (p.stick_y != 0) pad.ly = static_cast<std::uint8_t>(128 + p.stick_y);
                     }
                     if (press_language) pad.buttons |= mhf::psp::buttons::kCross;
+                    pad.dpad_buttons = pad.buttons & (mhf::psp::buttons::kUp | mhf::psp::buttons::kDown |
+                                                      mhf::psp::buttons::kLeft | mhf::psp::buttons::kRight);
                     mhf::psp::set_controller_state(*rt, pad);
                 }
                 // One dump per `dump_every` vblanks, even when the host is not polled on that exact vblank.

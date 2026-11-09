@@ -242,6 +242,29 @@ int main(int argc, char **argv) {
         layout["smithyLayout"] = "no";
         l.set_settings(layout);
         CHECK(l.state()["settings"]["smithyLayout"].as_bool());
+        // Analog camera: off by default, a bool turns it on, anything else is ignored.
+        CHECK(!l.state()["settings"]["analogCamera"].as_bool(true));
+        Json camera;
+        camera["analogCamera"] = true;
+        l.set_settings(camera);
+        CHECK(l.state()["settings"]["analogCamera"].as_bool());
+        camera["analogCamera"] = "no";
+        l.set_settings(camera);
+        CHECK(l.state()["settings"]["analogCamera"].as_bool());
+        // Its turn and tilt speeds: 100% by default, kept to 50..200 in steps of 10.
+        CHECK(l.state()["settings"]["analogCameraTurnSpeed"].as_number() == 100);
+        CHECK(l.state()["settings"]["analogCameraTiltSpeed"].as_number() == 100);
+        Json speeds;
+        speeds["analogCameraTurnSpeed"] = 147;
+        speeds["analogCameraTiltSpeed"] = 500;
+        l.set_settings(speeds);
+        CHECK(l.state()["settings"]["analogCameraTurnSpeed"].as_number() == 150);
+        CHECK(l.state()["settings"]["analogCameraTiltSpeed"].as_number() == 200);
+        speeds["analogCameraTurnSpeed"] = 10;
+        speeds["analogCameraTiltSpeed"] = 100;
+        l.set_settings(speeds);
+        CHECK(l.state()["settings"]["analogCameraTurnSpeed"].as_number() == 50);
+        CHECK(l.state()["settings"]["analogCameraTiltSpeed"].as_number() == 100);
         // Hunting horn songs: off by default, a bool turns them on, anything else is ignored.
         CHECK(!l.state()["settings"]["hornSongs"].as_bool(true));
         Json horn;
@@ -932,6 +955,22 @@ int main(int argc, char **argv) {
             l.set_settings(ask);
             const auto asked = l.plan_launch("mhfu");
             CHECK(std::find(asked.args.begin(), asked.args.end(), "--language") == asked.args.end());
+
+            // The analog camera's speeds reach the game only with the camera on, and only when not 100%.
+            Json camera_speed;
+            camera_speed["analogCamera"] = true;
+            camera_speed["analogCameraTurnSpeed"] = 150;
+            camera_speed["analogCameraTiltSpeed"] = 100;
+            l.set_settings(camera_speed);
+            const auto fast = l.plan_launch("mhfu");
+            const auto turn = std::find(fast.args.begin(), fast.args.end(), "--analog-camera-turn-speed");
+            CHECK(turn != fast.args.end());
+            if (turn != fast.args.end()) CHECK(turn + 1 != fast.args.end() && *(turn + 1) == "150");
+            CHECK(std::find(fast.args.begin(), fast.args.end(), "--analog-camera-tilt-speed") == fast.args.end());
+            camera_speed["analogCamera"] = false;
+            l.set_settings(camera_speed);
+            const auto off = l.plan_launch("mhfu");
+            CHECK(std::find(off.args.begin(), off.args.end(), "--analog-camera-turn-speed") == off.args.end());
         }
         // Executable preparation: the encrypted executable on the disc must pass the identity gate of the catalog.
         // Without a decryptor in this build the only acceptable outcome is "unavailable", never "another release".

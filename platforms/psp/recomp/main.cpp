@@ -298,6 +298,19 @@ int main(int argc, char **argv) {
                 if (const auto why = patch_mismatch(d, patch); !why.empty()) {
                     throw std::runtime_error("patch " + patch.name + " at " + psprecomp::hex32(address) + ": " + why);
                 }
+                // A delay slot is emitted inside its branch, where a call patch would not run.
+                if (patch.kind == InstructionPatch::Kind::Call) {
+                    const auto before = psprecomp::decode_allegrex(memory.load32(address - 4u));
+                    const bool after_transfer = before.has_delay_slot() || before.kind == psprecomp::OpcodeKind::Jr ||
+                                                before.kind == psprecomp::OpcodeKind::Jalr;
+                    const bool same_body = std::any_of(analysis.functions.begin(), analysis.functions.end(), [&](const auto &f) {
+                        return f.second.instructions.contains(address) && f.second.instructions.contains(address - 4u);
+                    });
+                    if (after_transfer && same_body) {
+                        throw std::runtime_error("patch " + patch.name + " at " + psprecomp::hex32(address) +
+                                                 ": in a delay slot");
+                    }
+                }
             }
         };
         auto route = [&](std::uint32_t target, bool from_main) {

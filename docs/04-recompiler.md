@@ -161,6 +161,12 @@ Original design notes:
   the word it was compiled from, on entry and after its hooks; when one changed it hands the call to the fallback
   interpreter (`abi::interpret`, logged once per function), which runs the rewritten instructions. Untouched functions
   stay native, so the cost is a few loads per call in the listed functions only (no frame rate difference measured).
+- **Call patch** (2026-11-08): `name = "<module> <address> call"` runs native code in the middle of a guest function,
+  where an entry hook cannot reach: the generated code calls the hook the game program registered under the patch's
+  name (`Runtime::register_hook`), then runs the instruction as it is. The registers are the guest's, in `Context`, so
+  the hook can read and change them. Without a registered hook nothing runs. A call patch in a delay slot is refused,
+  since the slot is emitted inside its branch. Host code that hands the game data through a pointer can take a block
+  of the kernel partition, which the game never allocates from (`Runtime::allocate_kernel_block`).
 - Everything is declared by **canonical name** and resolved per region. Never addresses in code.
 - **Data entries** (2026-11-02): with `--symbols`, `mhf_recomp` also writes `<name>_region_data.hpp`, namespace
   `mhf::psp::generated::<name>_region_data`, one `inline constexpr std::optional<std::uint32_t>` per `[data]` name

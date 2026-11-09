@@ -115,11 +115,15 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   name plates, bottom left, or `custom:X,Y`. The in-game menu's Game tab picks the position or drags the list anywhere;
   the game writes the choice to the controls file and the launcher keeps it. The same Game section holds **Show true weapon
   values** (`trueWeaponValues`, `--true-weapon-values`), **Fast supply box** (`fastSupplyBox`, `--fast-supply-box`,
-  off by default: the supply box takes the next button 2 frames after a take-out instead of 30) and **Smithy: browse
+  off by default: the supply box takes the next button 2 frames after a take-out instead of 30), **Smithy: browse
   with panels open** (`smithyBrowse`, `--smithy-browse`, off by default: the smithy's lists scroll with the materials
   or Info panel open), and under it, once that is on, **Smithy: improved layout** (`smithyLayout`, `--smithy-layout`,
-  off by default: with Info open, Info on the left, the list with the materials on the right): the game's options
-  live there, Video keeps the picture's.
+  off by default: with Info open, Info on the left, the list with the materials on the right), and **Analog camera**
+  (`analogCamera`, `--analog-camera`, off by default: the right stick turns the camera as fast as it is pushed and tilts
+  it smoothly from the game's lowest view to its highest; while it is on, **Analog camera turn speed** and **tilt speed**
+  (`analogCameraTurnSpeed`, `analogCameraTiltSpeed`, 50% to 200% in steps of 10, passed as `--analog-camera-turn-speed`
+  and `--analog-camera-tilt-speed` when not 100%) set how fast a full push goes; not offered for FUComplete copies yet):
+  the game's options live there, Video keeps the picture's.
 - **Updates (2026-10-29)**: when the launcher starts (Settings > About > Check for updates, on by default) it asks GitHub for
   the latest release; when it is newer, Home offers "Update now". The launcher downloads the archive for its system with the
   system's `curl`, checks it against the SHA-256 GitHub computes for every release asset (nothing to publish besides the
@@ -202,7 +206,7 @@ mode, where no second window can be shown.
   - Face buttons: △/Y, ○/B, ×/A, □/X by physical position (option to swap confirm/cancel per region).
   - L/R → LB/RB (LT/RT configurable too).
   - START, SELECT → Menu/View.
-  - **Right stick → D-pad** (FU's "claw" camera) with configurable deadzone and repeat. Level 1 is implemented; level 2 (analog camera hook) is an enhancement.
+  - **Right stick → D-pad** (FU's "claw" camera) with configurable deadzone and repeat. Level 1 is implemented; level 2 (analog camera) is the Analog camera setting.
 - Keyboard: every button of the pad answers to a physical key, and the player changes them in the launcher
   (**Game settings → Controls**), not by editing a file; the mouse drives the camera once the analog hook exists.
   - A binding is a UI Events code (`KeyK`, `ArrowLeft`, `Space`...): it names the key's position, not the character
@@ -222,7 +226,7 @@ mode, where no second window can be shown.
     `--padmap "south=south,left_shoulder=left_shoulder+left_trigger,...,stick=left"`; `core/host/padmap*` resolves it.
     In the launcher the controller's own navigation pauses while a button is recorded; Backspace or Delete removes a source,
     Esc cancels, and a source already in use is swapped. The Guide button is never offered (it opens the in-game menu).
-  - Per-controller profiles, deadzones, sensitivity and an analog camera are pending; rumble optional (the PSP has none).
+  - Per-controller profiles, deadzones, sensitivity and a mouse camera are pending; rumble optional (the PSP has none).
 - In the game: the in-game menu has a **Controls** tab with the same bindings. Pick a row, press the new key or button and it
   applies at once; Esc or a click cancels, Backspace unbinds, F11 stays reserved. The host reports the next key or button by
   name while the menu waits for one (`SdlHost::set_capture`). The game writes every change, and the Audio tab's volumes, to

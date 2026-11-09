@@ -44,11 +44,13 @@ struct Function {
 };
 
 // An instruction the generated code can change while the program runs (region map [patches], docs/04-recompiler.md
-// §6): the original and the changed form are both emitted, and the game program switches the named patch on.
+// §6): the original and the changed form are both emitted, and the game program switches the named patch on. A Call
+// patch instead runs the host hook the game program registers under its name, when there is one.
 struct InstructionPatch {
     enum class Kind {
         Immediate, // an ALU instruction with an immediate operand gets `immediate` instead
         Never,     // a conditional branch is never taken (its delay slot runs as it does when not taken)
+        Call,      // the host hook registered under the patch's name runs first, then the instruction as it is
     };
     std::string name;
     Kind kind{Kind::Immediate};

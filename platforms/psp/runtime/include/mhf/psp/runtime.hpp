@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <array>
 #include <string>
@@ -125,13 +126,17 @@ public:
     bool activate_overlay(std::int32_t overlay_id);
     [[nodiscard]] const Program *active_overlay_at(std::uint32_t address) const noexcept;
 
-    // Hooks called by generated code on entry to selected guest functions.
+    // Hooks called by generated code on entry to selected guest functions, and before the instruction of a region
+    // map's call patch (registered under the patch's name).
     void register_hook(std::string name, HookFunction function);
     [[nodiscard]] HookFunction find_hook(std::string_view name) const;
     // Instruction patches (region map [patches]): generated code reads the switch the first time it runs the
     // instruction, so the game program turns patches on before the game starts.
     void enable_patch(std::string name);
     [[nodiscard]] bool patch_enabled(std::string_view name) const;
+    // A block of guest memory in the kernel partition, which the game never allocates from: for host code that hands
+    // the game data it reads through a pointer. std::nullopt when the partition has no room.
+    [[nodiscard]] std::optional<std::uint32_t> allocate_kernel_block(const std::string &name, std::uint32_t size);
     void add_hle(std::span<const HleFunction> functions);
     [[nodiscard]] const HleFunction *find_hle(std::string_view library, std::uint32_t nid) const;
 
