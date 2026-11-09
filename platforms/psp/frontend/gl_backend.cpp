@@ -34,6 +34,8 @@
 #include <cstring>
 #include <map>
 #include <unordered_map>
+#include <cctype>
+#include <cstring>
 #include <unordered_set>
 #include <string>
 #include <vector>
@@ -318,7 +320,9 @@ void main() {
     // polygons cast straight edges, which this hides.
     float blockers = 0.0, found = 0.0, scenery = 0.0;
     for (int i = 0; i < 8; ++i) {
-        float a = turn + float(i) * 2.399963, r = 24.0 * fine * sqrt((float(i) + 0.5) / 8.0);
+        // Most of the looks stay near the middle: spread evenly, they would step over what is thin, a trunk or a cat, and it would
+        // cast nothing on most pixels.
+        float a = turn + float(i) * 2.399963, q = (float(i) + 0.5) / 8.0, r = 24.0 * fine * q * q;
         vec2 at = uv + vec2(cos(a), sin(a)) * r * texel;
         float gap = here - texture(u_map, at).r;
         if (gap > bias) { blockers += gap * span; found += 1.0; scenery += texture(u_kind, at).r; }
@@ -338,6 +342,50 @@ void main() {
     o_color = vec4(vec3(1.0 - u_darkness * max(shade, player)), share);
 }
 )";
+
+// Letters for the zone label: five bits a row, seven rows.
+constexpr const char *kShadowTestBuild = "V227";
+constexpr struct {
+    char letter;
+    std::uint8_t rows[7];
+} kLabelFont[] = {
+    {'A', {14, 17, 17, 31, 17, 17, 17}},
+    {'B', {30, 17, 17, 30, 17, 17, 30}},
+    {'C', {14, 17, 16, 16, 16, 17, 14}},
+    {'D', {30, 17, 17, 17, 17, 17, 30}},
+    {'E', {31, 16, 16, 30, 16, 16, 31}},
+    {'F', {31, 16, 16, 30, 16, 16, 16}},
+    {'G', {14, 17, 16, 23, 17, 17, 14}},
+    {'H', {17, 17, 17, 31, 17, 17, 17}},
+    {'I', {14, 4, 4, 4, 4, 4, 14}},
+    {'J', {7, 2, 2, 2, 2, 18, 12}},
+    {'K', {17, 18, 20, 24, 20, 18, 17}},
+    {'L', {16, 16, 16, 16, 16, 16, 31}},
+    {'M', {17, 27, 21, 21, 17, 17, 17}},
+    {'N', {17, 25, 21, 19, 17, 17, 17}},
+    {'O', {14, 17, 17, 17, 17, 17, 14}},
+    {'P', {30, 17, 17, 30, 16, 16, 16}},
+    {'Q', {14, 17, 17, 17, 21, 18, 13}},
+    {'R', {30, 17, 17, 30, 20, 18, 17}},
+    {'S', {15, 16, 16, 14, 1, 1, 30}},
+    {'T', {31, 4, 4, 4, 4, 4, 4}},
+    {'U', {17, 17, 17, 17, 17, 17, 14}},
+    {'V', {17, 17, 17, 17, 17, 10, 4}},
+    {'W', {17, 17, 17, 21, 21, 27, 17}},
+    {'X', {17, 17, 10, 4, 10, 17, 17}},
+    {'Y', {17, 17, 10, 4, 4, 4, 4}},
+    {'Z', {31, 1, 2, 4, 8, 16, 31}},
+    {'0', {14, 17, 19, 21, 25, 17, 14}},
+    {'1', {4, 12, 4, 4, 4, 4, 14}},
+    {'2', {14, 17, 1, 2, 4, 8, 31}},
+    {'3', {30, 1, 1, 14, 1, 1, 30}},
+    {'4', {2, 6, 10, 18, 31, 2, 2}},
+    {'5', {31, 16, 30, 1, 1, 17, 14}},
+    {'6', {6, 8, 16, 30, 17, 17, 14}},
+    {'7', {31, 1, 2, 4, 8, 8, 8}},
+    {'8', {14, 17, 17, 14, 17, 17, 14}},
+    {'9', {14, 17, 17, 15, 1, 2, 12}},
+};
 
 // With a small blur: the wide soft edges come from a few samples, which would show as grain.
 constexpr const char *kShadowApplyFragment = R"(#version 330 core
@@ -646,6 +694,8 @@ struct DrawSetup {
     std::uint32_t target{}; // VRAM offset of the render target
     bool self_sampled{};    // the texture is a copy of the target being drawn: it cannot be replayed later
     bool haze{};            // haze on the game's list: the projected shadows must come before it
+    std::uint64_t tex_hash{}; // the texture's, for the shadows
+    bool listed{};            // on one of the shadows' lists of textures
 };
 
 // The camera a vertex was placed with: view and projection matrices, viewport and screen offset.
@@ -796,7 +846,18 @@ public:
 
     bool init();
 
+    // The game's own round shadows under hunters and monsters: over the ground without writing the depth, from a texture each
+    // map shares with dust and other effects. Those are light and fade; these are always the same dark grey and opaque, and
+    // nothing else that dark was drawn with this alpha test.
+    bool hidden_round_shadow(const gpu::Ge &ge, const gpu::Vertex &a) {
+        if ((ge.reg(kZWriteDisable) & 1u) == 0 || ge.reg(kBlendMode) != 0x32u || a.a < 250.0f || ge.reg(kAlphaTest) != 0x00FF0006u) return false;
+        const auto dark_grey = [](float value) { return value >= 15.0f && value <= 35.0f; };
+        if (!dark_grey(a.r) || !dark_grey(a.g) || !dark_grey(a.b)) return false;
+        return live_ != nullptr && live_->shadow_hide_round.load(std::memory_order_relaxed);
+    }
+
     void triangle(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b, const gpu::Vertex &c) override {
+        if (hidden_round_shadow(ge, a)) return;
         prepare(ge);
         if (!through_ && !(a.has_world && b.has_world && c.has_world)) raw_incomplete(); // a 3D line, say
         const bool flat = (ge.reg(kShadeMode) & 1u) == 0;
@@ -821,6 +882,7 @@ public:
     }
 
     void triangle_unclipped(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b, const gpu::Vertex &c) override {
+        if (hidden_round_shadow(ge, a)) return;
         if (shadow_draw_ok_) {
             // One triangle in 32 is timed: asking the clock for each would cost more than some of them.
             if ((++shadow_capture_seen_ & 31u) == 0u) {
@@ -908,11 +970,13 @@ private:
         float low[3]{1e30f, 1e30f, 1e30f}, high[3]{-1e30f, -1e30f, -1e30f}; // its bounds in that frame
         float eye_low[3]{1e30f, 1e30f, 1e30f}, eye_high[3]{-1e30f, -1e30f, -1e30f};
         std::uint32_t triangles{};
+        std::uint64_t place{};                   // how far it stands from the picture's first object, which the camera does not change
         [[nodiscard]] float size() const {
             return std::max({high[0] - low[0], high[1] - low[1], high[2] - low[2]});
         }
     };
     struct ShadowDraw {
+        std::uint64_t known_key{};
         std::uint32_t group{}, first{}, count{}, target{};
         GLuint texture{};
         float xform[4]{1, 1, 0, 0};
@@ -924,6 +988,9 @@ private:
         std::uint64_t texture_hash{};            // which of the game's textures it uses (0: none)
         int zone{-1};                            // the zone of its pack image
         std::uint32_t vertices{};                // where the game keeps its vertices: the same from one flip to the next
+        std::uint32_t fog_color{};
+        float fog_low{1e30f}, fog_high{-1e30f}; // how much of its own colour the fog leaves: 1 all, 0 none
+        std::uint32_t paint[7]{};                // how it paints, for the test views: blend, its two fixed colours, colour mask, alpha test, texture function, material
         std::uint8_t listed{};                   // the game's list says what its texture is: 1 air, 2 solid, 3 inside of a cave
         float holes{-1.0f}, alpha_low{255.0f}, alpha_high{0.0f}; // the texture's clear share; the vertices' alpha
         float low[3]{1e30f, 1e30f, 1e30f}, high[3]{-1e30f, -1e30f, -1e30f}; // its bounds in the object's frame
@@ -1095,6 +1162,7 @@ private:
     void render_between(const RenderTarget &shown, const std::vector<TapeEntry> &now,
                         const std::vector<TapeEntry> &before, const Slot &before_slot, float t);
     void draw_batch();
+    bool shadow_effect(const DrawSetup &setup, const GpuVertex *vertices, std::size_t count);
     void read_back();
     RenderTarget &target_for(std::uint32_t address, std::uint32_t stride, std::uint32_t format,
                              std::uint32_t needed_height);
@@ -1369,7 +1437,27 @@ private:
     float shadow_scene_view_[12]{};             // projection, viewport depth and viewport of the last draw of the scene itself
     float shadow_draw_vz_[2]{};                 // the viewport depth of the draw being captured
     std::uint32_t shadow_draw_vertices_{};      // and where its vertices are
+    std::uint32_t shadow_light_colours_[4]{};
+    bool shadow_night_{};                       // the zones' suns are for the day: at night the game's own light stays
+    int shadow_night_pictures_{};
+    bool shadow_night_settled_{};
     std::uint32_t shadow_skipped_{};            // draws of the picture left out for not writing the depth
+    struct UndepthedDraw {                      // what those were, for the test views
+        std::uint64_t texture{};
+        std::uint32_t paint[6]{};
+        float eye[3]{}, alpha{}, red{};
+    };
+    std::vector<UndepthedDraw> shadow_undepthed_;
+    // Scenery that is not looked at again: picking its triangles up is the dearest part of the shadows, and between two rounds of
+    // the side shade nothing needs them once its shadows are kept. By its vertices, texture and place among the objects.
+    struct KnownPiece {
+        float low[3]{}, high[3]{};
+        std::uint32_t triangles{};
+    };
+    std::unordered_map<std::uint64_t, KnownPiece> shadow_known_;
+    bool shadow_leave_known_{};
+    std::uint32_t shadow_left_known_{};
+    int shadow_known_zone_{-2};
     std::vector<std::uint32_t> shadow_sources_; // for each captured vertex, its point (shared points, for smooth normals)
     std::vector<float> shadow_normals_, shadow_facing_; // eye x, y, z and how much sun the surface faces
     std::unordered_map<std::uint64_t, std::uint32_t> shadow_points_;
@@ -2065,7 +2153,16 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
     shadow_texture_holes_ = tex_holes_;
     shadow_texture_hash_ = tex_hash_;
     shadow_texture_zone_ = tex_zone_;
-    setup.haze = textured && shadow_list_haze_.count(tex_hash_) != 0;
+    // The tower's beams of light, in the maps looked at since: the older ones stay as they were.
+    bool beam = false;
+    if (tex_hash_ == 0x2bd4dc20a8ac9a3bull && shadow_zone_ >= 0) {
+        const std::string &map = shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)];
+        beam = map.rfind("areas/hunting/tower_1_2/", 0) == 0 || map.rfind("areas/hunting/great_forest/", 0) == 0 || map.rfind("areas/hunting/old_jungle/", 0) == 0;
+    }
+    setup.haze = textured && (shadow_list_haze_.count(tex_hash_) != 0 || beam);
+    setup.tex_hash = textured ? tex_hash_ : 0;
+    setup.listed = textured && (shadow_list_air_.count(tex_hash_) != 0 || shadow_list_solid_.count(tex_hash_) != 0 ||
+                                shadow_list_cave_.count(tex_hash_) != 0 || shadow_list_haze_.count(tex_hash_) != 0);
     setup.tex_width = tex_width_;
     setup.tex_height = tex_height_;
     setup_ = setup;
@@ -2106,6 +2203,12 @@ void GlBackend::shadow_begin_draw(const gpu::DrawInfo &draw) {
         shadow_sources_.clear();
         shadow_depths_.clear();
         shadow_skipped_ = 0;
+        shadow_undepthed_.clear();
+        // Only while the side shade will not be worked out again, and with the scenery's shadows kept.
+        static const bool never = std::getenv("MHF_SHADOW_LOOK_AT_ALL") != nullptr;
+        shadow_left_known_ = 0u;
+        shadow_leave_known_ = !never && !shadow_known_.empty() && shadow_seen_built_ && shadow_facing_reusable_ && shadow_facing_age_ < 3 &&
+                              !live_->shadow_pick.load(std::memory_order_relaxed) && live_->shadow_keep_scenery.load(std::memory_order_relaxed);
         shadow_light_ok_ = false;
     }
     const bool skinned = ((draw.vertex_type >> 9u) & 3u) != 0;
@@ -2119,6 +2222,11 @@ void GlBackend::shadow_begin_draw(const gpu::DrawInfo &draw) {
             g.world = draw.world;
             g.view = draw.view;
             g.skinned = skinned;
+            if (i != 0u) {
+                const auto &first = shadow_groups_.front().world;
+                const float dx = g.world[9] - first[9], dy = g.world[10] - first[10], dz = g.world[11] - first[11];
+                g.place = static_cast<std::uint64_t>(std::sqrt(dx * dx + dy * dy + dz * dz) / 16.0f + 0.5f);
+            }
             for (int c = 0; c < 3; ++c) {
                 const float *m = draw.world.data() + 3 * c;
                 const float length = std::max(std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]), 1e-6f);
@@ -2135,17 +2243,64 @@ void GlBackend::shadow_begin_draw(const gpu::DrawInfo &draw) {
 }
 
 void GlBackend::shadow_capture(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b, const gpu::Vertex &c) {
-    if (!a.has_world || !b.has_world || !c.has_world) return;
+    const bool picking = live_->shadow_pick.load(std::memory_order_relaxed) && shadow_undepthed_.size() < 4000u;
+    const auto note_left_out = [&](bool placed) {
+        prepare(ge);
+        UndepthedDraw u;
+        u.texture = shadow_texture_hash_;
+        u.paint[0] = ge.reg(kBlendMode);
+        u.paint[1] = ge.reg(kBlendFixedA);
+        u.paint[2] = ge.reg(kBlendFixedB);
+        u.paint[3] = (ge.reg(kZTestEnable) & 1u) | (ge.reg(kZWriteDisable) & 1u) << 1u | (ge.reg(kFogEnable) & 1u) << 2u | (ge.reg(kAlphaTestEnable) & 1u) << 3u | (placed ? 16u : 0u) | (a.r < 96.0f ? 32u : 0u);
+        u.paint[4] = ge.reg(kTexFunc);
+        u.paint[5] = ge.reg(kAlphaTest);
+        if (placed) {
+            const auto &m = shadow_groups_[shadow_group_].view;
+            for (int k = 0; k < 3; ++k) u.eye[k] = m[k] * a.world[0] + m[3 + k] * a.world[1] + m[6 + k] * a.world[2] + m[9 + k];
+        }
+        u.alpha = a.a;
+        u.red = a.r;
+        shadow_undepthed_.push_back(u);
+    };
+    if (!a.has_world || !b.has_world || !c.has_world) {
+        if (picking && shadow_first_triangle_) {
+            note_left_out(false);
+            shadow_first_triangle_ = false;
+            shadow_draw_ok_ = false;
+        }
+        return;
+    }
     if (shadow_first_triangle_) {
         shadow_first_triangle_ = false;
         // What is not in the depth (effects, glows) casts nothing, and neither does anything drawn somewhere else.
         if ((ge.reg(kZTestEnable) & 1u) == 0 || (ge.reg(kZWriteDisable) & 1u) != 0 || shadow_vertices_.size() > 7500000u) {
             shadow_draw_ok_ = false;
+            if (picking) note_left_out(true);
             ++shadow_skipped_;
             return;
         }
         prepare(ge);
+        std::uint64_t known_key = 1469598103934665603ull;
+        // Many pieces share their buffer of vertices: the first one read tells them apart. None if the camera cut that corner off.
+        for (const std::uint64_t v : {static_cast<std::uint64_t>(shadow_draw_vertices_), static_cast<std::uint64_t>(a.source), shadow_texture_hash_, shadow_groups_[shadow_group_].place}) known_key = (known_key ^ v) * 1099511628211ull;
+        if (a.source == 0u) known_key = 0u;
+        // One in eight stays: they say where the scenery is now.
+        if (shadow_leave_known_ && (known_key >> 40u & 7u) != 0u) {
+            const auto found = shadow_known_.find(known_key);
+            if (found != shadow_known_.end()) {
+                ShadowGroup &g = shadow_groups_[shadow_group_];
+                for (int k = 0; k < 3; ++k) {
+                    g.low[k] = std::min(g.low[k], found->second.low[k]);
+                    g.high[k] = std::max(g.high[k], found->second.high[k]);
+                }
+                g.triangles += found->second.triangles;
+                ++shadow_left_known_;
+                shadow_draw_ok_ = false;
+                return;
+            }
+        }
         ShadowDraw d;
+        d.known_key = known_key;
         d.group = shadow_group_;
         d.first = static_cast<std::uint32_t>(shadow_vertices_.size() / 5u);
         d.target = setup_.target;
@@ -2169,6 +2324,14 @@ void GlBackend::shadow_capture(const gpu::Ge &ge, const gpu::Vertex &a, const gp
         // Plants are tested against a high reference and blended too. Layers of the ground fade with blending alone, and the
         // game leaves a low alpha test on for plain surfaces, so neither of those counts, whatever their texture looks like.
         d.blended = (ge.reg(kAlphaBlendEnable) & 1u) != 0;
+        d.fog_color = ge.reg(kFogColor);
+        d.paint[0] = ge.reg(kBlendMode);
+        d.paint[1] = ge.reg(kBlendFixedA);
+        d.paint[2] = ge.reg(kBlendFixedB);
+        d.paint[3] = ge.reg(kMaskRgb);
+        d.paint[4] = (ge.reg(kAlphaTestEnable) & 1u) != 0 ? ge.reg(kAlphaTest) : 0xFFFFFFFFu;
+        d.paint[5] = ge.reg(kTexFunc);
+        d.paint[6] = (ge.reg(kTextureMapEnable) & 1u) | (ge.reg(kFogEnable) & 1u) << 1u | (ge.reg(kStencilTestEnable) & 1u) << 2u;
         // Much of the rock is blended too, with a few clear texels along its edges: only a texture that is mostly clear is air.
         d.translucent = d.blended && shadow_texture_holes_ >= 0.25f;
         d.has_holes = shadow_texture_holes_ >= min_holes;
@@ -2196,6 +2359,11 @@ void GlBackend::shadow_capture(const gpu::Ge &ge, const gpu::Vertex &a, const gp
             shadow_light_[1] = m[1] * x + m[4] * y + m[7] * z;
             shadow_light_[2] = m[2] * x + m[5] * y + m[8] * z;
             shadow_light_ok_ = true;
+            // Its colours, and the fog's: they tell day from night.
+            shadow_light_colours_[0] = ge.reg(0x5Cu);                 // the scene's ambient
+            shadow_light_colours_[1] = ge.reg(0x8Fu + 3u * light);    // the light's ambient
+            shadow_light_colours_[2] = ge.reg(0x90u + 3u * light);    // and diffuse
+            shadow_light_colours_[3] = ge.reg(kFogColor);
         }
     }
     ShadowGroup &g = shadow_groups_[shadow_group_];
@@ -2217,6 +2385,8 @@ void GlBackend::shadow_capture(const gpu::Ge &ge, const gpu::Vertex &a, const gp
             draw.high[k] = std::max(draw.high[k], along);
         }
         for (const float value : {eye[0], eye[1], eye[2], p->u, p->v}) shadow_vertices_.push_back(value);
+        draw.fog_low = std::min(draw.fog_low, p->fog);
+        draw.fog_high = std::max(draw.fog_high, p->fog);
         draw.alpha_low = std::min(draw.alpha_low, p->a);
         draw.alpha_high = std::max(draw.alpha_high, p->a);
         shadow_depths_.push_back(p->w > 0.0f ? (p->z / p->w * shadow_draw_vz_[0] + shadow_draw_vz_[1]) / 65535.0f : -1.0f);
@@ -2335,6 +2505,7 @@ void GlBackend::shadow_forget_scenery() {
     shadow_seen_built_ = false;
     shadow_seen_grew_ = false;
     shadow_seen_doubts_ = 0;
+    shadow_known_.clear();
 }
 
 void GlBackend::run_shadow(RenderTarget &rt) {
@@ -2414,20 +2585,77 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     float dir[3] = {up_axis[0] * 0.8f + 0.6f, up_axis[1] * 0.8f, up_axis[2] * 0.8f};
     if (shadow_light_ok_) std::copy(shadow_light_, shadow_light_ + 3, dir);
     if (!normalize(dir)) return;
+    const float game_height = dir[0] * up_axis[0] + dir[1] * up_axis[1] + dir[2] * up_axis[2];
+    // Night: the fog goes dark on the hunting grounds. Indoors in the village it is dark too, by day as well.
+    if (shadow_light_ok_ && shadow_zone_ >= 0) {
+        const std::uint32_t fog = shadow_light_colours_[3];
+        const bool dark_fog = std::max({fog & 0xFFu, fog >> 8u & 0xFFu, fog >> 16u & 0xFFu}) <= 0x44u;
+        const std::string &zone_name = shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)];
+        // Closed zones have the same fog by day and by night: the time stays what it was in the zone before.
+        const bool says_nothing = zone_name == "areas/hunting/desert/area4" || zone_name == "areas/hunting/desert/area6" || zone_name == "areas/hunting/desert/area10" || zone_name == "areas/hunting/jungle/area6" || zone_name == "areas/hunting/jungle/area7" || zone_name == "areas/hunting/jungle/area8" || zone_name == "areas/hunting/jungle/area9";
+        // A new zone's fog comes a moment before the zone is known, while the old one is still named: it has to last.
+        const bool hunting = zone_name.rfind("areas/hunting/", 0) == 0;
+        const bool camp = zone_name.size() >= 5u && zone_name.compare(zone_name.size() - 5u, 5u, "/base") == 0;
+        if (!hunting) shadow_night_settled_ = false;
+        const bool night_now = dark_fog && hunting;
+        shadow_night_pictures_ = !says_nothing && !(shadow_night_settled_ && !camp) && night_now != shadow_night_ ? shadow_night_pictures_ + 1 : 0;
+        if (shadow_night_pictures_ >= 60) {
+            shadow_night_ = night_now;
+            shadow_night_pictures_ = 0;
+        }
+        // The camp's fog says for the whole map; elsewhere only until the camp has been seen, as when a hunt starts away from it.
+        if (camp && shadow_night_pictures_ == 0) shadow_night_settled_ = true;
+    }
+    // Where the game's own light stands in the scenery's frame.
+    if (stage != nullptr) {
+        const auto &v = stage->view;
+        const float *a = stage->axis[0], *c = stage->axis[2];
+        const float east[3] = {v[0] * a[0] + v[3] * a[1] + v[6] * a[2], v[1] * a[0] + v[4] * a[1] + v[7] * a[2], v[2] * a[0] + v[5] * a[1] + v[8] * a[2]};
+        const float south[3] = {v[0] * c[0] + v[3] * c[1] + v[6] * c[2], v[1] * c[0] + v[4] * c[1] + v[7] * c[2], v[2] * c[0] + v[5] * c[1] + v[8] * c[2]};
+        // The fortress's zone 6 and the old swamp's zones 5 and 10 (its zone 6 is taken for 10): the game's light stands straight up,
+        // its bearing shakes from picture to picture and the map with it. A bearing of their own there, a hair off straight up, that holds still.
+        static constexpr const char *kStraightUp[] = {"areas/hunting/fortress/area6", "areas/hunting/old_swamp/area5", "areas/hunting/old_swamp/area10"};
+        if (shadow_zone_ >= 0 && std::find(std::begin(kStraightUp), std::end(kStraightUp), shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)]) != std::end(kStraightUp)) {
+            const float along = south[0] * up_axis[0] + south[1] * up_axis[1] + south[2] * up_axis[2];
+            float flat[3] = {south[0] - along * up_axis[0], south[1] - along * up_axis[1], south[2] - along * up_axis[2]};
+            if (normalize(flat)) {
+                const float lift = std::sin(89.0f * 0.0174533f), across = std::cos(89.0f * 0.0174533f);
+                for (int k = 0; k < 3; ++k) dir[k] = flat[k] * across + up_axis[k] * lift;
+            }
+        }
+        const float bearing = std::atan2(dir[0] * east[0] + dir[1] * east[1] + dir[2] * east[2], dir[0] * south[0] + dir[1] * south[1] + dir[2] * south[2]) * 57.29578f;
+        static std::uint32_t told_colours[4] = {};
+        if (shadow_light_ok_ && !std::equal(told_colours, told_colours + 4, shadow_light_colours_)) {
+            std::copy(shadow_light_colours_, shadow_light_colours_ + 4, told_colours);
+            std::fprintf(stderr, "[shadow colours] zone %s: ambient %06x, light ambient %06x, light diffuse %06x, fog %06x\n", shadow_zone_ >= 0 ? shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)].c_str() : "none",
+                         told_colours[0], told_colours[1], told_colours[2], told_colours[3]);
+        }
+        static float told_bearing = 1000.0f;
+        static int told_zone = -2;
+        if (shadow_light_ok_ && (std::fabs(bearing - told_bearing) > 3.0f || told_zone != shadow_zone_)) {
+            told_bearing = bearing;
+            told_zone = shadow_zone_;
+            std::fprintf(stderr, "[shadow sun] zone %s: the game's light stands at %.1f degrees, %.1f high\n", shadow_zone_ >= 0 ? shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)].c_str() : "none", bearing, std::asin(std::clamp(game_height, -1.0f, 1.0f)) * 57.29578f);
+        }
+    }
     const float height = dir[0] * up_axis[0] + dir[1] * up_axis[1] + dir[2] * up_axis[2];
     // The slider, for trying heights out, goes over what the game's list says for the zone.
     float sun_height = live_->shadow_sun_height.load(std::memory_order_relaxed);
     float zone_darkness = -1.0f;
+    float sun_turn = live_->shadow_sun_turn.load(std::memory_order_relaxed);
     if (shadow_zone_ >= 0) {
-        const std::string &zone = shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)];
+        const std::string zone = (shadow_night_ ? "night:" : "") + shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)];
         for (const auto &[name, sun] : live_->shadow_zone_suns) {
             if (name != zone) continue;
-            if (sun_height <= 0.0f) sun_height = sun.first;
-            zone_darkness = sun.second;
+            if (sun_height < 0.0f) sun_height = sun[0];
+            zone_darkness = sun[1];
+            if (sun_turn <= 0.0f) sun_turn = sun[2];
         }
     }
-    const float lowest = std::sin(std::max(shadow_min_elevation_, sun_height) * 0.0174533f);
-    if (height < lowest) {
+    // A height asked for is taken as it is, low or high. Otherwise the game's, kept from lying too low.
+    const bool sun_placed = sun_height >= 0.0f;
+    const float lowest = std::sin((sun_placed ? sun_height : shadow_min_elevation_) * 0.0174533f);
+    if (sun_placed || height < lowest) {
         float flat[3] = {dir[0] - height * up_axis[0], dir[1] - height * up_axis[1], dir[2] - height * up_axis[2]};
         if (normalize(flat)) {
             const float across = std::sqrt(1.0f - lowest * lowest);
@@ -2435,6 +2663,15 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         } else {
             std::copy(up_axis, up_axis + 3, dir);
         }
+    }
+    // Around the world's up: its height stays.
+    if (sun_turn > 0.0f) {
+        const float angle = sun_turn * 0.0174533f, c = std::cos(angle), s = std::sin(angle);
+        const float along = dir[0] * up_axis[0] + dir[1] * up_axis[1] + dir[2] * up_axis[2];
+        float side[3];
+        cross(up_axis, dir, side);
+        for (int k = 0; k < 3; ++k) dir[k] = dir[k] * c + side[k] * s + up_axis[k] * along * (1.0f - c);
+        normalize(dir);
     }
     // The map's axes follow the world (its up and the sun), not the camera, so that shadows do not swim when the camera turns.
     float right[3], up[3];
@@ -2477,7 +2714,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     };
     // A draw that encloses the camera is a shell of the sky or of the air (a sandstorm): it does not depend on how many triangles
     // it has. The same goes for a single huge draw of very few triangles.
-    const auto shell = [&](const ShadowDraw &d) {
+    const auto shell_by_shape = [&](const ShadowDraw &d) {
         if (d.size() <= 5000.0f) return false;
         if (static_cast<float>(d.count / 3u) < 0.01f * d.size()) return true;
         const float *x = shadow_vertices_.data() + static_cast<std::size_t>(d.first) * 5u;
@@ -2493,8 +2730,12 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     };
     // Mist and fog in the air: what the game's list names, and textures that are mostly clear. Rock can be a single opaque
     // triangle too, so no shape tells them apart.
-    const auto air = [](const ShadowDraw &d) {
-        if (d.listed == 1) return true;
+    // Zones 6 and 8 of the volcano: what only adds light is mist, however opaque it comes near as it drifts, or the glow in the
+    // sky around the peak, cut into pieces that do not look like a shell.
+    const bool adding_light_is_air = shadow_zone_ >= 0 && (shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/volcano/area6" ||
+                                                           shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/volcano/area8");
+    const auto air = [adding_light_is_air](const ShadowDraw &d) {
+        if (d.listed == 1 || (adding_light_is_air && d.paint[0] == 0xA2u)) return true;
         // Fading out along their own vertices is what shapes floating in the air do; rock stays opaque. Leaves are left to their cut-outs.
         const bool fades = d.blended && !d.cutout && d.holes >= 0.02f && d.alpha_low < 200.0f;
         // See-through all over, like the haze some maps hang right in front of the camera.
@@ -2524,21 +2765,66 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         }
         feet = shadow_floor_ + origin_height;
     }
+    // The sky is cut into pieces, and those too small to look like a shell have the texture of the ones that do. High up, that
+    // says what they are: a single triangle of sky over a cave is otherwise just like one of rock.
+    std::unordered_set<std::uint64_t> sky_textures;
+    for (const ShadowDraw &d : shadow_draws_) {
+        if (d.count != 0 && d.listed != 2 && !shadow_groups_[d.group].skinned && shell_by_shape(d)) sky_textures.insert(d.texture_hash);
+    }
+    // The painted background: where the scenery has fog, the game leaves it out here, the distance being in the picture already.
+    // Water goes without too, but it is drawn with another alpha test. Pieces of the background match what is around them, and
+    // only a shadow would give them away.
+    std::uint32_t with_fog = 0u, without_fog = 0u;
+    for (const ShadowDraw &d : shadow_draws_) {
+        if (d.count == 0 || shadow_groups_[d.group].skinned) continue;
+        ((d.paint[6] & 2u) != 0 ? with_fog : without_fog) += d.count / 3u;
+    }
+    const bool scenery_has_fog = with_fog > 4u * without_fog;
+    const bool desert_walls = shadow_night_ && shadow_zone_ >= 0 && (shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/desert/area3" ||
+                                                                     shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/desert/area7" ||
+                                                                     shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/desert/area9");
+    const bool walls_look_like_sky = desert_walls || shadow_zone_ >= 0 && (shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/volcano/area3" ||
+                                                           shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/tower_1_2/area1" ||
+                                                           shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/old_jungle/area8" ||
+                                                           shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/volcano/area5" ||
+                                                           shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/volcano/area6");
+    const bool air_reaches_ground = shadow_zone_ >= 0 && (shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/jungle/area8" ||
+                                                          shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/old_jungle/area7" ||
+                                                          shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/volcano/area8");
+    const auto background = [&](const ShadowDraw &d) {
+        if (!scenery_has_fog || (d.paint[6] & 3u) != 1u || (d.paint[4] & 0xFFFFu) != 0x8007u || d.listed == 2 || d.size() < 500.0f || shadow_groups_[d.group].skinned) return false;
+        // The bed of the sea goes without fog as well, and that lies under the hunter's feet.
+        for (std::uint32_t v = d.first; v < d.first + d.count; ++v) {
+            if (height_of(shadow_vertices_.data() + static_cast<std::size_t>(v) * 5u) >= feet) return true;
+        }
+        return false;
+    };
+    const auto shell = [&](const ShadowDraw &d) {
+        if (walls_look_like_sky) return false; // walls, however big: they take the sun as any other
+        if (shell_by_shape(d) || background(d)) return true;
+        if (d.listed == 2 || sky_textures.count(d.texture_hash) == 0) return false;
+        for (std::uint32_t v = d.first; v < d.first + d.count; ++v) {
+            if (height_of(shadow_vertices_.data() + static_cast<std::size_t>(v) * 5u) < feet + 1000.0f) return false;
+        }
+        return true;
+    };
     const auto strip_or_flat = [&](const float *t) { // 0: neither, 1: a seam, 2: lying flat
-        const float h[3] = {height_of(t), height_of(t + 5), height_of(t + 10)};
         const float e0[3] = {t[5] - t[0], t[6] - t[1], t[7] - t[2]}, e1[3] = {t[10] - t[0], t[11] - t[1], t[12] - t[2]};
         float n[3];
         cross(e0, e1, n);
+        const float twice_area = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
         if (!normalize(n)) return 0;
         const float upright = std::fabs(n[0] * up_axis[0] + n[1] * up_axis[1] + n[2] * up_axis[2]);
         if (upright > 0.85f) return 2;
-        const float rise = std::max({h[0], h[1], h[2]}) - std::min({h[0], h[1], h[2]});
         float longest = 0.0f;
         for (int i = 0; i < 3; ++i) {
             const float *p = t + 5 * i, *q = t + 5 * ((i + 1) % 3);
             longest = std::max(longest, (q[0] - p[0]) * (q[0] - p[0]) + (q[1] - p[1]) * (q[1] - p[1]) + (q[2] - p[2]) * (q[2] - p[2]));
         }
-        return upright < 0.5f && (rise < 50.0f || (rise < 120.0f && rise < 0.3f * std::sqrt(longest))) ? 1 : 0;
+        // A seam is thin whichever way it lies: measured across, not by how much it rises, which a row of a low wall shares. Or
+        // long for how thin it is, like the strips along the sand: those of a wall are nowhere near that stretched.
+        const float length = std::max(std::sqrt(longest), 1.0f), across = twice_area / length;
+        return upright < 0.5f && (across < 40.0f || across < 0.12f * length) ? 1 : 0;
     };
     // The map's hidden walls: upright sheets that go down under the sand, seen only where the ground cuts them. Shading one would
     // draw a line along that cut. Rock stands on the ground: these reach well below the hunter's feet.
@@ -2551,12 +2837,6 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                std::min({height_of(t), height_of(t + 5), height_of(t + 10)}) < feet - 150.0f;
     };
     // Sand and gentle slopes low down: the game's own shading stays, and layers of ground over them would cut any shade drawn here.
-    const auto gentle_ground = [&](const float *t, float limit) {
-        const float e0[3] = {t[5] - t[0], t[6] - t[1], t[7] - t[2]}, e1[3] = {t[10] - t[0], t[11] - t[1], t[12] - t[2]};
-        float n[3];
-        cross(e0, e1, n);
-        return !normalize(n) || std::fabs(n[0] * up_axis[0] + n[1] * up_axis[1] + n[2] * up_axis[2]) > limit;
-    };
     const auto low_ground = [&](const float *t) {
         return std::max({height_of(t), height_of(t + 5), height_of(t + 10)}) < feet + 400.0f;
     };
@@ -2668,6 +2948,42 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             }
         }
     }
+    // The camps' textures show in the zones around them, so a numbered zone comes first. Not a stray texture of another map, though:
+    // the jungle's camp, with 23 of its 25, shows 2 of the desert's zone 1.
+    if (zone_now >= 0 && zone_share < 0.3f) {
+        for (std::size_t i = 0; i < shadow_zone_triangles_.size(); ++i) {
+            const std::string &name = shadow_zone_names_[i];
+            const bool base = name.size() > 5u && name.compare(name.size() - 5u, 5u, "/base") == 0;
+            const float share = static_cast<float>(shadow_zone_triangles_[i]) / static_cast<float>(std::max(1, shadow_zone_totals_[i]));
+            if (base && share >= 0.5f && share > zone_share) {
+                zone_share = share;
+                zone_now = static_cast<int>(i);
+            }
+        }
+    }
+    // Caves of one map share textures, and the pack keeps those with one of them, so a zone can look like a poor match for another:
+    // the swamp's zone 7 shows 9 of 14 of zone 3's. It does show a good part of its own, though, which zone 3 itself never does.
+    if (zone_now >= 0 && zone_share < 0.8f && shadow_zone_names_[static_cast<std::size_t>(zone_now)].find("/hunting/") != std::string::npos) {
+        const std::string &best = shadow_zone_names_[static_cast<std::size_t>(zone_now)];
+        const std::string map = best.substr(0, best.rfind('/') + 1u);
+        float rival_share = 0.0f;
+        int rival = -1;
+        for (std::size_t i = 0; i < shadow_zone_triangles_.size(); ++i) {
+            const std::string &name = shadow_zone_names_[i];
+            if (static_cast<int>(i) == zone_now || name.compare(0, map.size(), map) != 0 || name.find("/base") != std::string::npos) continue;
+            const float share = static_cast<float>(shadow_zone_triangles_[i]) / static_cast<float>(std::max(1, shadow_zone_totals_[i]));
+            // Only a zone much smaller than the winner: those are the ones the pack left with few textures of their own.
+            if (shadow_zone_triangles_[i] >= 2u && share >= 0.4f && share > rival_share &&
+                2 * shadow_zone_totals_[i] <= shadow_zone_totals_[static_cast<std::size_t>(zone_now)]) {
+                rival_share = share;
+                rival = static_cast<int>(i);
+            }
+        }
+        if (rival >= 0) {
+            zone_now = rival;
+            zone_share = rival_share;
+        }
+    }
     if (zone_now == shadow_zone_) {
         shadow_zone_votes_ = 0;
     } else if (zone_now >= 0) {
@@ -2679,6 +2995,10 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             shadow_zone_ = zone_now;
             shadow_zone_votes_ = 0;
             std::fprintf(stderr, "[shadow] zone %s (%.0f%% of its textures)\n", shadow_zone_names_[static_cast<std::size_t>(zone_now)].c_str(), zone_share * 100.0f);
+            // What else was on the screen: zones that share textures are told apart by these.
+            for (std::size_t i = 0; i < shadow_zone_triangles_.size(); ++i) {
+                if (shadow_zone_triangles_[i] != 0u) std::fprintf(stderr, "[shadow]   also %s: %u of %d textures\n", shadow_zone_names_[i].c_str(), shadow_zone_triangles_[i], shadow_zone_totals_[i]);
+            }
         }
     }
     if (shadow_zone_ >= 0) {
@@ -2707,6 +3027,12 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         // Lying flat is an overlay on the ground, unless the list says otherwise (leaves that float, like lily pads).
         return listed || !normalize(n) || std::fabs(n[0] * up_axis[0] + n[1] * up_axis[1] + n[2] * up_axis[2]) < 0.95f;
     };
+    // Zones 4, 5 and 6 of the swamp: their lily pads lie flat, and their texture does not stay the same from one game to the next.
+    bool lily_pads_float = false;
+    if (shadow_zone_ >= 0) {
+        const std::string &zone_name = shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)];
+        lily_pads_float = zone_name == "areas/hunting/swamp/area4" || zone_name == "areas/hunting/swamp/area5" || zone_name == "areas/hunting/swamp/area6";
+    }
     for (std::uint32_t i = 0; i < shadow_draws_.size(); ++i) {
         const ShadowDraw &d = shadow_draws_[i];
         if (d.count == 0 || d.target != rt.address) continue;
@@ -2736,9 +3062,10 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                 for (std::uint32_t v = 0; v + 3u <= d.count; v += 3u) {
                     const std::size_t at = (static_cast<std::size_t>(d.first) + v) * 5u;
                     const float *t = shadow_vertices_.data() + at;
-                    // The pieces of sand cross each other: slopes low down would cast along those lines.
-                    // Rock the game's list names is never ground, however low and flat.
-                    if (d.listed != 2 && low_ground(t) && (strip_or_flat(t) != 0 || gentle_ground(t, 0.6f))) continue;
+                    // Flat pieces and strips of ground, which overlap, would cast along their seams.
+                    // Rock the game's list names is never ground, however low and flat. And what stands up, as a trunk's sides do, is
+                    // no seam: those run along the ground.
+                    if (d.listed != 2 && low_ground(t) && strip_or_flat(t) != 0 && !(d.size() <= largest_piece && d.height() >= 1.5f * d.width())) continue;
                     shadow_vertices_.resize(shadow_vertices_.size() + 15u);
                     std::copy_n(shadow_vertices_.begin() + static_cast<std::ptrdiff_t>(at), 15, shadow_vertices_.end() - 15);
                 }
@@ -2752,7 +3079,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             const std::uint32_t start = static_cast<std::uint32_t>(shadow_vertices_.size() / 5u);
             for (std::uint32_t v = 0; v + 3u <= d.count; v += 3u) {
                 const std::size_t at = (static_cast<std::size_t>(d.first) + v) * 5u;
-                if (!triangle_casts(shadow_vertices_.data() + at, d.listed == 2)) continue;
+                if (!triangle_casts(shadow_vertices_.data() + at, d.listed == 2 || lily_pads_float)) continue;
                 shadow_vertices_.resize(shadow_vertices_.size() + 15u);
                 std::copy_n(shadow_vertices_.begin() + static_cast<std::ptrdiff_t>(at), 15, shadow_vertices_.end() - 15);
             }
@@ -2777,7 +3104,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         const float moved = std::sqrt(m[12] * m[12] + m[13] * m[13] + m[14] * m[14]);
         float turned = 0.0f;
         for (std::size_t k = 0; k < 3; ++k) turned += (m[k] * shadow_facing_dir_[0] + m[4 + k] * shadow_facing_dir_[1] + m[8 + k] * shadow_facing_dir_[2]) * dir[k];
-        if (moved < 4000.0f && turned > 0.9999f) {
+        if ((moved < 4000.0f && turned > 0.9999f) || shadow_left_known_ != 0u) {
             facing_reused = true;
             for (std::size_t c = 0; c < 4; ++c) {
                 for (std::size_t k = 0; k < 3; ++k) facing_motion[3 * c + k] = m[4 * c + k];
@@ -2806,6 +3133,17 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             if (added) shadow_normals_.insert(shadow_normals_.end(), 3u, 0.0f);
             return it->second;
         };
+        // Rock the game's list names is never a buried wall, and neither is a piece that rises well over the ground: a face of rock is
+        // cut into triangles, and its lower one looks like a buried wall while its upper one shows what it is part of.
+        // Thin strips along the seams of the ground. Up on a rock the same shape is a long triangle of its face, and must take the shade.
+        const auto seam = [&](const ShadowDraw &d, const float *t) { return d.listed != 2 && low_ground(t) && strip_or_flat(t) == 1; };
+        const auto may_be_buried = [&](const ShadowDraw &d) {
+            if (d.listed == 2) return false;
+            for (std::uint32_t v = d.first; v < d.first + d.count; ++v) {
+                if (height_of(shadow_vertices_.data() + static_cast<std::size_t>(v) * 5u) >= feet + 400.0f) return false;
+            }
+            return true;
+        };
         const auto solid = [&](const ShadowDraw &d) {
             const ShadowGroup &g = shadow_groups_[d.group];
             // A shell on the list takes the shade too (it shows through gaps in a wall), but it still casts nothing.
@@ -2818,7 +3156,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                 const float e0[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, e1[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
                 float n[3];
                 cross(e0, e1, n);
-                if (strip_or_flat(a) == 1 || buried_wall(a)) { // neither must bend the ground around them
+                if (seam(d, a) || (may_be_buried(d) && buried_wall(a))) { // neither must bend the ground around them
                     for (std::uint32_t k = 0; k < 3u; ++k) points[v + k] = point_of(v + k) * 3u;
                     continue;
                 }
@@ -2844,12 +3182,20 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                 float r[3] = {reach(points[v]), reach(points[v + 1u]), reach(points[v + 2u])};
                 // Thin upright strips between pieces of the ground are seams, not sides of anything.
                 const float *t = shadow_vertices_.data() + static_cast<std::size_t>(v) * 5u;
-                if (strip_or_flat(t) == 1 || buried_wall(t)) continue;
-                // Gentle slopes are sand low down and faces of rock high up: their shade comes in with the height, with no edge.
-                if (d.listed != 2 && gentle_ground(t, 0.6f)) {
-                    for (int k = 0; k < 3; ++k) {
-                        const float x = std::clamp((height_of(t + 5 * k) - feet - 300.0f) / 600.0f, 0.0f, 1.0f);
-                        r[k] = 1.0f - (1.0f - r[k]) * x * x * (3.0f - 2.0f * x);
+                if (seam(d, t) || (may_be_buried(d) && buried_wall(t))) continue;
+                // Normals are shared at the corners, which keeps low polygons from showing, but where a face of rock meets the ground its
+                // corners lean up with the ground and its lower triangles would take the sun. What clearly turns away from it stays dark.
+                {
+                    const float e0[3] = {t[5] - t[0], t[6] - t[1], t[7] - t[2]}, e1[3] = {t[10] - t[0], t[11] - t[1], t[12] - t[2]};
+                    float n[3];
+                    cross(e0, e1, n);
+                    if (normalize(n)) {
+                        if (n[0] * t[0] + n[1] * t[1] + n[2] * t[2] > 0.0f) {
+                            for (float &x : n) x = -x;
+                        }
+                        const float x = std::clamp((n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2] + 0.25f) / 0.2f, 0.0f, 1.0f);
+                        const float own = x * x * (3.0f - 2.0f * x);
+                        for (float &v : r) v = std::min(v, own);
                     }
                 }
                 // Far away the coarse mountains would show their polygons: the shade fades out, and the game's own light stays.
@@ -2872,7 +3218,26 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     if (!facing_reused) {
     shadow_facing_count_[next_map] = static_cast<GLsizei>(shadow_facing_.size() / 5u);
     for (const ShadowDraw &d : shadow_draws_) {
-        if (d.listed != 1 || d.count == 0 || d.target != rt.address) continue;
+        if (d.count == 0 || d.target != rt.address) continue;
+        // What the list says is air, and whatever is taken for air or for a shell of the sky.
+        // A veil that never gets near opaque, so what shows there is what lies behind it: the mouths of caves, foam on the sand.
+        // That keeps its shade. The shapes in the sky do get near it, at the middle of their fades.
+        // Not mist hanging far below the ground, as under the peak of zone 8 of the volcano: nothing lies behind it to keep any shade.
+        bool far_below = shadow_zone_ >= 0 && shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/volcano/area8";
+        for (std::uint32_t v = d.first; far_below && v < d.first + d.count; ++v) {
+            far_below = height_of(shadow_vertices_.data() + static_cast<std::size_t>(v) * 5u) < feet - 1000.0f;
+        }
+        const bool veil = d.listed != 1 && d.alpha_high < 200.0f && !far_below;
+        // What is taken for air counts high up, away from the ground it could lie over. The jungle's cave hangs its beams of light
+        // right down to the floor, so there it counts at any height.
+        bool taken_for_air = air(d) && !d.cutout;
+        for (std::uint32_t v = d.first; taken_for_air && !air_reaches_ground && !far_below && v < d.first + d.count; ++v) {
+            taken_for_air = height_of(shadow_vertices_.data() + static_cast<std::size_t>(v) * 5u) > feet + 600.0f;
+        }
+        // The tower's camp: its backdrop stands against the sky.
+        const bool tower_backdrop = backdrop(shadow_groups_[d.group]) && shadow_zone_ >= 0 && shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/tower_1_2/base";
+        const bool taken_for_sky = (shell(d) || tower_backdrop) && d.listed != 2;
+        if (veil || (d.listed != 1 && !taken_for_air && !taken_for_sky)) continue;
         for (std::uint32_t v = d.first; v < d.first + d.count; ++v) {
             const float *q = shadow_vertices_.data() + static_cast<std::size_t>(v) * 5u;
             const float real = shadow_depths_[v], w = shadow_proj_[3] * q[2] + shadow_proj_[5];
@@ -2940,7 +3305,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     p.drop = whole_map ? 1e9f : shadow_drop_; // with the scenery in the map, nothing has to be cut off below a caster
     p.darkness = std::clamp(live_->shadow_strength.load(std::memory_order_relaxed), 0.0f, 1.0f);
     // The zone's, unless the slider was moved from where it starts.
-    if (zone_darkness >= 0.0f && std::fabs(p.darkness - 0.5f) < 0.001f) p.darkness = zone_darkness;
+    if (zone_darkness >= 0.0f && std::fabs(p.darkness - 0.4f) < 0.001f) p.darkness = zone_darkness;
     // The player and what it carries, on a small map of its own.
     shadow_player_groups_.clear();
     p.player_half = 0.0f;
@@ -2996,7 +3361,15 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     // The scenery does not move, so its shadows need not be drawn again: what has been seen of it is kept (and goes on casting
     // when the camera turns away), its map is copied, and only what moves is drawn over that.
     bool scenery_kept = false;
-    if (whole_map && stage != nullptr && live_->shadow_keep_scenery.load(std::memory_order_relaxed)) {
+    // Zone 6 of the desert loses all its shadows with this, coming from zone 7, for a reason not found yet.
+    const bool nothing_kept_here = shadow_zone_ >= 0 && shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/desert/area6";
+    if (nothing_kept_here && shadow_known_zone_ != shadow_zone_) {
+        shadow_forget_scenery();
+        shadow_known_zone_ = shadow_zone_;
+    }
+    if (whole_map && stage != nullptr && !nothing_kept_here && live_->shadow_keep_scenery.load(std::memory_order_relaxed)) {
+        // What was kept belongs to the zone it was seen in, and its sun: nothing of it carries over to another.
+        if (shadow_known_zone_ != shadow_zone_) shadow_forget_scenery();
         if (shadow_seen_fbo_ == 0) {
             gl_.ActiveTexture(GL_TEXTURE0);
             gl_.GenTextures(1, &shadow_seen_color_);
@@ -3039,7 +3412,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             // A piece is known by its vertices, its texture and where it stands. Most of what is on the screen should be known by
             // now; if not, the frame is not the one it was, and nothing is learnt from this picture.
             std::vector<std::size_t> fresh;
-            std::size_t seen = 0, known = 0;
+            std::size_t seen = shadow_left_known_, known = shadow_left_known_;
             std::vector<std::uint64_t> fresh_keys;
             for (std::size_t i = 0; i < kept.ranges.size(); ++i) {
                 const KeptRange &r = kept.ranges[i];
@@ -3061,6 +3434,23 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                 }
             }
             const bool trusted = shadow_seen_keys_.size() < 64u || known * 4u >= seen;
+            // What needs no looking at from now on: the scenery that is kept, and that which casts nothing.
+            if (shadow_known_zone_ != shadow_zone_ || !trusted) shadow_known_.clear();
+            shadow_known_zone_ = shadow_zone_;
+            if (trusted) {
+                std::unordered_set<std::uint32_t> not_kept_yet;
+                for (const std::size_t i : fresh) not_kept_yet.insert(shadow_ranges_[i].draw);
+                for (std::uint32_t i = 0; i < shadow_draws_.size(); ++i) {
+                    const ShadowDraw &d = shadow_draws_[i];
+                    const ShadowGroup &g = shadow_groups_[d.group];
+                    if (d.known_key == 0u || d.count == 0 || g.skinned || casts(g) || d.cutout || d.target != rt.address || air(d) || shell(d) || backdrop(g) || not_kept_yet.count(i) != 0) continue;
+                    KnownPiece known_piece;
+                    std::copy(d.low, d.low + 3, known_piece.low);
+                    std::copy(d.high, d.high + 3, known_piece.high);
+                    known_piece.triangles = d.count / 3u;
+                    shadow_known_[d.known_key] = known_piece;
+                }
+            }
             shadow_seen_doubts_ = trusted ? 0 : shadow_seen_doubts_ + 1;
             if (shadow_seen_doubts_ >= 30) shadow_forget_scenery();
             if (trusted && shadow_seen_vertices_.size() < 6000000u) {
@@ -3076,6 +3466,10 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                         out[4] = in[4];
                     }
                     r.first = first;
+                    // Solid as it is kept: plain surfaces too have a low alpha test on, and by the time the map is drawn again their
+                    // texture may be gone, or be another one by then, and the test would throw away the rock.
+                    r.texture = 0;
+                    r.func = 1;
                     shadow_seen_ranges_.push_back(r);
                     shadow_seen_keys_.insert(fresh_keys[n]);
                     shadow_seen_grew_ = true;
@@ -3152,6 +3546,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
             return v;
         };
         const double g0 = gpu(0), g1 = gpu(1), g2 = gpu(2), g3 = gpu(3), g4 = gpu(4);
+        std::fprintf(stderr, "[shadow left] %u pieces left alone in this picture, %zu known\n", shadow_left_known_, shadow_known_.size());
         std::fprintf(stderr, "[shadow time] cpu ms per frame: capture %.2f, sorting %.2f, facing %.2f, keeping %.2f, sending %.2f | card ms each: map %.2f, hunter's map %.2f, factor %.2f, facing %.2f, applying %.2f | ground pieces agreeing %.0f%% | scenery kept: %zu pieces, %zu vertices, map drawn %d times\n",
                      shadow_capture_ms_ / n, shadow_cpu_ms_[0] / n, shadow_cpu_ms_[1] / n, shadow_cpu_ms_[2] / n, shadow_cpu_ms_[3] / n, g0, g1, g2, g3, g4,
                      shadow_scene_pictures_ != 0 ? 100.0 * shadow_scene_share_ / shadow_scene_pictures_ : 0.0,
@@ -3238,15 +3633,116 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         }
         std::sort(hits.begin(), hits.end(), [](const Hit &x, const Hit &y) { return x.distance < y.distance; });
         std::uint64_t signature = hits.size();
-        for (std::size_t i = 0; i < hits.size() && i < 6u; ++i) signature = signature * 1099511628211ull ^ shadow_draws_[hits[i].draw].texture_hash;
+        for (std::size_t i = 0; i < hits.size() && i < 6u; ++i) signature = (signature * 1099511628211ull ^ shadow_draws_[hits[i].draw].texture_hash) + shadow_draws_[hits[i].draw].count;
         if (signature != shadow_pick_logged_) {
             shadow_pick_logged_ = signature;
             std::fprintf(stderr, "[shadow] centre of the screen: %zu things\n", hits.size());
+            // What the map left out, nearest first: the game's own round shadows are likely among it.
+            struct LeftOut {
+                std::uint32_t draws{};
+                float nearest{1e30f}, alpha{}, red{};
+            };
+            std::map<std::array<std::uint64_t, 4>, LeftOut> left_out;
+            for (const UndepthedDraw &u : shadow_undepthed_) {
+                LeftOut &seen = left_out[{u.texture, static_cast<std::uint64_t>(u.paint[0]) << 32u | u.paint[3], static_cast<std::uint64_t>(u.paint[1]) << 32u | u.paint[2], static_cast<std::uint64_t>(u.paint[4]) << 32u | u.paint[5]}];
+                ++seen.draws;
+                seen.nearest = std::min(seen.nearest, std::sqrt(u.eye[0] * u.eye[0] + u.eye[1] * u.eye[1] + u.eye[2] * u.eye[2]));
+                seen.alpha = u.alpha;
+                seen.red = u.red;
+            }
+            std::fprintf(stderr, "[shadow] left out of the map: %zu draws, %zu kinds\n", shadow_undepthed_.size(), left_out.size());
+            // The dark ones, gathered by where they are: how many round shadows there are.
+            std::vector<std::array<float, 4>> rounds;
+            for (const UndepthedDraw &u : shadow_undepthed_) {
+                if ((u.paint[3] & 32u) == 0u || u.texture != 0x67c2a188780d8924ull) continue;
+                bool found = false;
+                for (auto &round : rounds) {
+                    const float dx = round[0] - u.eye[0], dy = round[1] - u.eye[1], dz = round[2] - u.eye[2];
+                    if (dx * dx + dy * dy + dz * dz < 150.0f * 150.0f) {
+                        round[3] += 1.0f;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) rounds.push_back({u.eye[0], u.eye[1], u.eye[2], 1.0f});
+            }
+            std::fprintf(stderr, "[shadow] dark pieces gathered into %zu places:", rounds.size());
+            for (const auto &round : rounds) std::fprintf(stderr, " %.0f pieces at %.0f;", round[3], std::sqrt(round[0] * round[0] + round[1] * round[1] + round[2] * round[2]));
+            std::fprintf(stderr, "\n");
+            for (const auto &[key, seen] : left_out) {
+                std::fprintf(stderr, "[shadow]   texture %016llx blend %08llx flags %llu fixed %016llx texfunc+alpha %016llx: %u draws, nearest %.0f, colour %.0f alpha %.0f\n", static_cast<unsigned long long>(key[0]),
+                             static_cast<unsigned long long>(key[1] >> 32u), static_cast<unsigned long long>(key[1] & 0xFFFFFFFFull), static_cast<unsigned long long>(key[2]), static_cast<unsigned long long>(key[3]), seen.draws, seen.nearest, seen.red, seen.alpha);
+            }
+            // Every way of painting in this picture, once for each set of them: what never paints shows up without aiming at it.
+            struct PaintStyle {
+                std::uint32_t draws{}, triangles{};
+                float lowest{1e30f}, highest{-1e30f}, biggest{};
+                std::unordered_set<std::uint64_t> textures;
+            };
+            std::map<std::array<std::uint32_t, 8>, PaintStyle> styles;
+            for (const ShadowDraw &d : shadow_draws_) {
+                if (d.count == 0 || d.target != rt.address || shadow_groups_[d.group].skinned) continue;
+                PaintStyle &style = styles[{d.blended ? 1u : 0u, d.paint[0], d.paint[1], d.paint[2], d.paint[3], d.paint[4], d.paint[5], d.paint[6]}];
+                ++style.draws;
+                style.triangles += d.count / 3u;
+                style.biggest = std::max(style.biggest, d.size());
+                style.textures.insert(d.texture_hash);
+                for (std::uint32_t v = d.first; v < d.first + d.count; ++v) {
+                    const float height = height_of(shadow_vertices_.data() + static_cast<std::size_t>(v) * 5u) - feet;
+                    style.lowest = std::min(style.lowest, height);
+                    style.highest = std::max(style.highest, height);
+                }
+            }
+            std::uint64_t styles_seen = 1469598103934665603ull;
+            for (const auto &[key, style] : styles) {
+                for (const std::uint32_t k : key) styles_seen = (styles_seen ^ k) * 1099511628211ull;
+            }
+            static std::uint64_t styles_logged = 0u;
+            if (styles_seen != styles_logged) {
+                styles_logged = styles_seen;
+                std::fprintf(stderr, "[shadow] ways of painting in this picture: %zu\n", styles.size());
+                for (const auto &[key, style] : styles) {
+                    std::fprintf(stderr, "[shadow]   %s blend %06x %06x %06x mask %06x alpha test %08x texfunc %06x flags %u: %u draws, %u triangles, %zu textures, biggest %.0f, height %.0f to %.0f;", key[0] != 0u ? "blended" : "solid",
+                                 key[1], key[2], key[3], key[4], key[5], key[6], key[7], style.draws, style.triangles, style.textures.size(), style.biggest, style.lowest, style.highest);
+                    int named = 0;
+                    for (const std::uint64_t texture : style.textures) {
+                        if (named++ == 4) break;
+                        std::fprintf(stderr, " %016llx", static_cast<unsigned long long>(texture));
+                    }
+                    std::fprintf(stderr, "\n");
+                }
+            }
+            // Which points two pieces share: scenery is joined to its neighbours, what floats in the air is not.
+            std::unordered_map<std::uint64_t, std::uint32_t> points_of; // the draw that has it, plus 1; 0: more than one
+            const auto point_key = [&](const float *x) {
+                std::uint64_t key = 1469598103934665603ull;
+                for (int k = 0; k < 3; ++k) key = (key ^ static_cast<std::uint64_t>(static_cast<std::int64_t>(std::floor(x[k] / 2.0f + 0.5f)))) * 1099511628211ull;
+                return key;
+            };
+            for (std::uint32_t n = 0; n < shadow_draws_.size(); ++n) {
+                const ShadowDraw &o = shadow_draws_[n];
+                if (o.count == 0 || o.target != rt.address || shadow_groups_[o.group].skinned) continue;
+                for (std::uint32_t v = o.first; v < o.first + o.count; ++v) {
+                    const auto [at, fresh] = points_of.try_emplace(point_key(shadow_vertices_.data() + static_cast<std::size_t>(v) * 5u), n + 1u);
+                    if (!fresh && at->second != n + 1u) at->second = 0u;
+                }
+            }
             for (std::size_t i = 0; i < hits.size() && i < 6u; ++i) {
                 const ShadowDraw &d = shadow_draws_[hits[i].draw];
                 const ShadowGroup &g = shadow_groups_[d.group];
                 bool in_map = false;
                 for (const ShadowRange &r : shadow_ranges_) in_map = in_map || r.draw == hits[i].draw;
+                std::uint32_t joined = 0u;
+                float lowest = 1e30f, highest = -1e30f;
+                for (std::uint32_t v = d.first; v < d.first + d.count; ++v) {
+                    const float *x = shadow_vertices_.data() + static_cast<std::size_t>(v) * 5u;
+                    const auto at = points_of.find(point_key(x));
+                    joined += at != points_of.end() && at->second == 0u ? 1u : 0u;
+                    lowest = std::min(lowest, height_of(x) - feet);
+                    highest = std::max(highest, height_of(x) - feet);
+                }
+                std::fprintf(stderr, "[shadow]   #%zu joined to others %u of %u points, height %.0f to %.0f, fog leaves %.2f to %.2f of colour %06x, blend %06x %06x %06x mask %06x alpha test %08x texfunc %06x flags %u\n", i + 1u, joined, d.count, lowest, highest, d.fog_low, d.fog_high, d.fog_color,
+                             d.paint[0], d.paint[1], d.paint[2], d.paint[3], d.paint[4], d.paint[5], d.paint[6]);
                 std::fprintf(stderr, "[shadow]   #%zu texture %016llx distance %.0f, %u triangles, size %.0f, %s%s%s%s, clear %.0f%%, vertex alpha %.0f-%.0f, %s, %s\n", i + 1u,
                              static_cast<unsigned long long>(d.texture_hash), hits[i].distance, d.count / 3u, d.size(), g.skinned ? "skinned " : "", d.cutout ? "cut-out " : "",
                              d.blended ? "blended " : "solid ", air(d) ? "air" : backdrop(g) ? "backdrop" : shell(d) ? "shell" : "", d.holes * 100.0f, d.alpha_low, d.alpha_high,
@@ -3506,6 +4002,40 @@ void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float 
     gl_.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, rt.depth, 0);
     gl_.Disable(GL_BLEND);
     gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    if (live_->shadow_show_zone.load(std::memory_order_relaxed)) {
+        // "desert 5" from "areas/hunting/desert/area5", drawn into the picture so that the 2D stays over it.
+        std::string label = shadow_zone_ >= 0 ? shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] : "no zone";
+        for (const char *prefix : {"areas/hunting/", "areas/"}) {
+            if (label.rfind(prefix, 0) == 0) label.erase(0, std::strlen(prefix));
+        }
+        for (char &c : label) c = c == '/' ? ' ' : static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        if (const auto at = label.rfind(" AREA"); at != std::string::npos) label.erase(at + 1u, 4u);
+        const GLint unit = 2 * scale_ / 2 + (scale_ < 2 ? 1 : 0);
+        const auto rect = [&](GLint x, GLint y, GLint width, GLint height) {
+            gl_.Scissor(x, y, width, height);
+            gl_.Clear(GL_COLOR_BUFFER_BIT);
+        };
+        const auto write = [&](const std::string &text, GLint x, GLint top) {
+            gl_.ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            rect(x - unit, top - unit, static_cast<GLint>(text.size()) * 6 * unit + unit, 9 * unit);
+            gl_.ClearColor(1.0f, 1.0f, 0.2f, 1.0f);
+            for (const char c : text) {
+                for (const auto &glyph : kLabelFont) {
+                    if (glyph.letter != c) continue;
+                    for (int row = 0; row < 7; ++row) {
+                        for (int bit = 0; bit < 5; ++bit) {
+                            if ((glyph.rows[row] >> (4 - bit) & 1) != 0) rect(x + bit * unit, top + row * unit, unit, unit);
+                        }
+                    }
+                }
+                x += 6 * unit;
+            }
+        };
+        gl_.Enable(GL_SCISSOR_TEST);
+        write(label + (shadow_night_ ? "  NOCHE" : "  DIA"), 4 * scale_, (static_cast<GLint>(rt.height) - 14) * scale_);
+        write(kShadowTestBuild, 4 * scale_, 6 * scale_); // which build is being tested, top left
+        gl_.Disable(GL_SCISSOR_TEST);
+    }
     gl_.BindTexture(GL_TEXTURE_2D, 0);
     gl_.ActiveTexture(GL_TEXTURE1);
     gl_.BindTexture(GL_TEXTURE_2D, 0);
@@ -3697,12 +4227,37 @@ void GlBackend::draw_batch() {
                 emit_state(setup_, it->second);
             }
         }
+        const bool effect = shadow_effect(setup_, batch_.data(), batch_.size());
+        if (effect) gl_.DepthMask(GL_FALSE);
         draw_vertices(batch_);
+        if (effect) gl_.DepthMask(GL_TRUE);
     }
     batch_.clear();
     batch_origins_.clear();
     raw_batch_.clear();
     raw_complete_ = true;
+}
+
+// Effects (a weapon's glow, a monster's roar): a few see-through triangles that never get near opaque, written into the
+// depth all the same. The shadows are worked out against the depth, so where an effect stood the ground behind it lost its
+// shade. Drawn without writing depth they look the same, and the ground keeps it. Not the pieces on the shadows' lists, not
+// the characters, and nothing large: veils over the mouths of caves and the foam on the sand take more triangles.
+bool GlBackend::shadow_effect(const DrawSetup &setup, const GpuVertex *vertices, std::size_t count) {
+    static const bool keep_depth = std::getenv("MHF_SHADOW_EFFECT_DEPTH") != nullptr;
+    if (keep_depth || !live_->shadow.load(std::memory_order_relaxed)) return false;
+    if (setup.through || setup.haze || setup.listed || setup.texture == 0 || count == 0 || count > 16u * 3u) return false;
+    const auto R = [&](std::uint32_t reg) { return key_reg(setup.key, reg); };
+    if ((R(kClearMode) & 1u) != 0 || (R(kAlphaBlendEnable) & 1u) == 0 || (R(kZTestEnable) & 1u) == 0 || (R(kZWriteDisable) & 1u) != 0) return false;
+    if (((R(kVertexType) >> 9u) & 3u) != 0) return false; // skinned
+    std::uint8_t most = 0;
+    for (std::size_t i = 0; i < count; ++i) most = std::max(most, vertices[i].color[3]);
+    if (most >= 200) return false;
+    static std::unordered_set<std::uint64_t> told;
+    if (told.insert(setup.tex_hash).second && told.size() < 200u) {
+        std::fprintf(stderr, "[shadow effect] texture %016llx: %zu triangles, vertex alpha up to %u, drawn without depth\n",
+                     static_cast<unsigned long long>(setup.tex_hash), count / 3u, static_cast<unsigned>(most));
+    }
+    return true;
 }
 
 void GlBackend::draw_vertices(const std::vector<GpuVertex> &vertices) {
@@ -4850,8 +5405,11 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
         }
         const auto t_state = Clock::now();
         emit_state(now[i].setup, scratch_);
+        const bool effect = shadow_effect(now[i].setup, staging_.data() + ranges_[i].first, ranges_[i].count);
+        if (effect) gl_.DepthMask(GL_FALSE);
         const auto t_draw = Clock::now();
         gl_.DrawArrays(GL_TRIANGLES, static_cast<GLint>(ranges_[i].first), static_cast<GLsizei>(ranges_[i].count));
+        if (effect) gl_.DepthMask(GL_TRUE);
         cost_.state_us += us(t_state, t_draw);
         cost_.draw_us += us(t_draw, Clock::now());
     }

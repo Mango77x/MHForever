@@ -262,7 +262,7 @@ void Frontend::set_shadow_textures(std::vector<std::uint64_t> air, std::vector<s
 }
 
 void Frontend::set_shadow_haze_textures(std::vector<std::uint64_t> textures) { impl_->live.shadow_haze_textures = std::move(textures); }
-void Frontend::set_shadow_zone_suns(std::vector<std::pair<std::string, std::pair<float, float>>> suns) { impl_->live.shadow_zone_suns = std::move(suns); }
+void Frontend::set_shadow_zone_suns(std::vector<std::pair<std::string, std::array<float, 3>>> suns) { impl_->live.shadow_zone_suns = std::move(suns); }
 void Frontend::set_shadow_cave_zones(std::vector<std::string> zones) { impl_->live.shadow_cave_zones = std::move(zones); }
 
 void Frontend::set_shadow_zones(std::vector<std::string> names, std::vector<std::pair<std::uint32_t, int>> textures) {
@@ -462,7 +462,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowWholeMapInCaves, kShadowHalfResolution, kShadowQuality, kShadowKeepScenery, kShadowSunHeight, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing, kShadowPick
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowHideRound, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowWholeMapInCaves, kShadowHalfResolution, kShadowQuality, kShadowKeepScenery, kShadowShowZone, kShadowSunHeight, kShadowSunTurn, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing, kShadowPick
 };
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
 
@@ -761,13 +761,23 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         overlay::MenuItem keep = menu_item(Kind::Toggle, kShadowKeepScenery, "Remember the scenery", impl.live.shadow_keep_scenery ? 1 : 0);
         keep.detail = "Keeps what the camera has seen casting shadows, and draws it less often. Experimental.";
         video.items.push_back(keep);
+        overlay::MenuItem round = menu_item(Kind::Toggle, kShadowHideRound, "Hide the game's round shadows", impl.live.shadow_hide_round ? 1 : 0);
+        round.detail = "Takes away the dark circles the game draws under hunters and monsters.";
+        video.items.push_back(round);
+        overlay::MenuItem zone_label = menu_item(Kind::Toggle, kShadowShowZone, "Show the zone", impl.live.shadow_show_zone ? 1 : 0);
+        zone_label.detail = "Writes the zone the shadows believe you are in, bottom left. Test.";
+        video.items.push_back(zone_label);
         video.items.push_back(menu_item(Kind::Slider, kShadowStrength, "Shadow darkness", static_cast<int>(impl.live.shadow_strength * 100.0f + 0.5f)));
-        // All the way down: as the game has it. All the way up: straight overhead (35 to 90 degrees).
+        // All the way down: as the game has it. From 1 up, the height: 0 degrees (on the horizon) to 90 (straight overhead).
         const float sun_height = impl.live.shadow_sun_height;
-        const int sun_value = sun_height <= 0.0f ? 0 : std::clamp(static_cast<int>((sun_height - 35.0f) / 0.55f + 0.5f), 1, 100);
+        const int sun_value = sun_height < 0.0f ? 0 : std::clamp(static_cast<int>(sun_height * 99.0f / 90.0f + 1.5f), 1, 100);
         overlay::MenuItem sun = menu_item(Kind::Slider, kShadowSunHeight, "Sun height", sun_value);
-        sun.detail = "Raises the sun for shorter shadows. All the way down: as the game has it. Test.";
+        sun.detail = sun_height < 0.0f ? std::string("All the way down: as the game has it, or the zone's. Test.")
+                                       : "Now " + std::to_string(static_cast<int>(sun_height + 0.5f)) + " degrees over the horizon. Test.";
         video.items.push_back(sun);
+        overlay::MenuItem turn = menu_item(Kind::Slider, kShadowSunTurn, "Sun direction", static_cast<int>(impl.live.shadow_sun_turn / 3.6f + 0.5f));
+        turn.detail = "Turns the sun around the sky. All the way down: where the game has it. Test.";
+        video.items.push_back(turn);
         // The largest object that casts: 30 * 1.05^value, about 30 to 39000 world units.
         const int largest = std::clamp(static_cast<int>(std::log(std::max(impl.live.shadow_max_object.load(), 30.0f) / 30.0f) / std::log(1.05f) + 0.5f), 0, 100);
         overlay::MenuItem size = menu_item(Kind::Slider, kShadowMaxObject, "Largest shadow object", largest);
@@ -1143,14 +1153,17 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             impl.live.shadow = e.value != 0;
             refresh_menu(impl); // the sliders under it appear or go
             break;
+        case kShadowSunTurn: impl.live.shadow_sun_turn = 3.6f * static_cast<float>(std::clamp(e.value, 0, 100)); break;
         case kShadowStrength: impl.live.shadow_strength = static_cast<float>(std::clamp(e.value, 0, 100)) / 100.0f; break;
-        case kShadowSunHeight: impl.live.shadow_sun_height = e.value <= 0 ? 0.0f : 35.0f + 0.55f * static_cast<float>(std::min(e.value, 100)); break;
+        case kShadowSunHeight: impl.live.shadow_sun_height = e.value <= 0 ? -1.0f : static_cast<float>(std::min(e.value, 100) - 1) * 90.0f / 99.0f; break;
         case kShadowMaxObject: impl.live.shadow_max_object = 30.0f * std::pow(1.05f, static_cast<float>(std::clamp(e.value, 0, 100))); break;
         case kShadowMaxPiece: impl.live.shadow_max_piece = e.value <= 0 ? 0.0f : 30.0f * std::pow(1.05f, static_cast<float>(std::min(e.value, 100))); break;
         case kShadowWholeMap: impl.live.shadow_whole_map = e.value != 0; break;
         case kShadowWholeMapInCaves: impl.live.shadow_whole_map_in_caves = e.value != 0; break;
         case kShadowHalfResolution: impl.live.shadow_half_resolution = e.value != 0; break;
         case kShadowKeepScenery: impl.live.shadow_keep_scenery = e.value != 0; break;
+        case kShadowShowZone: impl.live.shadow_show_zone = e.value != 0; break;
+        case kShadowHideRound: impl.live.shadow_hide_round = e.value != 0; break;
         case kShadowQuality: impl.live.shadow_quality = std::clamp(e.value, 0, 2); break;
         case kShadowPick: impl.live.shadow_pick = e.value != 0; break;
         case kShadowOnlyCast:

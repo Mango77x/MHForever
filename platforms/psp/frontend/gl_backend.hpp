@@ -14,6 +14,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <array>
 #include <utility>
 #include <vector>
 
@@ -56,9 +57,12 @@ struct LiveSettings {
     std::atomic<bool> shadow_whole_map{true};
     std::atomic<bool> shadow_whole_map_in_caves{false}; // the zones listed as caves get the whole map too
     std::atomic<int> shadow_quality{2};                 // the map of shadows: 0 low (2048), 1 medium (4096), 2 high (8192)
+    std::atomic<bool> shadow_hide_round{true};          // the game's own round shadows under hunters and monsters go
+    std::atomic<bool> shadow_show_zone{false};          // writes the zone it believes the game is in, bottom left
     std::atomic<bool> shadow_keep_scenery{true};        // the scenery's shadows are kept instead of drawn again for every picture
     std::atomic<bool> shadow_half_resolution{true};     // shadows worked out at half the picture's size, then brought up to it
-    std::atomic<float> shadow_sun_height{0.0f};         // degrees the sun is raised to at least; 0: as the game has it
+    std::atomic<float> shadow_sun_turn{0.0f};           // degrees the sun is turned from where the game has it; 0: not at all
+    std::atomic<float> shadow_sun_height{-1.0f};        // degrees over the horizon the sun is put at; below 0: as the game has it
     // For finding faults: 0 everything, 1 only the shadows that fall on things, 2 only the shade of sides turned from the sun.
     std::atomic<int> shadow_part{0};
     // For identifying things: what is under the middle of the screen goes to the log, with its texture.
@@ -69,9 +73,9 @@ struct LiveSettings {
     // Where the game is: the zones of its maps ("areas/hunting/desert/area6"), the game's textures that only a zone uses (a hash
     // of the game's own texture, as packs key them, and an index into the names), and the zones that are caves.
     std::vector<std::string> shadow_zone_names, shadow_cave_zones;
-    std::vector<std::pair<std::string, std::pair<float, float>>> shadow_zone_suns; // some zones' sun in degrees and darkness (< 0: the slider's)
+    std::vector<std::pair<std::string, std::array<float, 3>>> shadow_zone_suns; // some zones' sun: height in degrees, darkness (< 0: the slider's), turn in degrees
     std::vector<std::pair<std::uint32_t, int>> shadow_zone_textures;
-    std::atomic<float> shadow_strength{0.5f};
+    std::atomic<float> shadow_strength{0.4f};
     std::atomic<float> shadow_max_object{39450.0f};
     std::atomic<float> shadow_max_piece{39450.0f};
     std::atomic<bool> shadow_show{false};

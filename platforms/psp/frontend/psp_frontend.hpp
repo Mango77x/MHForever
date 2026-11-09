@@ -10,6 +10,7 @@
 #include <functional>
 #include <cstdint>
 #include <memory>
+#include <array>
 #include <utility>
 #include <vector>
 #include <string>
@@ -51,7 +52,7 @@ public:
     void set_shadow_textures(std::vector<std::uint64_t> air, std::vector<std::uint64_t> solid, std::vector<std::uint64_t> cave);
     void set_shadow_cave_zones(std::vector<std::string> zones);
     void set_shadow_haze_textures(std::vector<std::uint64_t> textures); // the shadows are worked out before these
-    void set_shadow_zone_suns(std::vector<std::pair<std::string, std::pair<float, float>>> suns); // zone name, degrees, darkness (< 0: the slider's)
+    void set_shadow_zone_suns(std::vector<std::pair<std::string, std::array<float, 3>>> suns); // zone: height in degrees, darkness (< 0: the slider's), turn in degrees
     void set_shadow_zones(std::vector<std::string> names, std::vector<std::pair<std::uint32_t, int>> textures);
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
