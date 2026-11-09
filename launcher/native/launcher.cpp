@@ -134,6 +134,7 @@ Json default_settings() {
     s["trueWeaponValues"] = false; // menus show attack and element without the game's display multipliers
     s["fastSupplyBox"] = false; // the supply box takes the next button soon after a take-out
     s["smithyBrowse"] = false; // the smithy's lists scroll with the R (materials) or Info panel open
+    s["smithyLayout"] = false; // and with Info open, Info on the left, the list and its materials on the right
     s["analogCamera"] = false; // the right stick turns and tilts the camera by how far it is pushed
     s["analogCameraTurnSpeed"] = 100; // and how fast, in percent of a full push: 50..200 in steps of 10
     s["analogCameraTiltSpeed"] = 100;
@@ -962,9 +963,9 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     for (const char *key : {"analogCameraTurnSpeed", "analogCameraTiltSpeed"}) { // 50, 60, ... 200
         if (partial[key].is_number()) s[key] = std::clamp(std::round(partial[key].as_number() / 10.0), 5.0, 20.0) * 10.0;
     }
-    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox", "smithyBrowse",
-                            "analogCamera", "hornSongs", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill",
-                            "fucFullChest", "fucDrinkBuff"}) {
+    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
+                            "analogCamera", "hornSongs", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest",
+                            "fucDrinkBuff"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
     num("fucCamera", 1, 5);
@@ -1339,7 +1340,10 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back("--true-weapon-values");
     }
     if (s["fastSupplyBox"].as_bool()) plan.args.push_back("--fast-supply-box");
-    if (s["smithyBrowse"].as_bool()) plan.args.push_back("--smithy-browse");
+    if (s["smithyBrowse"].as_bool()) {
+        plan.args.push_back("--smithy-browse");
+        if (s["smithyLayout"].as_bool()) plan.args.push_back("--smithy-layout");
+    }
     if (s["analogCamera"].as_bool()) {
         plan.args.push_back("--analog-camera");
         for (const auto &[key, flag] : {std::pair{"analogCameraTurnSpeed", "--analog-camera-turn-speed"},

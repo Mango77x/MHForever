@@ -547,7 +547,13 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           <div className="slabel"><b>Smithy: browse with panels open</b><span>Optional enhancement: in the smithy, the list keeps scrolling while the materials (R) or Info panel is open, and the panel shows the highlighted item. Off is faithful to the original.</span></div>
           <Toggle on={s.smithyBrowse ?? false} onToggle={() => onChange({ smithyBrowse: !(s.smithyBrowse ?? false) })} label="Smithy: browse with panels open" />
         </div>
-        {!fucomplete && ( // not mapped in FUComplete's executable yet
+        {s.smithyBrowse && (
+          <div className="srow">
+            <div className="slabel"><b>Smithy: improved layout</b><span>Optional enhancement: with Info open (X), Info sits on the left, the list stays visible with the materials under it, and the left stick turns Info's pages. Off is faithful to the original.</span></div>
+            <Toggle on={s.smithyLayout ?? false} onToggle={() => onChange({ smithyLayout: !(s.smithyLayout ?? false) })} label="Smithy: improved layout" />
+          </div>
+        )}
+        {!fucomplete && ( // FUComplete rewrites the camera function, which then runs without the call patches
           <>
             <div className="srow">
               <div className="slabel"><b>Analog camera</b><span>Optional enhancement: the right stick turns the camera as fast as you push it, and tilts it smoothly from the game's lowest view to its highest. Off is faithful to the original (the stick works as the d-pad).</span></div>

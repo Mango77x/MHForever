@@ -233,6 +233,15 @@ int main(int argc, char **argv) {
         smithy["smithyBrowse"] = "no";
         l.set_settings(smithy);
         CHECK(l.state()["settings"]["smithyBrowse"].as_bool());
+        // Smithy layout: off by default, a bool turns it on, anything else is ignored.
+        CHECK(!l.state()["settings"]["smithyLayout"].as_bool(true));
+        Json layout;
+        layout["smithyLayout"] = true;
+        l.set_settings(layout);
+        CHECK(l.state()["settings"]["smithyLayout"].as_bool());
+        layout["smithyLayout"] = "no";
+        l.set_settings(layout);
+        CHECK(l.state()["settings"]["smithyLayout"].as_bool());
         // Analog camera: off by default, a bool turns it on, anything else is ignored.
         CHECK(!l.state()["settings"]["analogCamera"].as_bool(true));
         Json camera;
