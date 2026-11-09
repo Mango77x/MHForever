@@ -646,4 +646,26 @@ Matrix blend_eye(const Matrix &older, const Matrix &newer, const RigidMotion &ca
     return multiply(rigid_at(camera, t), blend_affine(older, own, t));
 }
 
+bool rigid_between(const Matrix &older, const Matrix &newer, RigidMotion &out) noexcept {
+    Matrix older_inverse{};
+    if (!affine_inverse(older, older_inverse)) return false;
+    const Matrix m = multiply(newer, older_inverse);
+    // A rotation: unit columns at right angles, turning the right way round.
+    constexpr float kTolerance = 2e-3f;
+    for (std::size_t a = 0; a < 3u; ++a) {
+        for (std::size_t b = a; b < 3u; ++b) {
+            const float d = m[a * 4u] * m[b * 4u] + m[a * 4u + 1u] * m[b * 4u + 1u] + m[a * 4u + 2u] * m[b * 4u + 2u];
+            if (std::fabs(d - (a == b ? 1.0f : 0.0f)) > kTolerance) return false;
+        }
+    }
+    const float det = m[0] * (m[5] * m[10] - m[9] * m[6]) - m[4] * (m[1] * m[10] - m[9] * m[2]) + m[8] * (m[1] * m[6] - m[5] * m[2]);
+    if (det <= 0.0f) return false;
+    out = rigid_motion(m);
+    return out.valid;
+}
+
+Matrix follow_rigid(const Matrix &older, const RigidMotion &motion, float t) noexcept {
+    return multiply(rigid_at(motion, t), older);
+}
+
 } // namespace mhf::psp::interpolation

@@ -903,6 +903,10 @@ private:
         bool deform = false;
         std::size_t old_first = 0, new_first = 0;
         interpolation::Matrix back_old;
+        // A pair whose eye transform moved rigidly (scenery that stood still while the camera moved, or a piece that
+        // moved as one): it follows its own motion's arc, so a wrong camera vote cannot pull it off its path.
+        bool rigid = false;
+        interpolation::RigidMotion motion;
     };
     // A share of a batch's triangles, placed by one thread into its own vertices.
     struct V2Chunk {
@@ -2677,6 +2681,7 @@ void GlBackend::prepare_v2_draw(std::uint32_t n) {
                 return;
             }
             out.kind = V2Draw::kBlend;
+            out.rigid = interpolation::rigid_between(out.older_eye, eye, out.motion);
             // The newer transform as the older camera would have seen it (interpolation::blend_eye).
             out.own = v2_camera_.valid ? interpolation::multiply(v2_camera_.inverse, eye) : eye;
         } else if (v2_camera_.valid && d.eligible) {
@@ -2900,6 +2905,10 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                 case V2Draw::kStill: eye_t = d.own; break;
                 case V2Draw::kFollow: eye_t = interpolation::multiply(camera_t, d.own); break;
                 default:
+                    if (d.rigid) {
+                        eye_t = interpolation::follow_rigid(d.older_eye, d.motion, t);
+                        break;
+                    }
                     eye_t = interpolation::blend_affine(d.older_eye, d.own, t);
                     if (v2_camera_.valid) eye_t = interpolation::multiply(camera_t, eye_t);
                     break;

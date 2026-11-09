@@ -174,4 +174,12 @@ struct RigidMotion {
 // motion is blended in the older frame's eye space and the camera's motion is followed along its arcs.
 [[nodiscard]] Matrix blend_eye(const Matrix &older, const Matrix &newer, const RigidMotion &camera, float t) noexcept;
 
+// The motion that takes `older` to `newer` in eye space (newer = motion * older), when it is rigid (a turn and a move,
+// no change of scale or shear): what a draw that moved only with the camera, or moved as one piece, went through.
+// False when it is not rigid.
+[[nodiscard]] bool rigid_between(const Matrix &older, const Matrix &newer, RigidMotion &out) noexcept;
+// Where such a draw is at `t`: `older` carried part of the way along its own motion's arc. Scenery that stood still
+// moved exactly as the camera did, so it follows the camera's true arc whatever motion the camera vote found.
+[[nodiscard]] Matrix follow_rigid(const Matrix &older, const RigidMotion &motion, float t) noexcept;
+
 } // namespace mhf::psp::interpolation
