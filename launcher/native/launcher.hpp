@@ -157,7 +157,8 @@ public:
         std::vector<SaveCandidate> found;
         std::string note; // why nothing was found, when it can be said
     };
-    SaveScan scan_saves(const std::string &disc_id, const std::filesystem::path &source) const;
+    // A FUComplete copy takes the saves of the release its "fucSaveRegion" setting names (FUComplete reads those).
+    SaveScan scan_saves(const std::string &disc_id, const std::filesystem::path &source);
     // Copies the chosen saves into the memory stick of `disc_id`. A save the player already has with the same folder name
     // is moved to <saves>/<disc id>/backups/<date and time>/ first, never deleted. Nothing is left half done.
     struct SaveImport {
