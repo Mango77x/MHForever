@@ -344,7 +344,7 @@ void main() {
 )";
 
 // Letters for the zone label: five bits a row, seven rows.
-constexpr const char *kShadowTestBuild = "V240";
+constexpr const char *kShadowTestBuild = "V241";
 constexpr struct {
     char letter;
     std::uint8_t rows[7];
@@ -1168,17 +1168,6 @@ private:
                         const std::vector<TapeEntry> &before, const Slot &before_slot, float t);
     void draw_batch();
     bool shadow_effect(const DrawSetup &setup, const GpuVertex *vertices, std::size_t count);
-    // Effects wait for the shadows: drawn over the picture once it has its shade, they keep their own light.
-    struct WaitingEffect {
-        DrawSetup setup;
-        std::vector<GpuVertex> vertices;
-    };
-    std::vector<WaitingEffect> effects_waiting_;
-    void draw_waiting_effects();
-    static bool effects_in_order() {
-        static const bool in_order = std::getenv("MHF_SHADOW_EFFECT_IN_ORDER") != nullptr;
-        return in_order;
-    }
     void read_back();
     RenderTarget &target_for(std::uint32_t address, std::uint32_t stride, std::uint32_t format,
                              std::uint32_t needed_height);
@@ -2204,7 +2193,6 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
         } else if (shadow_scene_frame_ == frame_ && shadow_done_frame_ != frame_ && shadow_scene_address_ == rt.address) {
             shadow_done_frame_ = frame_;
             run_shadow(rt);
-            draw_waiting_effects();
         }
     }
     emit_state(setup, rt);
@@ -4245,7 +4233,6 @@ void GlBackend::draw_batch() {
                 std::copy_n(shadow_scene_view_ + 8, 4, shadow_vp_);
                 shadow_done_frame_ = frame_;
                 run_shadow(it->second);
-                draw_waiting_effects();
                 gl_.BindVertexArray(vao_);
                 gl_.BindBuffer(GL_ARRAY_BUFFER, vbo_);
                 have_state_ = false;
@@ -4253,13 +4240,9 @@ void GlBackend::draw_batch() {
             }
         }
         const bool effect = shadow_effect(setup_, batch_.data(), batch_.size());
-        if (effect && !effects_in_order() && setup_.target == shadow_scene_address_ && shadow_scene_frame_ == frame_ && shadow_done_frame_ != frame_) {
-            effects_waiting_.push_back({setup_, batch_});
-        } else {
-            if (effect) gl_.DepthMask(GL_FALSE);
-            draw_vertices(batch_);
-            if (effect) gl_.DepthMask(GL_TRUE);
-        }
+        if (effect) gl_.DepthMask(GL_FALSE);
+        draw_vertices(batch_);
+        if (effect) gl_.DepthMask(GL_TRUE);
     }
     batch_.clear();
     setup_.largest_draw = 0;
@@ -4292,20 +4275,6 @@ bool GlBackend::shadow_effect(const DrawSetup &setup, const GpuVertex *vertices,
                      static_cast<unsigned long long>(setup.tex_hash), count / 3u, setup.largest_draw, static_cast<unsigned>(most));
     }
     return true;
-}
-
-void GlBackend::draw_waiting_effects() {
-    if (effects_waiting_.empty()) return;
-    for (const WaitingEffect &e : effects_waiting_) {
-        const auto it = targets_.find(e.setup.target);
-        if (it == targets_.end()) continue;
-        emit_state(e.setup, it->second);
-        gl_.DepthMask(GL_FALSE);
-        draw_vertices(e.vertices);
-        gl_.DepthMask(GL_TRUE);
-    }
-    effects_waiting_.clear();
-    have_state_ = false;
 }
 
 void GlBackend::draw_vertices(const std::vector<GpuVertex> &vertices) {
@@ -4436,7 +4405,6 @@ void GlBackend::block_transfer(std::uint32_t src, std::uint32_t /*src_stride: th
 
 void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32_t pixel_format) {
     draw_batch();
-    draw_waiting_effects(); // the shadows never came this time
     have_state_ = false;
     flush_pictures(); // pictures of the previous flip that never got their turn
     apply_live_scale();
@@ -5393,17 +5361,6 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
     bool shadow_pending = flip_.shadow.valid && shadow_ready_ && live_->shadow.load(std::memory_order_relaxed) &&
                           shadow_generation_ - flip_.shadow.generation < 2u;
     bool scene_drawn = false;
-    std::vector<std::size_t> waiting; // effects, drawn once the shadows are on
-    const auto draw_waiting = [&] {
-        for (const std::size_t j : waiting) {
-            emit_state(now[j].setup, scratch_);
-            gl_.DepthMask(GL_FALSE);
-            gl_.DrawArrays(GL_TRIANGLES, static_cast<GLint>(ranges_[j].first), static_cast<GLsizei>(ranges_[j].count));
-            gl_.DepthMask(GL_TRUE);
-        }
-        waiting.clear();
-        have_state_ = false;
-    };
     for (std::size_t i = 0; i < now.size(); ++i) {
         if (ranges_[i].count == 0) continue;
         if (shadow_pending && (key_reg(now[i].setup.key, kClearMode) & 1u) == 0) {
@@ -5461,16 +5418,11 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                 gl_.BindVertexArray(vao_);
                 gl_.BindBuffer(GL_ARRAY_BUFFER, vbo_);
                 have_state_ = false;
-                draw_waiting();
             }
-        }
-        const bool effect = shadow_effect(now[i].setup, staging_.data() + ranges_[i].first, ranges_[i].count);
-        if (effect && shadow_pending && !effects_in_order()) {
-            waiting.push_back(i);
-            continue;
         }
         const auto t_state = Clock::now();
         emit_state(now[i].setup, scratch_);
+        const bool effect = shadow_effect(now[i].setup, staging_.data() + ranges_[i].first, ranges_[i].count);
         if (effect) gl_.DepthMask(GL_FALSE);
         const auto t_draw = Clock::now();
         gl_.DrawArrays(GL_TRIANGLES, static_cast<GLint>(ranges_[i].first), static_cast<GLsizei>(ranges_[i].count));
@@ -5478,7 +5430,6 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
         cost_.state_us += us(t_state, t_draw);
         cost_.draw_us += us(t_draw, Clock::now());
     }
-    draw_waiting(); // the shadows never came this time
     ++cost_.pictures;
     cost_.batches += now.size();
     cost_.vertices += staging_.size();
