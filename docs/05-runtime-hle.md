@@ -417,7 +417,8 @@ its folder (`--texture-pack`, or `MHF_TEXTURE_PACK`).
   image is decoded the game's own texture is drawn; loader threads (a third of the cores, 1 to 3) decode KTX2 through Basis
   Universal (UASTC/ETC1S, zstd) and PNG through stb_image, with the mip levels a file or the pack (`_1`, `_2`...) gives.
   At most 6 images reach the GPU a flip, each with a full mip chain (made by `glGenerateMipmap` when the pack has none),
-  sampled with mipmapped filtering; `[filtering]` overrides the game's filter. A `[hashranges]` image covers part of the
+  sampled with mipmapped filtering and up to 16x anisotropic filtering (as PPSSPP; surfaces seen at a slant stay sharp);
+  `[filtering]` overrides the game's filter. A `[hashranges]` image covers part of the
   texture, so its coordinates are scaled. Pack images on the GPU are kept within 1 GB (`MHF_TEXTURE_PACK_MEMORY` in MB):
   past it, those drawn least recently go and are loaded again when drawn. Decoded images nobody took are dropped past
   512 MB. A failed image is not retried.
