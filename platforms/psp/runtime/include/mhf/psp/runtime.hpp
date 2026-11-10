@@ -130,6 +130,9 @@ public:
     // map's call patch (registered under the patch's name).
     void register_hook(std::string name, HookFunction function);
     [[nodiscard]] HookFunction find_hook(std::string_view name) const;
+    // The hook of a call patch at `pc` in the program that holds it (the executable, or the overlay loaded there), when
+    // one is registered: for the interpreter, which runs it before the instruction as recompiled code does.
+    [[nodiscard]] HookFunction call_patch_hook(std::uint32_t pc) const;
     // Instruction patches (region map [patches]): generated code reads the switch the first time it runs the
     // instruction, so the game program turns patches on before the game starts.
     void enable_patch(std::string name);
@@ -228,6 +231,8 @@ private:
     std::vector<OverlayRegion> overlay_regions_;
     std::unordered_map<std::int32_t, const Program *> overlays_;
     std::unordered_map<std::string, HookFunction> hooks_;
+    const Program *main_program_ = nullptr; // the executable (add_program), for its call patches
+    bool any_call_patches_ = false;
     std::unordered_map<std::string, bool> patches_;
     std::unordered_map<std::uint64_t, const HleFunction *> hle_;
     std::unordered_map<std::uint64_t, bool> reported_unimplemented_;

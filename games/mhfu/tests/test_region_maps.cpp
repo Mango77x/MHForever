@@ -100,10 +100,10 @@ int main() {
     check_release("ULES01213", european, all);
     check_release("ULUS10391", european, all);
     check_release("ULJM05500", japanese, all);
-    // FUComplete keeps the Japanese layout: the same map, plus the words it rewrites at run time ([guards]). No
-    // analog camera: FUComplete rewrites a word of the camera function the call patches are in, which then runs in the
-    // interpreter, where they do not run (the launcher hides the option there).
-    check_release("ULJM05500-FUC", japanese, all, false);
+    // FUComplete keeps the Japanese layout: the same map, plus the words it rewrites at run time ([guards]). The analog
+    // camera too: FUComplete rewrites a word of the camera function the call patches are in, which then runs in the
+    // interpreter, and the interpreter runs call patches as recompiled code does.
+    check_release("ULJM05500-FUC", japanese, all);
     {
         const fs::path fuc = fs::path(MHF_MHFU_REGIONS_DIR) / "ULJM05500-FUC" / "symbols.toml";
         std::set<std::string> modules;

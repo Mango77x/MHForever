@@ -269,6 +269,9 @@ struct Interpreter {
         const std::uint32_t entry_sp = ctx.gpr[29];
         std::uint32_t pc = entry;
         for (;;) {
+            // A region map's call patch runs its hook before the instruction, as in recompiled code (a function the
+            // game rewrote runs here, region map [guards]; FUComplete's camera function, for the analog camera).
+            if (const HookFunction hook = rt.call_patch_hook(pc)) hook(rt, ctx);
             const auto d = psprecomp::decode_allegrex(mem.load32(pc));
             if (!d.has_delay_slot() && d.kind != K::Jr && d.kind != K::Jalr) {
                 exec(d, pc);
