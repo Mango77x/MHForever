@@ -517,6 +517,7 @@ public:
         open_texture_pack();
         const char *hud_log = std::getenv("MHF_HUD_LOG");
         hud_log_ = hud_log != nullptr && hud_log[0] == '1';
+        if (const char *every = std::getenv("MHF_HUD_LOG_EVERY")) hud_log_every_ = static_cast<std::uint64_t>(std::max(1, std::atoi(every)));
     }
 
     ~GlBackend() override {
@@ -542,6 +543,8 @@ public:
 
     void draw_started(const gpu::DrawInfo &draw) override {
         ++draw_serial_; // the GE's state can only have changed since the last draw
+        if (draw.layer != draw_layer_) draw_batch(); // a batch holds draws of one layer (see size_hud)
+        draw_layer_ = draw.layer;
         if (!interpolate_) return;
         draw_use_ = ++draw_uses_[draw.vertex_address];
         recording_.push_back(interpolation::summarize(draw));
@@ -580,6 +583,13 @@ public:
         tl.x = a.x; tl.y = a.y; tl.u = a.u; tl.v = a.v;
         tr.x = b.x; tr.y = a.y; tr.u = b.u; tr.v = a.v;
         bl.x = a.x; bl.y = b.y; bl.u = a.u; bl.v = b.v;
+        // A 2D sprite whose second corner is up and right (or down and left) of its first shows its texture turned a
+        // quarter: the other two corners swap their texture coordinates (as the PSP draws it; PPSSPP does the same).
+        // The bowgun and bow sight's vertical pieces are drawn so (issue #77): without this they came out stretched.
+        if (through_ && ((a.x < b.x && a.y > b.y) || (a.x > b.x && a.y < b.y))) {
+            std::swap(tr.u, bl.u);
+            std::swap(tr.v, bl.v);
+        }
         for (gpu::Vertex *v : {&tl, &tr, &bl, &br}) v->w = 1.0f; // sprites interpolate linearly
         push(tl, nullptr);
         push(tr, nullptr);
@@ -680,6 +690,7 @@ private:
         g.color[0] = to_byte(c.r); g.color[1] = to_byte(c.g); g.color[2] = to_byte(c.b); g.color[3] = to_byte(c.a);
         g.spec[0] = to_byte(c.sr); g.spec[1] = to_byte(c.sg); g.spec[2] = to_byte(c.sb); g.spec[3] = 0;
         g.fog = v.fog;
+        if (batch_.empty()) batch_layer_ = draw_layer_;
         batch_.push_back(g);
     }
 
@@ -989,15 +1000,18 @@ private:
     std::uint64_t frame_{1};
 
     // HUD size (LiveSettings::hud_size). Each 2D draw of a shown screen is placed as it comes, from this flip's draws
-    // only (see size_hud): the quest HUD is the run the game draws from its clock, so nothing carries over from one flip
-    // to the next and nothing jumps when a menu opens. MHF_HUD_LOG=1 describes the 2D draws of every 300th flip.
+    // only (see size_hud): the game draws its 2D in layers, and the quest HUD has two of its own, so nothing carries
+    // over from one flip to the next and nothing jumps when a menu opens. MHF_HUD_LOG=1 describes the 2D draws of
+    // every 300th flip (MHF_HUD_LOG_EVERY=<n>: of every n-th).
     struct HudBox {
         float x1, y1, x2, y2;
     };
-    enum class HudPhase { before, vitals, after_vitals, map, items, rest };
-    HudPhase hud_phase_ = HudPhase::before;                  // where this flip's 2D draws are in the HUD's run
-    std::vector<HudBox> hud_vitals_;                         // this flip's clock, bars and name plate
-    bool hud_after_name_ = false;
+    enum class HudRight { unknown, map, items, menu };
+    std::uint32_t hud_layer_ = kNoLayer;        // this flip's layer with the clock, the bars and the name plates
+    std::uint32_t hud_seen_layer_ = kNoLayer;   // the layer of the last 2D draw placed
+    HudRight hud_right_ = HudRight::unknown;    // where the layer after it is: in the minimap, in the item panel, or a menu
+    HudBox hud_items_{1e9f, 1e9f, -1e9f, -1e9f}; // this flip's item panel so far
+    static constexpr std::uint32_t kNoLayer = 0xFFFFFFFFu;
     std::vector<HudBox> hud_flip_boxes_;                     // MHF_HUD_LOG: this flip's 2D draws and where they went
     std::vector<const char *> hud_flip_kinds_;
     bool hud_corner_seen_ = false;
@@ -1005,6 +1019,8 @@ private:
     std::array<std::uint32_t, 4> shown_targets_{~0u, ~0u, ~0u, ~0u}; // the screens presented lately
     std::size_t shown_next_ = 0;
     bool hud_log_ = false, hud_log_flip_ = false;
+    std::uint64_t hud_log_every_ = 300;
+    std::uint32_t draw_layer_ = 0, batch_layer_ = 0; // the layer of the draw under way, and of the batch's draws
     std::size_t hud_drawn_ = 0, hud_3d_after_ = 0; // in the logged flip: 2D draws sized, 3D draws on a screen after them
 };
 
@@ -1784,39 +1800,24 @@ void GlBackend::draw_batch() {
     raw_complete_ = true;
 }
 
-// HUD size: only the quest HUD is sized. It is a run the game draws before anything else on the screen, in this order:
-// its clock with the health and stamina bars, the sharpness and the name plate; then the minimap; then the item bar.
-// Each piece of that run shrinks into its corner; everything else (menus, the village, the start screens) keeps its
-// size. A quest is a flip that draws the clock, so the village never is. Nothing carries over from one flip to the
-// next, so nothing jumps when a menu opens.
+// HUD size: only the quest HUD is sized. The game does not draw its 2D in one run: it sorts it into layers (a table of
+// jumps at the start of its display list, one entry per layer, gpu::DrawInfo::layer), and the quest HUD has two layers
+// to itself (seen in a quest with a long sword, 2026-11-09):
+// - the layer with the clock holds, from the clock on, the clock, the health and stamina bars, the weapon's own gauge (the long
+//   sword's spirit bar), the sharpness, the name plates of the hunter, a comrade and the other hunters, and the icons of
+//   the effects next to them. All of it shrinks into the top left corner;
+// - the next layer holds the minimap and the item panel (the item bar, also while L opens it, and with the list of
+//   coatings or shots on top), which shrink into their corners. The game's start menu takes that layer over while it
+//   is open, with the minimap and the item panel gone: it keeps its size.
+// The supply box, the messages and every other menu are in later layers and keep their size (but for the cursor of the
+// coatings' list, see hud_over), and so do the village and the start screens, where no layer has the clock. Nothing carries over from one flip to the next.
+// Before, the HUD was found by where each piece lies, as one run of draws: every piece nobody had listed (a comrade's
+// plate, a hot drink's icon, the long sword's spirit bar) ended the run and left what followed at full size.
 // Sizing the menus too was tried and dropped: the game only hands over loose 2D draws, nothing says which belong to
 // one panel or which corner it hangs from, and every rule that guessed it from positions pulled some menu apart or
 // made screens change size back and forth. Doing it well needs the game's own layout code (where each element is
 // anchored), not guesses from the outside.
 constexpr float kHudClock[4] = {8.0f, 8.0f, 60.0f, 56.0f}; // the clock's box (measured, EU, US and JP alike)
-// Where the clock's pieces lie (measured): the clock, the bars (however long) and the sharpness above y 40, then the
-// name plates at x <= 104 from y 56, which come last. The hunter's own plate is the first; a Felyne comrade's and the
-// other hunters' in a group follow under it, 20 pixels apart (up to four plates, to y 133), and need not touch the
-// pieces above (seen in a report: with a comrade along, the second plate ended the run, so the minimap and the item bar
-// kept their size). A menu's header starts at y 40, right under the sharpness, and the supply box's top edge touches
-// the stamina bar: neither is part of the run.
-constexpr float kHudPlatesBottom = 73.0f + 3.0f * 20.0f;
-template <typename Box> bool hud_name_plate(const Box &b) {
-    return b.x2 <= 105.0f && b.y1 >= 54.0f && b.y2 <= kHudPlatesBottom;
-}
-template <typename Box> bool hud_vitals_piece(const Box &b, bool after_name) {
-    return hud_name_plate(b) || (!after_name && b.y2 <= 41.0f);
-}
-// The status icons of an effect (a hot drink, seen in a report; the others alike) sit in a name plate's rows, right of its
-// edge at x 104, one after the other: a small piece there that starts at most 16 pixels right of what that row holds so
-// far. Without it the first icon ended the run, and the minimap and the item bar kept their size.
-template <typename Box> bool hud_status_icon(const Box &b, float row_right) {
-    return b.y1 >= 54.0f && b.y2 <= kHudPlatesBottom && b.x1 >= 100.0f && b.x1 <= row_right + 16.0f && b.x2 - b.x1 <= 32.0f &&
-           b.y2 - b.y1 <= 32.0f;
-}
-template <typename Box> bool hud_touch(const Box &a, const Box &b) {
-    return a.x1 <= b.x2 + 1 && b.x1 <= a.x2 + 1 && a.y1 <= b.y2 + 1 && b.y1 <= a.y2 + 1;
-}
 // The clock may come alone or in one batch with the pieces drawn next to it (draws with the same state are drawn
 // together): a batch that starts at the clock's corner, covers the clock and stays within the bars' rows.
 template <typename Box> bool hud_is_clock(const Box &b) {
@@ -1825,14 +1826,33 @@ template <typename Box> bool hud_is_clock(const Box &b) {
 }
 // Something in the clock's corner (for the log: a flip with it and no HUD found is described in full).
 template <typename Box> bool hud_in_clock_corner(const Box &b) { return b.x1 < 16.0f && b.y1 < 16.0f && b.y2 <= 80.0f; }
-// The minimap fills a square in the top right corner (measured: 316,32 to 468,184). Until the player takes the map
-// from the supply box it is drawn as the visited areas only, small pieces inside that square, so any piece inside it
-// counts; the smallest is a 12x12 mark, so a thinner piece there is a menu's (a header's 8-high edge). The item bar
-// sits in the bottom right.
-template <typename Box> bool hud_on_map(const Box &b) {
-    return b.x1 >= 314.0f && b.y1 >= 30.0f && b.x2 <= 470.0f && b.y2 <= 186.0f && b.x2 - b.x1 >= 10.0f && b.y2 - b.y1 >= 10.0f;
+// The clock's layer is the HUD's alone, so this is only a guard: a piece of it far from the top left corner (none
+// seen) would be dragged across the screen, and keeps its place instead. The bars reach x 344 at their longest and the
+// fourth name plate ends at y 133.
+template <typename Box> bool hud_in_top_left(const Box &b) { return b.x2 <= 420.0f && b.y2 <= 160.0f; }
+// The layer after the clock's holds two things, one after the other. First the minimap: pieces inside a square in the
+// top right corner (measured: 316,32 to 468,184; until the player takes the map from the supply box only the visited
+// areas and marks, the smallest 12x12). Then the item panel, which starts with the corner of its frame at x 312, left
+// of that square: the item bar in the bottom right (from y 208), taller while L opens it (from y 200), and taller
+// still (from y 128, over the minimap's place) with the list of a bow's coatings or a bowgun's shots on top of it. It
+// is one panel, so all of it shrinks into the bottom right corner, whatever its height. The start menu's window, which
+// takes the layer over, starts inside the minimap's square with the 8-high corner of its frame.
+template <typename Box> bool hud_in_map_square(const Box &b) {
+    return b.x1 >= 314.0f && b.y1 >= 30.0f && b.x2 <= 470.0f && b.y2 <= 186.0f;
 }
-template <typename Box> bool hud_item_piece(const Box &b) { return b.x1 >= 300.0f && b.y1 >= 196.0f; }
+template <typename Box> bool hud_on_map(const Box &b) {
+    return hud_in_map_square(b) && b.x2 - b.x1 >= 10.0f && b.y2 - b.y1 >= 10.0f;
+}
+template <typename Box> bool hud_item_panel_start(const Box &b) {
+    return b.x1 >= 304.0f && b.x1 < 314.0f && b.y1 >= 100.0f && b.x2 - b.x1 <= 32.0f;
+}
+// The coatings' or shots' list has a cursor (a bracket around the chosen row and two button marks), drawn in the layer
+// after: pieces over the item panel while it is that tall (the supply box and the menus of that layer come with the
+// item panel hidden, or leave it alone). They shrink with the panel.
+constexpr float kHudItemPanelTall = 190.0f; // a panel that starts above this holds the list
+template <typename Box> bool hud_over(const Box &b, const Box &panel) {
+    return b.x1 <= panel.x2 + 8.0f && panel.x1 <= b.x2 + 8.0f && b.y1 <= panel.y2 + 8.0f && panel.y1 <= b.y2 + 8.0f;
+}
 
 // HUD size for the 2D batch about to be drawn: places it (see above), then sizes its vertices and its scissor.
 void GlBackend::size_hud() {
@@ -1857,57 +1877,42 @@ void GlBackend::size_hud() {
     float ax = 0.0f, ay = 0.0f;
     if (skip == nullptr) {
         ++hud_drawn_;
-        // Where this draw is in the HUD's run.
-        const auto touches_vitals = [&] {
-            return std::any_of(hud_vitals_.begin(), hud_vitals_.end(), [&](const HudBox &v) { return hud_touch(v, box); });
-        };
-        // The next plate down: it starts at most one plate's gap under the lowest piece so far.
-        const auto under_vitals = [&] {
-            float bottom = 0.0f;
-            for (const HudBox &v : hud_vitals_) bottom = std::max(bottom, v.y2);
-            return box.y1 <= bottom + 12.0f;
-        };
-        // How far right the plate rows this draw is in reach so far (a plate ends at x 104).
-        const auto row_right = [&] {
-            float right = 104.0f;
-            for (const HudBox &v : hud_vitals_) {
-                if (v.y1 <= box.y2 && box.y1 <= v.y2 && v.y1 >= 54.0f) right = std::max(right, v.x2);
-            }
-            return right;
-        };
-        if (hud_phase_ == HudPhase::before && hud_is_clock(box)) {
-            hud_phase_ = HudPhase::vitals;
-            hud_vitals_.assign(1, box);
-            hud_after_name_ = false;
-        } else if (hud_phase_ == HudPhase::vitals && hud_vitals_piece(box, hud_after_name_) &&
-                   (touches_vitals() || (hud_name_plate(box) && under_vitals()))) {
-            hud_vitals_.push_back(box);
-            hud_after_name_ = hud_after_name_ || hud_name_plate(box);
-        } else if (hud_phase_ == HudPhase::vitals && hud_status_icon(box, row_right())) {
-            hud_vitals_.push_back(box);
-        } else if (hud_phase_ != HudPhase::before && hud_phase_ != HudPhase::rest) {
-            if (hud_phase_ == HudPhase::vitals) hud_phase_ = HudPhase::after_vitals;
-            if ((hud_phase_ == HudPhase::after_vitals || hud_phase_ == HudPhase::map) && hud_on_map(box)) {
-                hud_phase_ = HudPhase::map;
-            } else if (hud_phase_ != HudPhase::rest && hud_item_piece(box)) {
-                hud_phase_ = HudPhase::items;
+        // Which layer this draw is in, and whether it is the first one of that layer placed.
+        const bool first = batch_layer_ != hud_seen_layer_;
+        hud_seen_layer_ = batch_layer_;
+        // The layer starts with the clock, or with the sight of a bowgun or a bow while aiming, which is no part of the
+        // HUD and keeps its size: the HUD is the clock and what follows it.
+        if (hud_layer_ == kNoLayer && hud_is_clock(box)) hud_layer_ = batch_layer_;
+        if (hud_layer_ != kNoLayer && batch_layer_ == hud_layer_) {
+            if (hud_in_top_left(box)) {
+                what = "health";
+                sized = true;
+                ax = 0.0f;
+                ay = 0.0f;
             } else {
-                hud_phase_ = HudPhase::rest;
+                what = "kept (far from the corner)";
             }
-        }
-        const HudPhase phase = hud_phase_;
-        if (phase == HudPhase::vitals) {
-            what = "health";
-            sized = true;
-            ax = 0.0f;
-            ay = 0.0f;
-        } else if (phase == HudPhase::map) {
-            what = "minimap";
-            sized = true;
-            ax = 480.0f;
-            ay = 0.0f;
-        } else if (phase == HudPhase::items) {
-            what = "items";
+        } else if (hud_layer_ != kNoLayer && batch_layer_ == hud_layer_ + 1u) {
+            if (first) hud_right_ = hud_on_map(box) ? HudRight::map : hud_item_panel_start(box) ? HudRight::items : HudRight::menu;
+            if (hud_right_ == HudRight::map && !hud_in_map_square(box)) hud_right_ = HudRight::items; // the minimap is over
+            if (hud_right_ == HudRight::menu || box.x1 < 240.0f) {
+                what = hud_right_ == HudRight::menu ? "kept (menu)" : "kept";
+            } else {
+                const bool map = hud_right_ == HudRight::map;
+                what = map ? "minimap" : "items";
+                sized = true;
+                ax = 480.0f;
+                ay = map ? 0.0f : 272.0f;
+                if (!map) {
+                    hud_items_.x1 = std::min(hud_items_.x1, box.x1);
+                    hud_items_.y1 = std::min(hud_items_.y1, box.y1);
+                    hud_items_.x2 = std::max(hud_items_.x2, box.x2);
+                    hud_items_.y2 = std::max(hud_items_.y2, box.y2);
+                }
+            }
+        } else if (hud_layer_ != kNoLayer && batch_layer_ == hud_layer_ + 2u && hud_right_ == HudRight::items &&
+                   hud_items_.y1 < kHudItemPanelTall && hud_over(box, hud_items_)) {
+            what = "items (cursor)";
             sized = true;
             ax = 480.0f;
             ay = 272.0f;
@@ -1921,8 +1926,8 @@ void GlBackend::size_hud() {
         hud_corner_seen_ = hud_corner_seen_ || hud_in_clock_corner(box);
     }
     if (hud_log_flip_) {
-        std::fprintf(stderr, "[hud] 2D target=%06X tex=%s %gx%g verts=%zu box=(%.0f,%.0f)-(%.0f,%.0f) scissor=%u,%u-%u,%u blend=%u ",
-                     static_cast<unsigned>(setup_.target), setup_.texture != 0 ? "yes" : "no", setup_.tex_width, setup_.tex_height, batch_.size(),
+        std::fprintf(stderr, "[hud] 2D layer=%u target=%06X tex=%s %gx%g verts=%zu box=(%.0f,%.0f)-(%.0f,%.0f) scissor=%u,%u-%u,%u blend=%u ",
+                     static_cast<unsigned>(batch_layer_), static_cast<unsigned>(setup_.target), setup_.texture != 0 ? "yes" : "no", setup_.tex_width, setup_.tex_height, batch_.size(),
                      box.x1, box.y1, box.x2, box.y2, key_reg(setup_.key, kScissor1) & 0x3FFu,
                      (key_reg(setup_.key, kScissor1) >> 10u) & 0x3FFu, key_reg(setup_.key, kScissor2) & 0x3FFu,
                      (key_reg(setup_.key, kScissor2) >> 10u) & 0x3FFu, key_reg(setup_.key, kAlphaBlendEnable) & 1u);
@@ -1950,10 +1955,10 @@ void GlBackend::size_hud() {
 void GlBackend::finish_hud_flip() {
     if (hud_log_flip_) {
         std::fprintf(stderr, "[hud] flip %llu: %zu 2D draws on screen, %zu 3D draws on screen after the first of them%s\n",
-                     static_cast<unsigned long long>(frame_), hud_drawn_, hud_3d_after_, hud_vitals_.empty() ? "" : ", in a quest");
+                     static_cast<unsigned long long>(frame_), hud_drawn_, hud_3d_after_, hud_layer_ == kNoLayer ? "" : ", in a quest");
     }
     // A flip with something in the clock's corner but no HUD found: described in full (at most once a second).
-    if (hud_log_ && hud_corner_seen_ && hud_vitals_.empty() && frame_ >= hud_missed_logged_ + 30) {
+    if (hud_log_ && hud_corner_seen_ && hud_layer_ == kNoLayer && frame_ >= hud_missed_logged_ + 30) {
         hud_missed_logged_ = frame_;
         std::fprintf(stderr, "[hud] flip %llu: no HUD found, %zu 2D draws:\n", static_cast<unsigned long long>(frame_), hud_flip_boxes_.size());
         for (std::size_t i = 0; i < hud_flip_boxes_.size(); ++i) {
@@ -1961,12 +1966,13 @@ void GlBackend::finish_hud_flip() {
             std::fprintf(stderr, "[hud]   (%.0f,%.0f)-(%.0f,%.0f) %s\n", b.x1, b.y1, b.x2, b.y2, hud_flip_kinds_[i]);
         }
     }
-    live_->quest_hud.store(!hud_vitals_.empty(), std::memory_order_relaxed);
+    live_->quest_hud.store(hud_layer_ != kNoLayer, std::memory_order_relaxed);
     hud_flip_boxes_.clear();
     hud_flip_kinds_.clear();
     hud_corner_seen_ = false;
-    hud_phase_ = HudPhase::before;
-    hud_vitals_.clear();
+    hud_layer_ = hud_seen_layer_ = kNoLayer;
+    hud_right_ = HudRight::unknown;
+    hud_items_ = HudBox{1e9f, 1e9f, -1e9f, -1e9f};
     hud_drawn_ = hud_3d_after_ = 0;
 }
 
@@ -2285,7 +2291,7 @@ void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
 void GlBackend::finish_flip() {
     finish_hud_flip();
     ++frame_;
-    hud_log_flip_ = hud_log_ && frame_ % 300 == 0;
+    hud_log_flip_ = hud_log_ && frame_ % hud_log_every_ == 0;
     tape_.clear();
     touched_.clear();
     cameras_.clear();

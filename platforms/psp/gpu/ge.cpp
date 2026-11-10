@@ -134,6 +134,16 @@ Ge::Ge(psprecomp::GuestMemory &memory) {
 // ---------------------------------------------------------------- display lists
 
 Ge::ListResult Ge::run(std::uint32_t pc, std::uint32_t stall, const ListEvent &on_event) {
+    // A list that starts with a table of layers (how Monster Hunter sorts its 2D, DrawInfo::layer): entries of two
+    // words, a BASE and the JUMP to what the layer holds, which jumps back to the next entry. The game keeps two such
+    // lists, one per flip, and what a layer holds may lie right after the table, so the table is measured: it lasts as
+    // long as the words are a BASE and a JUMP.
+    layers_start_ = pc;
+    layers_end_ = pc;
+    while (layers_end_ - pc < kMaxLayers * 8u && (rd32(layers_end_) >> 24u) == kBase && (rd32(layers_end_ + 4u) >> 24u) == kJump) {
+        layers_end_ += 8u;
+    }
+    layer_ = DrawInfo::kNoLayer;
     const ListResult result = run_commands(pc, stall, on_event);
     if (backend_ != nullptr) backend_->flush();
     return result;
@@ -153,7 +163,11 @@ Ge::ListResult Ge::run_commands(std::uint32_t pc, std::uint32_t stall, const Lis
         ++stats_.commands;
         auto relative = [&](std::uint32_t d) { return (offset_ + (((base_ & 0x000F0000u) << 8u) | d)) & 0x0FFFFFFFu; };
         switch (cmd) {
-        case kJump: pc = relative(data & 0x00FFFFFCu); continue;
+        case kJump:
+            // The JUMP of an entry of the list's table of layers: what follows is in that layer.
+            if (here >= layers_start_ && here < layers_end_ && ((here - layers_start_) & 7u) == 4u) layer_ = (here - layers_start_) / 8u;
+            pc = relative(data & 0x00FFFFFCu);
+            continue;
         case kBJump: continue; // taken only when the last bounding box was invisible; we draw everything
         case kCall:
             call_stack_.push_back(pc);
@@ -531,6 +545,7 @@ void Ge::draw_primitive(std::uint32_t data) {
                                    ? (regs_[kTexAddr0] & 0xFFFFF0u) | ((regs_[kTexBufWidth0] & 0x0F0000u) << 8u)
                                    : 0u;
         draw.count = count;
+        draw.layer = layer_;
         draw.primitive = static_cast<std::uint8_t>(type);
         draw.through = through;
         draw.clear = (regs_[kClearMode] & 1u) != 0;

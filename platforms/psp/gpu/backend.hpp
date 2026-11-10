@@ -21,6 +21,10 @@ struct Vertex;
 // matrices it is drawn with (column-major, as the GE holds them: world and view 4x3, the projection 4x4).
 struct DrawInfo {
     std::uint32_t vertex_address{}, index_address{}, vertex_type{}, texture_address{}, count{};
+    // The layer the draw is in, for a display list that starts with a table of layers (how Monster Hunter sorts its
+    // 2D, see Ge::run): the entry it was reached from. kNoLayer before the first of them, or without a table.
+    std::uint32_t layer{kNoLayer};
+    static constexpr std::uint32_t kNoLayer = 0xFFFFu;
     std::uint8_t primitive{};
     bool through{}; // 2D: screen coordinates, no matrices
     bool clear{};   // clear mode
