@@ -95,6 +95,8 @@ Runtime::~Runtime() {
 }
 
 void Runtime::add_program(const Program &program) {
+    if (program.overlay_id < 0) main_program_ = &program;
+    any_call_patches_ = any_call_patches_ || !program.call_patches.empty();
     functions_.insert(functions_.end(), program.functions.begin(), program.functions.end());
     for (const auto &import : program.imports) import_stubs_.push_back(import.stub);
     std::sort(import_stubs_.begin(), import_stubs_.end());
@@ -109,6 +111,7 @@ void Runtime::add_hle(std::span<const HleFunction> functions) {
 }
 
 void Runtime::add_overlay(const Program &overlay) {
+    any_call_patches_ = any_call_patches_ || !overlay.call_patches.empty();
     overlays_[overlay.overlay_id] = &overlay;
     for (auto &region : overlay_regions_) {
         if (region.start == overlay.code_start || (overlay.code_start < region.end && overlay.code_end > region.start)) {
@@ -149,6 +152,22 @@ void Runtime::register_hook(std::string name, HookFunction function) { hooks_[st
 HookFunction Runtime::find_hook(std::string_view name) const {
     const auto it = hooks_.find(std::string(name));
     return it != hooks_.end() ? it->second : nullptr;
+}
+
+HookFunction Runtime::call_patch_hook(std::uint32_t pc) const {
+    if (!any_call_patches_) return nullptr;
+    const Program *program = main_program_;
+    for (const auto &region : overlay_regions_) {
+        if (pc >= region.start && pc < region.end) {
+            program = region.active; // an overlay's address: only the overlay loaded there
+            break;
+        }
+    }
+    if (program == nullptr || program->call_patches.empty()) return nullptr;
+    const auto it = std::lower_bound(program->call_patches.begin(), program->call_patches.end(), pc,
+                                     [](const CallPatchEntry &p, std::uint32_t a) { return p.address < a; });
+    if (it == program->call_patches.end() || it->address != pc) return nullptr;
+    return find_hook(it->name);
 }
 
 void Runtime::enable_patch(std::string name) { patches_[std::move(name)] = true; }

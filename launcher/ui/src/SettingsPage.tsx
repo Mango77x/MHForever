@@ -553,18 +553,14 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
             <Toggle on={s.smithyLayout ?? false} onToggle={() => onChange({ smithyLayout: !(s.smithyLayout ?? false) })} label="Smithy: improved layout" />
           </div>
         )}
-        {!fucomplete && ( // FUComplete rewrites the camera function, which then runs without the call patches
+        <div className="srow">
+          <div className="slabel"><b>Analog camera</b><span>Optional enhancement: the right stick turns the camera as fast as you push it, and tilts it smoothly from the game's lowest view to its highest. Off is faithful to the original (the stick works as the d-pad).</span></div>
+          <Toggle on={s.analogCamera ?? false} onToggle={() => onChange({ analogCamera: !(s.analogCamera ?? false) })} label="Analog camera" />
+        </div>
+        {s.analogCamera && (
           <>
-            <div className="srow">
-              <div className="slabel"><b>Analog camera</b><span>Optional enhancement: the right stick turns the camera as fast as you push it, and tilts it smoothly from the game's lowest view to its highest. Off is faithful to the original (the stick works as the d-pad).</span></div>
-              <Toggle on={s.analogCamera ?? false} onToggle={() => onChange({ analogCamera: !(s.analogCamera ?? false) })} label="Analog camera" />
-            </div>
-            {s.analogCamera && (
-              <>
-                <PercentSlider id="camera-turn-speed" label="Analog camera turn speed" help="How fast a full push turns the camera. 100% is as fast as the d-pad." min={50} max={200} step={10} value={s.analogCameraTurnSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTurnSpeed: v })} />
-                <PercentSlider id="camera-tilt-speed" label="Analog camera tilt speed" help="How fast a full push tilts the camera. At 100% it goes from the lowest view to the highest in about a second." min={50} max={200} step={10} value={s.analogCameraTiltSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTiltSpeed: v })} />
-              </>
-            )}
+            <PercentSlider id="camera-turn-speed" label="Analog camera turn speed" help="How fast a full push turns the camera. 100% is as fast as the d-pad." min={50} max={200} step={10} value={s.analogCameraTurnSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTurnSpeed: v })} />
+            <PercentSlider id="camera-tilt-speed" label="Analog camera tilt speed" help="How fast a full push tilts the camera. At 100% it goes from the lowest view to the highest in about a second." min={50} max={200} step={10} value={s.analogCameraTiltSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTiltSpeed: v })} />
           </>
         )}
         <div className="srow">

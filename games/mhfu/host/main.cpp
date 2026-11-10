@@ -853,8 +853,8 @@ int main(int argc, char **argv) {
         } else if (smithy_browse) {
             std::fprintf(stderr, "[mhfu] --smithy-browse: not mapped for this release, ignored\n");
         }
-        g_analog_camera = analog_camera && !kFucomplete;
-        if (!kFucomplete) { // the region map's call patches (EU, US and JP map them; they do not run in FUComplete)
+        g_analog_camera = analog_camera;
+        { // the region map's call patches (FUComplete's camera function runs in the interpreter, which runs them too)
             runtime.register_hook("mh_camera_buttons_copied", &on_camera_buttons_copied);
             runtime.register_hook("mh_camera_turn_buttons_test", &on_camera_turn_buttons_test);
             runtime.register_hook("mh_camera_turn_amount_chosen", &on_camera_turn_amount_chosen);
@@ -967,7 +967,7 @@ int main(int argc, char **argv) {
                                       "After you take an item out, the supply box takes the next button 2 frames later instead of 30.",
                                       false, g_fast_supply_box ? 1 : 0, 0, 1, 1, "",
                                       [](int v) { g_fast_supply_box = v != 0; }});
-            if (!kFucomplete) {
+            {
                 frontend.add_game_option({"analogCamera", "Analog camera",
                                           "The right stick turns the camera as fast as you push it and tilts it smoothly.",
                                           false, g_analog_camera ? 1 : 0, 0, 1, 1, "",

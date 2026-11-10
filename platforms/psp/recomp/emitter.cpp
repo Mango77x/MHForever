@@ -418,6 +418,16 @@ EmitResult emit_program(const ProgramInput &input, const Analysis &analysis, con
     if (all.empty()) {
         table << "    {0u, nullptr},\n"; // no functions found; the span below is empty
     }
+    table << "};\n";
+    // The call patches, for the interpreter (abi.hpp CallPatchEntry).
+    std::size_t call_patches = 0;
+    table << "\nconst CallPatchEntry kCallPatches[] = {\n";
+    for (const auto &[address, patch] : input.patches) { // a std::map: sorted by address
+        if (patch.kind != InstructionPatch::Kind::Call) continue;
+        table << "    {" << hex32(address) << "u, \"" << cpp_escape(patch.name) << "\"},\n";
+        ++call_patches;
+    }
+    if (call_patches == 0) table << "    {0u, nullptr},\n"; // none: the span below is empty
     table << "};\n} // namespace\n\n"
           << "} // namespace " << ns << "\n\n"
           << "namespace mhf::psp::generated {\n"
@@ -427,7 +437,8 @@ EmitResult emit_program(const ProgramInput &input, const Analysis &analysis, con
           << "        std::span<const FunctionEntry>(" << ns << "::kFunctions, " << all.size() << "u),\n"
           << "        std::span<ImportEntry>(" << ns << "::kImports, " << input.imports.size() << "u),\n"
           << "        " << hex32(options.code_start) << "u, " << hex32(options.code_end) << "u, "
-          << options.overlay_id << "};\n"
+          << options.overlay_id << ",\n"
+          << "        std::span<const CallPatchEntry>(" << ns << "::kCallPatches, " << call_patches << "u)};\n"
           << "    return program;\n}\n"
           << "} // namespace mhf::psp::generated\n";
     const auto table_path = out_dir / (options.program_name + "_table.cpp");
