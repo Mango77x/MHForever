@@ -59,6 +59,10 @@ struct Matching {
     bool camera_found{};
     std::uint32_t objects{};                     // distinct pairs of eye matrices among the pairs
     std::uint32_t camera_votes{}, camera_voters{}; // objects that agree with the camera's motion, of those asked
+    // Diagnosis (CutThresholds::diagnose): the candidate most objects of all agree with (scenery, instances included),
+    // and whether the camera chosen disagrees with it, and by how many objects.
+    bool camera_off_crowd{};
+    std::uint32_t crowd_votes{}, camera_crowd_votes{}, crowd_voters{};
     float camera_angle_degrees{}, camera_distance{};
     Matrix camera{};
     const char *cut{}; // why the two frames must not be blended, or null
@@ -82,6 +86,8 @@ struct CutThresholds {
     // Instances of one mesh paired by where they are, once the camera's motion is taken out (up to this many).
     bool nearest_instances{true};
     std::uint32_t max_nearest_instances{64u};
+    // Also count every object's agreement with the candidates (Matching::camera_off_crowd), for the log only.
+    bool diagnose{false};
 };
 
 class Matcher {

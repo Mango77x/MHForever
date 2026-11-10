@@ -275,6 +275,30 @@ const Matching &Matcher::match(
                 best_size = size;
             }
         }
+        if (thresholds.diagnose) {
+            // Every object asked (instances too): which candidate the crowd follows, and how many follow the chosen one.
+            const auto crowd = [&](const Matrix &candidate) {
+                std::uint32_t votes = 0;
+                for (std::size_t k = 0, step = std::max<std::size_t>(1u, objects.size() / 512u); k < objects.size(); k += step) {
+                    bool agrees = true;
+                    for (const auto &p : kProbes) {
+                        const float tolerance = 0.5f + 0.002f * std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+                        if (apart(apply(candidate, p), apply(objects[k].motion, p)) > tolerance) {
+                            agrees = false;
+                            break;
+                        }
+                    }
+                    votes += agrees ? 1u : 0u;
+                }
+                return votes;
+            };
+            out.crowd_voters = static_cast<std::uint32_t>((objects.size() + std::max<std::size_t>(1u, objects.size() / 512u) - 1u) /
+                                                          std::max<std::size_t>(1u, objects.size() / 512u));
+            out.camera_crowd_votes = crowd(*best);
+            out.crowd_votes = out.camera_crowd_votes;
+            for (const Matrix &candidate : candidates) out.crowd_votes = std::max(out.crowd_votes, crowd(candidate));
+            out.camera_off_crowd = out.crowd_votes > out.camera_crowd_votes;
+        }
         out.camera_found = true;
         out.camera = *best;
         out.camera_votes = static_cast<std::uint32_t>(best_votes);
