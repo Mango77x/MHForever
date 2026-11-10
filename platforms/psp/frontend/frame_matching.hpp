@@ -58,7 +58,8 @@ struct Matching {
     // How the camera moved, as the motion of eye space: for scenery that stands still, newer eye = camera * older eye.
     bool camera_found{};
     std::uint32_t objects{};                     // distinct pairs of eye matrices among the pairs
-    std::uint32_t camera_votes{}, camera_voters{}; // objects that agree with the camera's motion, of those asked
+    // Votes for the camera's motion, of those asked: each object asked votes with its pairs of draws.
+    std::uint32_t camera_votes{}, camera_voters{};
     // Diagnosis (CutThresholds::diagnose): the candidate most objects of all agree with (scenery, instances included),
     // and whether the camera chosen disagrees with it, and by how many objects.
     bool camera_off_crowd{};

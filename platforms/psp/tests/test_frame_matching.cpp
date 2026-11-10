@@ -164,6 +164,26 @@ int main() {
         MHF_CHECK(m.camera_votes == m.camera_voters);
     }
 
+    // A town drawn as one object of many draws (many meshes under one matrix), and the hunter the camera follows, in
+    // three pieces that stay where they are on the screen. Each object voting once, the hunter's pieces would win 3 to
+    // 1 and the camera would be no motion at all; counting the pairs of draws, the town's motion wins.
+    {
+        Matcher matcher;
+        const auto town = [&](const Matrix &cam) {
+            std::vector<DrawSummary> out;
+            for (std::uint32_t mesh = 0; mesh < 200u; ++mesh) out.push_back(draw(0x08B00000u + mesh * 0x100u, cam, identity()));
+            for (std::uint32_t piece = 0; piece < 3u; ++piece) {
+                out.push_back(draw(0x08C00000u + piece * 0x1000u, identity(), at(static_cast<float>(piece) * 10.0f, -20.0f, -200.0f)));
+            }
+            mark_eligible(out, 0x88000u);
+            return out;
+        };
+        const Matching &m = matcher.match(town(camera(0, 0, 0)), town(camera(3.0f, 0, -30.0f)), CutThresholds{});
+        MHF_CHECK(m.cut == nullptr && m.camera_found);
+        MHF_CHECK(std::fabs(m.camera_angle_degrees - 3.0f) < 0.05f && std::fabs(m.camera_distance - 30.0f) < 0.5f);
+        MHF_CHECK(m.camera_votes == 200u && m.camera_voters == 203u);
+    }
+
     // Following the camera's turn part of the way: half of a 10-degree turn is a 5-degree turn.
     {
         const RigidMotion motion = rigid_motion(camera(10.0f, 0, 0));

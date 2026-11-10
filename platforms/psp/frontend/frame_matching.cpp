@@ -169,8 +169,9 @@ const Matching &Matcher::match(
     // (theguyser/pokke, profiles/mhp2g/host/gpu/frame_interpolation.cpp, MIT): the candidates are the motions of
     // meshes drawn once in both frames (they pair for certain) when there are enough, else of all pairs, plus no
     // motion at all; every object (one pair of eye matrices) votes for each candidate that moves points in front of
-    // the eye where its own motion does; the most votes win and, with as many, the one nearest the previous camera's
-    // motion (a camera does not stop and start between two frames), else the smaller one.
+    // the eye where its own motion does, with as many votes as it has pairs of draws; the most votes win and, with as
+    // many, the one nearest the previous camera's motion (a camera does not stop and start between two frames), else
+    // the smaller one.
     const auto eye = [](const DrawSummary &d) { return multiply(d.view, d.world); };
     const auto single = [&](std::size_t i) {
         const std::int32_t at = older_slot_[i];
@@ -178,15 +179,19 @@ const Matching &Matcher::match(
                slots_[static_cast<std::size_t>(at)].older_count == 1u;
     };
     // An object is one pair of eye matrices, however many draws share it (a character or a piece of ground is drawn
-    // in many pieces under one matrix): each votes once, so the cost follows the objects, not the draws.
+    // in many pieces under one matrix): each is asked once, so the cost follows the objects, not the draws. Its vote
+    // counts its pairs of draws: a town drawn as a few objects of thousands of draws outweighs the walking hunters and
+    // the hunter's own pieces, which with one vote each could choose a camera that moves the town off its path.
     struct Object {
         Matrix motion;
         bool single;
+        std::uint32_t draws;
     };
     std::vector<Object> objects;
     std::size_t pairs = 0;
     {
         std::vector<std::uint64_t> seen;
+        std::vector<std::int32_t> seen_object; // the object of each pair of matrices seen, -1 when it has no inverse
         seen.reserve(older.size());
         for (std::size_t i = 0; i < older.size(); ++i) {
             if (out.newer_of[i] < 0) continue;
@@ -197,11 +202,19 @@ const Matching &Matcher::match(
             for (const Matrix *m : {&before, &after}) {
                 for (const float f : *m) h = (h ^ std::bit_cast<std::uint32_t>(f)) * 1099511628211ull;
             }
-            if (std::find(seen.begin(), seen.end(), h) != seen.end()) continue;
+            if (const auto known = std::find(seen.begin(), seen.end(), h); known != seen.end()) {
+                const std::int32_t o = seen_object[static_cast<std::size_t>(known - seen.begin())];
+                if (o >= 0) ++objects[static_cast<std::size_t>(o)].draws;
+                continue;
+            }
             seen.push_back(h);
             Matrix before_inverse{};
-            if (!affine_inverse(before, before_inverse)) continue;
-            objects.push_back({multiply(after, before_inverse), single(i)});
+            if (!affine_inverse(before, before_inverse)) {
+                seen_object.push_back(-1);
+                continue;
+            }
+            seen_object.push_back(static_cast<std::int32_t>(objects.size()));
+            objects.push_back({multiply(after, before_inverse), single(i), 1u});
         }
     }
     // Objects drawn once in both frames pair for certain; the instances of a mesh drawn many times (MHFU's ground) are
@@ -209,7 +222,12 @@ const Matching &Matcher::match(
     // a crowd agreeing on a wrong motion. So the candidates and the voters are the objects drawn once when there are
     // enough of them (else every object), plus no motion at all and the change of the view matrix (where a game keeps
     // its camera's turn).
-    std::vector<Matrix> candidates, voters;
+    std::vector<Matrix> candidates;
+    struct Voter {
+        Matrix motion;
+        std::uint32_t votes; // the object's pairs of draws
+    };
+    std::vector<Voter> voters;
     {
         std::vector<const Object *> singles, all;
         for (const Object &o : objects) {
@@ -230,7 +248,7 @@ const Matching &Matcher::match(
             break;
         }
         for (std::size_t k = 0, step = std::max<std::size_t>(1u, trusted.size() / 512u); k < trusted.size(); k += step) {
-            voters.push_back(trusted[k]->motion);
+            voters.push_back({trusted[k]->motion, trusted[k]->draws});
         }
         out.objects = static_cast<std::uint32_t>(objects.size());
     }
@@ -251,16 +269,16 @@ const Matching &Matcher::match(
         float best_size = 0;
         for (const Matrix &candidate : candidates) {
             std::size_t votes = 0;
-            for (const Matrix &motion : voters) {
+            for (const Voter &voter : voters) {
                 bool agrees = true;
                 for (const auto &p : kProbes) {
                     const float tolerance = 0.5f + 0.002f * std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
-                    if (apart(apply(candidate, p), apply(motion, p)) > tolerance) {
+                    if (apart(apply(candidate, p), apply(voter.motion, p)) > tolerance) {
                         agrees = false;
                         break;
                     }
                 }
-                votes += agrees ? 1u : 0u;
+                votes += agrees ? voter.votes : 0u;
             }
             float size = 0;
             if (has_previous_camera_) {
@@ -302,7 +320,8 @@ const Matching &Matcher::match(
         out.camera_found = true;
         out.camera = *best;
         out.camera_votes = static_cast<std::uint32_t>(best_votes);
-        out.camera_voters = static_cast<std::uint32_t>(voters.size());
+        out.camera_voters = 0;
+        for (const Voter &voter : voters) out.camera_voters += voter.votes;
         out.camera_angle_degrees = rotation_angle_degrees(identity(), out.camera);
         out.camera_distance = std::sqrt(out.camera[12] * out.camera[12] + out.camera[13] * out.camera[13] +
                                         out.camera[14] * out.camera[14]);
