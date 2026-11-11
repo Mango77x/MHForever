@@ -27,6 +27,8 @@ export function lastPlayed(unix: number | null): string {
 export const frameRates = [30, 60, 90, 120, 150, 180];
 // HUD size in percent, as the in-game menu offers it (platforms/psp/frontend/psp_frontend.cpp, kHudSizes).
 export const hudSizes = [100, 90, 80, 70, 60, 50];
+// Anisotropic filtering of texture packs, 1 being off (the launcher's anisotropy setting, the game's --anisotropy).
+export const anisotropyLevels = [1, 2, 4, 8, 16];
 // Where the hunting horn's songs can go (the game's names: core/overlay/song_panel.hpp, kSongPlaceNames).
 export const songPlaces = [
   { id: 'next-to-sheet', label: 'Next to the sheet' },

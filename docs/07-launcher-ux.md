@@ -59,7 +59,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   pseudonym, identity seed, settings, library, stats. Adding a copy reads PARAM.SFO (`platforms/psp/tools/param_sfo`)
   and compares size + SHA-1 with `games/*/regions/*/region.toml` (catalog generated at configure time; identification
   data only). Launching runs `mhfu(.exe)` next to the launcher with the settings as flags (`--scale`, `--fullscreen`,
-  `--smooth-textures`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--smithy-browse`, `--smithy-layout`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
+  `--smooth-textures`, `--pack-mipmaps`, `--anisotropy`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--smithy-browse`, `--smithy-layout`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
   sessions. The game also needs the prepared executable: the installer produces it (below); developer builds can instead use
   `../exe/<DISC_ID>_EBOOT.BIN` (or one next to the ISO), checked against `dev_executable` in region.toml.
 - **Friend code**: generated locally (SHA-256 of a random identity seed, Crockford base32). Provisional: online play will
@@ -105,7 +105,11 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   the pack's size plus 64 MB free, shows its progress and can be cancelled) or **Use it where it is** (nothing copied; if the
   folder moves, the game is started without it). A switch turns it off and on; *Remove* forgets a pack used where it is
   and, after a confirmation, deletes MHForever's copy. The game gets `--texture-pack <folder>` and chooses the ini for its
-  own release.
+  own release. With a pack chosen, two filtering choices follow it (2026-11-11): **Mipmaps** (`packMipmaps`, off by
+  default: images are drawn as PPSSPP draws them, sharp far away with some shimmer; on, mip levels are made for images
+  that ship none, softer far away without shimmer; passed as `--pack-mipmaps`) and **Anisotropic filtering**
+  (`anisotropy`: Off, 2x, 4x, 8x or 16x, 16x by default; passed as `--anisotropy N` when not 16). Both go to the game
+  with the pack only.
 - **HUD scale (2026-11-02)**: **Game settings → Video → HUD scale** (100% down to 50%, steps of 10; `hudSize` per copy,
   passed as `--hud-size`) shrinks the hunting HUD into its corners; the in-game menu's Video tab has the same choice for the
   session. Only the quest HUD is sized: scaling the menus was tried and dropped (`05-runtime-hle.md`, HUD scale).

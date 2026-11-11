@@ -129,6 +129,8 @@ Json default_settings() {
     s["scale"] = 4;
     s["fullscreen"] = false;
     s["smoothTextures"] = false;
+    s["packMipmaps"] = false; // texture packs: mip levels made for images that ship none (softer far away, no shimmer)
+    s["anisotropy"] = 16;     // texture packs: anisotropic filtering, 1 (off), 2, 4, 8 or 16
     s["fps"] = 30; // output rate: the game's own 30, or a multiple of it up to 180 (in-between pictures)
     s["hudSize"] = 100; // the quest HUD's size in percent, 50..100 in steps of 10
     s["trueWeaponValues"] = false; // menus show attack and element without the game's display multipliers
@@ -999,7 +1001,11 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     if (partial["mouseCameraSpeed"].is_number()) { // 25, 50, ... 300
         s["mouseCameraSpeed"] = std::clamp(std::round(partial["mouseCameraSpeed"].as_number() / 25.0), 1.0, 12.0) * 25.0;
     }
-    for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
+    if (partial["anisotropy"].is_number()) { // 1 (off), 2, 4, 8 or 16: the nearest power of two
+        const double level = std::clamp(partial["anisotropy"].as_number(), 1.0, 16.0);
+        s["anisotropy"] = std::exp2(std::round(std::log2(level)));
+    }
+    for (const char *key : {"fullscreen", "smoothTextures", "packMipmaps", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
                             "analogCamera", "mouseCamera", "hornSongs", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest",
                             "fucDrinkBuff"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
@@ -1406,6 +1412,11 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         if (!pack.empty() && fs::is_directory(platform::from_utf8(pack), pack_ec)) {
             plan.args.push_back("--texture-pack");
             plan.args.push_back(pack);
+            if (s["packMipmaps"].as_bool()) plan.args.push_back("--pack-mipmaps");
+            if (s["anisotropy"].is_number() && s["anisotropy"].as_number() != 16) {
+                plan.args.push_back("--anisotropy");
+                plan.args.push_back(num("anisotropy"));
+            }
         }
     }
     if (s["fps"].as_number() > 30) {

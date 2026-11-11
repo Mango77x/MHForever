@@ -5,7 +5,7 @@ import { CopyIcon } from './icons';
 import { FucOptions } from './FucOptions';
 import { OnlineSettings } from './OnlineSettings';
 import { TexturePackSection } from './TexturePack';
-import { frameRates, hudSizes, resolutions, songPlaces } from './format';
+import { anisotropyLevels, frameRates, hudSizes, resolutions, songPlaces } from './format';
 import { setNavigationPaused } from './gamepad';
 import { keyGroups, keyLabel, reservedKeys } from './keys';
 import { anySourcePressed, assignSource, padGroups, padLabel, pressedSource, stickChoices } from './pad';
@@ -614,6 +614,23 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
       <motion.div className="glass section" {...rise(0.07)}>
         <h3>Texture pack</h3>
         <TexturePackSection state={state} onState={onState} say={say} toggle={(p) => <Toggle {...p} />} />
+        {s.texturePack && (
+          <>
+            <div className="srow">
+              <div className="slabel"><b>Mipmaps</b><span>{(s.packMipmaps ?? false) ? "Smaller copies of the pack's textures are made for distant surfaces: softer at a distance, no shimmer, can be faster." : 'Off: as sharp as in PPSSPP, but fine detail far away may shimmer while the camera moves. A pack that ships its own mipmaps uses them either way.'}</span></div>
+              <Toggle on={s.packMipmaps ?? false} onToggle={() => onChange({ packMipmaps: !(s.packMipmaps ?? false) })} label="Mipmaps" />
+            </div>
+            <div className="srow">
+              <div className="slabel"><b>Anisotropic filtering</b><span>{(s.anisotropy ?? 16) === 1 ? 'Off.' : `${s.anisotropy ?? 16}×: ground and walls seen at a slant stay sharp. Needs mipmaps: turned on above, or shipped by the pack.`}</span></div>
+              <div className="seg wide" role="radiogroup" aria-label="Anisotropic filtering" style={{ '--n': anisotropyLevels.length } as CSSProperties}>
+                <span className="pill" style={{ transform: `translateX(${Math.max(0, anisotropyLevels.indexOf(s.anisotropy ?? 16)) * 100}%)` }} />
+                {anisotropyLevels.map((n) => (
+                  <button key={n} className={(s.anisotropy ?? 16) === n ? 'on' : ''} role="radio" aria-checked={(s.anisotropy ?? 16) === n} onClick={() => onChange({ anisotropy: n })}>{n === 1 ? 'Off' : `${n}×`}</button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </motion.div>
       {fucomplete && <motion.div className="glass section" {...rise(0.07)}>
         <h3>FUComplete</h3>

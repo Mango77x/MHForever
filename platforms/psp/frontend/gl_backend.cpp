@@ -1059,7 +1059,7 @@ bool GlBackend::init() {
                  reinterpret_cast<const char *>(gl_.GetString(GL_RENDERER)),
                  reinterpret_cast<const char *>(gl_.GetString(GL_VERSION)), 480 * scale_, 272 * scale_);
     // Anisotropic filtering (core in OpenGL 4.6, an extension everywhere else): pack images seen at a slant, such as the
-    // ground, stay sharp instead of blurring into their smaller mip levels. Up to 16x, as PPSSPP.
+    // ground, stay sharp instead of blurring into their smaller mip levels. Up to 16x, as PPSSPP, or what the player chose.
     {
         GLint count = 0;
         gl_.GetIntegerv(GL_NUM_EXTENSIONS, &count);
@@ -1072,11 +1072,12 @@ bool GlBackend::init() {
         if (found) {
             GLfloat most = 1.0f;
             gl_.GetFloatv(kGlMaxTextureMaxAnisotropy, &most);
-            anisotropy_ = std::clamp(most, 1.0f, 16.0f);
+            anisotropy_ = std::clamp(std::min(most, static_cast<GLfloat>(live_->texture_pack_anisotropy)), 1.0f, 16.0f);
         }
         while (gl_.GetError() != GL_NO_ERROR) {
         }
-        std::fprintf(stderr, "[gl] anisotropic filtering %gx\n", static_cast<double>(anisotropy_));
+        std::fprintf(stderr, "[gl] anisotropic filtering %gx, texture pack mipmaps %s\n", static_cast<double>(anisotropy_),
+                     live_->texture_pack_mipmaps || std::getenv("MHF_TEXTURE_PACK_MIPMAPS") != nullptr ? "made" : "the pack's own");
     }
     draw_program_ = compile(kDrawVertex, kDrawFragment);
     present_program_ = compile(kPresentVertex, kPresentFragment);
@@ -1528,9 +1529,10 @@ void GlBackend::upload_pack_image(CachedTexture &t, const std::string &name, con
             gl_.TexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.levels[level].data());
         }
         // The pack's own mip levels only, as PPSSPP: an image without them is sampled at full size (with anisotropic
-        // filtering), sharp at a distance as its author saw it. Packs such as KHD ship a single level. With
-        // MHF_TEXTURE_PACK_MIPMAPS=1 the levels are made here instead (softer at a distance, no shimmer).
-        static const bool make_mips = std::getenv("MHF_TEXTURE_PACK_MIPMAPS") != nullptr;
+        // filtering), sharp at a distance as its author saw it. Packs such as KHD ship a single level. With the player's
+        // mipmaps setting (or MHF_TEXTURE_PACK_MIPMAPS=1) the levels are made here instead (softer far away, no shimmer).
+        static const bool env_mips = std::getenv("MHF_TEXTURE_PACK_MIPMAPS") != nullptr;
+        const bool make_mips = env_mips || live_->texture_pack_mipmaps;
         const bool made = make_mips && image.levels.size() == 1;
         if (made) gl_.GenerateMipmap(GL_TEXTURE_2D);
         gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, made ? 1000 : static_cast<GLint>(image.levels.size() - 1));

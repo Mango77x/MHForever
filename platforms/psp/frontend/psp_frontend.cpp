@@ -334,9 +334,11 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
 
 void Frontend::set_controls_file(const std::string &path) { impl_->controls_file = std::filesystem::path(path); }
 
-void Frontend::set_texture_pack(const std::string &folder, const std::string &game_id) {
+void Frontend::set_texture_pack(const std::string &folder, const std::string &game_id, bool mipmaps, int anisotropy) {
     impl_->live.texture_pack_folder = folder;
     impl_->live.texture_pack_game = game_id;
+    impl_->live.texture_pack_mipmaps = mipmaps;
+    impl_->live.texture_pack_anisotropy = std::clamp(anisotropy, 1, 16);
 }
 
 void Frontend::set_hud(int size) { impl_->live.hud_size = std::clamp(size, 50, 100); }

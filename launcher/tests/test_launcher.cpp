@@ -282,6 +282,23 @@ int main(int argc, char **argv) {
         mouse["mouseCameraSpeed"] = 0;
         l.set_settings(mouse);
         CHECK(l.state()["settings"]["mouseCameraSpeed"].as_number() == 25);
+        // Texture pack filtering: mipmaps off and anisotropy 16x by default; anisotropy snaps to 1, 2, 4, 8 or 16.
+        CHECK(!l.state()["settings"]["packMipmaps"].as_bool(true));
+        CHECK(l.state()["settings"]["anisotropy"].as_number() == 16);
+        Json filtering;
+        filtering["packMipmaps"] = true;
+        filtering["anisotropy"] = 5;
+        l.set_settings(filtering);
+        CHECK(l.state()["settings"]["packMipmaps"].as_bool());
+        CHECK(l.state()["settings"]["anisotropy"].as_number() == 4);
+        filtering["anisotropy"] = 0;
+        l.set_settings(filtering);
+        CHECK(l.state()["settings"]["anisotropy"].as_number() == 1);
+        filtering["anisotropy"] = 64;
+        l.set_settings(filtering);
+        CHECK(l.state()["settings"]["anisotropy"].as_number() == 16);
+        filtering["packMipmaps"] = false;
+        l.set_settings(filtering);
         // Hunting horn songs: off by default, a bool turns them on, anything else is ignored.
         CHECK(!l.state()["settings"]["hornSongs"].as_bool(true));
         Json horn;
@@ -1017,6 +1034,27 @@ int main(int argc, char **argv) {
             // With the camera off the speeds still go (the in-game menu can turn it on), the switch does not.
             CHECK(std::find(off.args.begin(), off.args.end(), "--analog-camera") == off.args.end());
             CHECK(std::find(off.args.begin(), off.args.end(), "--analog-camera-turn-speed") != off.args.end());
+
+            // Texture pack filtering reaches the game with the pack only: mipmaps when on, anisotropy when not 16x.
+            const fs::path pack = dir / "launch_pack";
+            fs::create_directories(pack);
+            std::ofstream(pack / "textures.ini") << "[hashes]\n000000000000000000000001 = a.png\n";
+            std::ofstream(pack / "a.png") << "png";
+            Json filtering;
+            filtering["packMipmaps"] = true;
+            filtering["anisotropy"] = 4;
+            l.set_settings(filtering);
+            const auto no_pack = l.plan_launch("mhfu");
+            CHECK(std::find(no_pack.args.begin(), no_pack.args.end(), "--pack-mipmaps") == no_pack.args.end());
+            CHECK(std::find(no_pack.args.begin(), no_pack.args.end(), "--anisotropy") == no_pack.args.end());
+            const std::string disc = "ULES01213";
+            CHECK(l.set_texture_pack(disc, pack));
+            const auto with_pack = l.plan_launch("mhfu");
+            CHECK(std::find(with_pack.args.begin(), with_pack.args.end(), "--pack-mipmaps") != with_pack.args.end());
+            const auto level = std::find(with_pack.args.begin(), with_pack.args.end(), "--anisotropy");
+            CHECK(level != with_pack.args.end());
+            if (level != with_pack.args.end()) CHECK(level + 1 != with_pack.args.end() && *(level + 1) == "4");
+            CHECK(l.set_texture_pack(disc, {}));
         }
         // Executable preparation: the encrypted executable on the disc must pass the identity gate of the catalog.
         // Without a decryptor in this build the only acceptable outcome is "unavailable", never "another release".
