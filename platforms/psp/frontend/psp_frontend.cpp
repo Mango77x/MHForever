@@ -462,7 +462,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowHideRound, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowWholeMapInCaves, kShadowHalfResolution, kShadowQuality, kShadowKeepScenery, kShadowShowZone, kShadowSunHeight, kShadowSunTurn, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing, kShadowPick
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowHideRound, kShadowStrength, kShadowMaxObject, kShadowMaxPiece, kShadowWholeMap, kShadowWholeMapInCaves, kShadowHalfResolution, kShadowQuality, kShadowKeepScenery, kShadowShowZone, kShadowSunHeight, kShadowSunTurn, kShadowShow, kShadowOnlyCast, kShadowOnlyFacing, kShadowPick, kShadowMistFade, kShadowSteepOnly
 };
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
 
@@ -778,6 +778,12 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         overlay::MenuItem turn = menu_item(Kind::Slider, kShadowSunTurn, "Sun direction", static_cast<int>(impl.live.shadow_sun_turn / 3.6f + 0.5f));
         turn.detail = "Turns the sun around the sky. All the way down: where the game has it. Test.";
         video.items.push_back(turn);
+        overlay::MenuItem mist = menu_item(Kind::Slider, kShadowMistFade, "Mist fade", static_cast<int>(impl.live.shadow_mist_fade * 25.0f + 0.5f));
+        mist.detail = "How much far shadows fade in the mist of the zones that have it. 25: as the game's fog, 50 (where it starts): twice as hard. Test.";
+        video.items.push_back(mist);
+        overlay::MenuItem steep = menu_item(Kind::Toggle, kShadowSteepOnly, "Dark backs: ground fix", impl.live.shadow_steep_only ? 1 : 0);
+        steep.detail = "The fix for the lines on the ground. On: what turns away from the sun stays dark only on steep (45 degrees) and tall (250) faces. Off: on every face, as before. Test.";
+        video.items.push_back(steep);
         // The largest object that casts: 30 * 1.05^value, about 30 to 39000 world units.
         const int largest = std::clamp(static_cast<int>(std::log(std::max(impl.live.shadow_max_object.load(), 30.0f) / 30.0f) / std::log(1.05f) + 0.5f), 0, 100);
         overlay::MenuItem size = menu_item(Kind::Slider, kShadowMaxObject, "Largest shadow object", largest);
@@ -1154,11 +1160,13 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             refresh_menu(impl); // the sliders under it appear or go
             break;
         case kShadowSunTurn: impl.live.shadow_sun_turn = 3.6f * static_cast<float>(std::clamp(e.value, 0, 100)); break;
+        case kShadowMistFade: impl.live.shadow_mist_fade = static_cast<float>(std::clamp(e.value, 0, 100)) / 25.0f; break;
         case kShadowStrength: impl.live.shadow_strength = static_cast<float>(std::clamp(e.value, 0, 100)) / 100.0f; break;
         case kShadowSunHeight: impl.live.shadow_sun_height = e.value <= 0 ? -1.0f : static_cast<float>(std::min(e.value, 100) - 1) * 90.0f / 99.0f; break;
         case kShadowMaxObject: impl.live.shadow_max_object = 30.0f * std::pow(1.05f, static_cast<float>(std::clamp(e.value, 0, 100))); break;
         case kShadowMaxPiece: impl.live.shadow_max_piece = e.value <= 0 ? 0.0f : 30.0f * std::pow(1.05f, static_cast<float>(std::min(e.value, 100))); break;
         case kShadowWholeMap: impl.live.shadow_whole_map = e.value != 0; break;
+        case kShadowSteepOnly: impl.live.shadow_steep_only = e.value != 0; break;
         case kShadowWholeMapInCaves: impl.live.shadow_whole_map_in_caves = e.value != 0; break;
         case kShadowHalfResolution: impl.live.shadow_half_resolution = e.value != 0; break;
         case kShadowKeepScenery: impl.live.shadow_keep_scenery = e.value != 0; break;

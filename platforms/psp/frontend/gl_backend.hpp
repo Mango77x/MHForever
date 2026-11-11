@@ -61,6 +61,8 @@ struct LiveSettings {
     std::atomic<bool> shadow_show_zone{false};          // writes the zone it believes the game is in, bottom left
     std::atomic<bool> shadow_keep_scenery{true};        // the scenery's shadows are kept instead of drawn again for every picture
     std::atomic<bool> shadow_half_resolution{true};     // shadows worked out at half the picture's size, then brought up to it
+    std::atomic<bool> shadow_steep_only{true};          // the ground's fix: what turns away from the sun stays dark only on steep (45 degrees), tall (250) faces; off: on every face, as before
+    std::atomic<float> shadow_mist_fade{2.0f};          // how hard far shadows fade in a misty zone's fog: 1 as the game's fog, 0 not at all; twice by default
     std::atomic<float> shadow_sun_turn{0.0f};           // degrees the sun is turned from where the game has it; 0: not at all
     std::atomic<float> shadow_sun_height{-1.0f};        // degrees over the horizon the sun is put at; below 0: as the game has it
     // For finding faults: 0 everything, 1 only the shadows that fall on things, 2 only the shade of sides turned from the sun.
