@@ -347,7 +347,7 @@ void main() {
 )";
 
 // Letters for the zone label: five bits a row, seven rows.
-constexpr const char *kShadowTestBuild = "V299";
+constexpr const char *kShadowTestBuild = "V312";
 // The jungle camp's waterfall and mountain rules (V242 to V244).
 constexpr bool kJungleCampWater = true;
 constexpr struct {
@@ -1471,6 +1471,9 @@ private:
         std::uint32_t triangles{};
     };
     std::unordered_map<std::uint64_t, KnownPiece> shadow_known_;
+    // Zone 6 of the fortress: the textures taken for air there, drawn without depth (their clear parts hid the shade behind them).
+    std::unordered_set<std::uint64_t> shadow_air_textures_;
+    int shadow_air_zone_{-1}; // the zone they were gathered in: they stay for it, the kept scenery leaving pieces out
     bool shadow_leave_known_{};
     std::uint32_t shadow_left_known_{};
     int shadow_known_zone_{-2};
@@ -2795,6 +2798,17 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         const bool thin = d.blended && !d.cutout && d.alpha_high < 200.0f;
         return d.listed < 2 && (d.translucent || fades || thin);
     };
+    // Zone 6 of the fortress: its sheets of mist in the air write their depth where they are clear, and the mountain seen through
+    // them lost its shade. What is air there is drawn without depth from the next picture on, for as long as the zone lasts.
+    if (shadow_air_zone_ != shadow_zone_) {
+        shadow_air_textures_.clear();
+        shadow_air_zone_ = shadow_zone_;
+    }
+    if (shadow_zone_ >= 0 && shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/fortress/area6") {
+        for (const ShadowDraw &d : shadow_draws_) {
+            if (d.count != 0 && d.blended && d.texture_hash != 0 && !shadow_groups_[d.group].skinned && air(d)) shadow_air_textures_.insert(d.texture_hash);
+        }
+    }
     // The ground: flat pieces overlap a little, with thin upright strips along their seams, and each would cast a thin line on
     // the next. So what lies low and is flat or a strip does not cast. High up the same shapes are ledges and tops of rock,
     // which must, or their shadows have holes. Low means up to a little above the hunter's feet.
@@ -2849,7 +2863,8 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                                                            shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/old_jungle/area8" ||
                                                            shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/volcano/area5" ||
                                                            shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/volcano/area6" ||
-                                                           shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/forestandhills/area6");
+                                                           shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/forestandhills/area6" ||
+                                                           shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/fortress/area6");
     const bool air_reaches_ground = shadow_zone_ >= 0 && (shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/jungle/area8" ||
                                                           shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/old_jungle/area7" ||
                                                           shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/volcano/area8");
@@ -3404,7 +3419,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         shadow_storm_darkness_ = -1.0f;
     }
     shadow_darkness_shown_ = p.darkness;
-    // Zones 1, 2, 4, 5 and 6 of the swamp, 8 and 10 of the forest and hills, 1, 2, 3 and 7 of the old jungle, and the old swamp's camp and zones 1, 2, 4 and 9 hang in mist: far shadows fade with the game's fog.
+    // Zones 1, 2, 4, 5 and 6 of the swamp, 8 and 10 of the forest and hills, 1, 2, 3 and 7 of the old jungle, the old swamp's camp and zones 1, 2, 4 and 9, the town's zone 3 the fortress's zones 2 to 5 and the peak's zone 1 hang in mist: far shadows fade with the game's fog.
     const std::string &fog_zone = shadow_zone_ >= 0 ? shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] : std::string();
     const bool fog_fades = fog_zone == "areas/hunting/swamp/area1" || fog_zone == "areas/hunting/swamp/area2" || fog_zone == "areas/hunting/swamp/area4" ||
                            fog_zone == "areas/hunting/swamp/area5" || fog_zone == "areas/hunting/swamp/area6" ||
@@ -3413,15 +3428,21 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                            fog_zone == "areas/hunting/old_jungle/area3" || fog_zone == "areas/hunting/old_jungle/area7" ||
                            fog_zone == "areas/hunting/old_swamp/base" || fog_zone == "areas/hunting/old_swamp/area1" ||
                            fog_zone == "areas/hunting/old_swamp/area2" || fog_zone == "areas/hunting/old_swamp/area4" ||
-                           fog_zone == "areas/hunting/old_swamp/area9";
+                           fog_zone == "areas/hunting/old_swamp/area9" || fog_zone == "areas/hunting/town/area3" ||
+                           fog_zone == "areas/hunting/fortress/area5" || fog_zone == "areas/hunting/fortress/area2" ||
+                           fog_zone == "areas/hunting/fortress/area3" || fog_zone == "areas/hunting/fortress/area4" ||
+                           fog_zone == "areas/hunting/snowy_mountains_peak/area1";
     p.fog[0] = shadow_fog_[0];
     p.fog[1] = shadow_fog_[1];
     // The forest's mist is lighter: a fifth of the swamp's fade (10 on the slider where the swamp has 50).
     const bool light_mist = fog_zone == "areas/hunting/forestandhills/area8" || fog_zone == "areas/hunting/forestandhills/area10" ||
                             fog_zone.rfind("areas/hunting/old_swamp/", 0) == 0; // and the old swamp's, the same
     // The old jungle's, half of it (25 where the swamp has 50).
-    const bool half_mist = fog_zone.rfind("areas/hunting/old_jungle/", 0) == 0;
-    p.fog[2] = fog_fades && shadow_fog_frame_ == frame_ ? live_->shadow_mist_fade.load(std::memory_order_relaxed) * (light_mist ? 0.2f : half_mist ? 0.5f : 1.0f) : 0.0f;
+    const bool half_mist = fog_zone.rfind("areas/hunting/old_jungle/", 0) == 0 || fog_zone == "areas/hunting/fortress/area5"; // and the fortress's
+    const bool town_mist = fog_zone == "areas/hunting/town/area3"; // the town's, 35
+    // The peak's fog lies far: its fade is harder, for it to show (70 on the slider, three times as hard: 210 where the swamp has 50).
+    const bool peak_mist = fog_zone == "areas/hunting/snowy_mountains_peak/area1";
+    p.fog[2] = fog_fades && shadow_fog_frame_ == frame_ ? live_->shadow_mist_fade.load(std::memory_order_relaxed) * (light_mist ? 0.2f : half_mist ? 0.5f : town_mist ? 0.7f : peak_mist ? 4.2f : 1.0f) : 0.0f;
     // The player and what it carries, on a small map of its own.
     shadow_player_groups_.clear();
     p.player_half = 0.0f;
@@ -4397,10 +4418,12 @@ bool GlBackend::shadow_effect(const DrawSetup &setup, const GpuVertex *vertices,
     static const bool keep_depth = std::getenv("MHF_SHADOW_EFFECT_DEPTH") != nullptr;
     if (keep_depth || !live_->shadow.load(std::memory_order_relaxed)) return false;
     static std::unordered_set<std::uint64_t> told; // the textures taken for effects
-    if (setup.through || setup.haze || setup.listed || setup.texture == 0 || count == 0) return false;
-    if ((setup.largest_draw != 0 ? setup.largest_draw : count / 3u) > 16u) return false;
+    if (setup.through || setup.texture == 0 || count == 0) return false;
     const auto R = [&](std::uint32_t reg) { return key_reg(setup.key, reg); };
     if ((R(kClearMode) & 1u) != 0 || (R(kAlphaBlendEnable) & 1u) == 0 || (R(kZTestEnable) & 1u) == 0 || (R(kZWriteDisable) & 1u) != 0) return false;
+    if (shadow_air_textures_.count(setup.tex_hash) != 0) return true; // zone 6 of the fortress: what is air there
+    if (setup.haze || setup.listed) return false;
+    if ((setup.largest_draw != 0 ? setup.largest_draw : count / 3u) > 16u) return false;
     if (((R(kVertexType) >> 9u) & 3u) != 0) return false; // skinned
     std::uint8_t most = 0;
     for (std::size_t i = 0; i < count; ++i) most = std::max(most, vertices[i].color[3]);
