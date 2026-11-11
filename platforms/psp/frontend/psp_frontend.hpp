@@ -73,6 +73,10 @@ public:
     // its quest HUD and no menu, system dialog or notice is up; std::nullopt (no horn, not in a quest) hides them. Only
     // the OpenGL renderer finds the quest HUD, so the software renderer never shows them.
     void set_song_panel(std::optional<overlay::SongPanel> panel);
+    // Mouse look: while `wanted` says so and the game has the input (no menu, system dialog or song placing), the mouse
+    // is held in the window and its motion reaches the game's hooks (ControllerState::mouse_x and mouse_y). Asked on the
+    // game's thread at every poll.
+    void set_mouse_look(std::function<bool()> wanted);
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
     void attach(Runtime &rt, std::function<void()> extra = {});

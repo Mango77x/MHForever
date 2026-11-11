@@ -51,6 +51,10 @@ struct ControllerState {
     // up, 0 centred, 1 full right or down.
     float right_stick_x{};
     float right_stick_y{};
+    // The host's mouse, while it is held for mouse look: its motion added up (pointer units, right and down positive).
+    // Host hooks take the difference between two reads.
+    double mouse_x{};
+    double mouse_y{};
 };
 
 [[nodiscard]] const DisplayState &display_state(Runtime &rt);

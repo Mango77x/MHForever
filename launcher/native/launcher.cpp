@@ -138,6 +138,8 @@ Json default_settings() {
     s["analogCamera"] = false; // the right stick turns and tilts the camera by how far it is pushed
     s["analogCameraTurnSpeed"] = 100; // and how fast, in percent of a full push: 50..200 in steps of 10
     s["analogCameraTiltSpeed"] = 100;
+    s["mouseCamera"] = false;     // with the analog camera: the mouse turns and tilts it too
+    s["mouseCameraSpeed"] = 100;  // its sensitivity in percent: 25..300 in steps of 25
     s["hornSongs"] = false; // the hunting horn's songs over the quest HUD
     s["hornSongsPlace"] = "next-to-sheet"; // and where: a place's name, or "custom:X,Y" (overlay/song_panel.hpp)
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
@@ -897,7 +899,8 @@ void Launcher::import_game_controls() {
                 // What the game's in-game menu changes while playing: switches ("true", "false") and percentages, under
                 // the launcher's own names. Only these settings; apply_settings checks each value.
                 static constexpr std::string_view kGameOptions[] = {"trueWeaponValues", "fastSupplyBox", "analogCamera",
-                                                                    "analogCameraTurnSpeed", "analogCameraTiltSpeed"};
+                                                                    "analogCameraTurnSpeed", "analogCameraTiltSpeed",
+                                                                    "mouseCamera", "mouseCameraSpeed"};
                 const std::string setting = name == "horn-songs" ? "hornSongs" : name == "hud-size" ? "hudSize" : name.substr(7);
                 if (setting != "hornSongs" && setting != "hudSize" && std::ranges::find(kGameOptions, setting) == std::end(kGameOptions)) continue;
                 int value = 0;
@@ -993,8 +996,11 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     for (const char *key : {"analogCameraTurnSpeed", "analogCameraTiltSpeed"}) { // 50, 60, ... 200
         if (partial[key].is_number()) s[key] = std::clamp(std::round(partial[key].as_number() / 10.0), 5.0, 20.0) * 10.0;
     }
+    if (partial["mouseCameraSpeed"].is_number()) { // 25, 50, ... 300
+        s["mouseCameraSpeed"] = std::clamp(std::round(partial["mouseCameraSpeed"].as_number() / 25.0), 1.0, 12.0) * 25.0;
+    }
     for (const char *key : {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
-                            "analogCamera", "hornSongs", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest",
+                            "analogCamera", "mouseCamera", "hornSongs", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest",
                             "fucDrinkBuff"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
@@ -1382,6 +1388,11 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
             plan.args.push_back(flag);
             plan.args.push_back(num(key));
         }
+    }
+    if (s["mouseCamera"].as_bool()) plan.args.push_back("--mouse-camera");
+    if (s["mouseCameraSpeed"].is_number() && s["mouseCameraSpeed"].as_number() != 100) { // even off: the in-game menu
+        plan.args.push_back("--mouse-camera-speed");
+        plan.args.push_back(num("mouseCameraSpeed"));
     }
     if (s["hornSongs"].as_bool()) plan.args.push_back("--horn-songs");
     if (s["hornSongsPlace"].is_string()) { // even with the songs off: the in-game menu can turn them on while playing

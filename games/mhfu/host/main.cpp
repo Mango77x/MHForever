@@ -6,6 +6,7 @@
 //             [--smooth-textures] [--fps 30..180] [--hud-size 50-100] [--true-weapon-values] [--fast-supply-box]
 //             [--smithy-browse [--smithy-layout]]
 //             [--analog-camera [--analog-camera-turn-speed 50-200] [--analog-camera-tilt-speed 50-200]]
+//             [--mouse-camera [--mouse-camera-speed 25-300]]
 //             [--horn-songs [--horn-songs-place next-to-sheet|top-middle|under-names|bottom-left|custom:X,Y]]
 //             [--music-volume 0-100] [--sfx-volume 0-100]
 //             [--language en|fr|de|es|it|jp]
@@ -437,7 +438,8 @@ void on_smithy_panel_draw(Runtime &rt, Context &ctx) {
 // --analog-camera. The game turns its camera with the d-pad by a fixed amount per frame and tilts it in five steps (a
 // level 0-4 that picks one of five presets: where the eye sits and what it looks at). The region map's call patches
 // run inside that d-pad code, so the right stick turns and tilts the camera by how far it is pushed exactly where the
-// d-pad works. The offsets are the camera's (s4) and its tilt state's (s0) in that code.
+// d-pad works. The offsets are the camera's (s4) and its tilt state's (s0) in that code. With --mouse-camera the mouse
+// turns and tilts it the same way, its motion in a frame standing for a push (kMousePixelsPerPush).
 constexpr int kRegV1 = 3, kRegA0 = 4, kRegA1 = 5, kRegS0 = 16, kRegS4 = 20;
 constexpr std::uint32_t kCameraFov = 0x64;          // f32 in the camera: the field of view, set from the tilt level
 constexpr std::uint32_t kCameraPresetTable = 0x6C;  // u32 in the camera: the presets (the area's own, or the default)
@@ -456,6 +458,10 @@ constexpr int kTiltLevels = 5;
 constexpr std::array<int, 4> kTiltCurveLevels{0, 2, 3, 4};
 constexpr float kStickDeadZone = 0.15f;
 constexpr float kTiltPerFrame = 0.0384f; // radians at a full push (2.2 degrees): the whole range (about 62) in 28 frames
+// The mouse's motion in one frame that counts as a full push of the stick, at 100% (pointer units), and the most a frame
+// may count for (a fling past it turns no faster).
+constexpr float kMousePixelsPerPush = 24.0f;
+constexpr float kMouseMostPush = 8.0f;
 
 // How far a stick axis is pushed past the dead zone, 0 to 1.
 float stick_push(float axis) {
@@ -479,6 +485,12 @@ struct CameraView {
 std::atomic<bool> g_analog_camera{false}; // --analog-camera, or the in-game menu while playing
 std::atomic<float> g_turn_speed{1.0f};  // --analog-camera-turn-speed: a full push turns this many times as fast as the d-pad
 std::atomic<float> g_tilt_speed{1.0f};  // --analog-camera-tilt-speed: scales kTiltPerFrame
+std::atomic<bool> g_mouse_camera{false}; // --mouse-camera: the mouse turns and tilts the camera too (the analog camera's hooks)
+std::atomic<float> g_mouse_speed{1.0f};  // --mouse-camera-speed: scales kMousePixelsPerPush's push
+bool g_mouse_known = false;              // the mouse's motion has been read once
+double g_mouse_last_x = 0.0, g_mouse_last_y = 0.0; // where its added-up motion stood at the last read
+float g_mouse_dx = 0.0f, g_mouse_dy = 0.0f; // its motion this frame, 0 when the camera does not have the pad
+float g_turn_rest = 0.0f;                // the part of a mouse turn too small for this frame, carried to the next
 bool g_camera_has_pad = false; // the camera got the whole pad this frame (no menu or scene has it)
 float g_turn_push = 0.0f;      // the stick's push for this frame's turn, 0 when the stick is not turning
 bool g_tilt_known = false;
@@ -493,6 +505,17 @@ std::optional<std::uint32_t> g_tilt_preset_block; // where the curve's preset is
 // presses: a quick push would step its tilt level.
 void on_camera_buttons_copied(Runtime &rt, Context &ctx) {
     g_camera_has_pad = g_analog_camera.load() && ctx.gpr[kRegA0] == 1u; // off: the stick is the d-pad, as on the PSP
+    // The mouse's motion since the last frame. It is read every frame, so motion while a menu or a scene had the pad is
+    // dropped rather than turning the camera all at once afterwards.
+    const auto &pad = mhf::psp::controller_state(rt);
+    const double dx = g_mouse_known ? pad.mouse_x - g_mouse_last_x : 0.0, dy = g_mouse_known ? pad.mouse_y - g_mouse_last_y : 0.0;
+    g_mouse_known = true;
+    g_mouse_last_x = pad.mouse_x;
+    g_mouse_last_y = pad.mouse_y;
+    const bool mouse = g_camera_has_pad && g_mouse_camera.load();
+    g_mouse_dx = mouse ? static_cast<float>(dx) : 0.0f;
+    g_mouse_dy = mouse ? static_cast<float>(dy) : 0.0f;
+    if (!mouse) g_turn_rest = 0.0f;
     if (!g_camera_has_pad) return;
     constexpr std::uint32_t kDpad =
         mhf::psp::buttons::kUp | mhf::psp::buttons::kDown | mhf::psp::buttons::kLeft | mhf::psp::buttons::kRight;
@@ -503,10 +526,17 @@ void on_camera_buttons_copied(Runtime &rt, Context &ctx) {
     rt.memory().store16(copy + 2, static_cast<std::uint16_t>(rt.memory().load16(copy + 2) & ~from_stick)); // pressed
 }
 
-// Before the camera tests the turn buttons (its button copy is in a1 as well): the stick holds Left or Right down.
+// Before the camera tests the turn buttons (its button copy is in a1 as well): the stick, or else the mouse, holds Left
+// or Right down.
 void on_camera_turn_buttons_test(Runtime &rt, Context &ctx) {
-    const float x = mhf::psp::controller_state(rt).right_stick_x;
-    g_turn_push = g_camera_has_pad ? stick_push(x) : 0.0f;
+    float x = mhf::psp::controller_state(rt).right_stick_x;
+    g_turn_push = g_camera_has_pad ? stick_push(x) * g_turn_speed : 0.0f;
+    if (g_turn_push == 0.0f && g_mouse_dx != 0.0f) {
+        x = g_mouse_dx;
+        g_turn_push = std::min(std::abs(g_mouse_dx) / kMousePixelsPerPush * g_mouse_speed, kMouseMostPush);
+    } else {
+        g_turn_rest = 0.0f;
+    }
     if (g_turn_push == 0.0f) return;
     const std::uint32_t buttons = ctx.gpr[kRegS4] + kCameraButtons;
     if (!rt.memory().contains(buttons, 2)) return;
@@ -517,12 +547,18 @@ void on_camera_turn_buttons_test(Runtime &rt, Context &ctx) {
     ctx.gpr[kRegA1] = held;
 }
 
-// The game has chosen this frame's turn (v1, its sign set by the camera setting): the stick's push scales it.
+// The game has chosen this frame's turn (v1, its sign set by the camera setting): the push scales it. A mouse turn too
+// small for a whole step carries its rest to the next frame, so slow motion still turns.
 void on_camera_turn_amount_chosen(Runtime &, Context &ctx) {
     if (g_turn_push == 0.0f) return;
     const auto amount = static_cast<float>(static_cast<std::int32_t>(ctx.gpr[kRegV1]));
-    ctx.gpr[kRegV1] =
-        static_cast<std::uint32_t>(static_cast<std::int32_t>(std::lround(amount * g_turn_push * g_turn_speed)));
+    float turn = amount * g_turn_push;
+    if (g_mouse_dx != 0.0f) {
+        if ((g_turn_rest < 0.0f) != (turn < 0.0f)) g_turn_rest = 0.0f; // the other way: start afresh
+        turn += g_turn_rest;
+        g_turn_rest = turn - static_cast<float>(std::lround(turn));
+    }
+    ctx.gpr[kRegV1] = static_cast<std::uint32_t>(static_cast<std::int32_t>(std::lround(turn)));
     g_turn_push = 0.0f;
 }
 
@@ -593,8 +629,12 @@ void on_camera_tilt_preset_chosen(Runtime &rt, Context &ctx) {
         g_stick_tilted = false;
         g_tilt_pitch = levels[level].pitch();
     }
-    const float y = mhf::psp::controller_state(rt).right_stick_y;
-    const float push = g_camera_has_pad ? stick_push(y) : 0.0f;
+    float y = mhf::psp::controller_state(rt).right_stick_y;
+    float push = g_camera_has_pad ? stick_push(y) * g_tilt_speed : 0.0f;
+    if (push == 0.0f && g_mouse_dy != 0.0f) { // the mouse, when the stick is not tilting: up looks up, as the stick
+        y = g_mouse_dy;
+        push = std::min(std::abs(g_mouse_dy) / kMousePixelsPerPush * g_mouse_speed, kMouseMostPush);
+    }
     if (push > 0.0f) {
         // Up raises the level (the camera looks from lower down), as the d-pad does, unless the setting reverses it.
         bool reversed = false;
@@ -603,8 +643,7 @@ void on_camera_tilt_preset_chosen(Runtime &rt, Context &ctx) {
             reversed = memory.contains(setting) && memory.load8(setting) != 0;
         }
         const float raise = (y < 0.0f) != reversed ? push : -push;
-        g_tilt_pitch = std::clamp(g_tilt_pitch - raise * kTiltPerFrame * g_tilt_speed, curve.back().pitch(),
-                                  curve.front().pitch());
+        g_tilt_pitch = std::clamp(g_tilt_pitch - raise * kTiltPerFrame, curve.back().pitch(), curve.front().pitch());
         g_stick_tilted = true;
         int nearest = 0;
         for (int l = 1; l < kTiltLevels; ++l) {
@@ -763,6 +802,9 @@ int main(int argc, char **argv) {
             g_turn_speed = static_cast<float>(std::clamp(std::stoi(argv[++i]), 50, 200)) / 100.0f; // in percent
         else if (a == "--analog-camera-tilt-speed" && i + 1 < argc)
             g_tilt_speed = static_cast<float>(std::clamp(std::stoi(argv[++i]), 50, 200)) / 100.0f; // in percent
+        else if (a == "--mouse-camera") g_mouse_camera = true; // enhancement, off by default; works with --analog-camera
+        else if (a == "--mouse-camera-speed" && i + 1 < argc)
+            g_mouse_speed = static_cast<float>(std::clamp(std::stoi(argv[++i]), 25, 300)) / 100.0f; // in percent
         else if (a == "--horn-songs") horn_songs = true; // enhancement
         else if (a == "--horn-songs-place" && i + 1 < argc) horn_songs_place = argv[++i];
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
@@ -979,6 +1021,15 @@ int main(int argc, char **argv) {
                                           "At 100% the camera goes from its lowest view to its highest in about a second.",
                                           true, percent(g_tilt_speed), 50, 200, 10, "analogCamera",
                                           [](int v) { g_tilt_speed = static_cast<float>(v) / 100.0f; }});
+                frontend.add_game_option({"mouseCamera", "Mouse camera",
+                                          "The mouse turns and tilts the camera too. Escape lets the mouse go.", false,
+                                          g_mouse_camera ? 1 : 0, 0, 1, 1, "analogCamera",
+                                          [](int v) { g_mouse_camera = v != 0; }});
+                frontend.add_game_option({"mouseCameraSpeed", "Mouse sensitivity", "How far the camera moves for the same mouse motion.",
+                                          true, percent(g_mouse_speed), 25, 300, 25, "mouseCamera",
+                                          [](int v) { g_mouse_speed = static_cast<float>(v) / 100.0f; }});
+                // The mouse is held in the window while it moves the camera: both switches on.
+                frontend.set_mouse_look([] { return g_analog_camera.load() && g_mouse_camera.load(); });
             }
             frontend.attach(runtime, extra);
         } else if (window) {

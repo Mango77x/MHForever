@@ -122,7 +122,10 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   (`analogCamera`, `--analog-camera`, off by default: the right stick turns the camera as fast as it is pushed and tilts
   it smoothly from the game's lowest view to its highest; while it is on, **Analog camera turn speed** and **tilt speed**
   (`analogCameraTurnSpeed`, `analogCameraTiltSpeed`, 50% to 200% in steps of 10, passed as `--analog-camera-turn-speed`
-  and `--analog-camera-tilt-speed` when not 100%) set how fast a full push goes; not offered for FUComplete copies yet):
+  and `--analog-camera-tilt-speed` when not 100%) set how fast a full push goes, and **Mouse camera** (`mouseCamera`,
+  `--mouse-camera`, off by default: the mouse turns and tilts the camera too, held in the game window with its pointer
+  hidden while the game has the input; the in-game menu, a system dialog or another window lets it go) with **Mouse
+  sensitivity** (`mouseCameraSpeed`, 25% to 300% in steps of 25, `--mouse-camera-speed` when not 100%)):
   the game's options live there, Video keeps the picture's.
 - **Updates (2026-10-29)**: when the launcher starts (Settings > About > Check for updates, on by default) it asks GitHub for
   the latest release; when it is newer, Home offers "Update now". The launcher downloads the archive for its system with the
@@ -152,7 +155,7 @@ mode, where no second window can be shown.
   resolution 1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures, texture pack, HUD scale), **Controls**, and **Online** when a server
   is set. Since 2026-11-09 the Game section also changes, while playing, the enhancements whose hooks read a switch every
   time (`Frontend::add_game_option`): true weapon values (not for FUComplete, which has its own), fast supply box, the
-  analog camera and its turn and tilt speeds (not for FUComplete), and the hunting horn songs on or off. The controls file
+  analog camera with its turn and tilt speeds and the mouse camera with its sensitivity, and the hunting horn songs on or off. The controls file
   carries them back to the launcher (`option.<setting>=`, `horn-songs=`, and `hud-size=` for the Video section's HUD
   scale), which keeps only those settings. The smithy options, the language and FUComplete's own options stay in the
   launcher: the smithy's instruction patches are fixed when the game starts, and the others apply before it does.
