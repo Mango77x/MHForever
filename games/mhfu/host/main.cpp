@@ -8,6 +8,7 @@
 //             [--analog-camera [--analog-camera-turn-speed 50-200] [--analog-camera-tilt-speed 50-200]]
 //             [--mouse-camera [--mouse-camera-speed 25-300]]
 //             [--horn-songs [--horn-songs-place next-to-sheet|top-middle|under-names|bottom-left|custom:X,Y]]
+//             [--projected-shadows [--no-whole-map-shadows] [--shadow-quality 0-2] [--shadow-darkness 0-100]]
 //             [--music-volume 0-100] [--sfx-volume 0-100]
 //             [--language en|fr|de|es|it|jp]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
@@ -821,6 +822,10 @@ int main(int argc, char **argv) {
     bool smooth_textures = false;
     int target_fps = 30; // --fps N: 30 (the game's own rate) or a multiple of it up to 180
     int hud_size = 100; // --hud-size N: the quest HUD's size in percent (enhancement)
+    // The projected shadows (enhancement): --projected-shadows turns them on, --no-whole-map-shadows leaves only the hunter and
+    // monsters casting, --shadow-quality 0..2 (low by default), --shadow-darkness 0..100 (50: as each zone was tuned).
+    bool projected_shadows = false, whole_map_shadows = true;
+    int shadow_quality = 0, shadow_darkness = 50;
     bool true_weapon_values = false; // --true-weapon-values: menus show attack and element without display multipliers
     bool fast_supply_box = false; // --fast-supply-box: the supply box takes the next button soon after a take-out
     bool smithy_browse = false; // --smithy-browse: the smithy's lists scroll with the R or Info panel open
@@ -854,6 +859,10 @@ int main(int argc, char **argv) {
         else if (a == "--smooth-textures") smooth_textures = true; // enhancement, off by default
         else if (a == "--fps" && i + 1 < argc) target_fps = std::clamp(std::stoi(argv[++i]), 30, 180); // enhancement
         else if (a == "--hud-size" && i + 1 < argc) hud_size = std::clamp(std::stoi(argv[++i]), 50, 100); // enhancement
+        else if (a == "--projected-shadows") projected_shadows = true; // enhancement, off by default
+        else if (a == "--no-whole-map-shadows") whole_map_shadows = false;
+        else if (a == "--shadow-quality" && i + 1 < argc) shadow_quality = std::clamp(std::stoi(argv[++i]), 0, 2);
+        else if (a == "--shadow-darkness" && i + 1 < argc) shadow_darkness = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--true-weapon-values") true_weapon_values = true; // enhancement, off by default
         else if (a == "--fast-supply-box") fast_supply_box = true; // enhancement, off by default
         else if (a == "--smithy-browse") smithy_browse = true; // enhancement, off by default
@@ -1054,6 +1063,9 @@ int main(int argc, char **argv) {
             frontend.set_shadow_zone_suns(shadow_zone_suns());
             frontend.set_shadow_zones({std::begin(kShadowZoneNames), std::end(kShadowZoneNames)}, shadow_zone_textures());
             frontend.set_hud(hud_size);
+            const char *shadow_env = std::getenv("MHF_SHADOW"); // MHF_SHADOW=1 turns them on as --projected-shadows does
+            frontend.set_shadows(projected_shadows || (shadow_env != nullptr && shadow_env[0] != '0'), whole_map_shadows, shadow_quality,
+                                 shadow_darkness);
             // The horn's songs over the quest HUD, read from the game a few times a second (horn_songs.hpp). The
             // in-game menu turns them on and off, so they are read even while off.
             frontend.offer_songs(horn_songs, mhf::overlay::parse_song_spot(horn_songs_place).value_or(mhf::overlay::SongSpot{}));

@@ -107,11 +107,6 @@ using MhfReadPixels = void(APIENTRY *)(GLint, GLint, GLsizei, GLsizei, GLenum, G
 #define MHF_GL_FUNCTIONS(X)                                                                                        \
     X(MhfGetString, GetString, glGetString)                                                                  \
     X(MhfGetError, GetError, glGetError)                                                                     \
-    X(PFNGLGENQUERIESPROC, GenQueries, glGenQueries)                                                               \
-    X(PFNGLBEGINQUERYPROC, BeginQuery, glBeginQuery)                                                               \
-    X(PFNGLENDQUERYPROC, EndQuery, glEndQuery)                                                                     \
-    X(PFNGLGETQUERYOBJECTUIVPROC, GetQueryObjectuiv, glGetQueryObjectuiv)                                          \
-    X(PFNGLGETQUERYOBJECTUI64VPROC, GetQueryObjectui64v, glGetQueryObjectui64v)                                    \
     X(MhfViewport, Viewport, glViewport)                                                                     \
     X(MhfScissor, Scissor, glScissor)                                                                        \
     X(MhfEnable, Enable, glEnable)                                                                           \
@@ -359,8 +354,6 @@ void main() {
 }
 )";
 
-// The jungle camp's waterfall and mountain: see-through, they neither cast nor take the shade.
-constexpr bool kJungleCampWater = true;
 
 // With a small blur: the wide soft edges come from a few samples, which would show as grain.
 constexpr const char *kShadowApplyFragment = R"(#version 330 core
@@ -818,7 +811,7 @@ public:
         if ((ge.reg(kZWriteDisable) & 1u) == 0 || ge.reg(kBlendMode) != 0x32u || a.a < 250.0f || ge.reg(kAlphaTest) != 0x00FF0006u) return false;
         const auto dark_grey = [](float value) { return value >= 15.0f && value <= 35.0f; };
         if (!dark_grey(a.r) || !dark_grey(a.g) || !dark_grey(a.b)) return false;
-        return live_ != nullptr;
+        return live_ != nullptr && live_->shadow.load(std::memory_order_relaxed);
     }
 
     void triangle(const gpu::Ge &ge, const gpu::Vertex &a, const gpu::Vertex &b, const gpu::Vertex &c) override {
@@ -1899,11 +1892,11 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
         t.zone = -1;
         if (!shadow_zone_by_texture_.empty()) {
             if (!shadow_zone_keys_) shadow_zone_keys_ = textures::Pack::keys_only();
-            textures::Key key;
+            textures::Key zone_key;
             std::uint32_t covered_w = info.width, covered_h = info.height;
             const auto memory = [&ge](std::uint32_t address, std::uint32_t size) { return ge.guest_bytes(address, size); };
-            if (shadow_zone_keys_->key_of(texture_facts(ge, info, t.max_seen_v), memory, key, covered_w, covered_h)) {
-                if (const auto zone = shadow_zone_by_texture_.find(key.data); zone != shadow_zone_by_texture_.end()) t.zone = zone->second;
+            if (shadow_zone_keys_->key_of(texture_facts(ge, info, t.max_seen_v), memory, zone_key, covered_w, covered_h)) {
+                if (const auto zone = shadow_zone_by_texture_.find(zone_key.data); zone != shadow_zone_by_texture_.end()) t.zone = zone->second;
             }
         }
     }
@@ -2671,7 +2664,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                                                            shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/volcano/area8");
     // The jungle's camp: the mountain over its waterfall is drawn blended and tall, and the waterfall's water fades to nothing at
     // its edges. Air there: they neither cast nor take the shade. Not what adds light over the ground.
-    if (kJungleCampWater && shadow_zone_ >= 0 && shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/jungle/base") {
+    if (shadow_zone_ >= 0 && shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/jungle/base") {
         for (ShadowDraw &d : shadow_draws_) {
             if (d.listed == 0 && d.blended && !d.cutout && !shadow_groups_[d.group].skinned && d.paint[0] != 0xA2u &&
                 (d.height() >= 1500.0f || d.alpha_low < 16.0f)) {
@@ -2943,7 +2936,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         lily_pads_float = zone_name == "areas/hunting/swamp/area4" || zone_name == "areas/hunting/swamp/area5" || zone_name == "areas/hunting/swamp/area6";
     }
     // The jungle's camp: its waterfall is see-through water fading to nothing at its edges, and it cast as if it were rock.
-    const bool water_fades = kJungleCampWater && shadow_zone_ >= 0 && shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/jungle/base";
+    const bool water_fades = shadow_zone_ >= 0 && shadow_zone_names_[static_cast<std::size_t>(shadow_zone_)] == "areas/hunting/jungle/base";
     for (std::uint32_t i = 0; i < shadow_draws_.size(); ++i) {
         const ShadowDraw &d = shadow_draws_[i];
         if (d.count == 0 || d.target != rt.address) continue;
@@ -3110,7 +3103,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                         }
                         const float x = std::clamp((n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2] + 0.25f) / 0.2f, 0.0f, 1.0f);
                         const float own = x * x * (3.0f - 2.0f * x);
-                        for (float &v : r) v = std::min(v, own);
+                        for (float &x : r) x = std::min(x, own);
                     }
                 }
                 // Far away the coarse mountains would show their polygons: the shade fades out, and the game's own light stays.

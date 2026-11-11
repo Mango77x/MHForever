@@ -165,6 +165,7 @@ struct Frontend::Impl {
     std::vector<Frontend::GameOption> game_options; // add_game_option: the Game tab's options of the game
     std::function<bool()> mouse_look;               // set_mouse_look
     bool hud_size_changed{}; // the Video tab changed the HUD's size: the controls file keeps it
+    bool shadows_known{}; // the shadows' settings came from the launcher or the Video tab changed them: the controls file keeps them
     std::optional<overlay::SongPanel> songs;
     std::optional<overlay::SongPanel> songs_seen; // the last songs the host gave, for moving them from the menu
     // Moving the songs (the Game tab's "Move them anywhere"): where the card's top left corner is now, and the mouse's
@@ -355,6 +356,14 @@ void Frontend::set_shadow_zones(std::vector<std::string> names, std::vector<std:
 }
 
 void Frontend::set_hud(int size) { impl_->live.hud_size = std::clamp(size, 50, 100); }
+
+void Frontend::set_shadows(bool on, bool whole_map, int quality, int darkness) {
+    impl_->live.shadow = on;
+    impl_->live.shadow_whole_map = whole_map;
+    impl_->live.shadow_quality = std::clamp(quality, 0, 2);
+    impl_->live.shadow_strength = static_cast<float>(std::clamp(darkness, 0, 100)) / 100.0f;
+    impl_->shadows_known = true;
+}
 
 void Frontend::set_song_spot(overlay::SongSpot spot) { impl_->song_spot = spot; }
 
@@ -937,19 +946,19 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         video.items.push_back(pack);
     }
     overlay::MenuItem shadow = menu_item(Kind::Toggle, kShadow, "Projected shadows", impl.live.shadow ? 1 : 0);
-    shadow.detail = "The hunter, monsters, rocks and plants cast shadows on the ground. Experimental.";
+    shadow.detail = "Characters and scenery cast shadows.";
     video.items.push_back(shadow);
     if (impl.live.shadow) { // its settings unfold under the switch while it is on
         overlay::MenuItem whole = menu_item(Kind::Toggle, kShadowWholeMap, "Whole map shadows", impl.live.shadow_whole_map ? 1 : 0);
-        whole.detail = "The scenery casts shadows too, and sides turned away from the sun go dark. Off: only the hunter and monsters cast.";
+        whole.detail = "Scenery casts shadows too.";
         video.items.push_back(whole);
         overlay::MenuItem quality = menu_item(Kind::Choice, kShadowQuality, "Shadow quality");
         quality.options = {"Low", "Medium", "High"};
         quality.value = impl.live.shadow_quality.load();
-        quality.detail = "How much detail the scenery's shadows have. Lower is faster.";
+        quality.detail = "Higher quality costs more performance.";
         video.items.push_back(quality);
         overlay::MenuItem dark = menu_item(Kind::Slider, kShadowStrength, "Shadow darkness", static_cast<int>(impl.live.shadow_strength * 100.0f + 0.5f));
-        dark.detail = "50: as each place was made to look. Lower is lighter, down to no shade at 0; higher is darker, up to half as dark again at 100.";
+        dark.detail = "Adjusts how dark shadows are.";
         video.items.push_back(dark);
     }
     overlay::MenuItem hud = menu_item(Kind::Choice, kHudSize, "HUD scale");
@@ -1010,6 +1019,12 @@ void save_controls(const Frontend::Impl &impl) {
         if (impl.song_spot) out << "horn-songs-place=" << overlay::format_song_spot(*impl.song_spot) << "\n";
         if (impl.songs_offered) out << "horn-songs=" << (impl.songs_on ? "true" : "false") << "\n";
         if (impl.hud_size_changed) out << "hud-size=" << impl.live.hud_size.load() << "\n";
+        if (impl.shadows_known) {
+            out << "option.projectedShadows=" << (impl.live.shadow ? "true" : "false") << "\n";
+            out << "option.wholeMapShadows=" << (impl.live.shadow_whole_map ? "true" : "false") << "\n";
+            out << "option.shadowQuality=" << impl.live.shadow_quality.load() << "\n";
+            out << "option.shadowDarkness=" << static_cast<int>(impl.live.shadow_strength * 100.0f + 0.5f) << "\n";
+        }
         for (const Frontend::GameOption &o : impl.game_options) {
             out << "option." << o.setting << "=";
             if (o.slider) out << o.value << "\n";
@@ -1340,11 +1355,25 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         case kTexturePack: impl.live.texture_pack = e.value != 0; break;
         case kShadow:
             impl.live.shadow = e.value != 0;
-            refresh_menu(impl); // the sliders under it appear or go
+            impl.shadows_known = true;
+            save_controls(impl); // the launcher keeps them for the next time
+            refresh_menu(impl); // the settings under it appear or go
             break;
-        case kShadowStrength: impl.live.shadow_strength = static_cast<float>(std::clamp(e.value, 0, 100)) / 100.0f; break;
-        case kShadowWholeMap: impl.live.shadow_whole_map = e.value != 0; break;
-        case kShadowQuality: impl.live.shadow_quality = std::clamp(e.value, 0, 2); break;
+        case kShadowStrength:
+            impl.live.shadow_strength = static_cast<float>(std::clamp(e.value, 0, 100)) / 100.0f;
+            impl.shadows_known = true;
+            save_controls(impl);
+            break;
+        case kShadowWholeMap:
+            impl.live.shadow_whole_map = e.value != 0;
+            impl.shadows_known = true;
+            save_controls(impl);
+            break;
+        case kShadowQuality:
+            impl.live.shadow_quality = std::clamp(e.value, 0, 2);
+            impl.shadows_known = true;
+            save_controls(impl);
+            break;
         case kHudSize:
             if (e.value >= 0 && e.value < static_cast<int>(std::size(kHudSizes))) {
                 impl.live.hud_size = kHudSizes[e.value];

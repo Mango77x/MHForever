@@ -49,11 +49,11 @@ struct LiveSettings {
     // Projected shadows (enhancement): on or off while the game runs (MHF_SHADOW=1 starts with them on). Skinned draws (the
     // hunter, the monsters) always cast. shadow_whole_map: all the solid scenery casts too, and surfaces turned away from the sun
     // are shaded; off, only the hunter and monsters cast. shadow_quality: the size of the map of shadows, 0 low (2048), 1 medium
-    // (4096), 2 high (8192). shadow_strength: how dark, 0..1; at 0.5 each zone is as it was tuned, below it lighter down to no
+    // (4096), 2 high (8192); low unless chosen. shadow_strength: how dark, 0..1; at 0.5 each zone is as it was tuned, below it lighter down to no
     // shade at 0, above it darker up to half as dark again at 1.
     std::atomic<bool> shadow{false};
     std::atomic<bool> shadow_whole_map{true};
-    std::atomic<int> shadow_quality{2};
+    std::atomic<int> shadow_quality{0};
     // What the game knows about its own textures (Frontend::set_shadow_textures), set before the backend is made: air (mist,
     // haze), solid (rock that looks like mist to the guesses), and the insides of caves, where only objects cast.
     std::vector<std::uint64_t> shadow_air_textures, shadow_solid_textures, shadow_cave_textures, shadow_haze_textures;

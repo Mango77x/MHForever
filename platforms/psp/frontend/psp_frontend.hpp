@@ -59,6 +59,9 @@ public:
     // The quest HUD's size in percent, 50..100 (gl_backend.hpp, LiveSettings). The Video tab of the in-game menu
     // changes it while playing.
     void set_hud(int size);
+    // The projected shadows as the launcher keeps them (gl_backend.hpp, LiveSettings): on, whole map, quality 0..2,
+    // darkness 0..100. The Video tab changes them while playing, and the controls file keeps them for the launcher.
+    void set_shadows(bool on, bool whole_map, int quality, int darkness);
     // Turns the hunting horn's songs on (an enhancement, off unless called) at the place the player chose; the Game tab
     // of the in-game menu changes the place or lets the player drag them anywhere, and the controls file keeps the new
     // spot for the launcher.
