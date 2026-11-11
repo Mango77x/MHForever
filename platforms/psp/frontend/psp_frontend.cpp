@@ -163,6 +163,7 @@ struct Frontend::Impl {
     bool songs_offered{}; // offer_songs: the Game tab turns them on and off
     bool songs_on{true};  // and they are on
     std::vector<Frontend::GameOption> game_options; // add_game_option: the Game tab's options of the game
+    std::function<bool()> mouse_look;               // set_mouse_look
     bool hud_size_changed{}; // the Video tab changed the HUD's size: the controls file keeps it
     std::optional<overlay::SongPanel> songs;
     std::optional<overlay::SongPanel> songs_seen; // the last songs the host gave, for moving them from the menu
@@ -349,6 +350,8 @@ void Frontend::offer_songs(bool on, overlay::SongSpot spot) {
 }
 
 void Frontend::add_game_option(GameOption option) { impl_->game_options.push_back(std::move(option)); }
+
+void Frontend::set_mouse_look(std::function<bool()> wanted) { impl_->mouse_look = std::move(wanted); }
 
 void Frontend::set_song_panel(std::optional<overlay::SongPanel> panel) {
     if (panel) impl_->songs_seen = panel;
@@ -854,10 +857,16 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
     if (!impl.game_options.empty()) game.items.push_back(menu_item(Kind::Heading, 0, "Enhancements"));
     for (std::size_t i = 0; i < impl.game_options.size(); ++i) {
         const Frontend::GameOption &o = impl.game_options[i];
-        if (!o.shown_with.empty()) {
-            const auto with = std::ranges::find(impl.game_options, o.shown_with, &Frontend::GameOption::setting);
-            if (with != impl.game_options.end() && with->value == 0) continue;
+        // Shown while its switch is on, and that switch's own switch (the mouse's sensitivity needs the mouse camera,
+        // which needs the analog camera).
+        bool shown = true;
+        for (const std::string *with_setting = &o.shown_with; shown && !with_setting->empty();) {
+            const auto with = std::ranges::find(impl.game_options, *with_setting, &Frontend::GameOption::setting);
+            if (with == impl.game_options.end()) break;
+            shown = with->value != 0;
+            with_setting = &with->shown_with;
         }
+        if (!shown) continue;
         overlay::MenuItem row = menu_item(o.slider ? Kind::Slider : Kind::Toggle, kGameOptionBase + static_cast<int>(i), o.label, o.value);
         row.detail = o.detail;
         if (o.slider) {
@@ -1763,23 +1772,33 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
                 return;
             }
             const host::GamepadState pad = impl->host.input();
+            // Mouse look holds the mouse only while the game has the input: a menu, a system dialog or moving the
+            // songs lets it go (the in-game menu is used with the mouse).
+            impl->host.set_relative_mouse(!impl->menu_open && !impl->song_placing && impl->mouse_look && impl->mouse_look() &&
+                                          current_dialog(*runtime).kind == DialogView::Kind::None);
+            // No buttons, but the mouse's motion as it stands (it no longer moves while let go), so hooks that take
+            // its difference see no jump when the game has the input again.
+            ControllerState idle;
+            impl->host.mouse_motion(idle.mouse_x, idle.mouse_y);
             if (impl->menu_open) {
-                set_controller_state(*runtime, ControllerState{}); // the menu has the input, the game runs on without it
+                set_controller_state(*runtime, idle); // the menu has the input, the game runs on without it
                 step_menu(*impl, *runtime);
                 if (!impl->menu_open && impl->song_placing_requested) start_song_placing(*impl);
             } else if (impl->song_placing) {
-                set_controller_state(*runtime, ControllerState{}); // moving the songs has the input, as the menu does
+                set_controller_state(*runtime, idle); // moving the songs has the input, as the menu does
                 step_song_placing(*impl);
                 show_songs(*impl, *runtime);
             } else {
-                set_controller_state(*runtime, map_input(pad));
+                ControllerState state = map_input(pad);
+                impl->host.mouse_motion(state.mouse_x, state.mouse_y);
+                set_controller_state(*runtime, state);
                 update_dialogs(*impl, *runtime);
                 watch_friends(*impl, *runtime);
                 show_songs(*impl, *runtime);
                 if (pad.guide && !impl->guide_down) impl->menu_requested = true;
                 impl->guide_down = pad.guide;
                 if (impl->menu_requested && current_dialog(*runtime).kind == DialogView::Kind::None) {
-                    set_controller_state(*runtime, ControllerState{}); // nothing stays pressed while the menu is up
+                    set_controller_state(*runtime, idle); // nothing stays pressed while the menu is up
                     open_menu(*impl, *runtime);
                 }
                 impl->menu_requested = false;

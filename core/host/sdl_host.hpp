@@ -91,6 +91,12 @@ public:
     void set_clipboard_text(const std::string &text);
     // Shows or hides the mouse cursor over the window.
     void show_cursor(bool show);
+    // Mouse look: while on (and the window has the focus), the mouse is held in the window with its pointer hidden, and
+    // its motion adds up into mouse_motion(). The system lets it go when the window loses the focus and takes it again
+    // when it comes back.
+    void set_relative_mouse(bool on);
+    // The mouse's motion while held, added up since the window opened (pointer units; right and down positive).
+    void mouse_motion(double &x, double &y) const;
     // Text entry (IME, typed characters). While it is on, the keyboard no longer acts as a gamepad.
     void set_text_input(bool on);
 

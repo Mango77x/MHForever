@@ -30,6 +30,8 @@ struct SdlHost::Impl {
     bool capture = false;
     std::vector<CapturedInput> captured;
     bool trigger_down[2] = {false, false}; // left, right: a trigger counts as pressed once, past this much of its travel
+    bool relative_mouse = false;
+    double mouse_x = 0.0, mouse_y = 0.0; // the held mouse's motion, added up (set_relative_mouse)
 };
 
 SdlHost::SdlHost() : impl_(std::make_unique<Impl>()) {}
@@ -157,6 +159,17 @@ void SdlHost::show_cursor(bool show) {
     else SDL_HideCursor();
 }
 
+void SdlHost::set_relative_mouse(bool on) {
+    if (impl_->relative_mouse == on || impl_->window == nullptr) return;
+    impl_->relative_mouse = on;
+    SDL_SetWindowRelativeMouseMode(impl_->window, on);
+}
+
+void SdlHost::mouse_motion(double &x, double &y) const {
+    x = impl_->mouse_x;
+    y = impl_->mouse_y;
+}
+
 void SdlHost::set_mouse_events(bool on) {
     impl_->mouse_events = on;
     impl_->mouse.clear();
@@ -208,6 +221,10 @@ bool SdlHost::poll() {
             if (impl_->keys.size() > 256) impl_->keys.erase(impl_->keys.begin());
             break;
         case SDL_EVENT_MOUSE_MOTION:
+            if (impl_->relative_mouse) {
+                impl_->mouse_x += e.motion.xrel;
+                impl_->mouse_y += e.motion.yrel;
+            }
             push_mouse(MouseEvent::Kind::Move, e.motion.x, e.motion.y, 0);
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:

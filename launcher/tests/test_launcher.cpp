@@ -265,6 +265,23 @@ int main(int argc, char **argv) {
         l.set_settings(speeds);
         CHECK(l.state()["settings"]["analogCameraTurnSpeed"].as_number() == 50);
         CHECK(l.state()["settings"]["analogCameraTiltSpeed"].as_number() == 100);
+        // Mouse camera: off by default, a bool turns it on; its sensitivity 100% by default, kept to 25..300 in steps of 25.
+        CHECK(!l.state()["settings"]["mouseCamera"].as_bool(true));
+        CHECK(l.state()["settings"]["mouseCameraSpeed"].as_number() == 100);
+        Json mouse;
+        mouse["mouseCamera"] = true;
+        mouse["mouseCameraSpeed"] = 140;
+        l.set_settings(mouse);
+        CHECK(l.state()["settings"]["mouseCamera"].as_bool());
+        CHECK(l.state()["settings"]["mouseCameraSpeed"].as_number() == 150);
+        mouse["mouseCamera"] = "no";
+        mouse["mouseCameraSpeed"] = 1000;
+        l.set_settings(mouse);
+        CHECK(l.state()["settings"]["mouseCamera"].as_bool());
+        CHECK(l.state()["settings"]["mouseCameraSpeed"].as_number() == 300);
+        mouse["mouseCameraSpeed"] = 0;
+        l.set_settings(mouse);
+        CHECK(l.state()["settings"]["mouseCameraSpeed"].as_number() == 25);
         // Hunting horn songs: off by default, a bool turns them on, anything else is ignored.
         CHECK(!l.state()["settings"]["hornSongs"].as_bool(true));
         Json horn;
