@@ -388,7 +388,7 @@ struct DrawSetup {
     DrawKey key{};
     GLuint texture{};     // 0: untextured
     float uv_xform[4]{1, 1, 0, 0};
-    bool texture_mips{};          // the texture has mip levels (a texture pack image)
+    bool texture_mips{};          // a texture pack image: mipmapped filtering over the levels it has, anisotropic
     std::uint8_t texture_filter{}; // a texture pack's [filtering] for it: 0 the game's, 1 nearest, 2 linear
     bool through{};
     float tex_width{1}, tex_height{1};
@@ -1014,7 +1014,7 @@ private:
     bool have_state_{};
     bool through_{};
     float tex_width_{1}, tex_height_{1};
-    bool tex_mips_ = false;          // the texture texture_for() gave has mip levels (a pack image)
+    bool tex_mips_ = false;          // the texture texture_for() gave is a pack image (texture_mips)
     float anisotropy_ = 1.0f;        // the anisotropic filtering of textures with mip levels (1: none, the GPU lacks it)
     std::uint8_t tex_filter_ = 0;    // and its pack [filtering]
     std::vector<GpuVertex> batch_;
@@ -1273,7 +1273,8 @@ GlBackend::RenderTarget *GlBackend::find_target(std::uint32_t vram_offset, bool 
 // ---------------------------------------------------------------- state
 
 void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips) {
-    // Texture pack images carry mip levels: at a distance they are sampled from those, not shimmering.
+    // Texture pack images: mipmapped filtering over the levels the pack gives (one level, as KHD: the full-size image;
+    // upload_pack_image sets the last level), with anisotropic filtering.
     const GLint min_filter = mips ? (linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_LINEAR) : (linear ? GL_LINEAR : GL_NEAREST);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
@@ -1515,7 +1516,7 @@ void GlBackend::use_pack_image(CachedTexture &t, const std::string &name) {
     ++pack_reused_;
 }
 
-// Puts a decoded image on the GPU, once, with its mip levels, and draws the cached texture with it.
+// Puts a decoded image on the GPU, once, with the mip levels it brings, and draws the cached texture with it.
 void GlBackend::upload_pack_image(CachedTexture &t, const std::string &name, const textures::Image &image) {
     if (pack_images_.count(name) == 0) {
         GLuint texture = 0;
@@ -1526,10 +1527,14 @@ void GlBackend::upload_pack_image(CachedTexture &t, const std::string &name, con
             const auto w = static_cast<GLsizei>(std::max(1u, image.width >> level)), h = static_cast<GLsizei>(std::max(1u, image.height >> level));
             gl_.TexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.levels[level].data());
         }
-        // An image without its own mip levels gets them made here; a full chain either way.
-        if (image.levels.size() == 1) gl_.GenerateMipmap(GL_TEXTURE_2D);
-        gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, image.levels.size() == 1 ? 1000 : static_cast<GLint>(image.levels.size() - 1));
-        const std::size_t bytes = std::size_t(image.width) * image.height * 4u * 4u / 3u;
+        // The pack's own mip levels only, as PPSSPP: an image without them is sampled at full size (with anisotropic
+        // filtering), sharp at a distance as its author saw it. Packs such as KHD ship a single level. With
+        // MHF_TEXTURE_PACK_MIPMAPS=1 the levels are made here instead (softer at a distance, no shimmer).
+        static const bool make_mips = std::getenv("MHF_TEXTURE_PACK_MIPMAPS") != nullptr;
+        const bool made = make_mips && image.levels.size() == 1;
+        if (made) gl_.GenerateMipmap(GL_TEXTURE_2D);
+        gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, made ? 1000 : static_cast<GLint>(image.levels.size() - 1));
+        const std::size_t bytes = std::size_t(image.width) * image.height * 4u * (made || image.levels.size() > 1 ? 4u : 3u) / 3u;
         pack_images_[name] = PackImage{texture, bytes, frame_};
         pack_bytes_ += bytes;
         ++pack_replaced_;
