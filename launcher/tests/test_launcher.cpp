@@ -299,6 +299,26 @@ int main(int argc, char **argv) {
         CHECK(l.state()["settings"]["anisotropy"].as_number() == 16);
         filtering["packMipmaps"] = false;
         l.set_settings(filtering);
+        // Projected shadows: off, whole map, low quality and darkness 50 by default; quality 0..2, darkness 0..100.
+        CHECK(!l.state()["settings"]["projectedShadows"].as_bool(true));
+        CHECK(l.state()["settings"]["wholeMapShadows"].as_bool(false));
+        CHECK(l.state()["settings"]["shadowQuality"].as_number() == 0);
+        CHECK(l.state()["settings"]["shadowDarkness"].as_number() == 50);
+        Json shadows;
+        shadows["projectedShadows"] = true;
+        shadows["wholeMapShadows"] = false;
+        shadows["shadowQuality"] = 7;
+        shadows["shadowDarkness"] = -20;
+        l.set_settings(shadows);
+        CHECK(l.state()["settings"]["projectedShadows"].as_bool());
+        CHECK(!l.state()["settings"]["wholeMapShadows"].as_bool(true));
+        CHECK(l.state()["settings"]["shadowQuality"].as_number() == 2);
+        CHECK(l.state()["settings"]["shadowDarkness"].as_number() == 0);
+        shadows["projectedShadows"] = false;
+        shadows["wholeMapShadows"] = true;
+        shadows["shadowQuality"] = 0;
+        shadows["shadowDarkness"] = 50;
+        l.set_settings(shadows);
         // Hunting horn songs: off by default, a bool turns them on, anything else is ignored.
         CHECK(!l.state()["settings"]["hornSongs"].as_bool(true));
         Json horn;
@@ -449,11 +469,17 @@ int main(int argc, char **argv) {
             std::ofstream(l.controls_file()) << "horn-songs=true\nhud-size=70\noption.fastSupplyBox=true\noption.analogCamera=true\n"
                                              << "option.analogCameraTurnSpeed=140\noption.analogCameraTiltSpeed=999\n"
                                              << "option.trueWeaponValues=maybe\noption.copyImage=true\n"
-                                             << "option.packMipmaps=true\noption.anisotropy=8\n";
+                                             << "option.packMipmaps=true\noption.anisotropy=8\n"
+                                             << "option.projectedShadows=true\noption.wholeMapShadows=false\n"
+                                             << "option.shadowQuality=1\noption.shadowDarkness=70\n";
         }
         l.import_game_controls();
         CHECK(l.state()["settings"]["packMipmaps"].as_bool()); // the texture pack filtering from the Video tab
         CHECK(l.state()["settings"]["anisotropy"].as_number() == 8);
+        CHECK(l.state()["settings"]["projectedShadows"].as_bool()); // the shadows' settings from the Video tab
+        CHECK(!l.state()["settings"]["wholeMapShadows"].as_bool(true));
+        CHECK(l.state()["settings"]["shadowQuality"].as_number() == 1);
+        CHECK(l.state()["settings"]["shadowDarkness"].as_number() == 70);
         CHECK(l.state()["settings"]["hornSongs"].as_bool());
         CHECK(l.state()["settings"]["hudSize"].as_number() == 70);
         CHECK(l.state()["settings"]["fastSupplyBox"].as_bool());
@@ -1058,6 +1084,35 @@ int main(int argc, char **argv) {
             CHECK(level != with_pack.args.end());
             if (level != with_pack.args.end()) CHECK(level + 1 != with_pack.args.end() && *(level + 1) == "4");
             CHECK(l.set_texture_pack(disc, {}));
+
+            // The shadows' settings reach the game when they differ from its defaults, the switch only when on.
+            const auto has = [](const auto &args, const char *flag) { return std::find(args.begin(), args.end(), flag) != args.end(); };
+            const auto value_of = [](const auto &args, const char *flag) {
+                const auto at = std::find(args.begin(), args.end(), flag);
+                return at != args.end() && at + 1 != args.end() ? *(at + 1) : std::string();
+            };
+            Json shadows;
+            shadows["projectedShadows"] = false;
+            shadows["wholeMapShadows"] = true;
+            shadows["shadowQuality"] = 0;
+            shadows["shadowDarkness"] = 50;
+            l.set_settings(shadows);
+            const auto defaults = l.plan_launch("mhfu");
+            CHECK(!has(defaults.args, "--projected-shadows") && !has(defaults.args, "--no-whole-map-shadows"));
+            CHECK(!has(defaults.args, "--shadow-quality") && !has(defaults.args, "--shadow-darkness"));
+            shadows["projectedShadows"] = true;
+            shadows["wholeMapShadows"] = false;
+            shadows["shadowQuality"] = 2;
+            shadows["shadowDarkness"] = 30;
+            l.set_settings(shadows);
+            const auto chosen = l.plan_launch("mhfu");
+            CHECK(has(chosen.args, "--projected-shadows") && has(chosen.args, "--no-whole-map-shadows"));
+            CHECK(value_of(chosen.args, "--shadow-quality") == "2");
+            CHECK(value_of(chosen.args, "--shadow-darkness") == "30");
+            shadows["projectedShadows"] = false;
+            l.set_settings(shadows);
+            const auto off_but_kept = l.plan_launch("mhfu");
+            CHECK(!has(off_but_kept.args, "--projected-shadows") && value_of(off_but_kept.args, "--shadow-quality") == "2");
         }
         // Executable preparation: the encrypted executable on the disc must pass the identity gate of the catalog.
         // Without a decryptor in this build the only acceptable outcome is "unavailable", never "another release".

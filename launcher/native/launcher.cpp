@@ -131,6 +131,10 @@ Json default_settings() {
     s["smoothTextures"] = false;
     s["packMipmaps"] = false; // texture packs: mip levels made for images that ship none (softer far away, no shimmer)
     s["anisotropy"] = 16;     // texture packs: anisotropic filtering, 1 (off), 2, 4, 8 or 16
+    s["projectedShadows"] = false; // projected shadows from the game's light (the in-game menu changes them too)
+    s["wholeMapShadows"] = true;   // the scenery casts as well as the hunter and monsters
+    s["shadowQuality"] = 0;        // 0 low, 1 medium, 2 high: the size of the shadow map
+    s["shadowDarkness"] = 50;      // 0..100: 50 is each zone as tuned
     s["fps"] = 30; // output rate: the game's own 30, or a multiple of it up to 180 (in-between pictures)
     s["hudSize"] = 100; // the quest HUD's size in percent, 50..100 in steps of 10
     s["trueWeaponValues"] = false; // menus show attack and element without the game's display multipliers
@@ -902,7 +906,9 @@ void Launcher::import_game_controls() {
                 // the launcher's own names. Only these settings; apply_settings checks each value.
                 static constexpr std::string_view kGameOptions[] = {"trueWeaponValues", "fastSupplyBox", "analogCamera",
                                                                     "analogCameraTurnSpeed", "analogCameraTiltSpeed",
-                                                                    "mouseCamera", "mouseCameraSpeed", "packMipmaps", "anisotropy"};
+                                                                    "mouseCamera", "mouseCameraSpeed", "packMipmaps", "anisotropy",
+                                                                    "projectedShadows", "wholeMapShadows", "shadowQuality",
+                                                                    "shadowDarkness"};
                 const std::string setting = name == "horn-songs" ? "hornSongs" : name == "hud-size" ? "hudSize" : name.substr(7);
                 if (setting != "hornSongs" && setting != "hudSize" && std::ranges::find(kGameOptions, setting) == std::end(kGameOptions)) continue;
                 int value = 0;
@@ -992,6 +998,8 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     }
     num("musicVolume", 0, 100);
     num("sfxVolume", 0, 100);
+    num("shadowQuality", 0, 2);
+    num("shadowDarkness", 0, 100);
     if (partial["hudSize"].is_number()) { // the in-game menu's steps: 50, 60, ... 100
         s["hudSize"] = std::clamp(std::round(partial["hudSize"].as_number() / 10.0), 5.0, 10.0) * 10.0;
     }
@@ -1005,7 +1013,7 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
         const double level = std::clamp(partial["anisotropy"].as_number(), 1.0, 16.0);
         s["anisotropy"] = std::exp2(std::round(std::log2(level)));
     }
-    for (const char *key : {"fullscreen", "smoothTextures", "packMipmaps", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
+    for (const char *key : {"fullscreen", "smoothTextures", "packMipmaps", "projectedShadows", "wholeMapShadows", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
                             "analogCamera", "mouseCamera", "hornSongs", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest",
                             "fucDrinkBuff"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
@@ -1418,6 +1426,17 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
                 plan.args.push_back(num("anisotropy"));
             }
         }
+    }
+    // The shadows' settings travel even while they are off, so that turning them on in the game's menu finds them.
+    if (s["projectedShadows"].as_bool()) plan.args.push_back("--projected-shadows");
+    if (!s["wholeMapShadows"].as_bool(true)) plan.args.push_back("--no-whole-map-shadows");
+    if (s["shadowQuality"].is_number() && s["shadowQuality"].as_number() != 0) {
+        plan.args.push_back("--shadow-quality");
+        plan.args.push_back(num("shadowQuality"));
+    }
+    if (s["shadowDarkness"].is_number() && s["shadowDarkness"].as_number() != 50) {
+        plan.args.push_back("--shadow-darkness");
+        plan.args.push_back(num("shadowDarkness"));
     }
     if (s["fps"].as_number() > 30) {
         plan.args.push_back("--fps");
