@@ -180,8 +180,10 @@ const Matching &Matcher::match(
     };
     // An object is one pair of eye matrices, however many draws share it (a character or a piece of ground is drawn
     // in many pieces under one matrix): each is asked once, so the cost follows the objects, not the draws. Its vote
-    // counts its pairs of draws: a town drawn as a few objects of thousands of draws outweighs the walking hunters and
-    // the hunter's own pieces, which with one vote each could choose a camera that moves the town off its path.
+    // weighs the square root of its pairs of draws: a town drawn as a few objects of thousands of draws outweighs the
+    // walking hunters and the hunter's own pieces, which with one vote each could choose a camera that moves the town off
+    // its path; and no single object outweighs a room of them. In a house or the village cave one object of 1144 draws
+    // (stuck to the view outdoors) moves its own way, and counting every draw it outvoted the room's 967 in four objects.
     struct Object {
         Matrix motion;
         bool single;
@@ -225,7 +227,7 @@ const Matching &Matcher::match(
     std::vector<Matrix> candidates;
     struct Voter {
         Matrix motion;
-        std::uint32_t votes; // the object's pairs of draws
+        std::uint32_t votes; // the square root of the object's pairs of draws, at least 1
     };
     std::vector<Voter> voters;
     {
@@ -248,7 +250,8 @@ const Matching &Matcher::match(
             break;
         }
         for (std::size_t k = 0, step = std::max<std::size_t>(1u, trusted.size() / 512u); k < trusted.size(); k += step) {
-            voters.push_back({trusted[k]->motion, trusted[k]->draws});
+            const auto weight = static_cast<std::uint32_t>(std::lround(std::sqrt(static_cast<double>(trusted[k]->draws))));
+            voters.push_back({trusted[k]->motion, std::max(weight, 1u)});
         }
         out.objects = static_cast<std::uint32_t>(objects.size());
     }

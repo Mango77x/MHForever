@@ -339,8 +339,9 @@ one ubershader (texture functions, fog, alpha test, depth range) and fixed-funct
   texture addresses, vertex type, count, matrices, viewport). Whole draws are matched between flips by that identity;
   instances of one mesh (the terrain is one mesh drawn many times, in an order that changes as the camera moves) are
   paired by where they are once the camera's motion is taken out; the camera's motion is the one most single objects
-  agree on, each object (one pair of eye matrices) voting with its pairs of draws, so a town drawn as a few objects of
-  thousands of draws outweighs the walking hunters and the hunter's own pieces; it is followed along its arc; draws
+  agree on, each object (one pair of eye matrices) weighing the square root of its pairs of draws, so a town drawn as a
+  few objects of thousands of draws outweighs the walking hunters and the hunter's own pieces, and no single object (a
+  house's effect of 1144 draws stuck to the view) outweighs a room; it is followed along its arc; draws
   without a partner follow the camera, and a camera that moved too much is a
   cut. Each in-between picture moves each draw's triangles with its transforms blended to that moment and clips and
   places them as the GE does, so the ground cannot tear; animated (skinned) models blend each point between its two
