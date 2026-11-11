@@ -185,14 +185,27 @@ function KeyboardControls({ keys, defaults, onChange }: {
         setNotice(`${keyLabel(e.code)} is kept by the game: ${reservedKeys[e.code]} Press another key, or Esc to cancel.`);
         return;
       }
+      assign(action, e.code);
+    };
+    // A mouse button binds like a key (Mouse1 left, Mouse2 right, Mouse3 middle, Mouse4 and Mouse5 the side buttons).
+    const mouseCodes = ['Mouse1', 'Mouse3', 'Mouse2', 'Mouse4', 'Mouse5']; // by MouseEvent.button
+    const click = (e: MouseEvent) => {
+      const code = mouseCodes[e.button];
+      if (!code) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      assign(capturing as string, code);
+    };
+    const swallow = (e: MouseEvent) => { e.preventDefault(); e.stopImmediatePropagation(); }; // no menu, no "back"
+    const assign = (action: string, code: string) => {
       setNotice('');
       const next = { ...latest.current.keys };
       const previous = next[action] ?? '';
-      if (e.code !== 'Backspace' && e.code !== 'Delete') {
+      if (code !== 'Backspace' && code !== 'Delete') {
         for (const [other, value] of Object.entries(next)) {
-          if (other !== action && value === e.code) next[other] = previous;
+          if (other !== action && value === code) next[other] = previous;
         }
-        next[action] = e.code;
+        next[action] = code;
       } else {
         next[action] = '';
       }
@@ -200,7 +213,19 @@ function KeyboardControls({ keys, defaults, onChange }: {
       setCapturing(null);
     };
     window.addEventListener('keydown', record, true);
+    // After the click that started listening, so that click does not bind itself.
+    const listen = window.setTimeout(() => {
+      window.addEventListener('mousedown', click, true);
+      window.addEventListener('mouseup', swallow, true);
+      window.addEventListener('auxclick', swallow, true);
+      window.addEventListener('contextmenu', swallow, true);
+    }, 0);
     return () => {
+      window.clearTimeout(listen);
+      window.removeEventListener('mousedown', click, true);
+      window.removeEventListener('mouseup', swallow, true);
+      window.removeEventListener('auxclick', swallow, true);
+      window.removeEventListener('contextmenu', swallow, true);
       window.removeEventListener('keydown', record, true);
       setNavigationPaused(false);
     };
@@ -235,7 +260,7 @@ function KeyboardControls({ keys, defaults, onChange }: {
                   onClick={() => { setNotice(''); setCapturing(listening ? null : action.id); }}
                 >
                   <span className="keycap-name">{action.label}</span>
-                  <span className="keycap-key">{listening ? 'Press a key…' : keyLabel(code)}</span>
+                  <span className="keycap-key">{listening ? 'Press a key or click…' : keyLabel(code)}</span>
                 </button>
               );
             })}
