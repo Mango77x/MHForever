@@ -33,6 +33,13 @@ struct CatalogEntry {
     const char *dev_executable_sha1;
     std::uint64_t encrypted_executable_size; // PSP_GAME/SYSDIR/EBOOT.BIN on the disc; the installer accepts only this
     const char *encrypted_executable_sha1;
+    // Patched editions (FUComplete) keep the disc id of the disc they were made from: `sfo_disc_id` is that id, and the
+    // image is this edition only when it holds `marker_file`. `edition` names its own program (mhfu-fuc) and
+    // `edition_name` is shown where the region would be.
+    const char *sfo_disc_id = "";
+    const char *marker_file = "";
+    const char *edition = "";
+    const char *edition_name = "";
 };
 
 const std::vector<CatalogEntry> &catalog();
@@ -150,7 +157,8 @@ public:
         std::vector<SaveCandidate> found;
         std::string note; // why nothing was found, when it can be said
     };
-    SaveScan scan_saves(const std::string &disc_id, const std::filesystem::path &source) const;
+    // A FUComplete copy takes the saves of the release its "fucSaveRegion" setting names (FUComplete reads those).
+    SaveScan scan_saves(const std::string &disc_id, const std::filesystem::path &source);
     // Copies the chosen saves into the memory stick of `disc_id`. A save the player already has with the same folder name
     // is moved to <saves>/<disc id>/backups/<date and time>/ first, never deleted. Nothing is left half done.
     struct SaveImport {

@@ -44,7 +44,8 @@ if(MHF_WITH_SDL)
     add_library(mhf_psp_frontend STATIC frontend/psp_frontend.cpp frontend/gl_backend.cpp frontend/dialog_overlay.cpp)
     target_include_directories(mhf_psp_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/frontend
                                PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/gpu)
-    target_link_libraries(mhf_psp_frontend PUBLIC mhf_psp_runtime PRIVATE mhf_core_host mhf_overlay mhf_stb_truetype mhf_psp_interpolation
+    # mhf_overlay is public: psp_frontend.hpp takes the horn's song panel (overlay/song_panel.hpp).
+    target_link_libraries(mhf_psp_frontend PUBLIC mhf_psp_runtime mhf_overlay PRIVATE mhf_core_host mhf_stb_truetype mhf_psp_interpolation
                                                                     mhf_texture_pack mhf_texture_images)
     target_compile_definitions(mhf_psp_frontend PUBLIC MHF_HAS_FRONTEND=1)
     mhf_target_warnings(mhf_psp_frontend)
@@ -102,4 +103,10 @@ if(MHF_BUILD_TESTS)
     target_link_libraries(test_hle_savedata PRIVATE mhf_psp_runtime mhf_save_crypto)
     mhf_target_warnings(test_hle_savedata)
     add_test(NAME psp_hle_savedata COMMAND test_hle_savedata)
+
+    add_executable(test_region_data tests/test_region_data.cpp)
+    target_include_directories(test_region_data PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+    target_link_libraries(test_region_data PRIVATE mhf_psp_recomp)
+    mhf_target_warnings(test_region_data)
+    add_test(NAME psp_region_data COMMAND test_region_data)
 endif()

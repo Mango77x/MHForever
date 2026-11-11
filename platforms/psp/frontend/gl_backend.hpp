@@ -67,6 +67,11 @@ struct LiveSettings {
     // inside the scenery slender pieces up to shadow_max_piece (0: none).
     std::atomic<float> shadow_max_object{39450.0f};
     std::atomic<float> shadow_max_piece{39450.0f};
+    // HUD size in percent (100: as the game draws it): in quests, the HUD shrinks into the corners it sits in.
+    std::atomic<int> hud_size{100};
+    // Written by the drawing thread at every flip: that flip drew the quest HUD (its clock). The hunting horn's song
+    // panel is only shown over it.
+    std::atomic<bool> quest_hud{false};
 };
 
 // Creates the context on the calling thread. Returns nullptr (after logging why) when OpenGL 3.3 is unavailable.

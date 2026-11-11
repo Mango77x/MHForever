@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
 import { api, regionTag, selectedGame, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
 import { CopyIcon } from './icons';
+import { FucOptions } from './FucOptions';
 import { OnlineSettings } from './OnlineSettings';
 import { TexturePackSection } from './TexturePack';
-import { frameRates, resolutions } from './format';
+import { frameRates, hudSizes, resolutions, songPlaces } from './format';
 import { setNavigationPaused } from './gamepad';
 import { keyGroups, keyLabel, reservedKeys } from './keys';
 import { anySourcePressed, assignSource, padGroups, padLabel, pressedSource, stickChoices } from './pad';
@@ -14,6 +15,12 @@ const rise = (delay: number) => ({
   animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
   transition: { duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] as const },
 });
+
+// The languages every regional disc of the game offers. '' leaves the choice to the game's own language screen, which is
+// what the original shows at every start; picking one makes the game boot in that language and answer its screen
+// (docs/06-mhfu-module.md).
+const languages = [['', 'Ask'], ['en', 'EN'], ['fr', 'FR'], ['de', 'DE'], ['es', 'ES'], ['it', 'IT']] as const;
+const languageNames: Record<string, string> = { en: 'English', fr: 'Français', de: 'Deutsch', es: 'Español', it: 'Italiano' };
 
 type Props = {
   state: State;
@@ -47,6 +54,33 @@ function Volume({ id, label, value, onCommit }: { id: string; label: string; val
           onChange={(e) => { const n = Number(e.target.value); setV(n); onCommit(n); }}
         />
         <output htmlFor={id}>{v}</output>
+      </div>
+    </div>
+  );
+}
+
+// A setting in percent between `min` and `max`, in steps of `step`, with its help line.
+function PercentSlider({ id, label, help, min, max, step, value, onCommit }: {
+  id: string; label: string; help: string; min: number; max: number; step: number; value: number; onCommit: (v: number) => void;
+}) {
+  const [v, setV] = useState(value);
+  useEffect(() => setV(value), [value]);
+  return (
+    <div className="srow">
+      <label htmlFor={id} className="slabel"><b>{label}</b><span className="prose">{help}</span></label>
+      <div className="slider" style={{ flex: '0 1 300px' }}>
+        <input
+          id={id}
+          className="rng"
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={v}
+          style={{ ['--v' as string]: `${((v - min) / (max - min)) * 100}%` }}
+          onChange={(e) => { const n = Number(e.target.value); setV(n); onCommit(n); }}
+        />
+        <output htmlFor={id} style={{ width: 52 }}>{v}%</output>
       </div>
     </div>
   );
@@ -151,14 +185,27 @@ function KeyboardControls({ keys, defaults, onChange }: {
         setNotice(`${keyLabel(e.code)} is kept by the game: ${reservedKeys[e.code]} Press another key, or Esc to cancel.`);
         return;
       }
+      assign(action, e.code);
+    };
+    // A mouse button binds like a key (Mouse1 left, Mouse2 right, Mouse3 middle, Mouse4 and Mouse5 the side buttons).
+    const mouseCodes = ['Mouse1', 'Mouse3', 'Mouse2', 'Mouse4', 'Mouse5']; // by MouseEvent.button
+    const click = (e: MouseEvent) => {
+      const code = mouseCodes[e.button];
+      if (!code) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      assign(capturing as string, code);
+    };
+    const swallow = (e: MouseEvent) => { e.preventDefault(); e.stopImmediatePropagation(); }; // no menu, no "back"
+    const assign = (action: string, code: string) => {
       setNotice('');
       const next = { ...latest.current.keys };
       const previous = next[action] ?? '';
-      if (e.code !== 'Backspace' && e.code !== 'Delete') {
+      if (code !== 'Backspace' && code !== 'Delete') {
         for (const [other, value] of Object.entries(next)) {
-          if (other !== action && value === e.code) next[other] = previous;
+          if (other !== action && value === code) next[other] = previous;
         }
-        next[action] = e.code;
+        next[action] = code;
       } else {
         next[action] = '';
       }
@@ -166,7 +213,19 @@ function KeyboardControls({ keys, defaults, onChange }: {
       setCapturing(null);
     };
     window.addEventListener('keydown', record, true);
+    // After the click that started listening, so that click does not bind itself.
+    const listen = window.setTimeout(() => {
+      window.addEventListener('mousedown', click, true);
+      window.addEventListener('mouseup', swallow, true);
+      window.addEventListener('auxclick', swallow, true);
+      window.addEventListener('contextmenu', swallow, true);
+    }, 0);
     return () => {
+      window.clearTimeout(listen);
+      window.removeEventListener('mousedown', click, true);
+      window.removeEventListener('mouseup', swallow, true);
+      window.removeEventListener('auxclick', swallow, true);
+      window.removeEventListener('contextmenu', swallow, true);
       window.removeEventListener('keydown', record, true);
       setNavigationPaused(false);
     };
@@ -201,7 +260,7 @@ function KeyboardControls({ keys, defaults, onChange }: {
                   onClick={() => { setNotice(''); setCapturing(listening ? null : action.id); }}
                 >
                   <span className="keycap-name">{action.label}</span>
-                  <span className="keycap-key">{listening ? 'Press a key…' : keyLabel(code)}</span>
+                  <span className="keycap-key">{listening ? 'Press a key or click…' : keyLabel(code)}</span>
                 </button>
               );
             })}
@@ -448,6 +507,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
 }) {
   const s = state.settings;
   const game = selectedGame(state) ?? state.games[0];
+  const fucomplete = game?.discId === 'ULJM05500-FUC'; // FUComplete's own options apply
   return (
     <section className="settings">
       <motion.div className="page-title" {...rise(0)}>
@@ -483,11 +543,102 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           <div className="slabel"><b>Smooth texture filtering</b><span>Optional enhancement: softens pixelated textures. Off is faithful to the original.</span></div>
           <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
         </div>
+        <div className="srow">
+          <div className="slabel">
+            <b>HUD scale</b>
+            <span>{(s.hudSize ?? 100) === 100 ? 'Original size.' : `${s.hudSize}% of the original size in quests: the health bar, the minimap and the items, each in its corner.`}</span>
+          </div>
+          <div className="seg wide" role="radiogroup" aria-label="HUD scale" style={{ '--n': hudSizes.length } as CSSProperties}>
+            <span className="pill" style={{ transform: `translateX(${Math.max(0, hudSizes.indexOf(s.hudSize ?? 100)) * 100}%)` }} />
+            {hudSizes.map((n) => (
+              <button key={n} className={(s.hudSize ?? 100) === n ? 'on' : ''} role="radio" aria-checked={(s.hudSize ?? 100) === n} onClick={() => onChange({ hudSize: n })}>{n}%</button>
+            ))}
+          </div>
+        </div>
+      </motion.div>
+      <motion.div className="glass section" {...rise(0.065)}>
+        <h3>Game</h3>
+        <div className="srow">
+          <div className="slabel"><b>Show true weapon values</b><span>{fucomplete
+            ? "FUComplete's true raw display: menus show attack, element and status without the display multipliers."
+            : 'Optional enhancement: menus show attack and element without the display multipliers. Off is faithful to the original.'}</span></div>
+          <Toggle on={s.trueWeaponValues} onToggle={() => onChange({ trueWeaponValues: !s.trueWeaponValues })} label="Show true weapon values" />
+        </div>
+        <div className="srow">
+          <div className="slabel"><b>Fast supply box</b><span>Optional enhancement: after you take an item out of the supply box, the menu waits 2 frames instead of 30 before it accepts the next button. Off is faithful to the original.</span></div>
+          <Toggle on={s.fastSupplyBox ?? false} onToggle={() => onChange({ fastSupplyBox: !(s.fastSupplyBox ?? false) })} label="Fast supply box" />
+        </div>
+        <div className="srow">
+          <div className="slabel"><b>Smithy: browse with panels open</b><span>Optional enhancement: in the smithy, the list keeps scrolling while the materials (R) or Info panel is open, and the panel shows the highlighted item. Off is faithful to the original.</span></div>
+          <Toggle on={s.smithyBrowse ?? false} onToggle={() => onChange({ smithyBrowse: !(s.smithyBrowse ?? false) })} label="Smithy: browse with panels open" />
+        </div>
+        {s.smithyBrowse && (
+          <div className="srow">
+            <div className="slabel"><b>Smithy: improved layout</b><span>Optional enhancement: with Info open (X), Info sits on the left, the list stays visible with the materials under it, and the left stick turns Info's pages. Off is faithful to the original.</span></div>
+            <Toggle on={s.smithyLayout ?? false} onToggle={() => onChange({ smithyLayout: !(s.smithyLayout ?? false) })} label="Smithy: improved layout" />
+          </div>
+        )}
+        <div className="srow">
+          <div className="slabel"><b>Analog camera</b><span>Optional enhancement: the right stick turns the camera as fast as you push it, and tilts it smoothly from the game's lowest view to its highest. Off is faithful to the original (the stick works as the d-pad).</span></div>
+          <Toggle on={s.analogCamera ?? false} onToggle={() => onChange({ analogCamera: !(s.analogCamera ?? false) })} label="Analog camera" />
+        </div>
+        {s.analogCamera && (
+          <>
+            <PercentSlider id="camera-turn-speed" label="Analog camera turn speed" help="How fast a full push turns the camera. 100% is as fast as the d-pad." min={50} max={200} step={10} value={s.analogCameraTurnSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTurnSpeed: v })} />
+            <PercentSlider id="camera-tilt-speed" label="Analog camera tilt speed" help="How fast a full push tilts the camera. At 100% it goes from the lowest view to the highest in about a second." min={50} max={200} step={10} value={s.analogCameraTiltSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTiltSpeed: v })} />
+            <div className="srow">
+              <div className="slabel"><b>Mouse camera</b><span>The mouse turns and tilts the camera too, and aims a bow or a bowgun, while the game window holds it (its pointer is hidden). Escape lets the mouse go and opens the in-game menu.</span></div>
+              <Toggle on={s.mouseCamera ?? false} onToggle={() => onChange({ mouseCamera: !(s.mouseCamera ?? false) })} label="Mouse camera" />
+            </div>
+            {s.mouseCamera && (
+              <PercentSlider id="mouse-camera-speed" label="Mouse sensitivity" help="How far the camera moves for the same mouse motion." min={25} max={300} step={25} value={s.mouseCameraSpeed ?? 100} onCommit={(v) => onChange({ mouseCameraSpeed: v })} />
+            )}
+          </>
+        )}
+        <div className="srow">
+          <div className="slabel"><b>Show hunting horn songs</b><span>Optional enhancement: in quests with a hunting horn, the songs it can play are listed on screen, the one being played lights up and the ones in effect turn green. Off is faithful to the original.</span></div>
+          <Toggle on={s.hornSongs ?? false} onToggle={() => onChange({ hornSongs: !(s.hornSongs ?? false) })} label="Show hunting horn songs" />
+        </div>
+        {s.hornSongs && (
+          <div className="srow">
+            <div className="slabel"><b>Hunting horn songs position</b><span>{(s.hornSongsPlace ?? '').startsWith('custom:') ? 'A spot of your own, moved in the game. Pick one of these to use it instead.' : "Where the list is shown, out of the way of the game's HUD. In the game, Esc > Game moves it too, anywhere you like."}</span></div>
+            <div className="seg wide" role="radiogroup" aria-label="Hunting horn songs position" style={{ '--n': songPlaces.length } as CSSProperties}>
+              {!(s.hornSongsPlace ?? '').startsWith('custom:') && <span className="pill" style={{ transform: `translateX(${Math.max(0, songPlaces.findIndex((p) => p.id === (s.hornSongsPlace ?? 'next-to-sheet'))) * 100}%)` }} />}
+              {songPlaces.map((p) => (
+                <button key={p.id} className={(s.hornSongsPlace ?? 'next-to-sheet') === p.id ? 'on' : ''} role="radio" aria-checked={(s.hornSongsPlace ?? 'next-to-sheet') === p.id} onClick={() => onChange({ hornSongsPlace: p.id })}>{p.label}</button>
+              ))}
+            </div>
+          </div>
+        )}
       </motion.div>
       <motion.div className="glass section" {...rise(0.07)}>
         <h3>Texture pack</h3>
         <TexturePackSection state={state} onState={onState} say={say} toggle={(p) => <Toggle {...p} />} />
       </motion.div>
+      {fucomplete && <motion.div className="glass section" {...rise(0.07)}>
+        <h3>FUComplete</h3>
+        <FucOptions s={s} onChange={onChange} toggle={(p) => <Toggle {...p} />} />
+      </motion.div>}
+      {game?.market !== 'JP' && <motion.div className="glass section" {...rise(0.07)}>
+        <h3>Language</h3>
+        <div className="srow">
+          <div className="slabel">
+            <b>Language</b>
+            <span>
+              {s.language === ''
+                ? 'The game shows its own language screen at every start, as the original does.'
+                : `The game starts in ${languageNames[s.language] ?? s.language} and skips its language screen.`}
+            </span>
+          </div>
+          <div className="seg wide" role="radiogroup" aria-label="Language" style={{ '--n': languages.length } as CSSProperties}>
+            <span className="pill" style={{ transform: `translateX(${Math.max(0, languages.findIndex(([id]) => id === s.language)) * 100}%)` }} />
+            {languages.map(([id, label]) => (
+              <button key={id} className={s.language === id ? 'on' : ''} role="radio" aria-checked={s.language === id}
+                onClick={() => onChange({ language: id })}>{label}</button>
+            ))}
+          </div>
+        </div>
+      </motion.div>}
       <motion.div className="glass section" {...rise(0.08)}>
         <h3>Controls</h3>
         <Controls keys={s.keys ?? {}} pad={s.pad ?? {}} keyDefaults={state.keyDefaults ?? {}} padDefaults={state.padDefaults ?? {}} onChange={onChange} />

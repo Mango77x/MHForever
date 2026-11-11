@@ -63,7 +63,22 @@ bool letter(char c) { return c >= 'A' && c <= 'Z'; }
 
 } // namespace
 
+namespace {
+// Mouse1..Mouse5 as players number them (left, right, middle, back, forward), and SDL's numbers for those buttons.
+constexpr int kMouseButtons[] = {SDL_BUTTON_LEFT, SDL_BUTTON_RIGHT, SDL_BUTTON_MIDDLE, SDL_BUTTON_X1, SDL_BUTTON_X2};
+} // namespace
+
+std::string code_for_mouse_button(int button) {
+    for (int i = 0; i < 5; ++i) {
+        if (kMouseButtons[i] == button) return "Mouse" + std::to_string(i + 1);
+    }
+    return {};
+}
+
 SDL_Scancode scancode_for_code(std::string_view code) {
+    if (code.size() == 6 && code.compare(0, 5, "Mouse") == 0 && code[5] >= '1' && code[5] <= '5') {
+        return static_cast<SDL_Scancode>(kMouseScancode + kMouseButtons[code[5] - '1']);
+    }
     if (code.size() == 4 && code.compare(0, 3, "Key") == 0 && letter(code[3])) {
         return static_cast<SDL_Scancode>(SDL_SCANCODE_A + (code[3] - 'A'));
     }
@@ -91,6 +106,7 @@ SDL_Scancode scancode_for_code(std::string_view code) {
 }
 
 std::string code_for_scancode(SDL_Scancode scancode) {
+    if (const int button = mouse_button_of(scancode)) return code_for_mouse_button(button);
     if (scancode >= SDL_SCANCODE_A && scancode <= SDL_SCANCODE_Z) {
         return std::string("Key") + static_cast<char>('A' + (scancode - SDL_SCANCODE_A));
     }

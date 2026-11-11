@@ -7,6 +7,10 @@
 Everything is written under user_data/ (git-ignored). Then configure CMake with -DMHF_MHFU_GENERATED=<printed folder>.
 
 usage: games/mhfu/tools/prepare.py --iso <image.iso> --exe <decrypted executable> --tools <build dir> [--region ULES01213]
+
+--region is a folder of games/mhfu/regions: ULES01213, ULUS10391, ULJM05500, or ULJM05500-FUC for a Japanese image the
+developer patched with FUComplete (its executable is already plain: pass the image's own PSP_GAME/SYSDIR/EBOOT.BIN). Each
+region is its own program: configure with -DMHF_MHFU_PROGRAM_NAME=mhfu (EU), mhfu-us, mhfu-jp or mhfu-fuc.
 """
 import argparse
 import os
@@ -42,7 +46,10 @@ def main():
     subprocess.run([tool(a.tools, "mhfu_extract_overlays"), "--iso", a.iso, "--exe", a.exe, "--out", overlays], check=True)
     subprocess.run([tool(a.tools, "mhf_recomp"), "--elf", a.exe, "--out", generated, "--name", "mhfu", "--parts", a.parts,
                     "--overlays", os.path.join(overlays, "overlays.toml"),
-                    "--symbols", os.path.join(region_dir, "symbols.toml"), "--hook", "mh_overlay_prepare"], check=True)
+                    "--symbols", os.path.join(region_dir, "symbols.toml"), "--hook", "mh_overlay_prepare",
+                    "--hook", "mh_supply_box_update", "--hook", "mh_smithy_create_list_update",
+                    "--hook", "mh_smithy_improve_list_update", "--hook", "mh_smithy_panel_draw",
+                    "--hook", "mh_smithy_model_update"], check=True)
     print(f"\nGenerated code: {generated}\nConfigure with: cmake --preset <preset> -DMHF_MHFU_GENERATED={generated}")
 
 

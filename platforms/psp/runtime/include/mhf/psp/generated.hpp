@@ -12,6 +12,7 @@
 
 namespace mhf::psp::generated {
 
+using mhf::psp::CallPatchEntry;
 using mhf::psp::Context;
 using mhf::psp::FunctionEntry;
 using mhf::psp::HookFunction;

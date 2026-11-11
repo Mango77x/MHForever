@@ -1,10 +1,13 @@
 #include "emitter.hpp"
 
 #include "instruction_emitter.hpp"
+#include "mini_toml.hpp"
 
 #include "psprecomp/common.hpp"
 #include "psprecomp/decoder.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <iterator>
 #include <sstream>
@@ -70,6 +73,24 @@ public:
             out_ << "    { static const HookFunction hook = abi::find_hook(rt, \"" << cpp_escape(hook->second) << "\");\n"
                  << "      if (hook != nullptr) hook(rt, ctx); }\n";
         }
+        // Guarded words (region map [guards]): code the game itself may rewrite while it runs. When any of them no
+        // longer holds the word this function was compiled from, the interpreter runs the function as it now is.
+        std::set<std::uint32_t> guarded;
+        for (const auto g : input_.guards) {
+            const std::uint32_t word = g & ~3u;
+            if (function_.instructions.contains(word)) guarded.insert(word);
+        }
+        if (!guarded.empty()) {
+            out_ << "    if (";
+            const char *separator = "";
+            for (const auto word : guarded) {
+                out_ << separator << "mem.aot_load32(" << hex32(word) << "u) != " << hex32(input_.memory->load32(word))
+                     << "u";
+                separator = " ||\n        ";
+            }
+            out_ << ") [[unlikely]] {\n        abi::interpret(rt, ctx, " << hex32(function_.entry)
+                 << "u);\n        return;\n    }\n";
+        }
         // The entry block first, then the others in address order.
         write_block(function_.entry);
         for (const auto l : function_.labels) {
@@ -114,6 +135,27 @@ private:
         }
     }
 
+    [[nodiscard]] const InstructionPatch *patch_at(std::uint32_t pc) const {
+        const auto it = input_.patches.find(pc);
+        return it != input_.patches.end() ? &it->second : nullptr;
+    }
+
+    // Looks the patch's switch up once (the game program sets it before the game starts).
+    [[nodiscard]] static std::string patch_switch(const InstructionPatch &patch) {
+        return "static const bool patch_on = abi::patch_enabled(rt, \"" + cpp_escape(patch.name) + "\");";
+    }
+
+    // The statements of a non-control-flow instruction; with an Immediate patch, both forms behind its switch.
+    [[nodiscard]] std::string instruction_code(const DecodedInstruction &d, std::uint32_t pc) const {
+        const InstructionPatch *patch = patch_at(pc);
+        if (patch == nullptr || patch->kind != InstructionPatch::Kind::Immediate) {
+            return emit_instruction(d, pc);
+        }
+        const auto patched = psprecomp::decode_allegrex((d.word & 0xFFFF0000u) | patch->immediate);
+        return "    { " + patch_switch(*patch) + "\n    if (patch_on) {\n" + emit_instruction(patched, pc) +
+               "    } else {\n" + emit_instruction(d, pc) + "    } }\n";
+    }
+
     // Continue at `target` inside this function if it is a block of ours, otherwise tail-call it.
     void goto_or_tail(std::uint32_t target, const char *indent) {
         if (function_.labels.contains(target)) {
@@ -140,8 +182,14 @@ private:
                 return;
             }
             const auto d = decode(pc);
+            // A Call patch runs its host hook (when the game program registered one) before the instruction.
+            if (const InstructionPatch *patch = patch_at(pc);
+                patch != nullptr && patch->kind == InstructionPatch::Kind::Call) {
+                out_ << "    { static const HookFunction hook = abi::find_hook(rt, \"" << cpp_escape(patch->name)
+                     << "\");\n      if (hook != nullptr) hook(rt, ctx); }\n";
+            }
             if (!d.has_delay_slot() && d.kind != OpcodeKind::Jr && d.kind != OpcodeKind::Jalr) {
-                out_ << emit_instruction(d, pc);
+                out_ << instruction_code(d, pc);
                 if (ends_block(d)) {
                     return; // emit_instruction already reported and returned
                 }
@@ -163,7 +211,7 @@ private:
                  << "u, \"control transfer in a delay slot\"); return;\n";
             return;
         }
-        const std::string slot_code = emit_instruction(slot, pc + 4u);
+        const std::string slot_code = instruction_code(slot, pc + 4u);
         const std::uint32_t after = pc + 8u;
 
         if (is_link_branch(d.kind)) {
@@ -236,17 +284,23 @@ private:
             goto_or_tail(target, "    ");
             return;
         }
+        // A Never patch makes the branch behave as not taken while its switch is on.
+        const InstructionPatch *patch = patch_at(pc);
+        const bool never = patch != nullptr && patch->kind == InstructionPatch::Kind::Never;
+        const std::string condition = never ? "!patch_on && (" + branch_condition(d) + ")" : branch_condition(d);
+        if (never) out_ << "    { " << patch_switch(*patch) << "\n";
         if (is_likely(d.kind)) {
-            out_ << "    if (" << branch_condition(d) << ") {\n" << slot_code;
+            out_ << "    if (" << condition << ") {\n" << slot_code;
             goto_or_tail(target, "        ");
             out_ << "    }\n";
         } else {
-            out_ << "    { const bool taken = " << branch_condition(d) << ";\n" << slot_code
+            out_ << "    { const bool taken = " << condition << ";\n" << slot_code
                  << "    if (taken) {\n";
             goto_or_tail(target, "        ");
             out_ << "    } }\n";
         }
         goto_or_tail(after, "    ");
+        if (never) out_ << "    }\n";
     }
 
 public:
@@ -364,6 +418,16 @@ EmitResult emit_program(const ProgramInput &input, const Analysis &analysis, con
     if (all.empty()) {
         table << "    {0u, nullptr},\n"; // no functions found; the span below is empty
     }
+    table << "};\n";
+    // The call patches, for the interpreter (abi.hpp CallPatchEntry).
+    std::size_t call_patches = 0;
+    table << "\nconst CallPatchEntry kCallPatches[] = {\n";
+    for (const auto &[address, patch] : input.patches) { // a std::map: sorted by address
+        if (patch.kind != InstructionPatch::Kind::Call) continue;
+        table << "    {" << hex32(address) << "u, \"" << cpp_escape(patch.name) << "\"},\n";
+        ++call_patches;
+    }
+    if (call_patches == 0) table << "    {0u, nullptr},\n"; // none: the span below is empty
     table << "};\n} // namespace\n\n"
           << "} // namespace " << ns << "\n\n"
           << "namespace mhf::psp::generated {\n"
@@ -373,7 +437,8 @@ EmitResult emit_program(const ProgramInput &input, const Analysis &analysis, con
           << "        std::span<const FunctionEntry>(" << ns << "::kFunctions, " << all.size() << "u),\n"
           << "        std::span<ImportEntry>(" << ns << "::kImports, " << input.imports.size() << "u),\n"
           << "        " << hex32(options.code_start) << "u, " << hex32(options.code_end) << "u, "
-          << options.overlay_id << "};\n"
+          << options.overlay_id << ",\n"
+          << "        std::span<const CallPatchEntry>(" << ns << "::kCallPatches, " << call_patches << "u)};\n"
           << "    return program;\n}\n"
           << "} // namespace mhf::psp::generated\n";
     const auto table_path = out_dir / (options.program_name + "_table.cpp");
@@ -402,6 +467,131 @@ void emit_registry(const std::string &registry_name, const std::vector<std::stri
     }
     src << "    };\n    return programs;\n}\n} // namespace mhf::psp::generated\n";
     write_if_changed(out_dir / (registry_name + "_programs.cpp"), src.str());
+}
+
+RegionData region_data_entries(const std::filesystem::path &symbols) {
+    namespace fs = std::filesystem;
+    RegionData entries;
+    for (const auto &region : fs::directory_iterator(fs::absolute(symbols).parent_path().parent_path())) {
+        const auto sibling = region.path() / "symbols.toml";
+        if (!fs::is_regular_file(sibling)) continue;
+        const auto doc = toml::parse_file(sibling);
+        if (const auto data = doc.tables.find("data"); data != doc.tables.end()) {
+            for (const auto &[key, value] : data->second) entries.try_emplace(key);
+        }
+    }
+    const auto doc = toml::parse_file(symbols);
+    if (const auto data = doc.tables.find("data"); data != doc.tables.end()) {
+        for (const auto &[key, value] : data->second) {
+            entries[key] = static_cast<std::uint32_t>(toml::to_integer(value));
+        }
+    }
+    return entries;
+}
+
+std::filesystem::path emit_region_data(const std::string &program_name, const RegionData &entries,
+                                       const std::filesystem::path &out_dir) {
+    const auto identifier_char = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; };
+    std::ostringstream src;
+    src << "// Generated by mhf_recomp. Do not edit and never commit (see CONTRIBUTING.md).\n"
+        << "// The region map's [data] entries (games/<id>/regions/<disc>/symbols.toml) for this release.\n"
+        << "#pragma once\n#include <cstdint>\n#include <optional>\n\n"
+        << "namespace mhf::psp::generated::" << program_name << "_region_data {\n";
+    for (const auto &[name, address] : entries) {
+        if (name.empty() || std::isdigit(static_cast<unsigned char>(name.front())) != 0 ||
+            !std::all_of(name.begin(), name.end(), identifier_char)) {
+            throw std::invalid_argument("emit_region_data: \"" + name + "\" is not a C++ identifier");
+        }
+        src << "inline constexpr std::optional<std::uint32_t> " << name << " = "
+            << (address ? hex32(*address) + "u" : std::string("std::nullopt")) << ";\n";
+    }
+    src << "} // namespace mhf::psp::generated::" << program_name << "_region_data\n";
+    const auto path = out_dir / (program_name + "_region_data.hpp");
+    write_if_changed(path, src.str());
+    return path;
+}
+
+std::vector<RegionPatch> region_patches(const std::filesystem::path &symbols) {
+    std::vector<RegionPatch> result;
+    const auto doc = toml::parse_file(symbols);
+    const auto table = doc.tables.find("patches");
+    if (table == doc.tables.end()) return result;
+    for (const auto &[name, value] : table->second) {
+        std::istringstream words(value);
+        std::string module, address, kind, immediate, extra;
+        words >> module >> address >> kind >> immediate >> extra;
+        const auto fail = [&](const std::string &why) {
+            throw std::invalid_argument(symbols.string() + ": patch " + name + ": " + why);
+        };
+        if (module.empty() || address.rfind("0x", 0) != 0) fail("expected \"<module> 0x<address> <kind>\"");
+        RegionPatch p;
+        p.module = module;
+        p.address = static_cast<std::uint32_t>(toml::to_integer(address));
+        p.patch.name = name;
+        if (kind == "immediate" && !immediate.empty() && extra.empty()) {
+            const auto v = toml::to_integer(immediate);
+            if (v > 0xFFFFu) fail("the immediate does not fit in 16 bits");
+            p.patch.kind = InstructionPatch::Kind::Immediate;
+            p.patch.immediate = static_cast<std::uint16_t>(v);
+        } else if (kind == "never" && immediate.empty()) {
+            p.patch.kind = InstructionPatch::Kind::Never;
+        } else if (kind == "call" && immediate.empty()) {
+            p.patch.kind = InstructionPatch::Kind::Call;
+        } else {
+            fail("the kind is \"immediate <value>\", \"never\" or \"call\"");
+        }
+        result.push_back(std::move(p));
+    }
+    return result;
+}
+
+std::vector<RegionGuard> region_guards(const std::filesystem::path &symbols) {
+    std::vector<RegionGuard> result;
+    const auto doc = toml::parse_file(symbols);
+    const auto table = doc.tables.find("guards");
+    if (table == doc.tables.end()) return result;
+    for (const auto &[name, value] : table->second) {
+        std::istringstream words(value);
+        RegionGuard g;
+        words >> g.module;
+        for (std::string address; words >> address;) {
+            if (address.rfind("0x", 0) != 0) {
+                throw std::invalid_argument(symbols.string() + ": guard " + name + ": " + address + " is not 0x<address>");
+            }
+            g.addresses.push_back(static_cast<std::uint32_t>(toml::to_integer(address)));
+        }
+        if (g.module.empty() || g.module.rfind("0x", 0) == 0 || g.addresses.empty()) {
+            throw std::invalid_argument(symbols.string() + ": guard " + name + ": expected \"<module> 0x<address> ...\"");
+        }
+        result.push_back(std::move(g));
+    }
+    return result;
+}
+
+std::string patch_mismatch(const DecodedInstruction &d, const InstructionPatch &patch) {
+    switch (patch.kind) {
+    case InstructionPatch::Kind::Immediate:
+        switch (d.kind) {
+        case OpcodeKind::Addiu: case OpcodeKind::Slti: case OpcodeKind::Sltiu:
+        case OpcodeKind::Andi: case OpcodeKind::Ori: case OpcodeKind::Xori:
+            return {};
+        default:
+            return "not an instruction with an immediate operand (" + d.mnemonic + ")";
+        }
+    case InstructionPatch::Kind::Never:
+        switch (d.kind) {
+        case OpcodeKind::Beq: case OpcodeKind::Bne: case OpcodeKind::Beql: case OpcodeKind::Bnel:
+        case OpcodeKind::Blez: case OpcodeKind::Bgtz: case OpcodeKind::Blezl: case OpcodeKind::Bgtzl:
+        case OpcodeKind::Bltz: case OpcodeKind::Bgez: case OpcodeKind::Bltzl: case OpcodeKind::Bgezl:
+            if (is_unconditional_branch(d)) return "a branch that is always taken (" + d.mnemonic + ")";
+            return {};
+        default:
+            return "not a conditional branch (" + d.mnemonic + ")";
+        }
+    case InstructionPatch::Kind::Call:
+        return {}; // any instruction, but not in a delay slot (main.cpp checks the one before it)
+    }
+    return "unknown patch kind";
 }
 
 } // namespace mhf::psp::recomp

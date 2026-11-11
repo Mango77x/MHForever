@@ -17,7 +17,9 @@
 #include <shobjidl.h>
 #else
 #include <fcntl.h>
+#if !defined(MHF_NO_GTK)
 #include <gtk/gtk.h>
+#endif
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -273,6 +275,7 @@ fs::path executable_dir() {
     return ec ? fs::current_path() : self.parent_path();
 }
 
+#if !defined(MHF_NO_GTK)
 std::optional<fs::path> open_file(void *parent, const std::string &title, const std::string &filter_name,
                                   const std::vector<std::string> &patterns) {
     GtkFileChooserNative *dialog = gtk_file_chooser_native_new(title.c_str(), parent ? GTK_WINDOW(parent) : nullptr,
@@ -340,6 +343,14 @@ bool copy_to_clipboard(void *, const std::string &utf8) {
     gtk_clipboard_store(clipboard);
     return true;
 }
+#else // MHForever-cli has no window: no dialogs, and the callers already handle "nothing chosen"
+std::optional<fs::path> open_file(void *, const std::string &, const std::string &, const std::vector<std::string> &) {
+    return std::nullopt;
+}
+std::optional<fs::path> open_folder(void *, const std::string &) { return std::nullopt; }
+std::optional<fs::path> save_file(void *, const std::string &, const std::string &) { return std::nullopt; }
+bool copy_to_clipboard(void *, const std::string &) { return false; }
+#endif
 
 void random_bytes(std::uint8_t *out, std::size_t size) {
     std::ifstream urandom("/dev/urandom", std::ios::binary);
@@ -349,6 +360,7 @@ void random_bytes(std::uint8_t *out, std::size_t size) {
     for (std::size_t i = 0; i < size; ++i) out[i] = static_cast<std::uint8_t>(fallback());
 }
 
+#if !defined(MHF_NO_GTK)
 void style_window(void *window) {
     // The name and icon the desktop shows for the window (WM_CLASS, the task bar, alt-tab).
     g_set_prgname("MHForever");
@@ -372,6 +384,13 @@ void show_error(const std::string &title, const std::string &message) {
         gtk_widget_destroy(d);
     }
 }
+#else
+void style_window(void *) {}
+
+void show_error(const std::string &title, const std::string &message) {
+    std::fprintf(stderr, "%s: %s\n", title.c_str(), message.c_str());
+}
+#endif
 
 std::optional<Process> Process::start(const fs::path &program, const std::vector<std::string> &args, const fs::path &cwd,
                                       const fs::path &log_file, std::string &error) {

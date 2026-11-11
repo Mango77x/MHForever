@@ -130,6 +130,11 @@ int main() {
     Bytes wrong = plain;
     wrong[0] ^= 1;
     CHECK(prepare_executable(encrypted, identity, [&](const Bytes &) { return std::optional<Bytes>(wrong); }).status == PrepareStatus::ResultMismatch);
+    // A patched edition (FUComplete) ships its executable plain: the disc's one is the prepared one, no decryptor needed.
+    const ExecutableIdentity plain_on_disc{plain.size(), plain_sha1, plain.size(), plain_sha1};
+    CHECK(prepare_executable(plain, plain_on_disc, Decryptor{}).status == PrepareStatus::Ok);
+    CHECK(prepare_executable(plain, plain_on_disc, Decryptor{}).executable == plain);
+    CHECK(prepare_executable(wrong, plain_on_disc, Decryptor{}).status == PrepareStatus::EncryptedMismatch);
     // The built-in decryptor refuses anything that is not a genuine ~PSP executable.
     CHECK(builtin_decryptor());
     CHECK(!builtin_decryptor()(Bytes(4096, 0x41)));

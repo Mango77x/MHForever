@@ -46,6 +46,14 @@ struct ImportEntry {
 
 // Everything the generated code of one module provides. Overlays (overlay_id >= 0) share address ranges with other
 // overlays; the runtime dispatches into the one that is active in its region (docs/04-recompiler.md §4.4).
+// A region map's call patch in a recompiled program (docs/04-recompiler.md section 6): the host hook registered under
+// `name` runs before the instruction at `address`. Recompiled code calls it itself; the interpreter looks it up here, for a
+// function that runs there because the game rewrote its code (region map [guards]).
+struct CallPatchEntry {
+    std::uint32_t address;
+    const char *name;
+};
+
 struct Program {
     const char *name;
     std::uint32_t entry;
@@ -55,6 +63,7 @@ struct Program {
     std::uint32_t code_start{};
     std::uint32_t code_end{};
     std::int32_t overlay_id{-1};
+    std::span<const CallPatchEntry> call_patches{}; // sorted by address
 };
 
 // Calls made by generated code (implemented in runtime.cpp).
@@ -65,6 +74,9 @@ void jump(Runtime &rt, Context &ctx, std::uint32_t address);   // indirect tail 
 [[noreturn]] void unsupported(Runtime &rt, std::uint32_t pc, std::uint32_t word, const char *reason);
 [[noreturn]] void arithmetic_overflow(Runtime &rt, std::uint32_t pc, std::uint32_t word);
 [[nodiscard]] HookFunction find_hook(Runtime &rt, const char *name);
+[[nodiscard]] bool patch_enabled(Runtime &rt, const char *name); // instruction patch switch (region map [patches])
+// Runs the function at `entry` in the interpreter: its code was rewritten at run time (region map [guards]).
+void interpret(Runtime &rt, Context &ctx, std::uint32_t entry);
 void call_import(Runtime &rt, Context &ctx, ImportEntry &import);
 
 // Set (from any host thread) when an interrupt may be due: the vblank ticker, a finished display list. Generated code

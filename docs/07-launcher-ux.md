@@ -45,11 +45,21 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   They live in `launcher.json` under `gameSettings.<DISC_ID>` and start from what `settings` already held, so an older file
   loses nothing; control changes made in the game's own menu go to the copy that was started. The launcher's **Settings**
   keep what is shared: profile, whether to keep a copy of the disc image, and About.
+- **Language (2026-10-28)**: each copy also has a language (Ask / EN / FR / DE / ES / IT) in its Game settings. *Ask* is the
+  original behaviour: the game opens its own language screen at every start. Picking one sends `--language` to the game,
+  which starts in it and answers that screen itself (see `06` §8), so the player never sees it. Japanese copies have no
+  such setting: their disc speaks only Japanese and has no language screen, so the section is hidden and no flag is sent.
+- **FUComplete (2026-11-08)**: a Japanese image the player patched with FUComplete is its own copy (ULJM05500-FUC,
+  "Freedom Unite (FUComplete)", program `mhfu-fuc`, `06` §2.1). Its Game settings add a FUComplete section (saves
+  region, field of view, starting camera height, Dos themes, hunting horn tweak, early Lao kill, Guildhall chest and drink).
+  Before each start the launcher fills `PSP/SAVEDATA/FUCDAT` from the image when it is missing and writes those choices
+  into its `CONFIG.BIN`; "Show true weapon values" switches FUComplete's own true raw display instead of
+  `--true-weapon-values`, and FUComplete's minimap size stays at its default.
 - **Native host** (`launcher/native`): `launcher.cpp` keeps `launcher.json` next to the executable (portable for now):
   pseudonym, identity seed, settings, library, stats. Adding a copy reads PARAM.SFO (`platforms/psp/tools/param_sfo`)
   and compares size + SHA-1 with `games/*/regions/*/region.toml` (catalog generated at configure time; identification
   data only). Launching runs `mhfu(.exe)` next to the launcher with the settings as flags (`--scale`, `--fullscreen`,
-  `--smooth-textures`, `--fps`, `--music-volume`, `--sfx-volume`, `--name`), logs to `game.log`, and records play time and
+  `--smooth-textures`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--smithy-browse`, `--smithy-layout`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
   sessions. The game also needs the prepared executable: the installer produces it (below); developer builds can instead use
   `../exe/<DISC_ID>_EBOOT.BIN` (or one next to the ISO), checked against `dev_executable` in region.toml.
 - **Friend code**: generated locally (SHA-256 of a random identity seed, Crockford base32). Provisional: online play will
@@ -79,7 +89,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
 - **Release packaging (2026-10-19, Linux 2026-10-22)**: `scripts/package_release.py` assembles the Windows zip and the Linux
   tarball (launcher, game program, free fonts, licenses and the platform's player README) and refuses anything that looks
   like game data. Windows archives keep `dist/PLAYER_README.txt`; Linux archives use `dist/PLAYER_README_LINUX.txt` and
-  keep the execute permission of the programs (launcher, `mhfu`, `mhfu-us`, `mhfu-jp`). 0.1.0, 0.2.0, 0.2.1, 0.2.2, 0.2.3, 0.3.0, 0.4.0, 0.4.1, 0.4.2, 0.5.0, 0.6.0, 0.6.1, 0.6.2, 0.7.0, 0.8.0, 0.8.1 and 0.8.2 were published as Windows
+  keep the execute permission of the programs (launcher, `mhfu`, `mhfu-us`, `mhfu-jp`, `mhfu-fuc`). 0.1.0, 0.2.0, 0.2.1, 0.2.2, 0.2.3, 0.3.0, 0.4.0, 0.4.1, 0.4.2, 0.5.0, 0.6.0, 0.6.1, 0.6.2, 0.7.0, 0.8.0, 0.8.1, 0.8.2, 0.8.3, 0.8.4, 0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4 and 0.9.5 were published as Windows
   zips this way (0.4.1 together with the first Linux tarball).
 - **Linux integration**: `cmake --install build/linux-clang --prefix ~/.local` installs the launcher and the game (when it
   was built) in `bin/`, the fonts next to them, and `packaging/linux/MHForever.desktop` plus the icon in the desktop's
@@ -96,6 +106,27 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   folder moves, the game is started without it). A switch turns it off and on; *Remove* forgets a pack used where it is
   and, after a confirmation, deletes MHForever's copy. The game gets `--texture-pack <folder>` and chooses the ini for its
   own release.
+- **HUD scale (2026-11-02)**: **Game settings → Video → HUD scale** (100% down to 50%, steps of 10; `hudSize` per copy,
+  passed as `--hud-size`) shrinks the hunting HUD into its corners; the in-game menu's Video tab has the same choice for the
+  session. Only the quest HUD is sized: scaling the menus was tried and dropped (`05-runtime-hle.md`, HUD scale).
+- **Hunting horn songs (2026-11-02)**: **Game settings → Game → Show hunting horn songs** (off by default; `hornSongs` per
+  copy, passed as `--horn-songs`) lists the songs the hunter's horn can play over the quest HUD (`06-mhfu-module.md` §9).
+  Its position (`hornSongsPlace`, `--horn-songs-place`): next to the horn's note sheet (default), top middle, under the
+  name plates, bottom left, or `custom:X,Y`. The in-game menu's Game tab picks the position or drags the list anywhere;
+  the game writes the choice to the controls file and the launcher keeps it. The same Game section holds **Show true weapon
+  values** (`trueWeaponValues`, `--true-weapon-values`), **Fast supply box** (`fastSupplyBox`, `--fast-supply-box`,
+  off by default: the supply box takes the next button 2 frames after a take-out instead of 30), **Smithy: browse
+  with panels open** (`smithyBrowse`, `--smithy-browse`, off by default: the smithy's lists scroll with the materials
+  or Info panel open), and under it, once that is on, **Smithy: improved layout** (`smithyLayout`, `--smithy-layout`,
+  off by default: with Info open, Info on the left, the list with the materials on the right), and **Analog camera**
+  (`analogCamera`, `--analog-camera`, off by default: the right stick turns the camera as fast as it is pushed and tilts
+  it smoothly from the game's lowest view to its highest; while it is on, **Analog camera turn speed** and **tilt speed**
+  (`analogCameraTurnSpeed`, `analogCameraTiltSpeed`, 50% to 200% in steps of 10, passed as `--analog-camera-turn-speed`
+  and `--analog-camera-tilt-speed` when not 100%) set how fast a full push goes, and **Mouse camera** (`mouseCamera`,
+  `--mouse-camera`, off by default: the mouse turns and tilts the camera, and aims a bow or a bowgun, held in the game window with its pointer
+  hidden while the game has the input; the in-game menu, a system dialog or another window lets it go) with **Mouse
+  sensitivity** (`mouseCameraSpeed`, 25% to 300% in steps of 25, `--mouse-camera-speed` when not 100%)):
+  the game's options live there, Video keeps the picture's.
 - **Updates (2026-10-29)**: when the launcher starts (Settings > About > Check for updates, on by default) it asks GitHub for
   the latest release; when it is newer, Home offers "Update now". The launcher downloads the archive for its system with the
   system's `curl`, checks it against the SHA-256 GitHub computes for every release asset (nothing to publish besides the
@@ -103,7 +134,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   replaces is kept as `<name>.old` until the next start, and a failure at any step puts everything back. Then it restarts.
   `MHForever --update` does the same without the window; `MHF_UPDATE_URL` points the check at another release description
   (tests use a `file://` one). Saves and settings live outside the program folder, so they are never touched.
-- Still to do: language selection, Steam Deck packaging
+- Still to do: launcher-managed updates (signed), Steam Deck packaging
   (AppImage/Flatpak), moving the per-user folder, moving saves there.
 
 ## 3c. The in-game menu (decided 2026-10-22)
@@ -121,8 +152,14 @@ fullscreen, resizing, closing the game while it is up) is fragile on Windows and
 mode, where no second window can be shown.
 
 - Sections: **Game** (back to the game, quit with a confirmation), **Audio** (music, sound effects), **Video** (internal
-  resolution 1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures), **Controls**, and **Online** when a server
-  is set. The keyboard and the controller still do everything: Q / E, Tab, PageUp / PageDown or the shoulder buttons
+  resolution 1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures, texture pack, HUD scale), **Controls**, and **Online** when a server
+  is set. Since 2026-11-09 the Game section also changes, while playing, the enhancements whose hooks read a switch every
+  time (`Frontend::add_game_option`): true weapon values (not for FUComplete, which has its own), fast supply box, the
+  analog camera with its turn and tilt speeds and the mouse camera with its sensitivity, and the hunting horn songs on or off. The controls file
+  carries them back to the launcher (`option.<setting>=`, `horn-songs=`, and `hud-size=` for the Video section's HUD
+  scale), which keeps only those settings. The smithy options, the language and FUComplete's own options stay in the
+  launcher: the smithy's instruction patches are fixed when the game starts, and the others apply before it does.
+  The keyboard and the controller still do everything: Q / E, Tab, PageUp / PageDown or the shoulder buttons
   change section; Left from a row (or before a choice's first option) goes to the sidebar, where Up/Down pick the section
   and Right goes back; arrows or the D-pad / stick move between rows and through a row's options and buttons, Enter or A
   selects, Esc or B goes back (and, at the top, closes the menu). A focus ring and the key hints show only while keys or a
@@ -178,9 +215,10 @@ mode, where no second window can be shown.
   - Face buttons: △/Y, ○/B, ×/A, □/X by physical position (option to swap confirm/cancel per region).
   - L/R → LB/RB (LT/RT configurable too).
   - START, SELECT → Menu/View.
-  - **Right stick → D-pad** (FU's "claw" camera) with configurable deadzone and repeat. Level 1 is implemented; level 2 (analog camera hook) is an enhancement.
+  - **Right stick → D-pad** (FU's "claw" camera) with configurable deadzone and repeat. Level 1 is implemented; level 2 (analog camera) is the Analog camera setting.
 - Keyboard: every button of the pad answers to a physical key, and the player changes them in the launcher
-  (**Game settings → Controls**), not by editing a file; the mouse drives the camera once the analog hook exists.
+  (**Game settings → Controls**), not by editing a file; with the analog camera, **Mouse camera** lets the mouse turn the
+  camera and aim.
   - A binding is a UI Events code (`KeyK`, `ArrowLeft`, `Space`...): it names the key's position, not the character
     printed on it, so WASD stays where a player expects it on AZERTY or QWERTZ.
   - The bindings live in `launcher.json` under `settings.keys` (16 actions) and the launcher passes them to the game with
@@ -189,6 +227,9 @@ mode, where no second window can be shown.
   - Defaults: K/L/J/I face buttons, Q/E L/R, Enter Start, Backspace Select, arrows D-pad, WASD analog stick.
     In the launcher, Backspace or Delete removes a binding and a key already in use is swapped with the other button.
   - Two keys belong to the game and cannot be assigned: **Escape** (in-game menu) and **F11** (fullscreen).
+  - Mouse buttons bind like keys (2026-11-11): `Mouse1` (left), `Mouse2` (right), `Mouse3` (middle), `Mouse4` and `Mouse5`
+    (the side buttons), assigned by clicking while the launcher or the in-game menu waits for a key. They count while the
+    mouse is over the game window.
 - Controllers: every button of the pad also answers to a button of the player's controller, chosen in the same place
   (**Game settings → Controls → Controller**; the page has a Keyboard / Controller switch).
   - A source is an SDL gamepad name (`south`, `left_shoulder`, `left_trigger`, `dpad_up`...): the position of the button on
@@ -198,12 +239,12 @@ mode, where no second window can be shown.
     `--padmap "south=south,left_shoulder=left_shoulder+left_trigger,...,stick=left"`; `core/host/padmap*` resolves it.
     In the launcher the controller's own navigation pauses while a button is recorded; Backspace or Delete removes a source,
     Esc cancels, and a source already in use is swapped. The Guide button is never offered (it opens the in-game menu).
-  - Per-controller profiles, deadzones, sensitivity and an analog camera are pending; rumble optional (the PSP has none).
+  - Per-controller profiles, deadzones, sensitivity and a mouse camera are pending; rumble optional (the PSP has none).
 - In the game: the in-game menu has a **Controls** tab with the same bindings. Pick a row, press the new key or button and it
   applies at once; Esc or a click cancels, Backspace unbinds, F11 stays reserved. The host reports the next key or button by
-  name while the menu waits for one (`SdlHost::set_capture`). The game writes every change to the file the launcher gave it
-  (`--controls-file`, `game_controls.txt` in the data folder) and the launcher folds it into `launcher.json` when it starts,
-  before a launch and when the game ends, so a change made while playing is kept.
+  name while the menu waits for one (`SdlHost::set_capture`). The game writes every change, and the Audio tab's volumes, to
+  the file the launcher gave it (`--controls-file`, `game_controls.txt` in the data folder) and the launcher folds it into
+  `launcher.json` when it starts, before a launch and when the game ends, so a change made while playing is kept.
 - **Friends** (the drawer from the top bar; `14-rooms-and-friends.md` section 4.3): the friend code, "Let friends add
   me" (ten minutes), "Add by code", requests (Accept, Decline, Block), invites (Join, Not now) and the list: who is
   online and where ("Playing · private room on Socom"), with Join, Invite and Remove. The top bar's button counts
@@ -224,12 +265,18 @@ mode, where no second window can be shown.
 - Native Linux x86-64 build (do not rely on Proton): built and tested on Ubuntu in CI, and packaged for players.
 - Distribution: the portable `MHForever-<version>-linux-x64.tar.gz` made by `scripts/package_release.py` is the first
   supported form; `cmake --install` adds the desktop entry and the icon. **AppImage** next; Flatpak later (check Flathub
-  content policies). The launcher needs WebKitGTK 4.1 and GTK 3 at runtime, both present on current desktops.
+  content policies). The launcher's window needs WebKitGTK 4.1 and GTK 3 at runtime, which most desktops have and
+  **SteamOS does not**: the dynamic loader stops `MHForever` before it can show anything (issue #50, 0.8.2). So the archive also
+  carries **`MHForever-cli`** (`launcher/native/cli.cpp`), the launcher without a window: `--install`, `--list`, `--set`,
+  `--play`, `--update`. It links no web view and, with `MHF_NO_GTK`, no GTK (the file dialogs are stubs), so it needs only
+  libc and libstdc++. `--play` stays running while the game does (what a Game Mode entry needs) and keeps what the
+  player changes in the game's menu, as the window does.
 - Deck resolution 1280×800 (16:10); PSP 480×272 (~16:9). Integer scaling (×2 = 960×544) or fitted with a filter, crop option, and
   widescreen as an enhancement.
 - Test: suspend/resume, Game Mode input, performance and battery.
-- Real testing: maintainers have no Deck. Players have reported the game working on a Steam Deck (SteamOS), without a formal test;
-  friends with Decks test builds already validated on a Linux machine. They need their own copy
+- Real testing: maintainers have no Deck. Reports of the game working on a Steam Deck came from players who had installed
+  WebKitGTK themselves; a Deck as it ships could not start the launcher until `MHForever-cli` (0.8.3), which a player has since
+  run on a Deck (issue #57). Friends with Decks test builds already validated on a Linux machine. They need their own copy
   to test the game; for the rest (input, launcher, scaling) use the test scene built from our own homebrew.
 
 ## 7. User data

@@ -39,6 +39,7 @@ no piracy talk there. Bugs can also be reported as [issues](https://github.com/M
 | **Monster Hunter Freedom Unite** | PSP | Europe (`ULES01213`, v1.01) | **Playable** |
 | **Monster Hunter Freedom Unite** | PSP | North America (`ULUS10391`, v1.01) | **Playable** |
 | Monster Hunter Portable 2nd G | PSP | Japan (`ULJM05500`, v1.01) | **Playable** |
+| Monster Hunter Portable 2nd G + FUComplete | PSP | Japan, patched with FUComplete v1.4.0 | **Playable** |
 | Other Monster Hunter games | PSP, later PS2 | | Planned, see the [roadmap](docs/10-roadmap.md) |
 
 The first four rows work today (online play is experimental). The others are plans, not promises: they are listed so you know where the project is going.
@@ -50,10 +51,11 @@ The first four rows work today (online play is experimental). The others are pla
 | **Playable game** | **Monster Hunter Freedom Unite** (PSP), European (`ULES01213`, v1.01) and North American (`ULUS10391`, v1.01) releases. It is the only game for now. Each release has its own video, audio and control settings in the launcher. |
 | **Frame rate** | **30 fps** as on the original console, or **60 to 180 fps** (any multiple of 30) with frame interpolation, chosen in the game's settings in the launcher (Home → Game settings). Experimental: heavy scenes may not hold the top rates. |
 | **Online play** | **Experimental (0.6).** Quests together on the PSP ad hoc servers PPSSPP uses, with other copies of MHForever and with PPSSPP players; pick the server in the launcher under Settings → Online. Private rooms with a code and friends (added by code, who is online, invites) shipped in 0.8.0. |
-| **Platforms** | Windows (64-bit) and Linux (64-bit). Players have reported it working on the Steam Deck (SteamOS); the maintainers have no Deck to test on, so Deck notes are in the documentation. |
+| **Platforms** | Windows (64-bit) and Linux (64-bit). The launcher needs WebKitGTK 4.1, which SteamOS (Steam Deck) does not include: there use `MHForever-cli`, the same launcher without a window (`--install`, `--set`, `--play`), which needs nothing besides the C library. The maintainers have no Deck to test on; reports are welcome. |
 | **Controllers** | Gamepads work out of the box. **Tested with a PS5 DualSense**; other pads recognized by SDL should work too. Keyboard and controller buttons are changed in Game settings (Home) or from the in-game menu. |
 | **Saves** | Kept in `Documents\MHForever\saves` on Windows and `~/.local/share/MHForever/saves` on Linux, one folder per game; settings in `%APPDATA%\MHForever` or `$XDG_DATA_HOME/MHForever`. Updating never loses them. Saves use the PSP format: import them from a PSP or PPSSPP in Game settings (your own version of the game: a European save only works with the European release, and a North American one with the North American release), or copy MHForever's into PPSSPP. |
 | **Resolution** | Up to several times the original 480x272, with an optional smoother texture filter. |
+| **HUD scale** | The hunting HUD (health and stamina, clock, minimap, item bar) can be made smaller, down to 50%, each part staying in its corner: Game settings → Video → HUD scale, or the in-game menu. Menus and the village keep their size. |
 | **HD textures** | Texture packs made for PPSSPP (a folder with a `textures.ini`, PNG or KTX2 images), such as KHD, for the European, North American and Japanese releases: choose one per copy of the game in Game settings → Texture pack. None is included: download a pack yourself. |
 | **Other games and regions** | The Japanese release (Portable 2nd G, `ULJM05500`) is playable too, with its Japanese text. Other games of the series are planned. |
 | **Latest release** | [![Latest release](https://img.shields.io/github/v/release/Mango77x/MHForever?label=version)](https://github.com/Mango77x/MHForever/releases/latest) [![Release date](https://img.shields.io/github/release-date/Mango77x/MHForever?label=published)](https://github.com/Mango77x/MHForever/releases/latest) See the [Releases](../../releases) page. |
@@ -104,9 +106,17 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
   release of the same game): the PSP save-data cryptography that lets MHForever read and write saves in the PSP and PPSSPP
   format comes from his project, shared with his permission, along with his time and advice.
 - **[sodomon2](https://github.com/sodomon2)**, for the Linux packaging, the desktop integration and the launcher fixes that
-  came with them (pull request #7).
+  came with them (pull request #7), the keyboard bindings in the launcher (#9), the movies (#12) and the language choice
+  (#20).
 - **[ibonplix](https://github.com/ibonplix)**, for the first texture pack support (pull request #39): the PPSSPP quick hash, the
   KTX2 decoding and the launcher setting that the HD textures are built on.
+- **[Pablo1517](https://github.com/Pablo1517)**, for the hunting horn songs card (pull request #49), the true weapon values
+  (#44), keeping the volumes changed in the in-game menu (#45), the fast supply box (#59), browsing the smithy with its
+  panels open (#60, with the recompiler's instruction patches) and its improved layout (#62), and the analog camera (#68,
+  with the recompiler's call patches), and for the generated region data the game's host reads the region maps through.
+- **[The FUComplete team](https://fucomplete.github.io)** ([FUComplete/Patch](https://github.com/FUComplete/Patch)), whose fan patch for the Japanese release (its English translation, events and options) MHForever
+  runs as its own copy of the game: the player patches their own image with FUComplete's tool, and the launcher sets its
+  options.
 - **Mobilozor**, for proving HD texture packs on MHForever first (on SteamOS), and for the audit and
   test logs shared with the project.
 - **[TeamGDB's Yakumo](https://github.com/TeamGDB/Yakumo)** (MIT), whose frame interpolation MHForever's is ported from, and

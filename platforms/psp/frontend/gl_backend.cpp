@@ -59,6 +59,11 @@ enum Reg : std::uint32_t {
 };
 
 // Registers whose value changes how a primitive is drawn (anything else only affects vertex processing).
+// GL_TEXTURE_MAX_ANISOTROPY and GL_MAX_TEXTURE_MAX_ANISOTROPY (the same values in OpenGL 4.6 and its extensions; not every
+// header has them).
+constexpr GLenum kGlTextureMaxAnisotropy = 0x84FE;
+constexpr GLenum kGlMaxTextureMaxAnisotropy = 0x84FF;
+
 constexpr std::array<std::uint32_t, 36> kStateRegs = {
     kVertexType, kTextureMapEnable, kFogEnable, kAlphaBlendEnable, kAlphaTestEnable, kZTestEnable,
     kStencilTestEnable, kShadeMode, kFramebufPtr, kFramebufWidth, kTexAddr0, kTexBufWidth0, kClutAddr,
@@ -89,6 +94,10 @@ using MhfBindTexture = void(APIENTRY *)(GLenum, GLuint);
 using MhfTexImage2D = void(APIENTRY *)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void *);
 using MhfTexSubImage2D = void(APIENTRY *)(GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const void *);
 using MhfTexParameteri = void(APIENTRY *)(GLenum, GLenum, GLint);
+using MhfTexParameterf = void(APIENTRY *)(GLenum, GLenum, GLfloat);
+using MhfGetIntegerv = void(APIENTRY *)(GLenum, GLint *);
+using MhfGetFloatv = void(APIENTRY *)(GLenum, GLfloat *);
+using MhfGetStringi = const GLubyte *(APIENTRY *)(GLenum, GLuint);
 using MhfPixelStorei = void(APIENTRY *)(GLenum, GLint);
 using MhfDrawArrays = void(APIENTRY *)(GLenum, GLint, GLsizei);
 using MhfReadPixels = void(APIENTRY *)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void *);
@@ -122,6 +131,10 @@ using MhfReadPixels = void(APIENTRY *)(GLint, GLint, GLsizei, GLsizei, GLenum, G
     X(MhfTexImage2D, TexImage2D, glTexImage2D)                                                               \
     X(MhfTexSubImage2D, TexSubImage2D, glTexSubImage2D)                                                      \
     X(MhfTexParameteri, TexParameteri, glTexParameteri)                                                      \
+    X(MhfTexParameterf, TexParameterf, glTexParameterf)                                                      \
+    X(MhfGetIntegerv, GetIntegerv, glGetIntegerv)                                                            \
+    X(MhfGetFloatv, GetFloatv, glGetFloatv)                                                                  \
+    X(MhfGetStringi, GetStringi, glGetStringi)                                                               \
     X(PFNGLACTIVETEXTUREPROC, ActiveTexture, glActiveTexture)                                                      \
     X(MhfPixelStorei, PixelStorei, glPixelStorei)                                                            \
     X(PFNGLGENERATEMIPMAPPROC, GenerateMipmap, glGenerateMipmap)                                                   \
@@ -633,7 +646,7 @@ struct DrawSetup {
     DrawKey key{};
     GLuint texture{};     // 0: untextured
     float uv_xform[4]{1, 1, 0, 0};
-    bool texture_mips{};          // the texture has mip levels (a texture pack image)
+    bool texture_mips{};          // a texture pack image: mipmapped filtering over the levels it has, anisotropic
     std::uint8_t texture_filter{}; // a texture pack's [filtering] for it: 0 the game's, 1 nearest, 2 linear
     bool through{};
     float tex_width{1}, tex_height{1};
@@ -643,6 +656,8 @@ struct DrawSetup {
     std::uint64_t tex_hash{}; // the texture's, for the shadows
     bool listed{};            // on one of the shadows' lists of textures
     std::uint32_t largest_draw{}; // triangles of the largest single draw in the batch
+    float hud[3]{1, 0, 0};  // HUD size: the scale of a 2D draw and the point it shrinks toward (its scissor follows)
+    bool hud_clamp{};       // and its texture coordinates stay inside the texture (no repeating pattern)
 };
 
 // The camera a vertex was placed with: view and projection matrices, viewport and screen offset.
@@ -785,6 +800,9 @@ public:
           overlay_(overlay), factor_(std::clamp(factor, 1, 6)), interpolate_(factor > 1) {
         if (live == nullptr) own_live_.smooth_textures = smooth_textures;
         open_texture_pack();
+        const char *hud_log = std::getenv("MHF_HUD_LOG");
+        hud_log_ = hud_log != nullptr && hud_log[0] == '1';
+        if (const char *every = std::getenv("MHF_HUD_LOG_EVERY")) hud_log_every_ = static_cast<std::uint64_t>(std::max(1, std::atoi(every)));
     }
 
     ~GlBackend() override {
@@ -822,6 +840,8 @@ public:
 
     void draw_started(const gpu::DrawInfo &draw) override {
         ++draw_serial_; // the GE's state can only have changed since the last draw
+        if (draw.layer != draw_layer_) draw_batch(); // a batch holds draws of one layer (see size_hud)
+        draw_layer_ = draw.layer;
         draw_triangles_ = 0;
         shadow_begin_draw(draw);
         if (!interpolate_) return;
@@ -866,6 +886,13 @@ public:
         tl.x = a.x; tl.y = a.y; tl.u = a.u; tl.v = a.v;
         tr.x = b.x; tr.y = a.y; tr.u = b.u; tr.v = a.v;
         bl.x = a.x; bl.y = b.y; bl.u = a.u; bl.v = b.v;
+        // A 2D sprite whose second corner is up and right (or down and left) of its first shows its texture turned a
+        // quarter: the other two corners swap their texture coordinates (as the PSP draws it; PPSSPP does the same).
+        // The bowgun and bow sight's vertical pieces are drawn so (issue #77): without this they came out stretched.
+        if (through_ && ((a.x < b.x && a.y > b.y) || (a.x > b.x && a.y < b.y))) {
+            std::swap(tr.u, bl.u);
+            std::swap(tr.v, bl.v);
+        }
         for (gpu::Vertex *v : {&tl, &tr, &bl, &br}) v->w = 1.0f; // sprites interpolate linearly
         push(tl, nullptr);
         push(tr, nullptr);
@@ -1047,6 +1074,7 @@ private:
         g.color[0] = to_byte(c.r); g.color[1] = to_byte(c.g); g.color[2] = to_byte(c.b); g.color[3] = to_byte(c.a);
         g.spec[0] = to_byte(c.sr); g.spec[1] = to_byte(c.sg); g.spec[2] = to_byte(c.sb); g.spec[3] = 0;
         g.fog = v.fog;
+        if (batch_.empty()) batch_layer_ = draw_layer_;
         batch_.push_back(g);
     }
 
@@ -1106,6 +1134,11 @@ private:
                         const std::vector<TapeEntry> &before, const Slot &before_slot, float t);
     void draw_batch();
     bool shadow_effect(const DrawSetup &setup, const GpuVertex *vertices, std::size_t count);
+    void size_hud();
+    void finish_hud_flip();
+    [[nodiscard]] bool shown_target(std::uint32_t address) const {
+        return std::find(shown_targets_.begin(), shown_targets_.end(), address) != shown_targets_.end();
+    }
     void read_back();
     RenderTarget &target_for(std::uint32_t address, std::uint32_t stride, std::uint32_t format,
                              std::uint32_t needed_height);
@@ -1231,7 +1264,11 @@ private:
     // before, and how they match (MHF_INTERP_V2_LOG=1 reports it).
     std::vector<interpolation::DrawSummary> recording_, summaries_before_;
     interpolation::Matcher matcher_;
-    interpolation::CutThresholds cut_thresholds_;
+    interpolation::CutThresholds cut_thresholds_ = [] {
+        interpolation::CutThresholds t;
+        t.diagnose = std::getenv("MHF_INTERP_V2_LOG") != nullptr; // the log tells whether the camera follows the crowd
+        return t;
+    }();
     void match_v2(std::uint32_t shown);
     // Interpolation v2 (the default; MHF_INTERP_V1=1 goes back to placing the recorded points again for every batch):
     // the batch's triangles before clipping, the viewports of the draws,
@@ -1267,6 +1304,10 @@ private:
         bool deform = false;
         std::size_t old_first = 0, new_first = 0;
         interpolation::Matrix back_old;
+        // A pair whose eye transform moved rigidly (scenery that stood still while the camera moved, or a piece that
+        // moved as one): it follows its own motion's arc, so a wrong camera vote cannot pull it off its path.
+        bool rigid = false;
+        interpolation::RigidMotion motion;
     };
     // A share of a batch's triangles, placed by one thread into its own vertices.
     struct V2Chunk {
@@ -1275,6 +1316,10 @@ private:
     bool v2_prepared_ = false;
     std::vector<V2Draw> v2_draws_;
     std::vector<std::uint32_t> v2_needed_; // the draws the shown picture's 3D batches come from
+    // Each needed draw's motion in eye space (newer times older's inverse), as a key, and how many objects moved alike:
+    // scenery that stood still all moved as the camera did, a monster or a hunter moved its own way.
+    std::vector<std::uint64_t> v2_motion_key_;
+    std::unordered_map<std::uint64_t, std::uint32_t> v2_motion_count_;
     std::vector<V2Chunk> v2_chunks_;
     std::vector<std::size_t> v2_first_chunk_; // per batch
     std::vector<std::vector<GpuVertex>> v2_chunk_out_;
@@ -1343,7 +1388,8 @@ private:
     bool have_state_{};
     bool through_{};
     float tex_width_{1}, tex_height_{1};
-    bool tex_mips_ = false;          // the texture texture_for() gave has mip levels (a pack image)
+    bool tex_mips_ = false;          // the texture texture_for() gave is a pack image (texture_mips)
+    float anisotropy_ = 1.0f;        // the anisotropic filtering of textures with mip levels (1: none, the GPU lacks it)
     std::uint8_t tex_filter_ = 0;    // and its pack [filtering]
     float tex_holes_{-1.0f};         // the share of transparent texels of the texture texture_for() gave
     float shadow_texture_holes_{-1.0f}; // the same for the draw being captured
@@ -1435,6 +1481,30 @@ private:
     GLuint shadow_player_fbo_{}, shadow_player_depth_{}, shadow_player_color_{};
     std::vector<std::uint32_t> shadow_player_groups_;
     std::uint64_t frame_{1};
+
+    // HUD size (LiveSettings::hud_size). Each 2D draw of a shown screen is placed as it comes, from this flip's draws
+    // only (see size_hud): the game draws its 2D in layers, and the quest HUD has two of its own, so nothing carries
+    // over from one flip to the next and nothing jumps when a menu opens. MHF_HUD_LOG=1 describes the 2D draws of
+    // every 300th flip (MHF_HUD_LOG_EVERY=<n>: of every n-th).
+    struct HudBox {
+        float x1, y1, x2, y2;
+    };
+    enum class HudRight { unknown, map, items, menu };
+    std::uint32_t hud_layer_ = kNoLayer;        // this flip's layer with the clock, the bars and the name plates
+    std::uint32_t hud_seen_layer_ = kNoLayer;   // the layer of the last 2D draw placed
+    HudRight hud_right_ = HudRight::unknown;    // where the layer after it is: in the minimap, in the item panel, or a menu
+    HudBox hud_items_{1e9f, 1e9f, -1e9f, -1e9f}; // this flip's item panel so far
+    static constexpr std::uint32_t kNoLayer = 0xFFFFFFFFu;
+    std::vector<HudBox> hud_flip_boxes_;                     // MHF_HUD_LOG: this flip's 2D draws and where they went
+    std::vector<const char *> hud_flip_kinds_;
+    bool hud_corner_seen_ = false;
+    std::uint64_t hud_missed_logged_ = 0;
+    std::array<std::uint32_t, 4> shown_targets_{~0u, ~0u, ~0u, ~0u}; // the screens presented lately
+    std::size_t shown_next_ = 0;
+    bool hud_log_ = false, hud_log_flip_ = false;
+    std::uint64_t hud_log_every_ = 300;
+    std::uint32_t draw_layer_ = 0, batch_layer_ = 0; // the layer of the draw under way, and of the batch's draws
+    std::size_t hud_drawn_ = 0, hud_3d_after_ = 0; // in the logged flip: 2D draws sized, 3D draws on a screen after them
 };
 
 bool GlBackend::init() {
@@ -1462,6 +1532,26 @@ bool GlBackend::init() {
     std::fprintf(stderr, "[gl] %s, %s, internal resolution %dx%d\n",
                  reinterpret_cast<const char *>(gl_.GetString(GL_RENDERER)),
                  reinterpret_cast<const char *>(gl_.GetString(GL_VERSION)), 480 * scale_, 272 * scale_);
+    // Anisotropic filtering (core in OpenGL 4.6, an extension everywhere else): pack images seen at a slant, such as the
+    // ground, stay sharp instead of blurring into their smaller mip levels. Up to 16x, as PPSSPP.
+    {
+        GLint count = 0;
+        gl_.GetIntegerv(GL_NUM_EXTENSIONS, &count);
+        bool found = false;
+        for (GLint i = 0; i < count && !found; ++i) {
+            const auto *name = reinterpret_cast<const char *>(gl_.GetStringi(GL_EXTENSIONS, static_cast<GLuint>(i)));
+            found = name != nullptr && (std::strcmp(name, "GL_ARB_texture_filter_anisotropic") == 0 ||
+                                        std::strcmp(name, "GL_EXT_texture_filter_anisotropic") == 0);
+        }
+        if (found) {
+            GLfloat most = 1.0f;
+            gl_.GetFloatv(kGlMaxTextureMaxAnisotropy, &most);
+            anisotropy_ = std::clamp(most, 1.0f, 16.0f);
+        }
+        while (gl_.GetError() != GL_NO_ERROR) {
+        }
+        std::fprintf(stderr, "[gl] anisotropic filtering %gx\n", static_cast<double>(anisotropy_));
+    }
     draw_program_ = compile(kDrawVertex, kDrawFragment);
     present_program_ = compile(kPresentVertex, kPresentFragment);
     overlay_program_ = compile(kPresentVertex, kOverlayFragment);
@@ -1659,12 +1749,14 @@ GlBackend::RenderTarget *GlBackend::find_target(std::uint32_t vram_offset, bool 
 // ---------------------------------------------------------------- state
 
 void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips) {
-    // Texture pack images carry mip levels: at a distance they are sampled from those, not shimmering.
+    // Texture pack images: mipmapped filtering over the levels the pack gives (one level, as KHD: the full-size image;
+    // upload_pack_image sets the last level), with anisotropic filtering.
     const GLint min_filter = mips ? (linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_LINEAR) : (linear ? GL_LINEAR : GL_NEAREST);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, clamp_s ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, clamp_t ? GL_CLAMP_TO_EDGE : GL_REPEAT);
+    if (anisotropy_ > 1.0f) gl_.TexParameterf(GL_TEXTURE_2D, kGlTextureMaxAnisotropy, mips ? anisotropy_ : 1.0f);
 }
 
 textures::TextureFacts texture_facts(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, std::uint16_t max_seen_v);
@@ -1929,7 +2021,7 @@ void GlBackend::use_pack_image(CachedTexture &t, const std::string &name) {
     ++pack_reused_;
 }
 
-// Puts a decoded image on the GPU, once, with its mip levels, and draws the cached texture with it.
+// Puts a decoded image on the GPU, once, with the mip levels it brings, and draws the cached texture with it.
 void GlBackend::upload_pack_image(CachedTexture &t, const std::string &name, const textures::Image &image) {
     if (pack_images_.count(name) == 0) {
         GLuint texture = 0;
@@ -1940,10 +2032,14 @@ void GlBackend::upload_pack_image(CachedTexture &t, const std::string &name, con
             const auto w = static_cast<GLsizei>(std::max(1u, image.width >> level)), h = static_cast<GLsizei>(std::max(1u, image.height >> level));
             gl_.TexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.levels[level].data());
         }
-        // An image without its own mip levels gets them made here; a full chain either way.
-        if (image.levels.size() == 1) gl_.GenerateMipmap(GL_TEXTURE_2D);
-        gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, image.levels.size() == 1 ? 1000 : static_cast<GLint>(image.levels.size() - 1));
-        const std::size_t bytes = std::size_t(image.width) * image.height * 4u * 4u / 3u;
+        // The pack's own mip levels only, as PPSSPP: an image without them is sampled at full size (with anisotropic
+        // filtering), sharp at a distance as its author saw it. Packs such as KHD ship a single level. With
+        // MHF_TEXTURE_PACK_MIPMAPS=1 the levels are made here instead (softer at a distance, no shimmer).
+        static const bool make_mips = std::getenv("MHF_TEXTURE_PACK_MIPMAPS") != nullptr;
+        const bool made = make_mips && image.levels.size() == 1;
+        if (made) gl_.GenerateMipmap(GL_TEXTURE_2D);
+        gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, made ? 1000 : static_cast<GLint>(image.levels.size() - 1));
+        const std::size_t bytes = std::size_t(image.width) * image.height * 4u * (made || image.levels.size() > 1 ? 4u : 3u) / 3u;
         pack_images_[name] = PackImage{texture, bytes, frame_};
         pack_bytes_ += bytes;
         ++pack_replaced_;
@@ -3600,8 +3696,13 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
         gl_.BindTexture(GL_TEXTURE_2D, setup.texture);
         // Enhancement (off by default): bilinear filtering for 3D textures; 2D (through-mode) art stays as drawn.
         bool linear = (R(kTexFilter) & 0x100u) != 0 || (live_->smooth_textures.load(std::memory_order_relaxed) && !through);
+        // 2D art drawn smaller than its pixels would shimmer if left nearest; filtered, a texture set to repeat would
+        // also blend in its opposite edge (a faint frame around the minimap), so a sized draw that stays inside its
+        // texture clamps. One that repeats it (the dotted line under a menu's title) has to keep repeating.
+        if (setup.hud[0] < 1.0f) linear = true;
         if (setup.texture_filter != 0) linear = setup.texture_filter == 2; // a texture pack's [filtering]
-        set_texture_params(linear, (R(kTexWrap) & 1u) != 0, (R(kTexWrap) & 0x100u) != 0, setup.texture_mips);
+        const bool clamp = setup.hud[0] < 1.0f && setup.hud_clamp;
+        set_texture_params(linear, clamp || (R(kTexWrap) & 1u) != 0, clamp || (R(kTexWrap) & 0x100u) != 0, setup.texture_mips);
     }
 
     gl_.BindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
@@ -3610,6 +3711,13 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
     const std::uint32_t x2 = std::min(sx2, rt.width - 1u), y2 = std::min(sy2, rt.height - 1u);
     if (sx1 > x2 || sy1 > y2) {
         gl_.Scissor(0, 0, 0, 0);
+    } else if (setup.hud[0] != 1.0f) { // a sized 2D draw: its scissor shrinks with it, toward the same point
+        const auto at = [&](float p, float anchor) {
+            return static_cast<GLint>(std::lround((anchor + (p - anchor) * setup.hud[0]) * static_cast<float>(scale_)));
+        };
+        const GLint left = at(static_cast<float>(sx1), setup.hud[1]), top = at(static_cast<float>(sy1), setup.hud[2]);
+        const GLint right = at(static_cast<float>(x2 + 1u), setup.hud[1]), bottom = at(static_cast<float>(y2 + 1u), setup.hud[2]);
+        gl_.Scissor(left, top, std::max(0, right - left), std::max(0, bottom - top));
     } else {
         gl_.Scissor(static_cast<GLint>(sx1) * scale_, static_cast<GLint>(sy1) * scale_,
                     static_cast<GLsizei>(x2 - sx1 + 1u) * scale_, static_cast<GLsizei>(y2 - sy1 + 1u) * scale_);
@@ -3738,6 +3846,11 @@ void GlBackend::read_back() {
 
 void GlBackend::draw_batch() {
     if (batch_.empty() && raw_batch_.empty()) return;
+    if (setup_.through && !batch_.empty()) {
+        size_hud();
+    } else if (hud_log_flip_ && hud_drawn_ != 0 && !batch_.empty() && shown_target(setup_.target)) {
+        ++hud_3d_after_;
+    }
     if (interpolate_) {
         if (tape_.size() >= 20000) { // a game that never flips: do not keep everything
             tape_.clear();
@@ -3802,6 +3915,182 @@ bool GlBackend::shadow_effect(const DrawSetup &setup, const GpuVertex *vertices,
     if (most >= 200 && (told.count(setup.tex_hash) == 0 || count / 3u > 64u)) return false;
     told.insert(setup.tex_hash);
     return true;
+}
+
+// HUD size: only the quest HUD is sized. The game does not draw its 2D in one run: it sorts it into layers (a table of
+// jumps at the start of its display list, one entry per layer, gpu::DrawInfo::layer), and the quest HUD has two layers
+// to itself (seen in a quest with a long sword, 2026-11-09):
+// - the layer with the clock holds, from the clock on, the clock, the health and stamina bars, the weapon's own gauge (the long
+//   sword's spirit bar), the sharpness, the name plates of the hunter, a comrade and the other hunters, and the icons of
+//   the effects next to them. All of it shrinks into the top left corner;
+// - the next layer holds the minimap and the item panel (the item bar, also while L opens it, and with the list of
+//   coatings or shots on top), which shrink into their corners. The game's start menu takes that layer over while it
+//   is open, with the minimap and the item panel gone: it keeps its size.
+// The supply box, the messages and every other menu are in later layers and keep their size (but for the cursor of the
+// coatings' list, see hud_over), and so do the village and the start screens, where no layer has the clock. Nothing carries over from one flip to the next.
+// Before, the HUD was found by where each piece lies, as one run of draws: every piece nobody had listed (a comrade's
+// plate, a hot drink's icon, the long sword's spirit bar) ended the run and left what followed at full size.
+// Sizing the menus too was tried and dropped: the game only hands over loose 2D draws, nothing says which belong to
+// one panel or which corner it hangs from, and every rule that guessed it from positions pulled some menu apart or
+// made screens change size back and forth. Doing it well needs the game's own layout code (where each element is
+// anchored), not guesses from the outside.
+constexpr float kHudClock[4] = {8.0f, 8.0f, 60.0f, 56.0f}; // the clock's box (measured, EU, US and JP alike)
+// The clock may come alone or in one batch with the pieces drawn next to it (draws with the same state are drawn
+// together): a batch that starts at the clock's corner, covers the clock and stays within the HUD's rows (the fourth
+// name plate ends at y 133). Menus start their windows at the screen's corner, not the clock's.
+template <typename Box> bool hud_is_clock(const Box &b) {
+    return std::fabs(b.x1 - kHudClock[0]) < 1.5f && std::fabs(b.y1 - kHudClock[1]) < 1.5f && b.x2 >= kHudClock[2] - 1.5f &&
+           b.y2 >= kHudClock[3] - 1.5f && b.y2 <= 160.0f;
+}
+// Something in the clock's corner (for the log: a flip with it and no HUD found is described in full).
+template <typename Box> bool hud_in_clock_corner(const Box &b) { return b.x1 < 16.0f && b.y1 < 16.0f && b.y2 <= 80.0f; }
+// The layer after the clock's holds two things, one after the other. First the minimap: pieces inside a square in the
+// top right corner (measured: 316,32 to 468,184; until the player takes the map from the supply box only the visited
+// areas and marks, the smallest 12x12). Then the item panel, which starts with the corner of its frame at x 312, left
+// of that square: the item bar in the bottom right (from y 208), taller while L opens it (from y 200), and taller
+// still (from y 128, over the minimap's place) with the list of a bow's coatings or a bowgun's shots on top of it. It
+// is one panel, so all of it shrinks into the bottom right corner, whatever its height. The start menu's window, which
+// takes the layer over, starts with the 8-high corner of its frame at y 40 (x 344, 328 or 232 as the window is wide).
+// Only the layer's first piece and the item panel's start are recognised; everything in between follows them, so a
+// minimap mark that reaches past the square (a monster's icon at its edge) stays with the minimap, and a longer panel
+// stays one panel. Checked against every recorded quest (EU and FUComplete, every weapon, menus): the minimap always
+// comes first and the item panel always starts with that corner.
+template <typename Box> bool hud_in_map_square(const Box &b) {
+    return b.x1 >= 314.0f && b.y1 >= 30.0f && b.x2 <= 470.0f && b.y2 <= 186.0f;
+}
+template <typename Box> bool hud_menu_frame(const Box &b) { return std::fabs(b.y1 - 40.0f) < 2.0f && b.y2 - b.y1 < 10.0f; }
+template <typename Box> bool hud_on_map(const Box &b) { return hud_in_map_square(b) && !hud_menu_frame(b); }
+// The item panel's first piece: the corner of its frame (x 312), or anything below the minimap's square.
+template <typename Box> bool hud_item_panel_start(const Box &b) {
+    return (b.x1 >= 304.0f && b.x1 < 314.0f && b.y1 >= 100.0f && b.x2 - b.x1 <= 32.0f) || b.y1 >= 190.0f;
+}
+// The coatings' or shots' list has a cursor (a bracket around the chosen row and two button marks), drawn in the layer
+// after: pieces over the item panel while it is that tall (the supply box and the menus of that layer come with the
+// item panel hidden, or leave it alone). They shrink with the panel.
+constexpr float kHudItemPanelTall = 190.0f; // a panel that starts above this holds the list
+template <typename Box> bool hud_over(const Box &b, const Box &panel) {
+    return b.x1 <= panel.x2 + 8.0f && panel.x1 <= b.x2 + 8.0f && b.y1 <= panel.y2 + 8.0f && panel.y1 <= b.y2 + 8.0f;
+}
+
+// HUD size for the 2D batch about to be drawn: places it (see above), then sizes its vertices and its scissor.
+void GlBackend::size_hud() {
+    const bool was_sized = setup_.hud[0] != 1.0f; // the state of a previous batch with the same registers
+    setup_.hud[0] = 1.0f;
+    HudBox box{1e9f, 1e9f, -1e9f, -1e9f};
+    for (const GpuVertex &v : batch_) {
+        box.x1 = std::min(box.x1, v.x);
+        box.y1 = std::min(box.y1, v.y);
+        box.x2 = std::max(box.x2, v.x);
+        box.y2 = std::max(box.y2, v.y);
+    }
+    const char *skip = nullptr;
+    if ((key_reg(setup_.key, kClearMode) & 1u) != 0) skip = "clear";
+    else if (setup_.self_sampled) skip = "copy of its own target";
+    else if (!shown_target(setup_.target)) skip = "not on a shown screen";
+    else if (box.x2 - box.x1 >= 448.0f && box.y2 - box.y1 >= 256.0f) {
+        skip = "whole screen";
+    }
+    const char *what = "";
+    bool sized = false;
+    float ax = 0.0f, ay = 0.0f;
+    if (skip == nullptr) {
+        ++hud_drawn_;
+        // Which layer this draw is in, and whether it is the first one of that layer placed.
+        const bool first = batch_layer_ != hud_seen_layer_;
+        hud_seen_layer_ = batch_layer_;
+        // The layer starts with the clock, or with the sight of a bowgun or a bow while aiming, which is no part of the
+        // HUD and keeps its size: the HUD is the clock and what follows it.
+        if (hud_layer_ == kNoLayer && hud_is_clock(box)) hud_layer_ = batch_layer_;
+        if (hud_layer_ != kNoLayer && batch_layer_ == hud_layer_) {
+            // All of it, wherever it reaches: shrinking toward the top left corner keeps everything on screen, and the
+            // HUD's pieces change with the game's state (a Max Potion's longer health bar reaches the screen's right
+            // edge), so no limit from the outside fits them all.
+            what = "health";
+            sized = true;
+            ax = 0.0f;
+            ay = 0.0f;
+        } else if (hud_layer_ != kNoLayer && batch_layer_ == hud_layer_ + 1u) {
+            if (first) hud_right_ = hud_item_panel_start(box) ? HudRight::items : hud_on_map(box) ? HudRight::map : HudRight::menu;
+            if (hud_right_ == HudRight::map && hud_item_panel_start(box)) hud_right_ = HudRight::items; // the minimap is over
+            if (hud_right_ == HudRight::menu || box.x1 < 240.0f) {
+                what = hud_right_ == HudRight::menu ? "kept (menu)" : "kept";
+            } else {
+                const bool map = hud_right_ == HudRight::map;
+                what = map ? "minimap" : "items";
+                sized = true;
+                ax = 480.0f;
+                ay = map ? 0.0f : 272.0f;
+                if (!map) {
+                    hud_items_.x1 = std::min(hud_items_.x1, box.x1);
+                    hud_items_.y1 = std::min(hud_items_.y1, box.y1);
+                    hud_items_.x2 = std::max(hud_items_.x2, box.x2);
+                    hud_items_.y2 = std::max(hud_items_.y2, box.y2);
+                }
+            }
+        } else if (hud_layer_ != kNoLayer && batch_layer_ == hud_layer_ + 2u && hud_right_ == HudRight::items &&
+                   hud_items_.y1 < kHudItemPanelTall && hud_over(box, hud_items_)) {
+            what = "items (cursor)";
+            sized = true;
+            ax = 480.0f;
+            ay = 272.0f;
+        } else {
+            what = "kept";
+        }
+    }
+    if (hud_log_ && skip == nullptr) {
+        hud_flip_boxes_.push_back(box);
+        hud_flip_kinds_.push_back(what);
+        hud_corner_seen_ = hud_corner_seen_ || hud_in_clock_corner(box);
+    }
+    if (hud_log_flip_) {
+        std::fprintf(stderr, "[hud] 2D layer=%u target=%06X tex=%s %gx%g verts=%zu box=(%.0f,%.0f)-(%.0f,%.0f) scissor=%u,%u-%u,%u blend=%u ",
+                     static_cast<unsigned>(batch_layer_), static_cast<unsigned>(setup_.target), setup_.texture != 0 ? "yes" : "no", setup_.tex_width, setup_.tex_height, batch_.size(),
+                     box.x1, box.y1, box.x2, box.y2, key_reg(setup_.key, kScissor1) & 0x3FFu,
+                     (key_reg(setup_.key, kScissor1) >> 10u) & 0x3FFu, key_reg(setup_.key, kScissor2) & 0x3FFu,
+                     (key_reg(setup_.key, kScissor2) >> 10u) & 0x3FFu, key_reg(setup_.key, kAlphaBlendEnable) & 1u);
+        if (skip != nullptr) std::fprintf(stderr, "skip: %s\n", skip);
+        else std::fprintf(stderr, "%s\n", what);
+    }
+    const int size = live_->hud_size.load(std::memory_order_relaxed);
+    if (skip == nullptr && sized && size > 0 && size < 100) {
+        const float s = static_cast<float>(size) / 100.0f;
+        bool inside = true; // texture coordinates (through mode: 0..1 across the texture)
+        for (GpuVertex &v : batch_) {
+            v.x = ax + (v.x - ax) * s;
+            v.y = ay + (v.y - ay) * s;
+            inside = inside && v.u >= -1e-3f && v.u <= 1.001f && v.v >= -1e-3f && v.v <= 1.001f;
+        }
+        setup_.hud[0] = s;
+        setup_.hud[1] = ax;
+        setup_.hud[2] = ay;
+        setup_.hud_clamp = inside;
+    }
+    if (current_ != nullptr && (was_sized || setup_.hud[0] != 1.0f)) emit_state(setup_, *current_);
+}
+
+// At the flip: the next flip's 2D draws start the HUD's run again.
+void GlBackend::finish_hud_flip() {
+    if (hud_log_flip_) {
+        std::fprintf(stderr, "[hud] flip %llu: %zu 2D draws on screen, %zu 3D draws on screen after the first of them%s\n",
+                     static_cast<unsigned long long>(frame_), hud_drawn_, hud_3d_after_, hud_layer_ == kNoLayer ? "" : ", in a quest");
+    }
+    // A flip with something in the clock's corner but no HUD found: described in full (at most once a second).
+    if (hud_log_ && hud_corner_seen_ && hud_layer_ == kNoLayer && frame_ >= hud_missed_logged_ + 30) {
+        hud_missed_logged_ = frame_;
+        std::fprintf(stderr, "[hud] flip %llu: no HUD found, %zu 2D draws:\n", static_cast<unsigned long long>(frame_), hud_flip_boxes_.size());
+        for (std::size_t i = 0; i < hud_flip_boxes_.size(); ++i) {
+            const HudBox &b = hud_flip_boxes_[i];
+            std::fprintf(stderr, "[hud]   (%.0f,%.0f)-(%.0f,%.0f) %s\n", b.x1, b.y1, b.x2, b.y2, hud_flip_kinds_[i]);
+        }
+    }
+    live_->quest_hud.store(hud_layer_ != kNoLayer, std::memory_order_relaxed);
+    hud_flip_boxes_.clear();
+    hud_flip_kinds_.clear();
+    hud_corner_seen_ = false;
+    hud_layer_ = hud_seen_layer_ = kNoLayer;
+    hud_right_ = HudRight::unknown;
+    hud_items_ = HudBox{1e9f, 1e9f, -1e9f, -1e9f};
+    hud_drawn_ = hud_3d_after_ = 0;
 }
 
 void GlBackend::draw_vertices(const std::vector<GpuVertex> &vertices) {
@@ -3944,6 +4233,10 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
     // made this screen (movies, loading screens), so show guest memory.
     if (it != targets_.end() && it->second.last_draw + 1 >= frame_) {
         drawn = &it->second;
+        if (!shown_target(offset)) { // the HUD is sized on the screens the game shows (two or three, in turn)
+            shown_targets_[shown_next_] = offset;
+            shown_next_ = (shown_next_ + 1) % shown_targets_.size();
+        }
         texture = it->second.color;
         uv_max[0] = 480.0f / static_cast<float>(it->second.width);
         uv_max[1] = 272.0f / static_cast<float>(it->second.height);
@@ -4113,7 +4406,9 @@ void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
 }
 
 void GlBackend::finish_flip() {
+    finish_hud_flip();
     ++frame_;
+    hud_log_flip_ = hud_log_ && frame_ % hud_log_every_ == 0;
     tape_.clear();
     touched_.clear();
     cameras_.clear();
@@ -4469,6 +4764,42 @@ void GlBackend::prepare_v2(const std::vector<TapeEntry> &now, const std::vector<
     for (std::size_t n = 0; n < newer.size(); ++n) {
         if (needed[n] != 0) v2_needed_.push_back(static_cast<std::uint32_t>(n));
     }
+    // Which draws moved as many others did (the scenery, which moved only with the camera): those, and only those,
+    // follow their own motion's arc (V2Draw::rigid). A monster or a hunter moved its own way and keeps its own motion
+    // blended under the camera's, so it does not swing off its path while the camera turns.
+    v2_motion_key_.assign(newer.size(), 0);
+    v2_motion_count_.clear();
+    {
+        std::vector<std::uint64_t> seen;
+        for (const std::uint32_t n : v2_needed_) {
+            const std::int32_t o = n < v2_older_of_.size() ? v2_older_of_[n] : -1;
+            if (o < 0 || static_cast<std::size_t>(o) >= v2_older_.size()) continue;
+            const interpolation::DrawSummary &from = v2_older_[static_cast<std::size_t>(o)], &to = summaries_before_[n];
+            const interpolation::Matrix before = interpolation::multiply(from.view, from.world);
+            const interpolation::Matrix after = interpolation::multiply(to.view, to.world);
+            interpolation::Matrix before_inverse{};
+            if (!interpolation::affine_inverse(before, before_inverse)) continue;
+            const interpolation::Matrix m = interpolation::multiply(after, before_inverse);
+            // The motion as where it takes two points ahead of the eye, to the nearest unit (as the camera vote's
+            // tolerance): the same motion found from different objects' matrices gives the same key.
+            std::uint64_t key = 1469598103934665603ull;
+            for (const std::array<float, 3> &p : {std::array<float, 3>{0, 0, -150}, std::array<float, 3>{0, 150, -800}}) {
+                for (std::size_t r = 0; r < 3u; ++r) {
+                    const float v = m[r] * p[0] + m[4u + r] * p[1] + m[8u + r] * p[2] + m[12u + r];
+                    key = (key ^ static_cast<std::uint64_t>(static_cast<std::int64_t>(std::lround(v)))) * 1099511628211ull;
+                }
+            }
+            v2_motion_key_[n] = key;
+            // An object is one pair of eye matrices, however many draws share it (as in the camera vote).
+            std::uint64_t object = 1469598103934665603ull;
+            for (const interpolation::Matrix *e : {&before, &after}) {
+                for (const float f : *e) object = (object ^ std::bit_cast<std::uint32_t>(f)) * 1099511628211ull;
+            }
+            if (std::find(seen.begin(), seen.end(), object) != seen.end()) continue;
+            seen.push_back(object);
+            ++v2_motion_count_[key];
+        }
+    }
     in_shares(v2_needed_.size(), 256, [&](std::size_t first, std::size_t last) {
         for (std::size_t k = first; k < last; ++k) prepare_v2_draw(v2_needed_[k]);
     });
@@ -4509,6 +4840,11 @@ void GlBackend::prepare_v2_draw(std::uint32_t n) {
                 return;
             }
             out.kind = V2Draw::kBlend;
+            // Its own arc only for scenery: a motion several objects share (v2_motion_count_).
+            constexpr std::uint32_t kScenery = 6;
+            const auto shared = v2_motion_count_.find(v2_motion_key_[n]);
+            out.rigid = shared != v2_motion_count_.end() && shared->second >= kScenery &&
+                        interpolation::rigid_between(out.older_eye, eye, out.motion);
             // The newer transform as the older camera would have seen it (interpolation::blend_eye).
             out.own = v2_camera_.valid ? interpolation::multiply(v2_camera_.inverse, eye) : eye;
         } else if (v2_camera_.valid && d.eligible) {
@@ -4737,6 +5073,10 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                 case V2Draw::kStill: eye_t = d.own; break;
                 case V2Draw::kFollow: eye_t = interpolation::multiply(camera_t, d.own); break;
                 default:
+                    if (d.rigid) {
+                        eye_t = interpolation::follow_rigid(d.older_eye, d.motion, t);
+                        break;
+                    }
                     eye_t = interpolation::blend_affine(d.older_eye, d.own, t);
                     if (v2_camera_.valid) eye_t = interpolation::multiply(camera_t, eye_t);
                     break;
@@ -5032,7 +5372,8 @@ void GlBackend::match_v2(std::uint32_t shown) {
     static const bool log = std::getenv("MHF_INTERP_V2_LOG") != nullptr;
     struct Totals {
         std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-        unsigned flips = 0, cuts = 0, continued = 0;
+        unsigned flips = 0, cuts = 0, continued = 0, off_crowd = 0;
+        std::uint64_t crowd_votes = 0, camera_crowd_votes = 0, crowd_voters = 0;
         std::uint64_t eligible = 0, matched = 0, repaired = 0, rejected = 0, crowded = 0, objects = 0, votes = 0, voters = 0;
         float sum_angle = 0;
         float max_angle = 0, max_distance = 0;
@@ -5063,6 +5404,10 @@ void GlBackend::match_v2(std::uint32_t shown) {
             totals.votes += m.camera_votes;
             totals.voters += m.camera_voters;
             totals.sum_angle += m.camera_angle_degrees;
+            if (m.camera_off_crowd) ++totals.off_crowd;
+            totals.crowd_votes += m.crowd_votes;
+            totals.camera_crowd_votes += m.camera_crowd_votes;
+            totals.crowd_voters += m.crowd_voters;
             if (m.continued) ++totals.continued;
             if (m.cut != nullptr) {
                 ++totals.cuts;
@@ -5097,6 +5442,12 @@ void GlBackend::match_v2(std::uint32_t shown) {
                  static_cast<double>(totals.sum_angle) / totals.flips, static_cast<double>(totals.max_angle),
                  static_cast<double>(totals.max_distance), totals.continued, totals.cuts,
                  why.c_str(), totals.us / totals.flips);
+    // Whether the camera chosen is the motion most objects share (scenery standing still), or another one (the
+    // hunter's, a monster's): the second shakes the scenery.
+    std::fprintf(stderr, "[interp2]   camera off the crowd in %u of %u flips; objects agreeing: %.1f%% with the camera, %.1f%% with the crowd's\n",
+                 totals.off_crowd, totals.flips,
+                 totals.crowd_voters != 0 ? 100.0 * static_cast<double>(totals.camera_crowd_votes) / static_cast<double>(totals.crowd_voters) : 0.0,
+                 totals.crowd_voters != 0 ? 100.0 * static_cast<double>(totals.crowd_votes) / static_cast<double>(totals.crowd_voters) : 0.0);
     totals = Totals{};
 }
 

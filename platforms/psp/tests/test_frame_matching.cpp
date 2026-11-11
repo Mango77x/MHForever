@@ -164,10 +164,87 @@ int main() {
         MHF_CHECK(m.camera_votes == m.camera_voters);
     }
 
+    // A town drawn as one object of many draws (many meshes under one matrix), and the hunter the camera follows, in
+    // three pieces that stay where they are on the screen. Each object voting once, the hunter's pieces would win 3 to
+    // 1 and the camera would be no motion at all; counting the pairs of draws, the town's motion wins.
+    {
+        Matcher matcher;
+        const auto town = [&](const Matrix &cam) {
+            std::vector<DrawSummary> out;
+            for (std::uint32_t mesh = 0; mesh < 200u; ++mesh) out.push_back(draw(0x08B00000u + mesh * 0x100u, cam, identity()));
+            for (std::uint32_t piece = 0; piece < 3u; ++piece) {
+                out.push_back(draw(0x08C00000u + piece * 0x1000u, identity(), at(static_cast<float>(piece) * 10.0f, -20.0f, -200.0f)));
+            }
+            mark_eligible(out, 0x88000u);
+            return out;
+        };
+        const Matching &m = matcher.match(town(camera(0, 0, 0)), town(camera(3.0f, 0, -30.0f)), CutThresholds{});
+        MHF_CHECK(m.cut == nullptr && m.camera_found);
+        MHF_CHECK(std::fabs(m.camera_angle_degrees - 3.0f) < 0.05f && std::fabs(m.camera_distance - 30.0f) < 0.5f);
+        MHF_CHECK(m.camera_votes == 14u && m.camera_voters == 17u); // the square root of 200, and 3 more
+    }
+
+    // A house: the room drawn as four objects (887, 36, 30 and 12 draws) that move with the camera, and one object of 1144
+    // draws turning its own way (an effect stuck to the view). Counting every draw it would win 1144 to 965 and move the
+    // room off its path; weighing the square root of each, the room's motion wins.
+    {
+        Matcher matcher;
+        const auto house = [&](const Matrix &cam, const Matrix &spin) {
+            std::vector<DrawSummary> out;
+            std::uint32_t mesh = 0;
+            const std::uint32_t sizes[] = {887u, 36u, 30u, 12u};
+            for (std::uint32_t part = 0; part < 4u; ++part) {
+                const Matrix place = at(static_cast<float>(part) * 50.0f, 0.0f, -100.0f * static_cast<float>(part + 1));
+                for (std::uint32_t k = 0; k < sizes[part]; ++k) out.push_back(draw(0x08B00000u + (mesh++) * 0x100u, cam, place));
+            }
+            for (std::uint32_t k = 0; k < 1144u; ++k) out.push_back(draw(0x08D00000u + k * 0x100u, spin, identity()));
+            mark_eligible(out, 0x88000u);
+            return out;
+        };
+        const Matching &m = matcher.match(house(camera(0, 0, 0), camera(0, 0, 0)), house(camera(0, 0, -22.0f), camera(22.0f, 0, -121.0f)),
+                                          CutThresholds{});
+        MHF_CHECK(m.cut == nullptr && m.camera_found);
+        MHF_CHECK(std::fabs(m.camera_angle_degrees) < 0.05f && std::fabs(m.camera_distance - 22.0f) < 0.5f);
+    }
+
     // Following the camera's turn part of the way: half of a 10-degree turn is a 5-degree turn.
     {
         const RigidMotion motion = rigid_motion(camera(10.0f, 0, 0));
         MHF_CHECK(motion.valid && std::fabs(rotation_angle_degrees(identity(), rigid_at(motion, 0.5f)) - 5.0f) < 0.01f);
+    }
+
+    // Scenery that stands still, between two frames where the camera moved and turned (a hunter walking and turning).
+    // Blended against the camera the vote found, it lands on the camera's true arc only when the vote was right: with
+    // the turn of a hunter's piece of armour in its place (a vote among few objects drawn once), it lands units away
+    // from there, and back on the next real frame (the shake players saw). Following its own rigid motion, it lands on
+    // the true arc whatever the vote found.
+    {
+        const Matrix cam_a = camera(0.0f, 0.0f, 0.0f), cam_b = camera(8.0f, 3.0f, -6.0f);
+        const Matrix place = at(-400.0f, -50.0f, -900.0f);
+        const Matrix older = multiply(cam_a, place), newer = multiply(cam_b, place);
+        Matrix a_inverse{};
+        MHF_CHECK(affine_inverse(cam_a, a_inverse));
+        const RigidMotion truth = rigid_motion(multiply(cam_b, a_inverse));
+        // A piece of armour turning 25 degrees about itself, 150 units in front of the eye.
+        const Matrix piece = at(20.0f, -30.0f, -150.0f);
+        Matrix piece_inverse{};
+        MHF_CHECK(affine_inverse(piece, piece_inverse));
+        const RigidMotion wrong = rigid_motion(multiply(piece, multiply(camera(25.0f, 0, 0), piece_inverse)));
+        const auto origin = [](const Matrix &m) { return std::array<float, 3>{m[12], m[13], m[14]}; };
+        const auto apart = [](const std::array<float, 3> &p, const std::array<float, 3> &q) {
+            return std::sqrt((p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1]) + (p[2] - q[2]) * (p[2] - q[2]));
+        };
+        const auto on_arc = origin(blend_eye(older, newer, truth, 0.5f));
+        MHF_CHECK(apart(origin(blend_eye(older, newer, wrong, 0.5f)), on_arc) > 5.0f);
+        RigidMotion own{};
+        MHF_CHECK(rigid_between(older, newer, own));
+        MHF_CHECK(apart(origin(follow_rigid(older, own, 0.5f)), on_arc) < 0.05f);
+        MHF_CHECK(apart(origin(follow_rigid(older, own, 1.0f)), origin(newer)) < 0.05f);
+        MHF_CHECK(apart(origin(follow_rigid(older, own, 0.0f)), origin(older)) < 0.01f);
+        // A draw whose size changed is not moved rigidly.
+        Matrix grown = newer;
+        for (int k = 0; k < 3; ++k) grown[k] *= 1.2f;
+        MHF_CHECK(!rigid_between(older, grown, own));
     }
 
     return mhf::test::finish("frame_matching");

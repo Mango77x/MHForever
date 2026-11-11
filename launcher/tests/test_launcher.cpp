@@ -1,6 +1,7 @@
 // Launcher core tests (no game data needed). With MHF_TEST_ISO set to the player's ULES01213 image, also checks that
 // a real copy is identified and verified (label requires_game_data; never run in CI).
 
+#include "fuc_config.hpp"
 #include "hash.hpp"
 #include "install/installer.hpp"
 #include "json.hpp"
@@ -9,10 +10,12 @@
 #include "platform.hpp"
 #include "updater.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <regex>
 #include <string>
 
@@ -86,6 +89,14 @@ int main(int argc, char **argv) {
         std::copy(value, value + 10, sfo.begin() + 0x30);
         auto p = mhf::psp::ParamSfo::parse(sfo);
         CHECK(p.has_value() && p->string("DISC_ID") == "ULES01213");
+        // A patched value longer than its stated length still reads to its NUL, within its reserved space.
+        const char longer[] = "ULJM05500-FUC";
+        std::copy(longer, longer + 14, sfo.begin() + 0x30);
+        p = mhf::psp::ParamSfo::parse(sfo);
+        CHECK(p.has_value() && p->string("DISC_ID") == "ULJM05500-FUC");
+        sfo[28] = 12; // reserved space shorter than the text: cut there
+        p = mhf::psp::ParamSfo::parse(sfo);
+        CHECK(p.has_value() && p->string("DISC_ID") == "ULJM05500-FU");
         sfo[16] = 200; // entries beyond the buffer
         CHECK(!mhf::psp::ParamSfo::parse(sfo).has_value());
     }
@@ -185,7 +196,133 @@ int main(int argc, char **argv) {
         Json back;
         back["fps"] = 90;
         l.set_settings(back);
+        // HUD size: the in-game menu's steps of 10, from 50 to 100.
+        CHECK(l.state()["settings"]["hudSize"].as_number() == 100);
+        Json hud;
+        hud["hudSize"] = 73;
+        l.set_settings(hud);
+        CHECK(l.state()["settings"]["hudSize"].as_number() == 70);
+        Json tiny;
+        tiny["hudSize"] = 10;
+        l.set_settings(tiny);
+        CHECK(l.state()["settings"]["hudSize"].as_number() == 50);
+        // True weapon values: off by default, a bool turns it on, anything else is ignored.
+        CHECK(!s["settings"]["trueWeaponValues"].as_bool(true));
+        Json true_values;
+        true_values["trueWeaponValues"] = true;
+        l.set_settings(true_values);
+        CHECK(l.state()["settings"]["trueWeaponValues"].as_bool());
+        true_values["trueWeaponValues"] = "no";
+        l.set_settings(true_values);
+        CHECK(l.state()["settings"]["trueWeaponValues"].as_bool());
+        // Fast supply box: off by default, a bool turns it on, anything else is ignored.
+        CHECK(!l.state()["settings"]["fastSupplyBox"].as_bool(true));
+        Json fast_box;
+        fast_box["fastSupplyBox"] = true;
+        l.set_settings(fast_box);
+        CHECK(l.state()["settings"]["fastSupplyBox"].as_bool());
+        fast_box["fastSupplyBox"] = "no";
+        l.set_settings(fast_box);
+        CHECK(l.state()["settings"]["fastSupplyBox"].as_bool());
+        // Smithy browsing: off by default, a bool turns it on, anything else is ignored.
+        CHECK(!l.state()["settings"]["smithyBrowse"].as_bool(true));
+        Json smithy;
+        smithy["smithyBrowse"] = true;
+        l.set_settings(smithy);
+        CHECK(l.state()["settings"]["smithyBrowse"].as_bool());
+        smithy["smithyBrowse"] = "no";
+        l.set_settings(smithy);
+        CHECK(l.state()["settings"]["smithyBrowse"].as_bool());
+        // Smithy layout: off by default, a bool turns it on, anything else is ignored.
+        CHECK(!l.state()["settings"]["smithyLayout"].as_bool(true));
+        Json layout;
+        layout["smithyLayout"] = true;
+        l.set_settings(layout);
+        CHECK(l.state()["settings"]["smithyLayout"].as_bool());
+        layout["smithyLayout"] = "no";
+        l.set_settings(layout);
+        CHECK(l.state()["settings"]["smithyLayout"].as_bool());
+        // Analog camera: off by default, a bool turns it on, anything else is ignored.
+        CHECK(!l.state()["settings"]["analogCamera"].as_bool(true));
+        Json camera;
+        camera["analogCamera"] = true;
+        l.set_settings(camera);
+        CHECK(l.state()["settings"]["analogCamera"].as_bool());
+        camera["analogCamera"] = "no";
+        l.set_settings(camera);
+        CHECK(l.state()["settings"]["analogCamera"].as_bool());
+        // Its turn and tilt speeds: 100% by default, kept to 50..200 in steps of 10.
+        CHECK(l.state()["settings"]["analogCameraTurnSpeed"].as_number() == 100);
+        CHECK(l.state()["settings"]["analogCameraTiltSpeed"].as_number() == 100);
+        Json speeds;
+        speeds["analogCameraTurnSpeed"] = 147;
+        speeds["analogCameraTiltSpeed"] = 500;
+        l.set_settings(speeds);
+        CHECK(l.state()["settings"]["analogCameraTurnSpeed"].as_number() == 150);
+        CHECK(l.state()["settings"]["analogCameraTiltSpeed"].as_number() == 200);
+        speeds["analogCameraTurnSpeed"] = 10;
+        speeds["analogCameraTiltSpeed"] = 100;
+        l.set_settings(speeds);
+        CHECK(l.state()["settings"]["analogCameraTurnSpeed"].as_number() == 50);
+        CHECK(l.state()["settings"]["analogCameraTiltSpeed"].as_number() == 100);
+        // Mouse camera: off by default, a bool turns it on; its sensitivity 100% by default, kept to 25..300 in steps of 25.
+        CHECK(!l.state()["settings"]["mouseCamera"].as_bool(true));
+        CHECK(l.state()["settings"]["mouseCameraSpeed"].as_number() == 100);
+        Json mouse;
+        mouse["mouseCamera"] = true;
+        mouse["mouseCameraSpeed"] = 140;
+        l.set_settings(mouse);
+        CHECK(l.state()["settings"]["mouseCamera"].as_bool());
+        CHECK(l.state()["settings"]["mouseCameraSpeed"].as_number() == 150);
+        mouse["mouseCamera"] = "no";
+        mouse["mouseCameraSpeed"] = 1000;
+        l.set_settings(mouse);
+        CHECK(l.state()["settings"]["mouseCamera"].as_bool());
+        CHECK(l.state()["settings"]["mouseCameraSpeed"].as_number() == 300);
+        mouse["mouseCameraSpeed"] = 0;
+        l.set_settings(mouse);
+        CHECK(l.state()["settings"]["mouseCameraSpeed"].as_number() == 25);
+        // Hunting horn songs: off by default, a bool turns them on, anything else is ignored.
+        CHECK(!l.state()["settings"]["hornSongs"].as_bool(true));
+        Json horn;
+        horn["hornSongs"] = true;
+        l.set_settings(horn);
+        CHECK(l.state()["settings"]["hornSongs"].as_bool());
+        horn["hornSongs"] = "no";
+        l.set_settings(horn);
+        CHECK(l.state()["settings"]["hornSongs"].as_bool());
+        // Their place: next to the horn's note sheet by default, one of the known names, anything else ignored.
+        CHECK(l.state()["settings"]["hornSongsPlace"].as_string() == "next-to-sheet");
+        Json place;
+        place["hornSongsPlace"] = "bottom-left";
+        l.set_settings(place);
+        CHECK(l.state()["settings"]["hornSongsPlace"].as_string() == "bottom-left");
+        place["hornSongsPlace"] = "middle";
+        l.set_settings(place);
+        CHECK(l.state()["settings"]["hornSongsPlace"].as_string() == "bottom-left");
+        place["hornSongsPlace"] = "custom:120,200"; // dragged there in the game
+        l.set_settings(place);
+        CHECK(l.state()["settings"]["hornSongsPlace"].as_string() == "custom:120,200");
+        place["hornSongsPlace"] = "custom:900,20"; // off the screen
+        l.set_settings(place);
+        CHECK(l.state()["settings"]["hornSongsPlace"].as_string() == "custom:120,200");
         CHECK(s["pseudonym"].as_string() == "RathalosSlayer");
+
+        // Language: one of the disc's languages, or "ask" (empty) for the game's own language screen. Anything else is
+        // ignored, as the game ignores a language its disc does not offer.
+        CHECK(l.state()["settings"]["language"].as_string().empty());
+        Json spanish;
+        spanish["language"] = "es";
+        l.set_settings(spanish);
+        CHECK(l.state()["settings"]["language"].as_string() == "es");
+        Json unknown_language;
+        unknown_language["language"] = "xx";
+        l.set_settings(unknown_language);
+        CHECK(l.state()["settings"]["language"].as_string() == "es");
+        Json not_a_language;
+        not_a_language["language"] = 3;
+        l.set_settings(not_a_language);
+        CHECK(l.state()["settings"]["language"].as_string() == "es");
 
         // Keyboard bindings: defaults, a change, a button left without a key, and input the launcher ignores.
         s = l.state();
@@ -265,7 +402,8 @@ int main(int argc, char **argv) {
         // What the player changed in the game's own menu comes back through a file the game writes.
         {
             std::ofstream(l.controls_file()) << "keymap=south=KeyZ,select=,west=KeyX,start=Space,jump=KeyP,north=" << std::string(40, 'Y')
-                                             << "\npadmap=south=dpad_up+right_trigger,up=south,west=banana,stick=right\nunknown=1\nroom=AB12-CD34\nserver=psp.mgn.pub\n";
+                                             << "\npadmap=south=dpad_up+right_trigger,up=south,west=banana,stick=right\nunknown=1\nroom=AB12-CD34\nserver=psp.mgn.pub"
+                                             << "\nmusic-volume=40\nsfx-volume=35\n";
         }
         l.import_game_controls();
         const Json from_game = l.state();
@@ -277,13 +415,33 @@ int main(int argc, char **argv) {
         CHECK(from_game["settings"]["pad"]["stick"].as_string() == "right");
         CHECK(from_game["settings"]["adhocRoom"].as_string() == "AB12CD34"); // the room chosen in the game's Online tab
         CHECK(from_game["settings"]["adhocServer"].as_string() == "psp.mgn.pub"); // and the server
+        CHECK(from_game["settings"]["musicVolume"].as_number() == 40); // the volumes set in the game's Audio tab
+        CHECK(from_game["settings"]["sfxVolume"].as_number() == 35);
         CHECK(!fs::exists(l.controls_file())); // taken over: the file is gone
         {
-            std::ofstream(l.controls_file()) << "room=\nserver=bad host!\n"; // back to the public halls in the game
+            std::ofstream(l.controls_file()) << "room=\nserver=bad host!\nmusic-volume=150\nsfx-volume=loud\n"; // back to the public halls in the game
         }
         l.import_game_controls();
         CHECK(l.state()["settings"]["adhocRoom"].as_string().empty());
         CHECK(l.state()["settings"]["adhocServer"].as_string() == "psp.mgn.pub"); // not a server: unchanged
+        CHECK(l.state()["settings"]["musicVolume"].as_number() == 100); // kept within 0..100
+        CHECK(l.state()["settings"]["sfxVolume"].as_number() == 35);    // not a number: unchanged
+        // The options the game's menu changes while playing come back under the launcher's names; others are ignored.
+        const bool true_values_before = l.state()["settings"]["trueWeaponValues"].as_bool();
+        {
+            std::ofstream(l.controls_file()) << "horn-songs=true\nhud-size=70\noption.fastSupplyBox=true\noption.analogCamera=true\n"
+                                             << "option.analogCameraTurnSpeed=140\noption.analogCameraTiltSpeed=999\n"
+                                             << "option.trueWeaponValues=maybe\noption.copyImage=true\n";
+        }
+        l.import_game_controls();
+        CHECK(l.state()["settings"]["hornSongs"].as_bool());
+        CHECK(l.state()["settings"]["hudSize"].as_number() == 70);
+        CHECK(l.state()["settings"]["fastSupplyBox"].as_bool());
+        CHECK(l.state()["settings"]["analogCamera"].as_bool());
+        CHECK(l.state()["settings"]["analogCameraTurnSpeed"].as_number() == 140);
+        CHECK(l.state()["settings"]["analogCameraTiltSpeed"].as_number() == 200); // kept within 50..200
+        CHECK(l.state()["settings"]["trueWeaponValues"].as_bool() == true_values_before); // not a switch: unchanged
+        CHECK(!l.state()["settings"]["copyImage"].as_bool(true));                // not one the game changes
 
         auto plan = l.plan_launch("mhfu");
         CHECK(!plan.error.empty()); // no game files here
@@ -294,6 +452,8 @@ int main(int argc, char **argv) {
         CHECK(again.state()["friends"].as_array().size() == 1);
         CHECK(again.state()["settings"]["fullscreen"].as_bool());
         CHECK(again.state()["settings"]["fps"].as_number() == 90);
+        CHECK(again.state()["settings"]["sfxVolume"].as_number() == 35); // the game's volume survives a restart
+        CHECK(again.state()["settings"]["language"].as_string() == "es");
         CHECK(again.state()["settings"]["keys"]["south"].as_string() == "KeyZ");
         CHECK(again.state()["settings"]["keys"]["select"].as_string().empty());
         CHECK(again.state()["settings"]["keys"]["east"].as_string() == "KeyL");
@@ -509,6 +669,17 @@ int main(int argc, char **argv) {
         fs::create_directories(base / "empty");
         const auto nothing = l.scan_saves("ULES01213", base / "empty");
         CHECK(nothing.found.empty() && nothing.note.find("ULES01213") != std::string::npos);
+        // FUComplete takes the saves of the release its Saves setting picks (North American by default), not its own id.
+        {
+            Launcher f(base / "fapp", base / "fdata", base / "fsaves");
+            const auto na = f.scan_saves("ULJM05500-FUC", base / "us");
+            CHECK(na.found.size() == 1 && na.found[0].folder == "ULUS10391" && na.note.empty());
+            Json eu;
+            eu["fucSaveRegion"] = "ULES01213";
+            f.set_settings(eu);
+            const auto other = f.scan_saves("ULJM05500-FUC", base / "us");
+            CHECK(other.found.empty() && other.note.find("FUComplete > Saves") != std::string::npos);
+        }
 
         // The first import: the files arrive (not the junk), nothing is left in the staging folder.
         const auto found = l.scan_saves("ULES01213", base / "from").found;
@@ -728,6 +899,69 @@ int main(int argc, char **argv) {
         CHECK(again.state()["games"].as_array().size() == 1 && again.state()["selectedDisc"].as_string() == "ULES01213");
     }
 
+    // The Japanese disc speaks only Japanese and has no language screen: a language chosen for its copy never reaches
+    // the game.
+    {
+        const fs::path base = dir / "japan_base", data = dir / "japan_data";
+        fs::create_directories(base);
+        fs::create_directories(data);
+        const fs::path image = base / "disc.iso";
+        std::ofstream(image) << "x";
+        const CatalogEntry *japan = nullptr;
+        for (const auto &e : catalog()) {
+            if (std::string(e.disc_id) == "ULJM05500") japan = &e;
+        }
+        CHECK(japan != nullptr);
+        if (japan) {
+            std::ofstream(base / "ULJM05500_EBOOT.BIN", std::ios::binary) << std::string(japan->dev_executable_size, '\0');
+#if defined(_WIN32)
+            std::ofstream(base / "mhfu-jp.exe") << "jp program";
+#else
+            std::ofstream(base / "mhfu-jp") << "jp program";
+#endif
+            std::ofstream(data / "launcher.json") << R"({"games": [{"discId": "ULJM05500", "isoPath": ")"
+                                                  << image.generic_string() << R"("}]})";
+            Launcher l(base, data);
+            Json english;
+            english["language"] = "en";
+            l.set_settings(english);
+            const auto plan = l.plan_launch("mhfu");
+            CHECK(plan.error.empty());
+            CHECK(std::find(plan.args.begin(), plan.args.end(), "--language") == plan.args.end());
+        }
+    }
+
+    // FUComplete's options go into its CONFIG.BIN, byte by byte, and its minimap size always stays at its default.
+    {
+        std::vector<std::uint8_t> config(64, 0);
+        config[0x17] = 2; // 50%, as a player may have set it in FUComplete's own tool
+        fuc::Options options;
+        options.save_region = 2;
+        options.true_raw = true;
+        options.fov = 3;
+        options.camera = 0;
+        options.drink_buff = true;
+        CHECK(fuc::apply(config, options));
+        CHECK(config[0x11] == 2 && config[0x12] == 1 && config[0x13] == 0);
+        CHECK(config[0x14] == 0x8F && config[0x15] == 0x3F);
+        CHECK(config[0x16] == 0 && config[0x17] == 0 && config[0x1B] == 1);
+        std::vector<std::uint8_t> short_config(0x10, 0);
+        CHECK(!fuc::apply(short_config, options));
+
+        // A memory stick FUComplete already set up: only the option bytes change, the image is not read.
+        const fs::path stick = dir / "fuc_stick";
+        fs::create_directories(fuc::save_folder(stick));
+        std::vector<std::uint8_t> stored(64, 0xEE);
+        std::ofstream(fuc::save_folder(stick) / "CONFIG.BIN", std::ios::binary)
+            .write(reinterpret_cast<const char *>(stored.data()), static_cast<std::streamsize>(stored.size()));
+        CHECK(fuc::prepare(dir / "no_such_image.iso", stick, options).empty());
+        std::ifstream in(fuc::save_folder(stick) / "CONFIG.BIN", std::ios::binary);
+        const std::vector<std::uint8_t> written((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        CHECK(written.size() == 64 && written[0] == 0xEE && written[0x11] == 2 && written[0x17] == 0 && written[0x1C] == 0xEE);
+        // A first start needs FUComplete's files from the image; without a readable one the player is told so.
+        CHECK(!fuc::prepare(dir / "no_such_image.iso", dir / "fuc_empty_stick", options).empty());
+    }
+
     // The player's copy (requires game data).
     if (const char *iso = std::getenv("MHF_TEST_ISO")) {
         // Identification: a developer executable of the right size is already known, so only the image is checked.
@@ -744,6 +978,45 @@ int main(int argc, char **argv) {
             }
             CHECK(last > 0.99);
             std::printf("identified %s\n", r.game ? r.game->dump().c_str() : r.error.c_str());
+
+            // The language reaches the game as --language, and "ask" leaves the flag out so the game keeps its own
+            // language screen.
+#if defined(_WIN32)
+            std::ofstream(dir / "mhfu.exe") << "game program";
+#else
+            std::ofstream(dir / "mhfu") << "game program";
+#endif
+            Json chosen_language;
+            chosen_language["language"] = "es";
+            l.set_settings(chosen_language);
+            const auto started = l.plan_launch("mhfu");
+            CHECK(started.error.empty());
+            const auto flag = std::find(started.args.begin(), started.args.end(), "--language");
+            CHECK(flag != started.args.end());
+            if (flag != started.args.end()) CHECK(flag + 1 != started.args.end() && *(flag + 1) == "es");
+            Json ask;
+            ask["language"] = "";
+            l.set_settings(ask);
+            const auto asked = l.plan_launch("mhfu");
+            CHECK(std::find(asked.args.begin(), asked.args.end(), "--language") == asked.args.end());
+
+            // The analog camera's speeds reach the game only with the camera on, and only when not 100%.
+            Json camera_speed;
+            camera_speed["analogCamera"] = true;
+            camera_speed["analogCameraTurnSpeed"] = 150;
+            camera_speed["analogCameraTiltSpeed"] = 100;
+            l.set_settings(camera_speed);
+            const auto fast = l.plan_launch("mhfu");
+            const auto turn = std::find(fast.args.begin(), fast.args.end(), "--analog-camera-turn-speed");
+            CHECK(turn != fast.args.end());
+            if (turn != fast.args.end()) CHECK(turn + 1 != fast.args.end() && *(turn + 1) == "150");
+            CHECK(std::find(fast.args.begin(), fast.args.end(), "--analog-camera-tilt-speed") == fast.args.end());
+            camera_speed["analogCamera"] = false;
+            l.set_settings(camera_speed);
+            const auto off = l.plan_launch("mhfu");
+            // With the camera off the speeds still go (the in-game menu can turn it on), the switch does not.
+            CHECK(std::find(off.args.begin(), off.args.end(), "--analog-camera") == off.args.end());
+            CHECK(std::find(off.args.begin(), off.args.end(), "--analog-camera-turn-speed") != off.args.end());
         }
         // Executable preparation: the encrypted executable on the disc must pass the identity gate of the catalog.
         // Without a decryptor in this build the only acceptable outcome is "unavailable", never "another release".

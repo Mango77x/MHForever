@@ -71,6 +71,10 @@ foreach(game IN LISTS MHF_GAMES)
         set(_exe_sha1 "")
         set(_enc_size "0")
         set(_enc_sha1 "")
+        set(_sfo_disc "")
+        set(_marker "")
+        set(_edition "")
+        set(_edition_name "")
         foreach(line IN LISTS _lines)
             if(line MATCHES "^\\[\\[?([a-z_]+)\\]")
                 set(_section "${CMAKE_MATCH_1}")
@@ -86,6 +90,14 @@ foreach(game IN LISTS MHF_GAMES)
                         set(_market "${_value}")
                     elseif(_key STREQUAL "status")
                         set(_status "${_value}")
+                    elseif(_key STREQUAL "sfo_disc_id")
+                        set(_sfo_disc "${_value}")
+                    elseif(_key STREQUAL "marker_file")
+                        set(_marker "${_value}")
+                    elseif(_key STREQUAL "edition")
+                        set(_edition "${_value}")
+                    elseif(_key STREQUAL "edition_name")
+                        set(_edition_name "${_value}")
                     endif()
                 elseif(_section STREQUAL "accepted_dumps")
                     if(_key STREQUAL "size")
@@ -109,7 +121,7 @@ foreach(game IN LISTS MHF_GAMES)
             endif()
         endforeach()
         string(APPEND _catalog_text
-            "{\"${game}\", \"${_title}\", \"${_disc}\", \"${_version}\", \"${_market}\", \"${_status}\", {${_dumps}}, ${_exe_size}ULL, \"${_exe_sha1}\", ${_enc_size}ULL, \"${_enc_sha1}\"},\n")
+            "{\"${game}\", \"${_title}\", \"${_disc}\", \"${_version}\", \"${_market}\", \"${_status}\", {${_dumps}}, ${_exe_size}ULL, \"${_exe_sha1}\", ${_enc_size}ULL, \"${_enc_sha1}\", \"${_sfo_disc}\", \"${_marker}\", \"${_edition}\", \"${_edition_name}\"},\n")
     endforeach()
 endforeach()
 file(CONFIGURE OUTPUT ${_catalog} CONTENT "${_catalog_text}")
@@ -119,6 +131,7 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/third_party/ppsspp_prx ${CMAKE_BINARY_DIR}/
 
 add_executable(mhf_launcher
     native/main.cpp
+    native/cli.cpp
     native/launcher.cpp
     native/json.cpp
     native/hash.cpp
@@ -128,6 +141,7 @@ add_executable(mhf_launcher
     native/install/data_dir.cpp
     native/install/executable_preparation.cpp
     native/install/installer.cpp
+    native/fuc_config.cpp
     native/install/prx_decryptor.cpp
     ${_ui_cpp}
     ${_icon_cpp}
@@ -145,6 +159,34 @@ if(WIN32)
     endif()
 endif()
 mhf_target_warnings(mhf_launcher)
+
+# The launcher without a window (cli.hpp): `--install`, `--list`, `--set`, `--play`, `--update`. It links no web view and,
+# on Linux, no GTK (MHF_NO_GTK), so it starts where WebKitGTK is missing (SteamOS on the Steam Deck). It is built whenever
+# the launcher is, into the same folder, because it starts the game programs that sit next to the launcher.
+add_executable(mhf_launcher_cli
+    native/cli_main.cpp
+    native/cli.cpp
+    native/launcher.cpp
+    native/json.cpp
+    native/hash.cpp
+    native/platform.cpp
+    native/probe.cpp
+    native/updater.cpp
+    native/install/data_dir.cpp
+    native/install/executable_preparation.cpp
+    native/install/installer.cpp
+    native/fuc_config.cpp
+    native/install/prx_decryptor.cpp
+)
+target_include_directories(mhf_launcher_cli PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(mhf_launcher_cli PRIVATE mhf_core mhf_psp_tools mhf_prx mhf_texture_pack ${CMAKE_DL_LIBS})
+target_compile_definitions(mhf_launcher_cli PRIVATE MHF_VERSION_STRING="${PROJECT_VERSION}" MHF_NO_GTK)
+set_target_properties(mhf_launcher_cli PROPERTIES OUTPUT_NAME MHForever-cli)
+if(WIN32)
+    target_link_libraries(mhf_launcher_cli PRIVATE comdlg32 dwmapi bcrypt shell32 ole32 ws2_32)
+endif()
+mhf_target_warnings(mhf_launcher_cli)
+add_dependencies(mhf_launcher mhf_launcher_cli)
 
 # The launcher starts each game's program from its own folder, so building the launcher also builds every game program
 # that exists (a game target exists only when its generated code is configured) and places it (with its fonts) next to the launcher.
@@ -171,7 +213,7 @@ endforeach()
 # `cmake --install build/linux-clang --prefix ~/.local` puts the launcher, the game (when it was built), the fonts,
 # the desktop entry and the icon where the desktop finds them.
 if(UNIX AND NOT APPLE)
-    install(TARGETS mhf_launcher RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(TARGETS mhf_launcher mhf_launcher_cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     foreach(game IN LISTS MHF_GAMES)
         if(TARGET ${game})
             install(TARGETS ${game} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
@@ -201,7 +243,7 @@ if(MHF_BUILD_TESTS)
     add_executable(test_launcher tests/test_launcher.cpp native/launcher.cpp native/json.cpp native/hash.cpp
                                  native/platform.cpp native/updater.cpp native/install/data_dir.cpp
                                  native/install/executable_preparation.cpp native/install/installer.cpp
-                                 native/install/prx_decryptor.cpp ${_icon_cpp})
+                                 native/install/prx_decryptor.cpp native/fuc_config.cpp ${_icon_cpp})
     target_include_directories(test_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(test_launcher PRIVATE mhf_core mhf_psp_tools mhf_webview mhf_prx mhf_texture_pack)
     if(WIN32)
@@ -209,6 +251,14 @@ if(MHF_BUILD_TESTS)
     endif()
     target_compile_definitions(test_launcher PRIVATE MHF_VERSION_STRING="${PROJECT_VERSION}")
     add_test(NAME launcher_core COMMAND test_launcher)
+
+    # The program without a window, on an empty data folder of its own (never the player's): it reports its version, lists
+    # no copies, and keeps a setting within what the game accepts.
+    add_test(NAME launcher_cli_version COMMAND mhf_launcher_cli --version)
+    set_tests_properties(launcher_cli_version PROPERTIES PASS_REGULAR_EXPRESSION "^MHForever ${PROJECT_VERSION}")
+    add_test(NAME launcher_cli_list COMMAND mhf_launcher_cli --list)
+    set_tests_properties(launcher_cli_list PROPERTIES PASS_REGULAR_EXPRESSION "No copy of the game yet"
+                         ENVIRONMENT "MHF_DATA_DIR=${CMAKE_CURRENT_BINARY_DIR}/cli_test_data")
 
     # The installer on a synthetic disc image and a fake decryptor: no game data.
     add_executable(test_install tests/test_install.cpp native/install/data_dir.cpp native/install/executable_preparation.cpp

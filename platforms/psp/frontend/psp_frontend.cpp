@@ -37,6 +37,27 @@ struct MenuPad {
     std::uint64_t repeat_at_ms[4]{};
 };
 
+// Where the hunting horn's songs go (overlay/song_panel.hpp): the point (x, y) of the 480x272 canvas that the card's
+// point (ax, ay) sits on (0 left or top, 1 right or bottom). The places stay out of the HUD's way at its size
+// (gl_backend.cpp, size_hud, where its parts were measured at full size: the health and stamina bars down to y 26, the
+// clock and the sharpness down to y 41, up to four name plates from y 54, the minimap's square from x 316, the item bar
+// from y 196). Next to the sheet is under the bars, its top left corner right of the horn's note sheet (which ends at x
+// 247): a longer language makes the card grow to the right, never over the sheet.
+struct SongAnchor {
+    float x, y, ax, ay;
+};
+SongAnchor song_anchor(const overlay::SongSpot &spot, int hud_size) {
+    const float s = static_cast<float>(hud_size) / 100.0f;
+    switch (spot.place) {
+    case overlay::SongPlace::bottom_left: break;
+    case overlay::SongPlace::under_names: return {6.0f, 136.0f * s + 6.0f, 0.0f, 0.0f};
+    case overlay::SongPlace::top_middle: return {240.0f, 50.0f, 0.5f, 0.0f};
+    case overlay::SongPlace::next_to_sheet: return {249.0f, 26.0f * s + 3.0f, 0.0f, 0.0f};
+    case overlay::SongPlace::custom: return {static_cast<float>(spot.x), static_cast<float>(spot.y), 0.0f, 0.0f};
+    }
+    return {6.0f, 266.0f, 0.0f, 1.0f};
+}
+
 struct Frontend::Impl {
     host::SdlHost host;
     std::vector<std::uint32_t> frame = std::vector<std::uint32_t>(480 * 272);
@@ -128,6 +149,38 @@ struct Frontend::Impl {
     std::chrono::steady_clock::time_point notice_until{};
     bool notice_shown{};
     std::vector<std::string> in_my_room; // the keys of the friends playing in the player's room, last time looked
+    // The hunting horn's songs (set_song_panel), drawn by the worker at the player's place while the quest HUD is up.
+    // Only the newest matters: `songs` from the host, `songs_shown` what the worker was last asked to show (std::nullopt:
+    // nothing), `songs_pending` the worker's next job (an empty view takes them down).
+    struct SongsView {
+        overlay::SongPanel panel;
+        overlay::SongSpot spot;
+        int hud_size{}, width{}, height{};
+        bool placing{};
+        bool operator==(const SongsView &) const = default;
+    };
+    std::optional<overlay::SongSpot> song_spot; // where the player wants them (std::nullopt: the songs are off)
+    bool songs_offered{}; // offer_songs: the Game tab turns them on and off
+    bool songs_on{true};  // and they are on
+    std::vector<Frontend::GameOption> game_options; // add_game_option: the Game tab's options of the game
+    std::function<bool()> mouse_look;               // set_mouse_look
+    bool hud_size_changed{}; // the Video tab changed the HUD's size: the controls file keeps it
+    std::optional<overlay::SongPanel> songs;
+    std::optional<overlay::SongPanel> songs_seen; // the last songs the host gave, for moving them from the menu
+    // Moving the songs (the Game tab's "Move them anywhere"): where the card's top left corner is now, and the mouse's
+    // grip on it while a button is held.
+    bool song_placing{}, song_placing_requested{};
+    float song_x{}, song_y{}, song_grip_x{}, song_grip_y{};
+    bool song_dragging{};
+    MenuPad song_pad;
+    std::chrono::steady_clock::time_point song_placing_started;
+    std::optional<SongsView> songs_shown;
+    std::optional<std::optional<SongsView>> songs_pending; // dialog_mutex
+    std::chrono::steady_clock::time_point quest_hud_seen{};
+    // Whose picture the overlay holds (written with overlay.mutex held): the songs give way to everything else and only
+    // ever take down their own picture.
+    enum class OverlayOwner { none, menu, dialog, notice, songs };
+    std::atomic<OverlayOwner> overlay_owner{OverlayOwner::none};
     bool dialog_stop{};
     std::filesystem::path font_directory;
 
@@ -138,7 +191,8 @@ struct Frontend::Impl {
             {
                 std::unique_lock lock(dialog_mutex);
                 dialog_cv.wait(lock, [&] {
-                    return dialog_stop || dialog_pending.has_value() || menu_pending.has_value() || notice_pending.has_value();
+                    return dialog_stop || dialog_pending.has_value() || menu_pending.has_value() || notice_pending.has_value() ||
+                           songs_pending.has_value();
                 });
                 if (dialog_stop) return;
                 if (notice_pending && !menu_pending && !dialog_pending) {
@@ -152,11 +206,39 @@ struct Frontend::Impl {
                         menu_renderer->render_notice(notice.title, notice.detail, width, height, pixels);
                     }
                     std::lock_guard overlay_lock(overlay.mutex);
-                    if (!menu_open && !dialog_visible) { // a menu or a dialog that came meanwhile keeps the screen
+                    // A menu or a dialog that came meanwhile keeps the screen, and taking the notice down leaves
+                    // whatever replaced it.
+                    const bool down = notice.title.empty();
+                    if (!menu_open && !dialog_visible && (!down || overlay_owner == OverlayOwner::notice)) {
                         overlay.pixels = std::move(pixels);
                         overlay.width = width;
                         overlay.height = height;
-                        overlay.visible = !notice.title.empty();
+                        overlay.visible = !down;
+                        overlay_owner = down ? OverlayOwner::none : OverlayOwner::notice;
+                        ++overlay.generation;
+                    }
+                    continue;
+                }
+                if (songs_pending && !menu_pending && !dialog_pending) {
+                    const std::optional<SongsView> songs_view = std::move(*songs_pending);
+                    songs_pending.reset();
+                    lock.unlock();
+                    if (overlay_owner != OverlayOwner::none && overlay_owner != OverlayOwner::songs) continue; // not its turn
+                    std::vector<std::uint32_t> pixels;
+                    if (songs_view) {
+                        if (!menu_renderer) menu_renderer = std::make_unique<overlay::MenuRenderer>(font_directory);
+                        const SongAnchor a = song_anchor(songs_view->spot, songs_view->hud_size);
+                        menu_renderer->render_song_panel(songs_view->panel, a.x, a.y, a.ax, a.ay, songs_view->width, songs_view->height,
+                                                         pixels, songs_view->placing);
+                    }
+                    std::lock_guard overlay_lock(overlay.mutex);
+                    const bool free = overlay_owner == OverlayOwner::none || overlay_owner == OverlayOwner::songs;
+                    if (!menu_open && !dialog_visible && free) {
+                        overlay.pixels = std::move(pixels);
+                        overlay.width = songs_view ? songs_view->width : 0;
+                        overlay.height = songs_view ? songs_view->height : 0;
+                        overlay.visible = songs_view.has_value();
+                        overlay_owner = songs_view ? OverlayOwner::songs : OverlayOwner::none;
                         ++overlay.generation;
                     }
                     continue;
@@ -185,6 +267,7 @@ struct Frontend::Impl {
                     overlay.width = width;
                     overlay.height = height;
                     if (!overlay.visible) overlay.visible = true;
+                    overlay_owner = OverlayOwner::menu;
                     ++overlay.generation;
                 }
                 continue;
@@ -205,6 +288,7 @@ struct Frontend::Impl {
                 overlay.width = width;
                 overlay.height = height;
                 overlay.visible = visible;
+                overlay_owner = visible ? OverlayOwner::dialog : OverlayOwner::none;
                 ++overlay.generation;
             } else {
                 std::vector<std::uint32_t> pixels;
@@ -268,6 +352,25 @@ void Frontend::set_shadow_cave_zones(std::vector<std::string> zones) { impl_->li
 void Frontend::set_shadow_zones(std::vector<std::string> names, std::vector<std::pair<std::uint32_t, int>> textures) {
     impl_->live.shadow_zone_names = std::move(names);
     impl_->live.shadow_zone_textures = std::move(textures);
+}
+
+void Frontend::set_hud(int size) { impl_->live.hud_size = std::clamp(size, 50, 100); }
+
+void Frontend::set_song_spot(overlay::SongSpot spot) { impl_->song_spot = spot; }
+
+void Frontend::offer_songs(bool on, overlay::SongSpot spot) {
+    impl_->song_spot = spot;
+    impl_->songs_offered = true;
+    impl_->songs_on = on;
+}
+
+void Frontend::add_game_option(GameOption option) { impl_->game_options.push_back(std::move(option)); }
+
+void Frontend::set_mouse_look(std::function<bool()> wanted) { impl_->mouse_look = std::move(wanted); }
+
+void Frontend::set_song_panel(std::optional<overlay::SongPanel> panel) {
+    if (panel) impl_->songs_seen = panel;
+    impl_->songs = std::move(panel);
 }
 
 void Frontend::set_friends_files(const std::string &friends, const std::string &actions) {
@@ -421,6 +524,54 @@ void watch_friends(Frontend::Impl &impl, Runtime &rt) {
     impl.dialog_cv.notify_one();
 }
 
+// While the game runs (no menu): the hunting horn's songs over the quest HUD. They show while the drawing thread finds the
+// HUD (a flip without it, a loading screen or a cut scene, hides them after a moment) and nothing else is over the game;
+// they come back by themselves once a notice, a dialog or the menu is gone.
+void show_songs(Frontend::Impl &impl, Runtime &rt) {
+    using Owner = Frontend::Impl::OverlayOwner;
+    const auto now = std::chrono::steady_clock::now();
+    if (impl.live.quest_hud.load(std::memory_order_relaxed)) impl.quest_hud_seen = now;
+    const bool hud = now - impl.quest_hud_seen < std::chrono::milliseconds(300);
+    // What to show: the songs being moved, wherever the game is; else the host's songs at their place, over the quest HUD.
+    const overlay::SongPanel *panel = nullptr;
+    overlay::SongSpot spot;
+    if (impl.song_placing && impl.songs_seen) {
+        panel = &*impl.songs_seen;
+        spot = {overlay::SongPlace::custom, static_cast<int>(impl.song_x), static_cast<int>(impl.song_y)};
+    } else if (impl.songs && impl.song_spot && impl.songs_on && hud &&impl.gpu_state == 1 && !impl.dialog_visible && !impl.notice_shown) {
+        panel = &*impl.songs;
+        spot = *impl.song_spot;
+    }
+    int width = 0, height = 0;
+    if (panel != nullptr) {
+        std::lock_guard lock(impl.dialog_mutex);
+        shown_size(impl.host, impl.overlay_pixel_w, impl.overlay_pixel_h);
+        width = impl.overlay_pixel_w;
+        height = impl.overlay_pixel_h;
+    }
+    const int hud_size = impl.live.hud_size.load();
+    const auto &shown = impl.songs_shown;
+    const bool same = panel == nullptr ? !shown
+                                       : shown && shown->panel == *panel && shown->spot == spot && shown->hud_size == hud_size &&
+                                             shown->width == width && shown->height == height && shown->placing == impl.song_placing;
+    // Asked again when the screen lost them to something that is gone now (the overlay is free).
+    const bool lost = panel != nullptr && impl.overlay_owner == Owner::none;
+    if (same && !lost) return;
+    std::optional<Frontend::Impl::SongsView> want;
+    if (panel != nullptr) want = Frontend::Impl::SongsView{*panel, spot, hud_size, width, height, impl.song_placing};
+    {
+        std::lock_guard lock(impl.dialog_mutex);
+        if (same && impl.songs_pending) return; // lost, but asked again already and not drawn yet
+        impl.songs_pending = want;
+    }
+    impl.songs_shown = std::move(want);
+    if (!impl.dialog_thread.joinable()) {
+        impl.font_directory = rt.options().font_directory;
+        impl.dialog_thread = std::thread([&impl] { impl.dialog_worker(); });
+    }
+    impl.dialog_cv.notify_one();
+}
+
 // Keys, text and the redraw of the system dialogs (mhf/psp/dialog.hpp).
 void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
     const bool open = current_dialog(rt).kind != DialogView::Kind::None;
@@ -461,9 +612,10 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 }
 
 enum MenuId {
-    kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kShadow, kShadowStrength, kShadowWholeMap, kShadowQuality
+    kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kHudSize, kSongPlace, kSongMove, kPadStick, kRestoreKeys, kRestorePad,
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn, kShadow, kShadowStrength, kShadowWholeMap, kShadowQuality
 };
+constexpr int kGameOptionBase = 3000; // the Game tab's options of the game: kGameOptionBase + an index into Impl::game_options
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
 
 // The ad hoc servers the Online section offers: the launcher's list (launcher/ui/src/servers.ts, keep the two alike).
@@ -548,6 +700,7 @@ constexpr std::string_view kStickChoices[] = {"left", "right", ""};
 
 constexpr int kMaxScale = 10;                 // 1x..10x the PSP's 480x272
 constexpr int kFpsChoices[] = {30, 60, 90, 120, 150, 180}; // whole multiples of the game's 30 fps
+constexpr int kHudSizes[] = {100, 90, 80, 70, 60, 50};      // percent of the size the game draws its HUD at
 
 // The on-screen keyboard for a friend's room code (with a controller): these characters, then Delete and Join.
 constexpr std::string_view kCodeAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"; // Crockford base32, as room codes
@@ -715,6 +868,49 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
     quit.detail = "Back to the launcher. Progress since your last save is lost.";
     quit.danger = true;
     overlay::MenuTab game{"Game", {resume, quit}, v.subtitle};
+    // The game's options that change while playing (add_game_option); a row shown with a switch only while it is on.
+    if (!impl.game_options.empty()) game.items.push_back(menu_item(Kind::Heading, 0, "Enhancements"));
+    for (std::size_t i = 0; i < impl.game_options.size(); ++i) {
+        const Frontend::GameOption &o = impl.game_options[i];
+        // Shown while its switch is on, and that switch's own switch (the mouse's sensitivity needs the mouse camera,
+        // which needs the analog camera).
+        bool shown = true;
+        for (const std::string *with_setting = &o.shown_with; shown && !with_setting->empty();) {
+            const auto with = std::ranges::find(impl.game_options, *with_setting, &Frontend::GameOption::setting);
+            if (with == impl.game_options.end()) break;
+            shown = with->value != 0;
+            with_setting = &with->shown_with;
+        }
+        if (!shown) continue;
+        overlay::MenuItem row = menu_item(o.slider ? Kind::Slider : Kind::Toggle, kGameOptionBase + static_cast<int>(i), o.label, o.value);
+        row.detail = o.detail;
+        if (o.slider) {
+            row.min = o.min;
+            row.max = o.max;
+            row.step = o.step;
+        }
+        game.items.push_back(row);
+    }
+    if (impl.song_spot && impl.songs_offered) { // the songs can be shown: the player turns them on and off here
+        game.items.push_back(menu_item(Kind::Heading, 0, "Hunting horn songs"));
+        overlay::MenuItem on = menu_item(Kind::Toggle, kSongsOn, "Show hunting horn songs", impl.songs_on ? 1 : 0);
+        on.detail = "In quests with a hunting horn, the songs it can play, the one being played and the ones in effect.";
+        game.items.push_back(on);
+    }
+    if (impl.song_spot && impl.songs_on) { // the hunting horn's songs are on (the launcher's setting, or the switch above)
+        if (!impl.songs_offered) game.items.push_back(menu_item(Kind::Heading, 0, "Hunting horn songs"));
+        // A spot of the player's own selects none of the places.
+        const bool own = impl.song_spot->place == overlay::SongPlace::custom;
+        overlay::MenuItem place = menu_item(Kind::Choice, kSongPlace, "Position", own ? -1 : static_cast<int>(impl.song_spot->place));
+        for (const std::string_view label : overlay::kSongPlaceLabels) place.options.emplace_back(label);
+        place.detail = own ? "Shown in quests at the spot you moved them to." : "Where the songs your horn can play are shown in quests.";
+        game.items.push_back(place);
+        overlay::MenuItem move = menu_item(Kind::Button, kSongMove, "Move them anywhere");
+        move.detail = impl.songs_seen ? "Drag them with the mouse, or move them with the arrows or the D-pad."
+                                      : "Go on a quest with a hunting horn first: they are moved where they are shown.";
+        move.enabled = impl.songs_seen.has_value() && impl.gpu_state == 1; // only the OpenGL renderer shows them
+        game.items.push_back(move);
+    }
 
     overlay::MenuTab audio{"Audio", {menu_item(Kind::Slider, kMusic, "Music", impl.music_volume),
                                       menu_item(Kind::Slider, kSfx, "Sound effects", impl.sfx_volume)},
@@ -756,6 +952,13 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         dark.detail = "50: as each place was made to look. Lower is lighter, down to no shade at 0; higher is darker, up to half as dark again at 100.";
         video.items.push_back(dark);
     }
+    overlay::MenuItem hud = menu_item(Kind::Choice, kHudSize, "HUD scale");
+    for (std::size_t i = 0; i < std::size(kHudSizes); ++i) {
+        hud.options.push_back(std::to_string(kHudSizes[i]) + "%");
+        if (kHudSizes[i] == impl.live.hud_size) hud.value = static_cast<int>(i);
+    }
+    hud.detail = "In quests: the health bar, the minimap and the items, each in its corner.";
+    video.items.push_back(hud);
     overlay::MenuTab controls{"Controls", {menu_item(Kind::Heading, 0, "Keyboard")}, "Click a key or a button, then press the new one."};
     for (std::size_t i = 0; i < host::kKeyActions.size(); ++i) {
         const int id = kKeyBase + static_cast<int>(i);
@@ -794,22 +997,42 @@ overlay::MenuView menu_confirm_quit(const Frontend::Impl &impl) {
     return v;
 }
 
-// Applies the bindings at once and, when the launcher asked for it, writes them where it will find them: the player's
-// choice then survives the session (the launcher folds the file into its settings).
-void apply_bindings(Frontend::Impl &impl) {
-    impl.host.set_keymap(impl.keys);
-    impl.host.set_padmap(impl.pad);
+// When the launcher asked for it, writes what the player chose in the menu (bindings, volumes, room) where it will find
+// it: the choice then survives the session (the launcher folds the file into its settings).
+void save_controls(const Frontend::Impl &impl) {
     if (impl.controls_file.empty()) return;
     std::error_code ec;
     const std::filesystem::path temp = impl.controls_file.string() + ".tmp";
     {
         std::ofstream out(temp, std::ios::trunc);
         out << "keymap=" << host::format_keymap(impl.keys) << "\npadmap=" << host::format_padmap(impl.pad) << "\n";
+        out << "music-volume=" << impl.music_volume << "\nsfx-volume=" << impl.sfx_volume << "\n";
+        if (impl.song_spot) out << "horn-songs-place=" << overlay::format_song_spot(*impl.song_spot) << "\n";
+        if (impl.songs_offered) out << "horn-songs=" << (impl.songs_on ? "true" : "false") << "\n";
+        if (impl.hud_size_changed) out << "hud-size=" << impl.live.hud_size.load() << "\n";
+        for (const Frontend::GameOption &o : impl.game_options) {
+            out << "option." << o.setting << "=";
+            if (o.slider) out << o.value << "\n";
+            else out << (o.value != 0 ? "true" : "false") << "\n";
+        }
         if (impl.room_known) out << "room=" << impl.room << "\n" << "server=" << impl.server << "\n"; // the launcher offers them next time
         if (!out) return;
     }
     std::filesystem::rename(temp, impl.controls_file, ec); // replaces the previous file in one step
     if (ec) std::fprintf(stderr, "[frontend] could not save the controls: %s\n", ec.message().c_str());
+}
+
+// Applies the bindings at once and saves them for the launcher.
+void apply_bindings(Frontend::Impl &impl) {
+    impl.host.set_keymap(impl.keys);
+    impl.host.set_padmap(impl.pad);
+    save_controls(impl);
+}
+
+// Applies the volumes at once and saves them for the launcher, which otherwise starts the game with its own again.
+void apply_volumes(Frontend::Impl &impl, Runtime &rt) {
+    rt.set_volumes(impl.music_volume, impl.sfx_volume);
+    save_controls(impl);
 }
 
 // Shows the menu's main view again.
@@ -1018,6 +1241,9 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
     case overlay::Menu::Event::Kind::Activated:
         switch (e.id) {
         case kResume: return false;
+        case kSongMove: // the menu closes, and the songs are moved over the game
+            impl.song_placing_requested = impl.songs_seen.has_value() && impl.gpu_state == 1;
+            return false;
         case kQuit:
             impl.menu_confirming_quit = true;
             impl.menu.set(menu_confirm_quit(impl));
@@ -1098,9 +1324,17 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         refresh_menu(impl);
         return true;
     case overlay::Menu::Event::Kind::Changed:
+        if (e.id >= kGameOptionBase && e.id < kGameOptionBase + static_cast<int>(impl.game_options.size())) {
+            Frontend::GameOption &o = impl.game_options[static_cast<std::size_t>(e.id - kGameOptionBase)];
+            o.value = o.slider ? std::clamp(e.value, o.min, o.max) : (e.value != 0 ? 1 : 0);
+            if (o.changed) o.changed(o.value);
+            save_controls(impl); // the launcher keeps it for the next time
+            if (!o.slider) refresh_menu(impl); // rows shown with this switch come and go
+            return true;
+        }
         switch (e.id) {
-        case kMusic: impl.music_volume = e.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); break;
-        case kSfx: impl.sfx_volume = e.value; rt.set_volumes(impl.music_volume, impl.sfx_volume); break;
+        case kMusic:impl.music_volume = e.value; apply_volumes(impl, rt); break;
+        case kSfx: impl.sfx_volume = e.value; apply_volumes(impl, rt); break;
         case kFullscreen: impl.host.toggle_fullscreen(); break;
         case kSmooth: impl.live.smooth_textures = e.value != 0; break;
         case kTexturePack: impl.live.texture_pack = e.value != 0; break;
@@ -1111,6 +1345,24 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         case kShadowStrength: impl.live.shadow_strength = static_cast<float>(std::clamp(e.value, 0, 100)) / 100.0f; break;
         case kShadowWholeMap: impl.live.shadow_whole_map = e.value != 0; break;
         case kShadowQuality: impl.live.shadow_quality = std::clamp(e.value, 0, 2); break;
+        case kHudSize:
+            if (e.value >= 0 && e.value < static_cast<int>(std::size(kHudSizes))) {
+                impl.live.hud_size = kHudSizes[e.value];
+                impl.hud_size_changed = true;
+                save_controls(impl); // the launcher keeps the size for the next time
+            }
+            break;
+        case kSongsOn:
+            impl.songs_on = e.value != 0;
+            save_controls(impl);
+            refresh_menu(impl); // the place and "Move them anywhere" show with the songs
+            break;
+        case kSongPlace:
+            if (e.value >= 0 && e.value < static_cast<int>(overlay::kSongPlaceNames.size())) {
+                impl.song_spot = overlay::SongSpot{static_cast<overlay::SongPlace>(e.value)};
+                save_controls(impl); // the launcher keeps the place for the next time
+            }
+            break;
         case kScale:
             impl.render_scale = e.value + 1;
             impl.live.scale = impl.render_scale; // the drawing thread applies it at the next picture
@@ -1245,6 +1497,7 @@ void close_menu(Frontend::Impl &impl) {
         impl.overlay.visible = false;
         impl.overlay.pixels.clear();
         impl.overlay.width = 0;
+        impl.overlay_owner = Frontend::Impl::OverlayOwner::none;
         ++impl.overlay.generation;
     }
     {
@@ -1255,6 +1508,88 @@ void close_menu(Frontend::Impl &impl) {
     impl.dialog_version = ~0ull; // a system dialog the game opened meanwhile is drawn now
     impl.menu_requested = false;
     impl.guide_down = true; // the guide button that closed the menu is still down: it must not reopen it
+}
+
+// Moving the hunting horn's songs (the Game tab's "Move them anywhere"): the game runs on without input, the card
+// shows where it is, and the mouse drags it, the arrows and the D-pad nudge it; Enter or A keeps the spot (a place of
+// the player's own, saved for the launcher), Esc or B leaves it where it was.
+void start_song_placing(Frontend::Impl &impl) {
+    impl.song_placing_requested = false;
+    if (!impl.songs_seen || !impl.song_spot) return;
+    if (!impl.menu_layouter) impl.menu_layouter = std::make_unique<overlay::MenuRenderer>(impl.font_directory);
+    const auto [w, h] = impl.menu_layouter->song_panel_size(*impl.songs_seen);
+    const SongAnchor a = song_anchor(*impl.song_spot, impl.live.hud_size.load());
+    impl.song_x = std::clamp(a.x - w * a.ax, 1.0f, 479.0f - w);
+    impl.song_y = std::clamp(a.y - h * a.ay, 1.0f, 271.0f - h);
+    impl.song_placing = true;
+    impl.song_dragging = false;
+    impl.song_pad = MenuPad{};
+    impl.song_pad.accept = impl.song_pad.back = true; // the button that chose it in the menu is still down
+    impl.song_placing_started = std::chrono::steady_clock::now();
+    (void)impl.host.take_key_events();
+    (void)impl.host.take_mouse_events();
+    impl.host.set_mouse_events(true);
+    impl.host.show_cursor(true);
+}
+
+void step_song_placing(Frontend::Impl &impl) {
+    using Key = overlay::Menu::Key;
+    std::vector<Key> keys;
+    for (const auto &k : impl.host.take_key_events()) {
+        using K = host::KeyEvent::Kind;
+        switch (k.kind) {
+        case K::Up: keys.push_back(Key::Up); break;
+        case K::Down: keys.push_back(Key::Down); break;
+        case K::Left: keys.push_back(Key::Left); break;
+        case K::Right: keys.push_back(Key::Right); break;
+        case K::Enter: keys.push_back(Key::Accept); break;
+        case K::Escape:
+        case K::Backspace: keys.push_back(Key::Back); break;
+        default: break;
+        }
+    }
+    const auto since = std::chrono::steady_clock::now() - impl.song_placing_started;
+    menu_pad_keys(impl.song_pad, impl.host.input(), static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(since).count()), keys);
+    const auto [w, h] = impl.menu_layouter->song_panel_size(*impl.songs_seen);
+    bool keep = false, cancel = false;
+    for (const Key key : keys) {
+        constexpr float kStep = 2.0f;
+        switch (key) {
+        case Key::Up: impl.song_y -= kStep; break;
+        case Key::Down: impl.song_y += kStep; break;
+        case Key::Left: impl.song_x -= kStep; break;
+        case Key::Right: impl.song_x += kStep; break;
+        case Key::Accept: keep = true; break;
+        case Key::Back: cancel = true; break;
+        default: break;
+        }
+    }
+    const host::SdlHost::WindowRect window = impl.host.window_rect();
+    for (const auto &m : impl.host.take_mouse_events()) {
+        float x = 0.0f, y = 0.0f;
+        menu_point(window, m.x, m.y, x, y);
+        if (m.kind == host::MouseEvent::Kind::Down) {
+            impl.song_dragging = x >= impl.song_x && x <= impl.song_x + w && y >= impl.song_y && y <= impl.song_y + h;
+            impl.song_grip_x = x - impl.song_x;
+            impl.song_grip_y = y - impl.song_y;
+        } else if (m.kind == host::MouseEvent::Kind::Move && impl.song_dragging) {
+            impl.song_x = x - impl.song_grip_x;
+            impl.song_y = y - impl.song_grip_y;
+        } else if (m.kind == host::MouseEvent::Kind::Up) {
+            impl.song_dragging = false;
+        }
+    }
+    impl.song_x = std::clamp(impl.song_x, 1.0f, 479.0f - w);
+    impl.song_y = std::clamp(impl.song_y, 1.0f, 271.0f - h);
+    if (!keep && !cancel) return;
+    if (keep) {
+        impl.song_spot = overlay::SongSpot{overlay::SongPlace::custom, static_cast<int>(std::lround(impl.song_x)), static_cast<int>(std::lround(impl.song_y))};
+        save_controls(impl); // the launcher keeps the spot for the next time
+    }
+    impl.song_placing = false;
+    impl.song_dragging = false;
+    impl.host.set_mouse_events(false);
+    impl.guide_down = true; // a button that ended it must not open the menu
 }
 
 // One poll with the menu open: its keys, the gamepad and the mouse, then its picture when it changed. False once the
@@ -1432,6 +1767,7 @@ ControllerState map_input(const host::GamepadState &g) {
     set(g.down, buttons::kDown);
     set(g.left, buttons::kLeft);
     set(g.right, buttons::kRight);
+    s.dpad_buttons = s.buttons & (buttons::kUp | buttons::kDown | buttons::kLeft | buttons::kRight);
     // The PSP has no right stick: it drives the D-pad, which is what the game uses for its camera (docs/07-launcher-ux.md §5).
     constexpr float kRightStickThreshold = 0.5f;
     set(g.right_y < -kRightStickThreshold, buttons::kUp);
@@ -1441,6 +1777,8 @@ ControllerState map_input(const host::GamepadState &g) {
     auto axis = [](float v) { return static_cast<std::uint8_t>(std::clamp(128.0f + v * 127.0f, 0.0f, 255.0f)); };
     s.lx = axis(g.left_x);
     s.ly = axis(g.left_y);
+    s.right_stick_x = std::clamp(g.right_x, -1.0f, 1.0f);
+    s.right_stick_y = std::clamp(g.right_y, -1.0f, 1.0f);
     return s;
 }
 
@@ -1472,17 +1810,33 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
                 return;
             }
             const host::GamepadState pad = impl->host.input();
+            // Mouse look holds the mouse only while the game has the input: a menu, a system dialog or moving the
+            // songs lets it go (the in-game menu is used with the mouse).
+            impl->host.set_relative_mouse(!impl->menu_open && !impl->song_placing && impl->mouse_look && impl->mouse_look() &&
+                                          current_dialog(*runtime).kind == DialogView::Kind::None);
+            // No buttons, but the mouse's motion as it stands (it no longer moves while let go), so hooks that take
+            // its difference see no jump when the game has the input again.
+            ControllerState idle;
+            impl->host.mouse_motion(idle.mouse_x, idle.mouse_y);
             if (impl->menu_open) {
-                set_controller_state(*runtime, ControllerState{}); // the menu has the input, the game runs on without it
+                set_controller_state(*runtime, idle); // the menu has the input, the game runs on without it
                 step_menu(*impl, *runtime);
+                if (!impl->menu_open && impl->song_placing_requested) start_song_placing(*impl);
+            } else if (impl->song_placing) {
+                set_controller_state(*runtime, idle); // moving the songs has the input, as the menu does
+                step_song_placing(*impl);
+                show_songs(*impl, *runtime);
             } else {
-                set_controller_state(*runtime, map_input(pad));
+                ControllerState state = map_input(pad);
+                impl->host.mouse_motion(state.mouse_x, state.mouse_y);
+                set_controller_state(*runtime, state);
                 update_dialogs(*impl, *runtime);
                 watch_friends(*impl, *runtime);
+                show_songs(*impl, *runtime);
                 if (pad.guide && !impl->guide_down) impl->menu_requested = true;
                 impl->guide_down = pad.guide;
                 if (impl->menu_requested && current_dialog(*runtime).kind == DialogView::Kind::None) {
-                    set_controller_state(*runtime, ControllerState{}); // nothing stays pressed while the menu is up
+                    set_controller_state(*runtime, idle); // nothing stays pressed while the menu is up
                     open_menu(*impl, *runtime);
                 }
                 impl->menu_requested = false;

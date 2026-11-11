@@ -148,8 +148,31 @@ Original design notes:
 - **Replacement**: a guest function replaced by a native one registered by the profile (`register_function("mh_xxx", impl)`).
   Used for enhancements (camera, framerate) and fast paths (memcpy, memset, hot VFPU routines).
 - **Hooks**: call native code before/after a guest function without replacing it.
-- **Instruction patch**: change a single instruction (last resort).
+- **Instruction patch**: change a single instruction (last resort). Done (2026-11-05) as switchable patches: a region
+  map's `[patches]` table names each one, `name = "<module> <address> immediate <value>"` (an ALU instruction with an
+  immediate operand gets another one) or `"<module> <address> never"` (a conditional branch is never taken). The module
+  is `executable` or an overlay's file name, since overlays share addresses. No game bytes are stored: `mhf_recomp`
+  decodes the instruction at the address, stops when it is not of the kind the patch changes or is not recompiled, and
+  emits the original and the changed form behind `abi::patch_enabled(rt, "<name>")`, read once. The game program
+  turns a patch on with `Runtime::enable_patch` before the game starts, so one build serves both settings.
+- **Guarded words** (2026-11-07): for code a patch rewrites at run time (FUComplete's PRELOAD.BIN and MODLOAD.BIN store
+  into the executable and the overlays, by its options). A region map's `[guards]` table lists them,
+  `name = "<module> <address> <address>..."`. Every function that holds one of those words compares it in memory with
+  the word it was compiled from, on entry and after its hooks; when one changed it hands the call to the fallback
+  interpreter (`abi::interpret`, logged once per function), which runs the rewritten instructions. Untouched functions
+  stay native, so the cost is a few loads per call in the listed functions only (no frame rate difference measured).
+- **Call patch** (2026-11-08): `name = "<module> <address> call"` runs native code in the middle of a guest function,
+  where an entry hook cannot reach: the generated code calls the hook the game program registered under the patch's
+  name (`Runtime::register_hook`), then runs the instruction as it is. The registers are the guest's, in `Context`, so
+  the hook can read and change them. Without a registered hook nothing runs. The generated program also lists its call patches (`Program::call_patches`), and the interpreter runs the hook before the instruction too (2026-11-10): a function that holds a guarded word runs there once the game rewrote it, and keeps its call patches (FUComplete's camera function). A call patch in a delay slot is refused,
+  since the slot is emitted inside its branch. Host code that hands the game data through a pointer can take a block
+  of the kernel partition, which the game never allocates from (`Runtime::allocate_kernel_block`).
 - Everything is declared by **canonical name** and resolved per region. Never addresses in code.
+- **Data entries** (2026-11-02): with `--symbols`, `mhf_recomp` also writes `<name>_region_data.hpp`, namespace
+  `mhf::psp::generated::<name>_region_data`, one `inline constexpr std::optional<std::uint32_t>` per `[data]` name
+  that any region map next to the active one lists (`std::nullopt` where the active region does not map it). Host code
+  names the entries directly: a misspelled name fails the build, and code for an entry only some releases map still
+  builds for all.
 - N64Recomp technique: compile patched functions into a library linked **before** the original output, so the linker prefers the
   patch. Useful to iterate without regenerating everything.
 

@@ -100,17 +100,24 @@ std::optional<DataBin> DataBin::open(Reader reader, std::uint64_t total_size,
     }
     const auto total_blocks = static_cast<std::uint32_t>(total_size / kBlockSize);
 
-    for (const auto& table : candidates) {
+    // Each candidate table, then no scrambling at all: patches such as FUComplete store DATA.BIN already unscrambled
+    // (and their executable no longer unscrambles it).
+    std::vector<std::optional<SubstitutionTable>> attempts(candidates.begin(), candidates.end());
+    attempts.emplace_back(std::nullopt);
+    for (const auto& attempt : attempts) {
+        const auto decode = [&](std::vector<std::uint8_t>& bytes, std::uint32_t seed) {
+            if (attempt) unscramble(bytes, *attempt, seed);
+        };
         // The first entry is the first block of file 0, i.e. the header length in blocks.
         auto probe = reader(0, 4);
-        unscramble(probe, table, 0);
+        decode(probe, 0);
         const std::uint32_t header_blocks = load_le32(probe.data());
         if (header_blocks == 0 || header_blocks >= total_blocks) {
             continue;
         }
 
         auto header = reader(0, static_cast<std::size_t>(header_blocks) * kBlockSize);
-        unscramble(header, table, 0);
+        decode(header, 0);
         const std::size_t word_count = header.size() / 4;
         auto word = [&](std::size_t i) { return load_le32(header.data() + i * 4); };
 
@@ -153,7 +160,7 @@ std::optional<DataBin> DataBin::open(Reader reader, std::uint64_t total_size,
             const std::uint32_t block_span = (word(id + 1) - word(id)) * kBlockSize;
             files.push_back(FileEntry{id, word(id), it != exact_sizes.end() ? it->second : block_span});
         }
-        return DataBin{std::move(reader), table, std::move(files)};
+        return DataBin{std::move(reader), attempt, std::move(files)};
     }
     return std::nullopt;
 }
@@ -166,7 +173,7 @@ std::vector<std::uint8_t> DataBin::read(std::uint32_t id, std::optional<std::uin
     const std::uint32_t wanted = size ? std::min(*size, entry.size) : entry.size;
     const std::uint32_t padded = (wanted + 3u) & ~3u;
     auto bytes = reader_(static_cast<std::uint64_t>(entry.first_block) * kBlockSize, padded);
-    unscramble(bytes, table_, entry.first_block);
+    if (table_) unscramble(bytes, *table_, entry.first_block);
     bytes.resize(wanted);
     return bytes;
 }

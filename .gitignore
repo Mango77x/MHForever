@@ -1,9 +1,109 @@
 # --- Game data and derivatives: NEVER in the repo ---
 user_data/
+# Games of every console: images, dumps, packages and ROMs (scripts/check_repo_content.py keeps this list and its own in step)
+# Disc images of any console (PSP, PS1, PS2, GameCube, Wii, Xbox, Saturn, Dreamcast...)
 *.iso
 *.cso
+*.zso
+*.ciso
 *.chd
+*.cue
+*.ccd
+*.mds
+*.mdf
+*.nrg
+*.img
+*.gdi
+*.cdi
+*.xiso
+# Sony: PSP, PS1, PS2, PS3, PS4, Vita (executables and packages)
 *.pbp
+*.ecm
+*.pkg
+*.rap
+*.edat
+*.self
+*.vpk
+# Microsoft: Xbox, Xbox 360 (executables)
+*.xex
+*.xbe
+*.xvd
+*.xvc
+# Nintendo GameCube and Wii
+*.gcm
+*.gcz
+*.rvz
+*.wia
+*.wbfs
+*.wad
+*.tgc
+*.dol
+# Nintendo Wii U
+*.wud
+*.wux
+*.wua
+*.rpx
+*.rpl
+# Nintendo Switch
+*.nsp
+*.xci
+*.nca
+*.nsz
+*.xcz
+*.nso
+*.nro
+*.pfs0
+# Nintendo 3DS
+*.3ds
+*.cci
+*.cxi
+*.cia
+*.cfa
+*.3dsx
+# Nintendo DS, GBA, Game Boy, NES, SNES, N64
+*.nds
+*.dsi
+*.srl
+*.gba
+*.gb
+*.gbc
+*.sgb
+*.nes
+*.fds
+*.unf
+*.sfc
+*.smc
+*.swc
+*.fig
+*.z64
+*.n64
+*.v64
+*.ndd
+# Sega, NEC, SNK, WonderSwan, Atari and generic ROMs
+*.smd
+*.sms
+*.gg
+*.32x
+*.pce
+*.sgx
+*.ngp
+*.ngc
+*.ws
+*.wsc
+*.a26
+*.a52
+*.a78
+*.lnx
+*.rom
+# Keys and BIOS dumps that decrypt or run them
+*.keys
+*aes_keys.txt
+*boot9.bin
+*boot11.bin
+*otp.bin
+*seeddb.bin
+*scph*.bin
+# Our own research files
 *.prx.dec
 EBOOT.BIN
 EBOOT.elf

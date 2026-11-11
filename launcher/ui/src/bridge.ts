@@ -9,7 +9,8 @@ export type Verification = 'verified' | 'unverified';
 export interface Game {
   id: string;
   title: string;
-  region: string;
+  region: string; // or a patched edition's own name (FUComplete)
+  market?: string; // EU, US or JP: the disc the copy comes from
   discId: string;
   version: string;
   isoPath: string;
@@ -22,6 +23,30 @@ export interface Settings {
   fullscreen: boolean;
   smoothTextures: boolean;
   fps: number; // 30..180, a multiple of 30
+  hudSize?: number; // the quest HUD's size in percent, 50..100 in steps of 10
+  trueWeaponValues: boolean; // menus show attack and element without the game's display multipliers
+  fastSupplyBox?: boolean; // the supply box takes the next button soon after a take-out
+  smithyBrowse?: boolean; // the smithy's lists scroll with the R (materials) or Info panel open
+  smithyLayout?: boolean; // and with Info open, Info on the left, the list and its materials on the right
+  analogCamera?: boolean; // the right stick turns and tilts the camera by how far it is pushed
+  analogCameraTurnSpeed?: number; // and how fast, in percent of a full push: 50..200 in steps of 10
+  analogCameraTiltSpeed?: number;
+  mouseCamera?: boolean; // with the analog camera: the mouse turns and tilts it too
+  mouseCameraSpeed?: number; // its sensitivity in percent: 25..300 in steps of 25
+  hornSongs?: boolean; // the hunting horn's songs over the quest HUD
+  hornSongsPlace?: string; // and where: 'next-to-sheet', 'top-middle', 'under-names', 'bottom-left', or 'custom:X,Y' (moved in the game)
+  // The language the game speaks and reads: 'en', 'fr', 'de', 'es', 'it'; '' keeps the game's own language screen.
+  language: string;
+  // FUComplete's own options, for FUComplete copies (launcher/native/fuc_config.hpp); its true raw display follows
+  // trueWeaponValues.
+  fucSaveRegion?: string; // 'ULJM05500', 'ULUS10391' or 'ULES01213': whose saves it loads
+  fucDosAudio?: boolean;
+  fucFov?: string; // 'default', 'minor', 'moderate' or 'extreme'
+  fucCamera?: number; // 1..5, 4 is the game's own
+  fucHornTweak?: boolean;
+  fucLaoEarlyKill?: boolean;
+  fucFullChest?: boolean;
+  fucDrinkBuff?: boolean;
   copyImage: boolean; // keep a copy of the disc image in MHForever's own folder
   musicVolume: number; // 0..100
   sfxVolume: number; // 0..100
@@ -194,14 +219,16 @@ function simulated(): Native {
     up: 'dpad_up', down: 'dpad_down', left: 'dpad_left', right: 'dpad_right', stick: 'left',
   };
   const state: State = {
-    version: '0.8.2-dev',
+    version: '0.9.5-dev',
     platform: 'browser',
     pseudonym: 'Hunter',
     nostrKey: Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, '0')).join(''),
     friends: [],
     blocked: [],
     settings: {
-      scale: 4, fullscreen: false, smoothTextures: false, fps: 30, copyImage: false, musicVolume: 80, sfxVolume: 90,
+      scale: 4, fullscreen: false, smoothTextures: false, fps: 30, hudSize: 100, trueWeaponValues: false, fastSupplyBox: false,
+      smithyBrowse: false, smithyLayout: false, analogCamera: false, analogCameraTurnSpeed: 100, analogCameraTiltSpeed: 100, mouseCamera: false, mouseCameraSpeed: 100,
+      hornSongs: false, hornSongsPlace: 'next-to-sheet', language: '', copyImage: false, musicVolume: 80, sfxVolume: 90,
       keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '', adhocRoom: '', checkUpdates: true,
       friendRelays: ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom', 'wss://offchain.pub', 'wss://relay.nostr.net'],
     },

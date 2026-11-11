@@ -3,6 +3,8 @@ import { api, onEvent, type PackReview, type State } from './bridge';
 
 const bytes = (n: number) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : `${Math.max(1, Math.round(n / (1 << 20)))} MB`);
 const count = (n: number) => n.toLocaleString('en');
+// The launcher's summary ("6124 textures (textures_FU_EU.ini)") without the ini's name, which says nothing to a player.
+const packSummary = (summary?: string) => (summary ?? '').replace(/\s*\([^)]*\.ini\)/i, '').replace(/\d+/, (n) => count(Number(n)));
 
 // Game settings > Texture pack: an HD texture pack in PPSSPP's format (a folder with textures.ini, such as KHD) for this
 // copy of the game. Choosing a folder reviews the pack first (the ini this release uses, how many textures, missing
@@ -25,7 +27,7 @@ export function TexturePackSection({ state, onState, say, toggle }: {
     else if (e.type === 'texturePackDone') {
       setCopying(null);
       setReview(null);
-      say('Texture pack copied and turned on');
+      say('Texture pack copied and enabled');
     } else if (e.type === 'texturePackFailed') {
       setCopying(null);
       if (e.message !== 'Cancelled') say(e.message);
@@ -49,17 +51,14 @@ export function TexturePackSection({ state, onState, say, toggle }: {
       <div className="srow">
         <div className="slabel">
           <b>HD textures</b>
-          <span className="prose">
-            Texture packs made for PPSSPP (a folder with a textures.ini), such as KHD, replace the game's textures with sharper
-            ones. None is included: download one, unzip it, and choose its folder. This copy uses the pack's textures for its release.
-          </span>
+          <span className="prose">Replaces the game's textures with a pack in PPSSPP format. Select the folder that contains its textures.ini.</span>
           {pack ? (
             <>
               <span className="path">{pack}</span>
-              <span>{s.texturePackSummary ?? ''}{state.texturePackInstalled ? ' · copied into MHForever' : ' · used where it is'}</span>
+              <span>{packSummary(s.texturePackSummary)}{state.texturePackInstalled ? ' · Stored in MHForever' : ' · Loaded from its folder'}</span>
             </>
           ) : (
-            <span className="path">No pack chosen</span>
+            <span className="path">No pack selected</span>
           )}
         </div>
         <div className="row-actions">
@@ -80,18 +79,18 @@ export function TexturePackSection({ state, onState, say, toggle }: {
       {review && review.ok && !copying && (
         <div className="srow" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
           <div className="slabel">
-            <b>Pack found</b>
+            <b>Pack ready</b>
             <span className="path">{review.folder}</span>
             <span>
-              {review.label}: {count(review.keys)} textures ({review.ini})
-              {review.missing ? `, ${count(review.missing)} image${review.missing === 1 ? '' : 's'} missing: the game's own texture stays for ${review.missing === 1 ? 'it' : 'those'}` : ''}
+              {review.label} · {count(review.keys)} textures · {bytes(review.bytes)}
+              {review.missing ? ` · ${count(review.missing)} missing (original textures used instead)` : ''}
             </span>
-            <span>{count(review.images)} images, {bytes(review.bytes)}.{review.installed ? ' This is the copy MHForever already has.' : ''}</span>
+            {review.installed && <span>Already stored in MHForever.</span>}
             {review.warnings.map((w) => <span key={w} className="prose">{w}</span>)}
           </div>
           <div className="row-actions">
-            {!review.installed && <button className="ghost mid" onClick={() => run('copy').then((r) => { if (!r.error) setCopying({ progress: 0, file: '' }); })}>Copy into MHForever ({bytes(review.bytes)})</button>}
-            <button className="ghost mid" onClick={() => run('use').then((r) => { if (!r.error) { setReview(null); say('Texture pack turned on'); } })}>Use it where it is</button>
+            {!review.installed && <button className="ghost mid" onClick={() => run('copy').then((r) => { if (!r.error) setCopying({ progress: 0, file: '' }); })}>Copy to MHForever</button>}
+            <button className="ghost mid" onClick={() => run('use').then((r) => { if (!r.error) { setReview(null); say('Texture pack enabled'); } })}>Load from folder</button>
             <button className="ghost mid" onClick={() => setReview(null)}>Cancel</button>
           </div>
         </div>

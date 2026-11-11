@@ -43,6 +43,20 @@ struct Function {
     bool has_unresolved_jump{};           // a `jr` that is neither a return nor a recognized table
 };
 
+// An instruction the generated code can change while the program runs (region map [patches], docs/04-recompiler.md
+// §6): the original and the changed form are both emitted, and the game program switches the named patch on. A Call
+// patch instead runs the host hook the game program registers under its name, when there is one.
+struct InstructionPatch {
+    enum class Kind {
+        Immediate, // an ALU instruction with an immediate operand gets `immediate` instead
+        Never,     // a conditional branch is never taken (its delay slot runs as it does when not taken)
+        Call,      // the host hook registered under the patch's name runs first, then the instruction as it is
+    };
+    std::string name;
+    Kind kind{Kind::Immediate};
+    std::uint16_t immediate{};
+};
+
 struct ProgramInput {
     const psprecomp::GuestMemory *memory{};
     std::vector<CodeRange> code;               // executable ranges (import stubs excluded)
@@ -54,6 +68,11 @@ struct ProgramInput {
     std::vector<std::uint32_t> weak_entries;
     // Addresses whose functions call a named host hook on entry (games/<id>/regions/<id>/symbols.toml).
     std::map<std::uint32_t, std::string> hooks;
+    // Instructions emitted in both forms, by address (only this module's).
+    std::map<std::uint32_t, InstructionPatch> patches;
+    // Addresses the game may rewrite at run time (region map [guards], only this module's): a function holding one
+    // checks it on entry and runs in the interpreter when the word changed.
+    std::set<std::uint32_t> guards;
 };
 
 struct Analysis {

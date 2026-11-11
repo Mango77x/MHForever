@@ -15,9 +15,32 @@
 | Europe | **ULES01213** | Freedom Unite | Main development (reference copy, v1.01) |
 | North America | **ULUS10391** | Freedom Unite | Playable (v1.01): its own symbol map, overlay map and program (`mhfu-us`) |
 | Japan | **ULJM05500** | Portable 2nd G | Playable (v1.01): its own symbol map, overlay map and program (`mhfu-jp`) |
+| Japan + FUComplete | ULJM05500 (catalog id **ULJM05500-FUC**) | Portable 2nd G patched with FUComplete v1.4.0 | Playable: its own maps and program (`mhfu-fuc`), see §2.1 |
 | Others | PSN, "PSP Essentials"/"The Best", Korea/Asia | — | `[VERIFY]` whether variants with other hashes exist |
 
 Known hashes for 2nd G JP (from FUCTool): UMD MD5 `1f76ee9ccbd6d39158f06e6e5354a5bd`, PSN MD5 `cc39d070b2d2c44c9ac8187e00b75dc4`.
+
+### 2.1 FUComplete (2026-11-08)
+
+FUComplete is a fan patch for the Japanese release (English translation, built-in events and DLC, options such as true
+raw display or a wider field of view). The player patches their own Japanese image with FUComplete's own tool; MHForever
+never patches anything and never links patched images. How it fits:
+
+- **Identification**: the patched image keeps the disc id ULJM05500. The launcher tells it apart by FUComplete's files
+  (`marker_file = "/FUC/PRELOAD.BIN"` in `regions/ULJM05500-FUC/region.toml`) and checks its executable, which FUComplete
+  ships plain (no decryption). The image itself varies with the Japanese edition and the patcher's options, so it has no
+  accepted dump hashes.
+- **Code**: FUComplete's executable keeps the Japanese layout (every function and data address of the Japanese map is
+  unchanged), and its DATA.BIN is stored unscrambled (`mhfu_extract_overlays` reads both kinds). Its options are applied
+  at run time by PRELOAD.BIN and MODLOAD.BIN, which rewrite instructions of the executable and the overlays. The words
+  they write are listed in the map's `[guards]` table, so the functions that hold them run in the interpreter when an
+  option changed them (`04` §6).
+- **Options**: FUComplete reads `PSP/SAVEDATA/FUCDAT/CONFIG.BIN` at every start. The launcher writes it from the copy's
+  Game settings (`launcher/native/fuc_config.cpp`); the true raw display follows "Show true weapon values", and the
+  minimap size is not offered (MHForever's HUD size scales the whole quest HUD instead).
+- **Credit**: FUComplete publishes no licence. MHForever ships none of its files (they come from the player's own patched
+  image) and credits its team in the README's special thanks.
+- Not checked yet: online play with FUComplete players, texture packs, the save region options other than North America.
 
 **Evidence that per-region maps are required**: public CWCheat codes use different addresses per region (e.g. the same
 "auto clear quest" cheat writes `0x01206628` on US and `0x012064E8` on EU). The binaries differ, so each region has its own
@@ -74,8 +97,29 @@ mh_camera_update    = 0x088xxxxx
 [data]
 mh_player_state     = 0x09xxxxxx
 ```
-The EU map (`regions/ULES01213/symbols.toml`) currently holds the entry point and the overlay loader (`04-recompiler.md` §4.4).
+The EU map (`regions/ULES01213/symbols.toml`) currently holds the entry point and the overlay loader (`04-recompiler.md` §4.4),
+and the data entries of "Show true weapon values" (§9): the attack multipliers, and the element formats' "0" once per
+language, since the game loads the chosen language's menu text at its own place. The US map holds the same entries, each
+0x120 higher; the JP map holds them for its one language (`_ja`). Host code reads
+`[data]` entries through the generated `mhfu_region_data.hpp` (`04-recompiler.md` §6); a folder generated before that
+header existed needs `prepare.py` run again (unchanged files are not rewritten).
+All three maps also hold the data entries of the hunting horn songs (§9): the game's state and player manager, the
+blademaster weapon table and the class of each weapon model, the colours of the horns' 20 note sets, the 47 songs (in
+`game_task.ovl`, read only while that overlay is loaded), the resource manager with the quest messages' text ids, for
+the songs' names in the language the game runs in, and the HUD's `Cockpit`, whose state says when one of the game's own
+menus is open (the songs are hidden then).
+All three maps also hold `mh_supply_box_update`, the supply box menu's per-frame function, hooked for "Fast supply box"
+(§9); `prepare.py` passes it to `mhf_recomp` as a second `--hook`, so a folder generated before it needs `prepare.py`
+run again, and the region map test checks that every map lists the hooked functions.
+All three maps also hold "Smithy: browse with panels open" (§9): the per-frame functions of the smithy's create and
+improve lists (hooked; `prepare.py` passes them as `--hook`), the two functions that build their Info panels (`[data]`,
+called by the game program), and seven `[patches]` in `lobby_task.ovl` (`04-recompiler.md` §6). A folder generated
+before them needs `prepare.py` run again. "Smithy: improved layout" adds the smithy's panel function (hooked, and in
+`[data]` to be called), five layout tables of the village overlay, and two more patches.
 The US map (`regions/ULUS10391/`) holds the entry point, the overlay loader and the overlay manifest; the JP map (`regions/ULJM05500/`) holds the same three files (2026-10-29).
+The EU and US maps also hold `mh_language_screen_stage` (`[data]`): the boot's scene counter, which the host reads to
+answer the language screen (§8). The Japanese release has a single language and no such screen, so its map does not
+name it and the game program does not press there.
 
 **US release (ULUS10391, measured 2026-10-26).** Up to the overlay manager the code sits where it does in EU; from there on
 everything, code and data, is 0x120 bytes higher, and the overlay groups load 0x100 higher. The 298 overlays carry the same names
@@ -101,7 +145,7 @@ names and structures. **Any reconstructed C of Capcom functions in that repo is 
 | `SiD3W4y/mhfu-re` | (no visible license) | FU RE with an instrumented PPSSPP fork and traces | Instrumentation ideas |
 | `IncognitoMan/mhff` (fork of `svanheulen/mhff`) | GPL-3.0 | Python scripts for MH formats (PSP and 3DS), Blender add-ons | Understand formats (overlay extraction, mods) |
 | `codestation/mhtools` | GPL-3.0 | String tables, TMH, PAK, DATA.BIN scrambling, saves | Same; note it includes save cryptography |
-| FUComplete (`FUComplete/Patch`, `FUCTool`) | — | Patch for 2nd G: English translation, built-in events, `nativePSP` file replacer | Shows what players want; incompatible with our legal model (patches the ISO) |
+| FUComplete (`FUComplete/Patch`, `FUCTool`) | — | Patch for 2nd G: English translation, built-in events, `nativePSP` file replacer | Supported as the player's own patched image (§2.1): MHForever ships none of its files |
 | FreedomUniteColorRandomizer | — | Recolors monsters (textures) | Mod idea |
 | mfhu-hd-retexture | — | HD textures for PPSSPP | Never link (derived art) |
 
@@ -121,8 +165,65 @@ Observed by the PPSSPP community:
 
 ## 8. Languages
 
-The EU version is probably multilingual (EN/FR/DE/ES/IT) and picks the language from the PSP system setting (`sceImpose`/
-`sceUtility` system params). Expose it as a launcher setting. `[VERIFY]`
+The EU and North American versions are multilingual (EN/FR/DE/ES/IT). They read the PSP's system language with
+`sceUtilityGetSystemParamInt(8)` and then show their own language screen before the title, on every start. The Japanese
+release has a single language and no such screen, so there is nothing to answer there.
+
+**Why the port answers that screen.** The screen is not a setting the game remembers: it does not save the answer, and
+the game reads the system language only once, at start-up, to preselect a row. So a player who already told MHForever
+which language they want (the launcher's *Language*, `--language`) would be asked the same question again at every
+launch, with no way to say "don't ask". Answering the screen is how the port honours that choice. The clean
+alternatives were tried or ruled out first (below): the screen is drawn by the start-up state machinery, not by a
+function of its own, so there is no call to skip or hook; making `sceUtilityGetSystemParamInt(8)` fail does not remove
+it. Answering it is therefore a deliberate, contained shortcut, not a guess at the game's flow.
+
+**What is asked of that shortcut.** It must only act when a language was chosen (`--language`, else the boot behaves
+exactly like the original), it must not change the language the game ends up with (it confirms the row the runtime's
+answer already focused), and it must fail safe: the trigger is a read of a scene counter, so if a future exec has other
+values or the read misses, no press is sent and the player sees the original screen. The counter is a data symbol of the
+region, named in its `symbols.toml` and generated for the host; nothing like it is hardcoded in the runtime or in the
+host.
+
+**What the runtime does today.** `RuntimeOptions::system_language` (`0`, `1`, `2`, `3`, `4`, `5` for JP, EN, FR, ES, DE, IT;
+English by default) is what `sceUtilityGetSystemParamInt(8)` answers, and `games/mhfu --language en|fr|de|es|it|jp` sets it.
+The game reads it and opens its language screen with that language already focused, which saves the player from going
+through the list. It still waits for a confirmation.
+
+**What the game does with the language.** It reads the system language exactly once, at start-up, and keeps it only to
+preselect a row of the screen: the answer is not saved and the game never asks the system again. Internally it uses its
+own numbering, so the five PSP values are mapped on the way in (for example, French becomes the game's third language).
+
+**The screen is not driven by that call.** It is drawn by the start-up state machinery: it has no timer and waits for
+input indefinitely, no function of its own runs for it, and none of the overlay routines is involved. Hooking the
+routines that decorate the start-up, and the demo overlay tasks, was tried and none of them fired while the screen is up.
+The idea that a failing `sceUtilityGetSystemParamInt(8)` would skip the screen was disproved by experiment: the game
+still shows it, simply with English focused.
+
+**How the port skips it.** The screen does not consult the system and its state blocks never surfaced to afford a hook,
+so the port answers it instead of editing the flow. When `--language` is given, the game focuses that very language, and
+`games/mhfu` presses the game's own confirm as soon as the screen is up. The press is tied to the screen through the
+boot's scene counter, a data symbol named in the region's `symbols.toml` and generated into `mhfu_region_data.hpp`
+(`04-recompiler.md` §6), which the host includes: the counter steps through the start-up screens and holds one value
+while the language screen waits, so the press follows a slow or fast boot instead of a fixed delay. A region whose
+symbol map does not name that counter only preselects the language and presses nothing: the same address means
+something else in another build, so a map without it is respected instead of guessing.
+
+The cross is pulsed, press and release for ~150 ms each, while the counter stays at that value and for at most 6 s: the
+counter moves with the screen's fade-in, which ignores input, and the screen reads a fresh press, so a cross merely held
+from the start never counts. The pad state is refreshed on every poll of the sequence, including the released half;
+leaving it untouched keeps the cross latched and the screen never sees a new press (this was the first failing attempt).
+The refresh stops as soon as the screen is answered: the frontend sets the player's own input on the same poll just
+before `games/mhfu`'s callback runs, so writing the pad afterwards would keep clearing it and the controls would stop
+working (this was the second one). The screen is on display only until it starts listening, roughly a second and a half,
+and is never shown to the player as a choice. Without `--language` the boot behaves exactly like the original. Verified
+end to end on both the European and the North American program with `--language es` and `it` (title screen and later boot
+screens come out in the picked language) and without it (the screen appears as always). The launcher exposes the same
+choice per copy of the game (*Ask* keeps the original screen, see `07-launcher-ux.md` §3b).
+
+**Ruled out**, so nobody repeats the work: forcing a language variable that the game already writes before the screen,
+the `demo_task`/`demo_sub` overlays, a saved game (`MHP2NDG.BIN`), `PARAM.SFO`, and a timer that advances the screen.
+The measurements behind all of this — addresses, traces and the candidates tried — stay out of the repository, in the
+local `research/` notes (`research/README.md`).
 
 ## 9. Desired enhancements (phase 7, all toggleable and independent)
 
@@ -131,7 +232,12 @@ The EU version is probably multilingual (EN/FR/DE/ES/IT) and picks the language 
 | Internal resolution ×N | Low | Renderer. Done: `--scale`, launcher setting |
 | Texture filtering / MSAA | Low | Renderer. Bilinear option done (`--smooth-textures`); MSAA not |
 | Widescreen 16:9 / 16:10 (Deck) | Medium | Projection + HUD; HUD may stretch |
-| Right-stick camera | Medium | Level 1 (stick → D-pad, `07`) done. Level 2: hook the camera function |
+| True weapon values | Done (EU, US, JP) | Menus show attack and element without the display multipliers (`--true-weapon-values`, launcher setting). Data writes on every host poll, the element ones only where the loaded language's format is (checked in every language of the three releases, 2026-11-02); damage is untouched |
+| Hunting horn songs | Done | The songs the hunter's horn can play, over the quest HUD (`--horn-songs`, launcher setting): the game's own tables give the horn's notes and the songs (`horn_songs.cpp`), the notes just played light up the song under way and the next note, and a song whose effect is on turns green (the player's effect timers). Hidden while one of the game's own menus is open (its `Cockpit_menu_chk` test). Placed next to the horn's note sheet by default, at three other places, or dragged anywhere from the in-game menu's Game tab (`--horn-songs-place`). The names are the game's own messages for the songs' effects, from the quest text in the language the game runs in (UTF-8 in all six languages of the three releases, checked in their quest text files; English names when that text cannot be read) |
+| Fast supply box | Done (EU, US, JP) | Taking an item out of the supply box sets a 30-frame cooldown in the Player (+0x55E), and the box ignores every button until it runs out (found 2026-11-05 with PPSSPP's debugger). `--fast-supply-box` (launcher setting) hooks `mh_supply_box_update` and cuts what is left of it to 2 frames before the game counts it down. Online, a take-out also waits for the box's answer behind its own flag, which the hook leaves alone. The item box at home was not checked |
+| Smithy: browse with panels open | Done (EU, US, JP) | The smithy's lists (create weapon or armor, improve, decorations) ignore the d-pad while the R panel (materials) or Info is open (found 2026-11-05 with PPSSPP's debugger). `--smithy-browse` (launcher setting) switches on seven instruction patches that take those tests away, and rebuilds the Info panel with the game's own function when the cursor moves under it (the R panel follows by itself) |
+| Smithy: improved layout | Done (EU, US, JP; needs browsing) | With Info open, Info moves to the left column (over the weapon model, which is drawn into an empty rectangle, its box, the question box and the help bar, moved off screen), the list stays visible (a patch) with the materials panel under it without its item header (the panel function, which draws the materials or Info, is called once more with the materials flag set), the d-pad's left/right pages the list (a patch) and the left stick turns Info's pages. `--smithy-layout` (launcher setting under browsing) changes the village overlay's layout tables when Info opens and puts them back when it closes |
+| Right-stick camera | Done (EU, US, JP, FUComplete) | Level 1: the stick works as the D-pad (`07`). Level 2, `--analog-camera` (launcher setting): the game turns its camera with the D-pad by a fixed amount per frame and tilts it in five steps, each picking one of five presets (where the eye sits, what it looks at). Call patches in that D-pad code (found 2026-11-08 with PPSSPP's debugger) scale the turn by how far the right stick is pushed and move the tilt smoothly: the camera goes to a preset on a curve through the views of levels 0, 2, 3 and 4 (level 1 is a close-up, left out so tilting does not zoom in and out), keeping the default view's distance and field of view above it, and the level follows to the nearest one so the D-pad steps on from there. The stick acts only when the camera got the whole pad that frame (another patch, where the camera copies its buttons): lock-on, cut scenes and menus stay the game's. The right stick still presses the D-pad (bowgun aiming reads it), but the camera's button copy keeps only the D-pad's own presses, so a quick push does not step the tilt level. The game's camera setting still reverses the turn and the tilt; `--analog-camera-turn-speed` and `--analog-camera-tilt-speed` (50-200%) scale a full push. FUComplete (2026-11-10): its executable keeps the Japanese addresses, so its map has the same call patches; FUComplete rewrites a word of that camera function (its own camera options), so there the function runs in the interpreter, which runs call patches too (`04-recompiler.md` §6). Mouse camera (2026-11-10, `--mouse-camera`, with the analog camera): the frontend holds the mouse in the window (relative mode) while the game has the input and hands its added-up motion to the hooks (`ControllerState::mouse_x`/`mouse_y`); each camera frame takes the difference, dropped when the camera does not have the pad, and 24 pointer units in a frame count as a full push (`--mouse-camera-speed` 25-300%, up to 8 pushes a frame) for the same turn and tilt; a turn too small for a whole step carries its rest to the next frame. The stick wins when both move. Aiming a bow or a bowgun (2026-11-11) does not move the camera: the d-pad turns the hunter's aim (Player u16 at +0x1F4, copy at +0x320) by 576 a frame and raises it (s8 at +0x67E, -100 to 100) by 5 a frame, and the camera follows. While the camera lacks the pad and the hunter's aim state (+0x11B0) is 5 or 10, the mouse turns and raises the aim directly, a frame's 24 units counting as a frame of the d-pad (measured on EU with a bow and a bowgun) |
 | 60 fps | Done (0.2.0, experimental) | Renderer-side frame interpolation, 60 to 180 fps (`--fps`, launcher setting, `05` §6). Game logic stays at 30 fps, so timing and multiplayer sync are untouched; a real 60 fps logic would still need a timer study |
 | Button icons per controller | Medium | Replace button textures at runtime with our own art |
 | Own pause/system menu | Low | |

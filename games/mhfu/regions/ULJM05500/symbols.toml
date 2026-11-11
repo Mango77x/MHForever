@@ -15,8 +15,75 @@ mh_overlay_is_active    = 0x0888FF8C # (System*, group, file_id) -> bool
 mh_overlay_prepare      = 0x0890B844 # (image*, size): cache maintenance, clears .bss after the image, runs its static initializers
 mh_static_init_run      = 0x08909DA4 # (begin, end, ...): runs a static-initializer table (used for overlays and the executable)
 
+# Supply box (--fast-supply-box; found 2026-11-05 by matching the EU function; 0x50 lower than in EU). Taking an item
+# out sets a u8 cooldown in the Player to 30 frames; this function counts it down once per frame and ignores the buttons
+# until it reaches 0.
+mh_supply_box_update    = 0x088476A4 # (?, Player*): the supply box menu, once per frame while it is open
+
+# Smithy lists in lobby_task.ovl (--smithy-browse; found 2026-11-05 by matching the EU code). The list a function gets
+# holds the cursor (s16 at +0x3C), the Info level (u8 at +0x22: 0 the list, 1 Info) and flags (u32 at +0x4C, 0x20: the R
+# panel).
+mh_smithy_create_list_update  = 0x09A9DD78 # (List*): the create lists (weapons, armor), once per frame
+mh_smithy_improve_list_update = 0x09A9F8F8 # (List*): the improve list, once per frame
+mh_smithy_panel_draw          = 0x09A7ED60 # (List*): the panel the list shows (details, materials or Info)
+mh_smithy_model_update        = 0x09AB2060 # (Model*): the smithy's weapon model; the left stick turns it
+
 [data]
 mh_overlay_region_bases = 0x089C6B40 # u32[6], region base address per group
 
+# Menu display of weapon values (--true-weapon-values; verified 2026-11-02). Damage never reads these.
+mh_attack_display_multipliers = 0x08938104 # u32[11], per weapon class: menus show attack * value / 100
+# The "0" the element value format prints after the value, and the same "0" in the dual-element total format (the only
+# language of this release; its menu text is loaded at run time).
+mh_element_value_format_zero_ja = 0x089CABCC # u8
+mh_dual_element_value_zero_ja   = 0x089CABE5 # u8
+# The hunting horn's songs (games/mhfu/host/horn_songs.cpp; found 2026-11-02 from the code that plays a note, and checked
+# in a quest). Struct offsets used with these are the same in the three releases (see horn_songs.cpp).
+mh_game_sys             = 0x089C7508 # GameSys*: the hunter's equipment, which player this machine plays
+mh_player_manager       = 0x09A4AE04 # PlayerManager*: the Player* of each player slot
+mh_blademaster_weapons  = 0x089574C8 # 24 bytes per blademaster weapon id: model id u16 at +0x00, a horn's note set u8 at +0x13
+mh_weapon_model_classes = 0x08975984 # u8 per weapon model id: its weapon class (8 = hunting horn)
+mh_horn_note_colors     = 0x089B2FB8 # u8[20][3]: the colour of notes 1-3 for each of the horns' 20 note sets
+mh_horn_songs           = 0x09C06EA8 # u8[47][4] in game_task.ovl: each song's notes, newest first (see horn_songs.cpp)
+mh_resource_manager     = 0x09A07280 # ResourceManager*: the loaded resources by id (the quest text is resource 4)
+mh_quest_message_texts  = 0x089B0744 # u16 per quest message (the songs' effects first): its text id in the quest text
+mh_cockpit              = 0x089C6CBC # Cockpit*: the quest HUD and its menus (Cockpit_menu_chk: a game menu is open)
+
+# Smithy Info panels (--smithy-browse): functions in lobby_task.ovl the game program calls, (List*): build the
+# Info panel for the item under the list's cursor.
+mh_smithy_create_info_setup  = 0x09A9E4E8
+mh_smithy_improve_info_setup = 0x09A9FDD0
+# Smithy layout (--smithy-layout): tables in lobby_task.ovl the smithy screens draw from, (s16 x, s16 y) pairs. The
+# game program changes some entries while Info is open and puts them back when it closes.
+mh_smithy_panel_layout   = 0x09AFF1A0 # 19 pairs, copied every frame by mh_smithy_panel_draw (10 Info, 11-15 materials)
+mh_smithy_side_layout    = 0x09AFF2C0 # 5 pairs: the weapon model's box (0, 1) and the bottom help bar (3, 4)
+mh_smithy_question_box   = 0x09AFEF60 # the question box: position, size, then its text's position at +0xC
+mh_smithy_skill_info_hint = 0x09AFEFA0 # 1 pair: where the Skill Info hint ends (it is right-aligned)
+mh_smithy_model_scissor  = 0x09B03300 # first entry: the screen rectangle the weapon model is drawn in
+mh_smithy_panel_draw_entry = 0x09A7ED60 # mh_smithy_panel_draw, which the game program also calls (both panels at once)
+mh_pad_input             = 0x08A5DD34 # Pad*: this frame's buttons and sticks as the game reads them (s8 stick x at +2, y at +4)
+
 [offsets]
 system_active_overlays  = 0x00F7A3C0 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none)
+
+# Instruction patches (docs/04-recompiler.md section 6), switched on by --smithy-browse. Each list skips the cursor
+# move (and paging) while the R panel is open (a test of flag 0x20; immediate 0 never finds it set) and while
+# Info is open (a branch on the Info level, never taken).
+[patches]
+mh_smithy_create_requires_blocks_up_down     = "lobby_task.ovl 0x09A9DED4 immediate 0"
+mh_smithy_create_requires_blocks_paging      = "lobby_task.ovl 0x09A9DF98 immediate 0"
+mh_smithy_create_info_blocks_up_down         = "lobby_task.ovl 0x09A9DEC8 never"
+mh_smithy_improve_requires_blocks_up_down    = "lobby_task.ovl 0x09A9FA5C immediate 0"
+mh_smithy_improve_info_blocks_up_down        = "lobby_task.ovl 0x09A9FA50 never"
+mh_smithy_decoration_requires_blocks_up_down = "lobby_task.ovl 0x09AA2A8C immediate 0"
+mh_smithy_decoration_requires_blocks_paging  = "lobby_task.ovl 0x09AA2B74 immediate 0"
+# --smithy-layout: the list is drawn while Info is open, and left/right pages the list instead of Info.
+mh_smithy_list_hidden_with_info              = "lobby_task.ovl 0x09A7D658 never"
+mh_smithy_create_info_takes_left_right       = "lobby_task.ovl 0x09A9DF8C never"
+
+# Call patches registered by --analog-camera: the European camera code, 0x2FC lower (found 2026-11-08 by matching it in
+# this executable).
+mh_camera_buttons_copied     = "executable 0x0888CD98 call" # the camera has copied its buttons from the pad (a0 is 1 when it took them all)
+mh_camera_tilt_preset_chosen = "executable 0x08886DB8 call" # the tilt level has picked the preset the camera moves to
+mh_camera_turn_buttons_test  = "executable 0x08887178 call" # the camera tests whether Left or Right is held (a1)
+mh_camera_turn_amount_chosen = "executable 0x088871A8 call" # v1 holds this frame's turn amount (Left adds, Right subtracts)

@@ -30,6 +30,8 @@ struct SdlHost::Impl {
     bool capture = false;
     std::vector<CapturedInput> captured;
     bool trigger_down[2] = {false, false}; // left, right: a trigger counts as pressed once, past this much of its travel
+    bool relative_mouse = false;
+    double mouse_x = 0.0, mouse_y = 0.0; // the held mouse's motion, added up (set_relative_mouse)
 };
 
 SdlHost::SdlHost() : impl_(std::make_unique<Impl>()) {}
@@ -157,6 +159,17 @@ void SdlHost::show_cursor(bool show) {
     else SDL_HideCursor();
 }
 
+void SdlHost::set_relative_mouse(bool on) {
+    if (impl_->relative_mouse == on || impl_->window == nullptr) return;
+    impl_->relative_mouse = on;
+    SDL_SetWindowRelativeMouseMode(impl_->window, on);
+}
+
+void SdlHost::mouse_motion(double &x, double &y) const {
+    x = impl_->mouse_x;
+    y = impl_->mouse_y;
+}
+
 void SdlHost::set_mouse_events(bool on) {
     impl_->mouse_events = on;
     impl_->mouse.clear();
@@ -208,10 +221,18 @@ bool SdlHost::poll() {
             if (impl_->keys.size() > 256) impl_->keys.erase(impl_->keys.begin());
             break;
         case SDL_EVENT_MOUSE_MOTION:
+            if (impl_->relative_mouse) {
+                impl_->mouse_x += e.motion.xrel;
+                impl_->mouse_y += e.motion.yrel;
+            }
             push_mouse(MouseEvent::Kind::Move, e.motion.x, e.motion.y, 0);
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
         case SDL_EVENT_MOUSE_BUTTON_UP:
+            if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && impl_->capture) { // a mouse button binds like a key
+                const std::string code = code_for_mouse_button(e.button.button);
+                if (!code.empty()) impl_->captured.push_back({false, code});
+            }
             if (e.button.button == SDL_BUTTON_LEFT) {
                 push_mouse(e.type == SDL_EVENT_MOUSE_BUTTON_DOWN ? MouseEvent::Kind::Down : MouseEvent::Kind::Up, e.button.x, e.button.y, 0);
             }
@@ -311,20 +332,28 @@ GamepadState SdlHost::input() const {
     // While text is being typed, letters are text, not buttons.
     const bool *down = impl_->text_input ? kNoKeys : SDL_GetKeyboardState(nullptr);
     const KeyScancodes &k = impl_->bindings; // the player's bindings (docs/07-launcher-ux.md section 5)
-    s.south = down[k.south];
-    s.east = down[k.east];
-    s.west = down[k.west];
-    s.north = down[k.north];
-    s.left_shoulder = down[k.left_shoulder];
-    s.right_shoulder = down[k.right_shoulder];
-    s.start = down[k.start];
-    s.select = down[k.select];
-    s.up = down[k.up];
-    s.down = down[k.down];
-    s.left = down[k.left];
-    s.right = down[k.right];
-    s.left_x = (down[k.stick_right] ? 1.0f : 0.0f) - (down[k.stick_left] ? 1.0f : 0.0f);
-    s.left_y = (down[k.stick_down] ? 1.0f : 0.0f) - (down[k.stick_up] ? 1.0f : 0.0f);
+    // A mouse button bound to a pad button counts while the mouse is over the window (or held by it).
+    const SDL_MouseButtonFlags mouse = !impl_->text_input && impl_->window != nullptr && SDL_GetMouseFocus() == impl_->window
+                                           ? SDL_GetMouseState(nullptr, nullptr)
+                                           : 0;
+    const auto held = [&](SDL_Scancode code) {
+        if (const int button = mouse_button_of(code)) return (mouse & SDL_BUTTON_MASK(button)) != 0;
+        return down[code];
+    };
+    s.south = held(k.south);
+    s.east = held(k.east);
+    s.west = held(k.west);
+    s.north = held(k.north);
+    s.left_shoulder = held(k.left_shoulder);
+    s.right_shoulder = held(k.right_shoulder);
+    s.start = held(k.start);
+    s.select = held(k.select);
+    s.up = held(k.up);
+    s.down = held(k.down);
+    s.left = held(k.left);
+    s.right = held(k.right);
+    s.left_x = (held(k.stick_right) ? 1.0f : 0.0f) - (held(k.stick_left) ? 1.0f : 0.0f);
+    s.left_y = (held(k.stick_down) ? 1.0f : 0.0f) - (held(k.stick_up) ? 1.0f : 0.0f);
     for (auto *g : impl_->gamepads) {
         const PadMapping &p = impl_->pad; // the player's bindings, in the order of kPadActions
         s.south |= pad_pressed(g, p.buttons[0]);

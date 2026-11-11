@@ -4,6 +4,7 @@
 // mixed audio. Used by the game executables and the homebrew runner when a window is wanted.
 
 #include "mhf/psp/runtime.hpp"
+#include "overlay/song_panel.hpp"
 
 // host/keymap.hpp and host/padmap.hpp are not included here on purpose: the PSP runtime and the homebrew runners include this
 // header without the SDL host's include directories. The keyboard and controller bindings travel as templates instead.
@@ -13,6 +14,7 @@
 #include <array>
 #include <utility>
 #include <vector>
+#include <optional>
 #include <string>
 
 namespace mhf::psp {
@@ -54,6 +56,37 @@ public:
     void set_shadow_haze_textures(std::vector<std::uint64_t> textures); // the shadows are worked out before these
     void set_shadow_zone_suns(std::vector<std::pair<std::string, std::array<float, 3>>> suns); // zone: height in degrees, darkness (< 0: 0.4), turn in degrees
     void set_shadow_zones(std::vector<std::string> names, std::vector<std::pair<std::uint32_t, int>> textures);
+    // The quest HUD's size in percent, 50..100 (gl_backend.hpp, LiveSettings). The Video tab of the in-game menu
+    // changes it while playing.
+    void set_hud(int size);
+    // Turns the hunting horn's songs on (an enhancement, off unless called) at the place the player chose; the Game tab
+    // of the in-game menu changes the place or lets the player drag them anywhere, and the controls file keeps the new
+    // spot for the launcher.
+    void set_song_spot(overlay::SongSpot spot);
+    // The songs can be shown at all (the game maps them): the Game tab then turns them on and off, and the controls file
+    // keeps the choice (`horn-songs`). Without a call, set_song_spot turns them on with no switch.
+    void offer_songs(bool on, overlay::SongSpot spot);
+
+    // An option of the game the Game tab changes while playing (an enhancement whose hook reads it every time). The
+    // controls file keeps its value for the launcher as "option.<setting>=true|false" (a switch) or "=<number>" (a
+    // slider), where <setting> is the launcher's name for it.
+    struct GameOption {
+        std::string setting; // "fastSupplyBox"
+        std::string label, detail;
+        bool slider = false; // a switch (value 0 or 1) or a slider (min..max by step, in percent)
+        int value = 0, min = 0, max = 1, step = 1;
+        std::string shown_with; // the setting of a switch that must be on for this row to show ("analogCamera")
+        std::function<void(int)> changed; // runs on the game's thread when the player changes it
+    };
+    void add_game_option(GameOption option);
+    // The hunting horn's songs (overlay/song_panel.hpp), from the `extra` poll: shown at their place while the game draws
+    // its quest HUD and no menu, system dialog or notice is up; std::nullopt (no horn, not in a quest) hides them. Only
+    // the OpenGL renderer finds the quest HUD, so the software renderer never shows them.
+    void set_song_panel(std::optional<overlay::SongPanel> panel);
+    // Mouse look: while `wanted` says so and the game has the input (no menu, system dialog or song placing), the mouse
+    // is held in the window and its motion reaches the game's hooks (ControllerState::mouse_x and mouse_y). Asked on the
+    // game's thread at every poll.
+    void set_mouse_look(std::function<bool()> wanted);
 
     // Installs the runtime's host hook. `extra` runs on every poll too (frame dumps, time limits...).
     void attach(Runtime &rt, std::function<void()> extra = {});

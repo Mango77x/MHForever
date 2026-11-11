@@ -182,6 +182,8 @@ private:
     unsigned world_i_{}, view_i_{}, proj_i_{}, texgen_i_{}, bone_i_{};
     std::array<float, 8> morph_{1, 0, 0, 0, 0, 0, 0, 0};
     std::uint32_t base_{}, offset_{};
+    std::uint32_t layers_start_{}, layers_end_{}, layer_{DrawInfo::kNoLayer}; // the list's table of layers (see run)
+    static constexpr std::uint32_t kMaxLayers = 256u;
     std::vector<std::uint32_t> call_stack_;
     std::array<std::uint32_t, 256> clut_{};
     Stats stats_;

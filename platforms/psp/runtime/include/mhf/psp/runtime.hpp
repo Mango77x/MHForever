@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <array>
 #include <string>
@@ -99,6 +100,9 @@ struct RuntimeOptions {
     // mixer (sceSasCore).
     int music_volume = 100;
     int sfx_volume = 100;
+    // The PSP's system language, as sceUtilityGetSystemParamInt(8) reports it: 0 Japanese, 1 English, 2 French,
+    // 3 Spanish, 4 German, 5 Italian. English by default. A game that reads it starts in that language.
+    int system_language = 1;
 };
 
 class Runtime {
@@ -122,9 +126,20 @@ public:
     bool activate_overlay(std::int32_t overlay_id);
     [[nodiscard]] const Program *active_overlay_at(std::uint32_t address) const noexcept;
 
-    // Hooks called by generated code on entry to selected guest functions.
+    // Hooks called by generated code on entry to selected guest functions, and before the instruction of a region
+    // map's call patch (registered under the patch's name).
     void register_hook(std::string name, HookFunction function);
     [[nodiscard]] HookFunction find_hook(std::string_view name) const;
+    // The hook of a call patch at `pc` in the program that holds it (the executable, or the overlay loaded there), when
+    // one is registered: for the interpreter, which runs it before the instruction as recompiled code does.
+    [[nodiscard]] HookFunction call_patch_hook(std::uint32_t pc) const;
+    // Instruction patches (region map [patches]): generated code reads the switch the first time it runs the
+    // instruction, so the game program turns patches on before the game starts.
+    void enable_patch(std::string name);
+    [[nodiscard]] bool patch_enabled(std::string_view name) const;
+    // A block of guest memory in the kernel partition, which the game never allocates from: for host code that hands
+    // the game data it reads through a pointer. std::nullopt when the partition has no room.
+    [[nodiscard]] std::optional<std::uint32_t> allocate_kernel_block(const std::string &name, std::uint32_t size);
     void add_hle(std::span<const HleFunction> functions);
     [[nodiscard]] const HleFunction *find_hle(std::string_view library, std::uint32_t nid) const;
 
@@ -216,6 +231,9 @@ private:
     std::vector<OverlayRegion> overlay_regions_;
     std::unordered_map<std::int32_t, const Program *> overlays_;
     std::unordered_map<std::string, HookFunction> hooks_;
+    const Program *main_program_ = nullptr; // the executable (add_program), for its call patches
+    bool any_call_patches_ = false;
+    std::unordered_map<std::string, bool> patches_;
     std::unordered_map<std::uint64_t, const HleFunction *> hle_;
     std::unordered_map<std::uint64_t, bool> reported_unimplemented_;
     std::uint64_t overlay_activations_{};

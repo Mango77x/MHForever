@@ -80,30 +80,15 @@ set(_mhf_ffmpeg_root "${CMAKE_BINARY_DIR}/_deps/ffmpeg")
 set(_mhf_ffmpeg_bin "${CMAKE_BINARY_DIR}/bin")
 
 # Downloads <url> to <file name> under MHF_FFMPEG_DOWNLOAD_DIR unless a copy with the pinned SHA-256 is already there;
-# sets <out> to its path.
+# sets <out> to its path. A failed request is tried again (cmake/download.cmake).
+include(${CMAKE_CURRENT_LIST_DIR}/download.cmake)
 function(_mhf_ffmpeg_fetch out name url sha256)
     set(archive "${MHF_FFMPEG_DOWNLOAD_DIR}/${name}")
-    if(EXISTS "${archive}")
-        file(SHA256 "${archive}" existing)
-        if(existing STREQUAL sha256)
-            set(${out} "${archive}" PARENT_SCOPE)
-            return()
-        endif()
-    endif()
-    message(STATUS "mhf: downloading ${url}")
-    file(DOWNLOAD "${url}" "${archive}.part" STATUS status TLS_VERIFY ON)
-    list(GET status 0 code)
-    if(NOT code EQUAL 0)
-        file(REMOVE "${archive}.part")
-        message(FATAL_ERROR "mhf: could not download ${url}: ${status}\n"
+    mhf_download("${url}" "${archive}" "${sha256}" problem)
+    if(problem)
+        message(FATAL_ERROR "mhf: ${problem}\n"
             "Put the file in ${MHF_FFMPEG_DOWNLOAD_DIR} by hand, or configure with -DMHF_FFMPEG=system to use an installed FFmpeg.")
     endif()
-    file(SHA256 "${archive}.part" actual)
-    if(NOT actual STREQUAL sha256)
-        file(REMOVE "${archive}.part")
-        message(FATAL_ERROR "mhf: ${url} has SHA-256 ${actual}, expected ${sha256}")
-    endif()
-    file(RENAME "${archive}.part" "${archive}")
     set(${out} "${archive}" PARENT_SCOPE)
 endfunction()
 

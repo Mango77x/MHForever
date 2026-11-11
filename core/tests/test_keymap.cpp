@@ -82,6 +82,21 @@ int main() {
     MHF_CHECK(key_label("NumpadEnter") == "Num Enter");
     MHF_CHECK(key_label("PageDown") == "Page Down");
     MHF_CHECK(key_label("").empty() == false && key_label("") == "Not set");
+    // Mouse buttons bind like keys, past every keyboard scancode: Mouse1 left, Mouse2 right, Mouse3 middle, 4 and 5 the sides.
+    for (const char *code : {"Mouse1", "Mouse2", "Mouse3", "Mouse4", "Mouse5"}) {
+        const SDL_Scancode scancode = scancode_for_code(code);
+        MHF_CHECK(mouse_button_of(scancode) != 0 && static_cast<int>(scancode) > SDL_SCANCODE_COUNT);
+        MHF_CHECK(code_for_scancode(scancode) == code);
+    }
+    MHF_CHECK(mouse_button_of(scancode_for_code("Mouse1")) == SDL_BUTTON_LEFT);
+    MHF_CHECK(mouse_button_of(scancode_for_code("Mouse2")) == SDL_BUTTON_RIGHT);
+    MHF_CHECK(mouse_button_of(scancode_for_code("Mouse3")) == SDL_BUTTON_MIDDLE);
+    MHF_CHECK(mouse_button_of(SDL_SCANCODE_K) == 0);
+    MHF_CHECK(scancode_for_code("Mouse6") == SDL_SCANCODE_UNKNOWN);
+    MHF_CHECK(code_for_mouse_button(SDL_BUTTON_X2) == "Mouse5");
+    MHF_CHECK(key_label("Mouse1") == "Left Click" && key_label("Mouse4") == "Mouse 4");
+    const KeyScancodes mouse = resolve_keymap(parse_keymap("south=Mouse1,east=Mouse2"));
+    MHF_CHECK(mouse_button_of(mouse.south) == SDL_BUTTON_LEFT && mouse_button_of(mouse.east) == SDL_BUTTON_RIGHT);
 
     return mhf::test::finish("host_keymap");
 }

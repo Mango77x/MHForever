@@ -58,7 +58,12 @@ struct Matching {
     // How the camera moved, as the motion of eye space: for scenery that stands still, newer eye = camera * older eye.
     bool camera_found{};
     std::uint32_t objects{};                     // distinct pairs of eye matrices among the pairs
-    std::uint32_t camera_votes{}, camera_voters{}; // objects that agree with the camera's motion, of those asked
+    // Votes for the camera's motion, of those asked: each object asked weighs the square root of its pairs of draws.
+    std::uint32_t camera_votes{}, camera_voters{};
+    // Diagnosis (CutThresholds::diagnose): the candidate most objects of all agree with (scenery, instances included),
+    // and whether the camera chosen disagrees with it, and by how many objects.
+    bool camera_off_crowd{};
+    std::uint32_t crowd_votes{}, camera_crowd_votes{}, crowd_voters{};
     float camera_angle_degrees{}, camera_distance{};
     Matrix camera{};
     const char *cut{}; // why the two frames must not be blended, or null
@@ -82,6 +87,8 @@ struct CutThresholds {
     // Instances of one mesh paired by where they are, once the camera's motion is taken out (up to this many).
     bool nearest_instances{true};
     std::uint32_t max_nearest_instances{64u};
+    // Also count every object's agreement with the candidates (Matching::camera_off_crowd), for the log only.
+    bool diagnose{false};
 };
 
 class Matcher {
@@ -173,5 +180,13 @@ struct RigidMotion {
 // Where a draw is between two frames, in eye space (view times world), when the camera moved by `camera`: its own
 // motion is blended in the older frame's eye space and the camera's motion is followed along its arcs.
 [[nodiscard]] Matrix blend_eye(const Matrix &older, const Matrix &newer, const RigidMotion &camera, float t) noexcept;
+
+// The motion that takes `older` to `newer` in eye space (newer = motion * older), when it is rigid (a turn and a move,
+// no change of scale or shear): what a draw that moved only with the camera, or moved as one piece, went through.
+// False when it is not rigid.
+[[nodiscard]] bool rigid_between(const Matrix &older, const Matrix &newer, RigidMotion &out) noexcept;
+// Where such a draw is at `t`: `older` carried part of the way along its own motion's arc. Scenery that stood still
+// moved exactly as the camera did, so it follows the camera's true arc whatever motion the camera vote found.
+[[nodiscard]] Matrix follow_rigid(const Matrix &older, const RigidMotion &motion, float t) noexcept;
 
 } // namespace mhf::psp::interpolation

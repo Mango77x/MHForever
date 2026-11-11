@@ -339,7 +339,10 @@ one ubershader (texture functions, fog, alpha test, depth range) and fixed-funct
   texture addresses, vertex type, count, matrices, viewport). Whole draws are matched between flips by that identity;
   instances of one mesh (the terrain is one mesh drawn many times, in an order that changes as the camera moves) are
   paired by where they are once the camera's motion is taken out; the camera's motion is the one most single objects
-  agree on, followed along its arc; draws without a partner follow the camera, and a camera that moved too much is a
+  agree on, each object (one pair of eye matrices) weighing the square root of its pairs of draws, so a town drawn as a
+  few objects of thousands of draws outweighs the walking hunters and the hunter's own pieces, and no single object (a
+  house's effect of 1144 draws stuck to the view) outweighs a room; it is followed along its arc; draws
+  without a partner follow the camera, and a camera that moved too much is a
   cut. Each in-between picture moves each draw's triangles with its transforms blended to that moment and clips and
   places them as the GE does, so the ground cannot tear; animated (skinned) models blend each point between its two
   flips. 3D batches with sprites or lines, and every batch with `MHF_INTERP_V1=1`, use the first design: they are placed again from the world
@@ -416,8 +419,10 @@ its folder (`--texture-pack`, or `MHF_TEXTURE_PACK`).
 - **When.** A key is made only when the backend uploads a texture (its content changed), never per draw. Until the pack's
   image is decoded the game's own texture is drawn; loader threads (a third of the cores, 1 to 3) decode KTX2 through Basis
   Universal (UASTC/ETC1S, zstd) and PNG through stb_image, with the mip levels a file or the pack (`_1`, `_2`...) gives.
-  At most 6 images reach the GPU a flip, each with a full mip chain (made by `glGenerateMipmap` when the pack has none),
-  sampled with mipmapped filtering; `[filtering]` overrides the game's filter. A `[hashranges]` image covers part of the
+  At most 6 images reach the GPU a flip, each with the mip levels the pack gives (none made: an image of one level is
+  sampled at full size, as PPSSPP, sharp at a distance; `MHF_TEXTURE_PACK_MIPMAPS=1` makes them with `glGenerateMipmap`),
+  with up to 16x anisotropic filtering (as PPSSPP; surfaces seen at a slant stay sharp);
+  `[filtering]` overrides the game's filter. A `[hashranges]` image covers part of the
   texture, so its coordinates are scaled. Pack images on the GPU are kept within 1 GB (`MHF_TEXTURE_PACK_MEMORY` in MB):
   past it, those drawn least recently go and are loaded again when drawn. Decoded images nobody took are dropped past
   512 MB. A failed image is not retried.
@@ -428,6 +433,23 @@ its folder (`--texture-pack`, or `MHF_TEXTURE_PACK`).
   texture the game uploads, once, as `<key>.png` with a `textures.ini`, which makes the folder a pack to edit (an edited
   image is never written over).
 - Not supported: zipped packs (unzip them), DDS and ZIM images, and `[indexed]` (palette-index images).
+
+### HUD scale (`frontend/gl_backend.cpp`, `size_hud`)
+
+The player can shrink the hunting HUD (`--hud-size 50..100`, the in-game menu's Video tab). The renderer recognizes it
+by the order the game draws it, every flip on its own: the clock in the top left corner first, then the health and
+stamina bars, the sharpness and the name plate; then whatever lies in the minimap's square in the top right (only the
+visited areas until the map is taken from the supply box); then the item bar in the bottom right. Each part shrinks
+toward its corner: its vertices and its scissor are scaled about that corner, its texture is filtered so the art does
+not shimmer, and clamped when the draw stays inside it (a repeating texture keeps repeating). Everything else (menus,
+the village, the start screens) is drawn as the game draws it. `MHF_HUD_LOG=1` describes the 2D draws of every 300th
+flip, and any flip with something in the clock's corner where no HUD was found. The renderer also tells the frontend, flip by
+flip, whether it found the quest HUD (`LiveSettings::quest_hud`): the hunting horn songs are shown only then, placed out of
+the HUD's way at its size (`psp_frontend.cpp`, `song_anchor`).
+
+Scaling the menus too was tried and dropped: the game hands over loose 2D draws only, nothing says which belong to one
+panel or which corner a panel hangs from, and every rule that guessed it from positions pulled some menu apart or made
+screens change size back and forth. Doing it well needs the game's own layout code (where each element is anchored).
 
 ## 7. Debugging
 

@@ -1,5 +1,7 @@
 #include "param_sfo.hpp"
 
+#include <algorithm>
+
 namespace mhf::psp {
 
 namespace {
@@ -31,7 +33,15 @@ std::optional<ParamSfo> ParamSfo::parse(const std::vector<std::uint8_t> &d) {
         if (format == 0x0404 && length >= 4) {
             out.integers[key] = le32(d, value_at);
         } else {
-            std::string value(reinterpret_cast<const char *>(d.data() + value_at), length);
+            // A NUL-terminated string (0x0204) runs to its NUL within its reserved space, as the PSP reads it: a patched
+            // disc may write a longer value and keep the old length (FUComplete's TITLE: length 30, 44 characters).
+            std::size_t size = length;
+            const auto *begin = d.data() + value_at;
+            if (format == 0x0204 && std::find(begin, begin + length, std::uint8_t{0}) == begin + length) {
+                const std::size_t reserved = std::min<std::size_t>(le32(d, e + 8), d.size() - value_at);
+                while (size < reserved && d[value_at + size] != 0) ++size;
+            }
+            std::string value(reinterpret_cast<const char *>(d.data() + value_at), size);
             while (!value.empty() && value.back() == '\0') value.pop_back();
             out.strings[key] = value;
         }
