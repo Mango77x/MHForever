@@ -4068,6 +4068,23 @@ void GlBackend::size_hud() {
             v.y = ay + (v.y - ay) * s;
             inside = inside && v.u >= -1e-3f && v.u <= 1.001f && v.v >= -1e-3f && v.v <= 1.001f;
         }
+        // A sized piece is drawn filtered (emit_state): at its edges the filter would take half a texel from outside
+        // the piece, which in the game's HUD textures is the next piece over, and left thin dark lines along the
+        // health and stamina bars (issue #91). Each triangle's texture coordinates are pulled in by half a texel at
+        // its extremes, so the filter stays inside the piece (a sprite's two triangles each span its whole rectangle).
+        if (setup_.texture != 0 && setup_.tex_width > 0.0f && setup_.tex_height > 0.0f) {
+            const float half_u = 0.5f / setup_.tex_width, half_v = 0.5f / setup_.tex_height;
+            for (std::size_t i = 0; i + 3u <= batch_.size(); i += 3u) {
+                GpuVertex *t = batch_.data() + i;
+                const float u_low = std::min({t[0].u, t[1].u, t[2].u}), u_high = std::max({t[0].u, t[1].u, t[2].u});
+                const float v_low = std::min({t[0].v, t[1].v, t[2].v}), v_high = std::max({t[0].v, t[1].v, t[2].v});
+                const bool wide = u_high - u_low > 2.0f * half_u * 2.0f, tall = v_high - v_low > 2.0f * half_v * 2.0f;
+                for (int k = 0; k < 3; ++k) {
+                    if (wide) t[k].u += t[k].u == u_low ? half_u : t[k].u == u_high ? -half_u : 0.0f;
+                    if (tall) t[k].v += t[k].v == v_low ? half_v : t[k].v == v_high ? -half_v : 0.0f;
+                }
+            }
+        }
         setup_.hud[0] = s;
         setup_.hud[1] = ax;
         setup_.hud[2] = ay;
