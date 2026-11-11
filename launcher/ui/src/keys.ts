@@ -75,6 +75,11 @@ const namedKeys: Record<string, string> = {
   ControlRight: 'Right Ctrl',
   AltLeft: 'Left Alt',
   AltRight: 'Right Alt',
+  Mouse1: 'Left Click',
+  Mouse2: 'Right Click',
+  Mouse3: 'Middle Click',
+  Mouse4: 'Mouse 4',
+  Mouse5: 'Mouse 5',
 };
 
 // The name of a key as the player knows it: "K", "↑", "Left Shift", "Not set".

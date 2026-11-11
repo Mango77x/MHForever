@@ -123,7 +123,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   it smoothly from the game's lowest view to its highest; while it is on, **Analog camera turn speed** and **tilt speed**
   (`analogCameraTurnSpeed`, `analogCameraTiltSpeed`, 50% to 200% in steps of 10, passed as `--analog-camera-turn-speed`
   and `--analog-camera-tilt-speed` when not 100%) set how fast a full push goes, and **Mouse camera** (`mouseCamera`,
-  `--mouse-camera`, off by default: the mouse turns and tilts the camera too, held in the game window with its pointer
+  `--mouse-camera`, off by default: the mouse turns and tilts the camera, and aims a bow or a bowgun, held in the game window with its pointer
   hidden while the game has the input; the in-game menu, a system dialog or another window lets it go) with **Mouse
   sensitivity** (`mouseCameraSpeed`, 25% to 300% in steps of 25, `--mouse-camera-speed` when not 100%)):
   the game's options live there, Video keeps the picture's.
@@ -217,7 +217,8 @@ mode, where no second window can be shown.
   - START, SELECT → Menu/View.
   - **Right stick → D-pad** (FU's "claw" camera) with configurable deadzone and repeat. Level 1 is implemented; level 2 (analog camera) is the Analog camera setting.
 - Keyboard: every button of the pad answers to a physical key, and the player changes them in the launcher
-  (**Game settings → Controls**), not by editing a file; the mouse drives the camera once the analog hook exists.
+  (**Game settings → Controls**), not by editing a file; with the analog camera, **Mouse camera** lets the mouse turn the
+  camera and aim.
   - A binding is a UI Events code (`KeyK`, `ArrowLeft`, `Space`...): it names the key's position, not the character
     printed on it, so WASD stays where a player expects it on AZERTY or QWERTZ.
   - The bindings live in `launcher.json` under `settings.keys` (16 actions) and the launcher passes them to the game with
@@ -226,6 +227,9 @@ mode, where no second window can be shown.
   - Defaults: K/L/J/I face buttons, Q/E L/R, Enter Start, Backspace Select, arrows D-pad, WASD analog stick.
     In the launcher, Backspace or Delete removes a binding and a key already in use is swapped with the other button.
   - Two keys belong to the game and cannot be assigned: **Escape** (in-game menu) and **F11** (fullscreen).
+  - Mouse buttons bind like keys (2026-11-11): `Mouse1` (left), `Mouse2` (right), `Mouse3` (middle), `Mouse4` and `Mouse5`
+    (the side buttons), assigned by clicking while the launcher or the in-game menu waits for a key. They count while the
+    mouse is over the game window.
 - Controllers: every button of the pad also answers to a button of the player's controller, chosen in the same place
   (**Game settings → Controls → Controller**; the page has a Keyboard / Controller switch).
   - A source is an SDL gamepad name (`south`, `left_shoulder`, `left_trigger`, `dpad_up`...): the position of the button on

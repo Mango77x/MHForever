@@ -185,14 +185,27 @@ function KeyboardControls({ keys, defaults, onChange }: {
         setNotice(`${keyLabel(e.code)} is kept by the game: ${reservedKeys[e.code]} Press another key, or Esc to cancel.`);
         return;
       }
+      assign(action, e.code);
+    };
+    // A mouse button binds like a key (Mouse1 left, Mouse2 right, Mouse3 middle, Mouse4 and Mouse5 the side buttons).
+    const mouseCodes = ['Mouse1', 'Mouse3', 'Mouse2', 'Mouse4', 'Mouse5']; // by MouseEvent.button
+    const click = (e: MouseEvent) => {
+      const code = mouseCodes[e.button];
+      if (!code) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      assign(capturing as string, code);
+    };
+    const swallow = (e: MouseEvent) => { e.preventDefault(); e.stopImmediatePropagation(); }; // no menu, no "back"
+    const assign = (action: string, code: string) => {
       setNotice('');
       const next = { ...latest.current.keys };
       const previous = next[action] ?? '';
-      if (e.code !== 'Backspace' && e.code !== 'Delete') {
+      if (code !== 'Backspace' && code !== 'Delete') {
         for (const [other, value] of Object.entries(next)) {
-          if (other !== action && value === e.code) next[other] = previous;
+          if (other !== action && value === code) next[other] = previous;
         }
-        next[action] = e.code;
+        next[action] = code;
       } else {
         next[action] = '';
       }
@@ -200,7 +213,19 @@ function KeyboardControls({ keys, defaults, onChange }: {
       setCapturing(null);
     };
     window.addEventListener('keydown', record, true);
+    // After the click that started listening, so that click does not bind itself.
+    const listen = window.setTimeout(() => {
+      window.addEventListener('mousedown', click, true);
+      window.addEventListener('mouseup', swallow, true);
+      window.addEventListener('auxclick', swallow, true);
+      window.addEventListener('contextmenu', swallow, true);
+    }, 0);
     return () => {
+      window.clearTimeout(listen);
+      window.removeEventListener('mousedown', click, true);
+      window.removeEventListener('mouseup', swallow, true);
+      window.removeEventListener('auxclick', swallow, true);
+      window.removeEventListener('contextmenu', swallow, true);
       window.removeEventListener('keydown', record, true);
       setNavigationPaused(false);
     };
@@ -235,7 +260,7 @@ function KeyboardControls({ keys, defaults, onChange }: {
                   onClick={() => { setNotice(''); setCapturing(listening ? null : action.id); }}
                 >
                   <span className="keycap-name">{action.label}</span>
-                  <span className="keycap-key">{listening ? 'Press a key…' : keyLabel(code)}</span>
+                  <span className="keycap-key">{listening ? 'Press a key or click…' : keyLabel(code)}</span>
                 </button>
               );
             })}
@@ -562,7 +587,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
             <PercentSlider id="camera-turn-speed" label="Analog camera turn speed" help="How fast a full push turns the camera. 100% is as fast as the d-pad." min={50} max={200} step={10} value={s.analogCameraTurnSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTurnSpeed: v })} />
             <PercentSlider id="camera-tilt-speed" label="Analog camera tilt speed" help="How fast a full push tilts the camera. At 100% it goes from the lowest view to the highest in about a second." min={50} max={200} step={10} value={s.analogCameraTiltSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTiltSpeed: v })} />
             <div className="srow">
-              <div className="slabel"><b>Mouse camera</b><span>The mouse turns and tilts the camera too, while the game window holds it (its pointer is hidden). Escape lets the mouse go and opens the in-game menu.</span></div>
+              <div className="slabel"><b>Mouse camera</b><span>The mouse turns and tilts the camera too, and aims a bow or a bowgun, while the game window holds it (its pointer is hidden). Escape lets the mouse go and opens the in-game menu.</span></div>
               <Toggle on={s.mouseCamera ?? false} onToggle={() => onChange({ mouseCamera: !(s.mouseCamera ?? false) })} label="Mouse camera" />
             </div>
             {s.mouseCamera && (

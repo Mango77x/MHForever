@@ -39,6 +39,8 @@ constexpr std::pair<std::string_view, std::string_view> kLabels[] = {
     {"Backquote", "`"},          {"Minus", "-"},              {"Equal", "="},               {"BracketLeft", "["},
     {"BracketRight", "]"},       {"Backslash", "\\"},         {"Semicolon", ";"},           {"Quote", "'"},
     {"Comma", ","},              {"Period", "."},             {"Slash", "/"},
+    {"Mouse1", "Left Click"},    {"Mouse2", "Right Click"},   {"Mouse3", "Middle Click"},   {"Mouse4", "Mouse 4"},
+    {"Mouse5", "Mouse 5"},
 };
 
 } // namespace
