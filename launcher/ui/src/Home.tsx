@@ -157,7 +157,7 @@ function RoomCard({ state, onOnlineSettings, onRoom, onCopy }: Pick<Props, 'stat
         </>
       ) : (
         <>
-          {text(`You play in the public halls of ${server}, with PPSSPP and PSP players too. A room keeps the halls to you and your friends.`)}
+          {text(`Public halls on ${server}, shared with PSP and PPSSPP players. Create a room to play only with friends.`)}
           <div className="row-wrap" style={{ marginTop: 'auto', gap: 10 }}>
             <button className="ghost mid" onClick={() => onRoom(newRoomCode())}>Create room</button>
             <button className="ghost mid" onClick={() => setJoining(true)}>Join with code</button>

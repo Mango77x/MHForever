@@ -44,8 +44,10 @@ public:
     // game runs; what the player does with them (invite, dismiss an invite) goes to `actions`.
     void set_friends_files(const std::string &friends, const std::string &actions);
     // A texture pack (frontend/texture_pack.hpp): its folder, and the release being played ("ULES01213"), which
-    // chooses the pack's ini. Before attach(). The Video tab of the in-game menu then turns it on and off.
-    void set_texture_pack(const std::string &folder, const std::string &game_id);
+    // chooses the pack's ini; `mipmaps` makes mip levels for its images that ship none, and `anisotropy` (1: off, 2, 4,
+    // 8 or 16) filters them (gl_backend.hpp, LiveSettings). Before attach(). The Video tab of the in-game menu then
+    // turns the pack on and off.
+    void set_texture_pack(const std::string &folder, const std::string &game_id, bool mipmaps = false, int anisotropy = 16);
     // The quest HUD's size in percent, 50..100 (gl_backend.hpp, LiveSettings). The Video tab of the in-game menu
     // changes it while playing.
     void set_hud(int size);

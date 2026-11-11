@@ -72,9 +72,9 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
         <div className="slabel">
           <b>Server</b>
           <span className="prose">
-            The PSP ad hoc server the game plays through, the same kind PPSSPP uses: players on the same server meet in the
-            game's own Gathering Hall, PPSSPP players included. The server sees your name and your game and may show them on
-            its public status page. In their default mode, servers do not show your IP address to other players.
+            The ad hoc server used for online play. Players on the same server, including PPSSPP users, meet in the Gathering
+            Hall. The server can see your name and game and may list them on its status page. By default, your IP address is
+            not shown to other players.
           </span>
         </div>
         <button className="ghost mid" onClick={() => { measureAll(); if (server !== '' && !preset) measure([server]); }}>

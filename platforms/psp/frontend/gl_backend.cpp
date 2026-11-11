@@ -832,6 +832,7 @@ private:
     std::unique_ptr<textures::Pack> pack_;     // the texture pack, when one was given and could be opened
     std::unique_ptr<textures::Loader> loader_; // decodes its images
     bool pack_on_ = false;                     // drawing it (the player can turn it off in the menu)
+    bool pack_mips_ = false;                   // its images get mip levels made here (the player's Mipmaps choice)
     std::size_t pack_bytes_ = 0, pack_budget_ = std::size_t(1024) << 20; // pack images on the GPU, and their limit
     // Pack images on the GPU, one texture (with its mip levels) per image, shared by every cached texture drawn with it:
     // the game putting another texture at an address and back, or two keys naming one image, do not upload it again
@@ -1015,7 +1016,7 @@ private:
     bool through_{};
     float tex_width_{1}, tex_height_{1};
     bool tex_mips_ = false;          // the texture texture_for() gave is a pack image (texture_mips)
-    float anisotropy_ = 1.0f;        // the anisotropic filtering of textures with mip levels (1: none, the GPU lacks it)
+    float anisotropy_ = 1.0f;        // the most anisotropic filtering the GPU offers, up to 16 (1: none, it lacks it)
     std::uint8_t tex_filter_ = 0;    // and its pack [filtering]
     std::vector<GpuVertex> batch_;
     std::vector<Origin> batch_origins_; // frame interpolation: one per vertex of batch_
@@ -1059,7 +1060,7 @@ bool GlBackend::init() {
                  reinterpret_cast<const char *>(gl_.GetString(GL_RENDERER)),
                  reinterpret_cast<const char *>(gl_.GetString(GL_VERSION)), 480 * scale_, 272 * scale_);
     // Anisotropic filtering (core in OpenGL 4.6, an extension everywhere else): pack images seen at a slant, such as the
-    // ground, stay sharp instead of blurring into their smaller mip levels. Up to 16x, as PPSSPP.
+    // ground, stay sharp instead of blurring into their smaller mip levels. Up to 16x, as PPSSPP, or what the player chose.
     {
         GLint count = 0;
         gl_.GetIntegerv(GL_NUM_EXTENSIONS, &count);
@@ -1076,7 +1077,10 @@ bool GlBackend::init() {
         }
         while (gl_.GetError() != GL_NO_ERROR) {
         }
-        std::fprintf(stderr, "[gl] anisotropic filtering %gx\n", static_cast<double>(anisotropy_));
+        pack_mips_ = live_->texture_pack_mipmaps.load() || std::getenv("MHF_TEXTURE_PACK_MIPMAPS") != nullptr;
+        std::fprintf(stderr, "[gl] anisotropic filtering %gx (up to %gx), texture pack mipmaps %s\n",
+                     static_cast<double>(std::clamp(static_cast<float>(live_->texture_pack_anisotropy.load()), 1.0f, anisotropy_)),
+                     static_cast<double>(anisotropy_), pack_mips_ ? "made" : "the pack's own");
     }
     draw_program_ = compile(kDrawVertex, kDrawFragment);
     present_program_ = compile(kPresentVertex, kPresentFragment);
@@ -1280,7 +1284,9 @@ void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, clamp_s ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, clamp_t ? GL_CLAMP_TO_EDGE : GL_REPEAT);
-    if (anisotropy_ > 1.0f) gl_.TexParameterf(GL_TEXTURE_2D, kGlTextureMaxAnisotropy, mips ? anisotropy_ : 1.0f);
+    // The player's level (the menu changes it while playing), up to what the GPU offers.
+    const float level = std::clamp(static_cast<float>(live_->texture_pack_anisotropy.load(std::memory_order_relaxed)), 1.0f, anisotropy_);
+    if (anisotropy_ > 1.0f) gl_.TexParameterf(GL_TEXTURE_2D, kGlTextureMaxAnisotropy, mips ? level : 1.0f);
 }
 
 GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
@@ -1292,6 +1298,14 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
         pack_on_ = want;
         drop_textures();
         if (!pack_on_) loader_->clear();
+    }
+    // The player turned the pack's mipmaps on or off: its images are uploaded again, with or without them.
+    static const bool env_mips = std::getenv("MHF_TEXTURE_PACK_MIPMAPS") != nullptr;
+    if (const bool want = env_mips || live_->texture_pack_mipmaps.load(std::memory_order_relaxed);
+        pack_on_ && want != pack_mips_) {
+        pack_mips_ = want;
+        drop_textures();
+        std::fprintf(stderr, "[gl] texture pack mipmaps %s\n", pack_mips_ ? "made" : "the pack's own");
     }
     const auto info = ge.texture_info();
     tex_width_ = static_cast<float>(info.width);
@@ -1528,10 +1542,9 @@ void GlBackend::upload_pack_image(CachedTexture &t, const std::string &name, con
             gl_.TexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.levels[level].data());
         }
         // The pack's own mip levels only, as PPSSPP: an image without them is sampled at full size (with anisotropic
-        // filtering), sharp at a distance as its author saw it. Packs such as KHD ship a single level. With
-        // MHF_TEXTURE_PACK_MIPMAPS=1 the levels are made here instead (softer at a distance, no shimmer).
-        static const bool make_mips = std::getenv("MHF_TEXTURE_PACK_MIPMAPS") != nullptr;
-        const bool made = make_mips && image.levels.size() == 1;
+        // filtering), sharp at a distance as its author saw it. Packs such as KHD ship a single level. With the player's
+        // mipmaps setting (or MHF_TEXTURE_PACK_MIPMAPS=1) the levels are made here instead (softer far away, no shimmer).
+        const bool made = pack_mips_ && image.levels.size() == 1;
         if (made) gl_.GenerateMipmap(GL_TEXTURE_2D);
         gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, made ? 1000 : static_cast<GLint>(image.levels.size() - 1));
         const std::size_t bytes = std::size_t(image.width) * image.height * 4u * (made || image.levels.size() > 1 ? 4u : 3u) / 3u;

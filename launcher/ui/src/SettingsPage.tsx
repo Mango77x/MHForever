@@ -5,7 +5,7 @@ import { CopyIcon } from './icons';
 import { FucOptions } from './FucOptions';
 import { OnlineSettings } from './OnlineSettings';
 import { TexturePackSection } from './TexturePack';
-import { frameRates, hudSizes, resolutions, songPlaces } from './format';
+import { anisotropyLevels, frameRates, hudSizes, resolutions, songPlaces } from './format';
 import { setNavigationPaused } from './gamepad';
 import { keyGroups, keyLabel, reservedKeys } from './keys';
 import { anySourcePressed, assignSource, padGroups, padLabel, pressedSource, stickChoices } from './pad';
@@ -118,7 +118,7 @@ function ImportSaves({ gameId }: { gameId: string | undefined }) {
       <div className="srow">
         <div className="slabel">
           <b>Import saves</b>
-          <span>Bring your Freedom Unite saves from a PSP memory stick or from PPSSPP. Choose the folder that holds them (the PSP/SAVEDATA folder, or PPSSPP's memory stick folder). Only saves of your own version of the game can be used.</span>
+          <span>Imports saves from a PSP memory stick or from PPSSPP. Select the SAVEDATA folder or the memory stick folder. Only saves from the same version of the game are supported.</span>
         </div>
         <button className="ghost mid" onClick={choose} disabled={!gameId || busy}>Choose folder…</button>
       </div>
@@ -129,7 +129,7 @@ function ImportSaves({ gameId }: { gameId: string | undefined }) {
           {found.map((f) => (
             <div key={f.folder} className="slabel">
               <b>{f.title || 'Game data'} <span style={{ opacity: 0.6 }}>({f.folder})</span></b>
-              <span>{f.exists ? 'Replaces the save you have now. Yours is kept in a backup folder.' : 'A new save.'}</span>
+              <span>{f.exists ? 'Replaces your current save. A backup is kept.' : 'New save.'}</span>
             </div>
           ))}
           {found.length > 0 && (
@@ -147,8 +147,8 @@ function ImportSaves({ gameId }: { gameId: string | undefined }) {
           <div className="slabel">
             <b>{done.error ? 'The import did not finish' : done.imported === 1 ? 'Save imported' : `${done.imported} saves imported`}</b>
             <span>
-              {done.error || 'Press Play and load it from the game.'}
-              {done.backup && ` Your previous save is kept in ${done.backup}.`}
+              {done.error || 'Load it from the game after pressing Play.'}
+              {done.backup && ` Previous save backed up to ${done.backup}.`}
             </span>
           </div>
         </div>
@@ -236,7 +236,7 @@ function KeyboardControls({ keys, defaults, onChange }: {
       <div className="srow">
         <div className="slabel">
           <b>Keyboard</b>
-          <span>Click a key and press the one you want. Backspace removes it, Esc cancels.</span>
+          <span>Select an action, then press a key. Backspace clears it; Esc cancels.</span>
         </div>
         <button className="ghost mid" onClick={() => { setNotice(''); onChange({ keys: { ...defaults } }); }}>Restore defaults</button>
       </div>
@@ -344,8 +344,8 @@ function PadControls({ pad, defaults, onChange }: {
           <b>Controller</b>
           <span>
             {connected
-              ? 'Click a button and press the one you want on your controller. Backspace removes it, Esc cancels.'
-              : 'No controller detected. Connect one and press any button, then click a button to change it.'}
+              ? 'Select an action, then press a controller button. Backspace clears it; Esc cancels.'
+              : 'No controller detected. Connect a controller and press any button.'}
           </span>
         </div>
         <button className="ghost mid" onClick={() => onChange({ pad: { ...defaults } })}>Restore defaults</button>
@@ -373,7 +373,7 @@ function PadControls({ pad, defaults, onChange }: {
         </div>
       ))}
       <div className="srow">
-        <div className="slabel"><b>Analog stick</b><span>Which stick moves the character.</span></div>
+        <div className="slabel"><b>Analog stick</b><span>Stick used to move the character.</span></div>
         <div className="seg wide" role="radiogroup" aria-label="Analog stick" style={{ '--n': stickChoices.length } as CSSProperties}>
           <span className="pill" style={{ transform: `translateX(${stickIndex * 100}%)` }} />
           {stickChoices.map((choice) => (
@@ -398,7 +398,7 @@ function Controls({ keys, pad, keyDefaults, padDefaults, onChange }: {
   return (
     <>
       <div className="srow">
-        <div className="slabel"><b>Edit the controls of</b><span>Both work at the same time while playing.</span></div>
+        <div className="slabel"><b>Edit the controls of</b><span>Keyboard and controller can be used at the same time.</span></div>
         <div className="seg wide" role="radiogroup" aria-label="Device" style={{ '--n': options.length } as CSSProperties}>
           <span className="pill" style={{ transform: `translateX(${device === 'keyboard' ? 0 : 100}%)` }} />
           {options.map(([id, label]) => (
@@ -435,7 +435,7 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
       <motion.div className="glass section" {...rise(0.18)}>
         <h3>Profile</h3>
         <div className="srow">
-          <label htmlFor="pseudonym" className="slabel"><b>Name</b><span>Shown to friends, and typed into the game when it asks for a name.</span></label>
+          <label htmlFor="pseudonym" className="slabel"><b>Name</b><span>Shown to friends and entered when the game asks for a name.</span></label>
           <input
             id="pseudonym"
             className="text-input"
@@ -448,7 +448,7 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
           />
         </div>
         <div className="srow">
-          <div className="slabel"><b>Friend code</b><span>Stored only on this computer. Back it up from the profile menu.</span></div>
+          <div className="slabel"><b>Friend code</b><span>Stored on this computer only. Back it up from the profile menu.</span></div>
           <div className="code-box" style={{ minWidth: 300 }}>
             <span className="code">{friendCode}</span>
             <button className="copy" onClick={onCopyCode} aria-label="Copy friend code"><CopyIcon /> Copy</button>
@@ -463,15 +463,15 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
       <motion.div className="glass section" {...rise(0.1)}>
         <h3>Storage</h3>
         <div className="srow">
-          <div className="slabel"><b>Keep a copy of my disc image</b><span>Copies the image into MHForever's own folder the next time you add your game, so it keeps working if the original moves. Needs about 1 GB.</span></div>
+          <div className="slabel"><b>Keep a copy of my disc image</b><span>Stores a copy of the disc image in MHForever's folder when a game is added. Requires about 1 GB.</span></div>
           <Toggle on={s.copyImage} onToggle={() => onChange({ copyImage: !s.copyImage })} label="Keep a copy of my disc image" />
         </div>
         <div className="srow">
           <div className="slabel">
             <b>Saves folder</b>
             <span className="prose">
-              Where your saves are kept, one folder per game. Choosing another copies your saves there; the old folder keeps its
-              copy, and a game that already has saves in the new folder keeps those.
+              Location of your saves, one folder per game. Changing it copies your saves to the new folder; existing saves
+              there are kept.
             </span>
             <span className="path">{state.savesFolder}</span>
           </div>
@@ -486,13 +486,13 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
         <div className="srow">
           <div className="slabel">
             <b>MHForever {state.version}</b>
-            <span>Free software (GPL-3.0 or later). It contains none of the game's assets: it runs the copy you own.</span>
+            <span>Free software under GPL-3.0 or later. Contains no game data and requires your own copy of the game.</span>
           </div>
         </div>
         <div className="srow">
           <div className="slabel">
             <b>Check for updates</b>
-            <span className="prose">When MHForever starts, it asks GitHub whether a newer release is out and offers to install it. Nothing else is sent.</span>
+            <span className="prose">Checks GitHub for a new release at startup. No other data is sent.</span>
           </div>
           <Toggle on={s.checkUpdates ?? true} onToggle={() => onChange({ checkUpdates: !(s.checkUpdates ?? true) })} label="Check for updates" />
         </div>
@@ -518,7 +518,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
       <motion.div className="glass section" {...rise(0.06)}>
         <h3>Video</h3>
         <div className="srow">
-          <div className="slabel"><b>Internal resolution</b><span>{resolutions[s.scale - 1]}{s.scale === 4 ? ' · recommended' : ''}</span></div>
+          <div className="slabel"><b>Internal resolution</b><span>{resolutions[s.scale - 1]}{s.scale === 4 ? ' (recommended)' : ''}</span></div>
           <div className="seg wide" role="radiogroup" aria-label="Internal resolution" style={{ '--n': resolutions.length } as CSSProperties}>
             <span className="pill" style={{ transform: `translateX(${(s.scale - 1) * 100}%)` }} />
             {resolutions.map((_, i) => i + 1).map((n) => (
@@ -527,7 +527,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           </div>
         </div>
         <div className="srow">
-          <div className="slabel"><b>Frame rate</b><span>{s.fps === 30 ? 'As the original game: 30 fps.' : `${s.fps} fps: the game still runs at 30, in-between pictures are drawn. Experimental.`}</span></div>
+          <div className="slabel"><b>Frame rate</b><span>{s.fps === 30 ? 'Original frame rate.' : `${s.fps} fps with interpolated frames. Experimental.`}</span></div>
           <div className="seg wide" role="radiogroup" aria-label="Frame rate" style={{ '--n': frameRates.length } as CSSProperties}>
             <span className="pill" style={{ transform: `translateX(${Math.max(0, frameRates.indexOf(s.fps)) * 100}%)` }} />
             {frameRates.map((n) => (
@@ -536,17 +536,17 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           </div>
         </div>
         <div className="srow">
-          <div className="slabel"><b>Fullscreen</b><span>Start the game in fullscreen. F11 or Alt+Enter switches while playing.</span></div>
+          <div className="slabel"><b>Fullscreen</b><span>Starts the game in fullscreen. Press F11 or Alt+Enter to switch while playing.</span></div>
           <Toggle on={s.fullscreen} onToggle={() => onChange({ fullscreen: !s.fullscreen })} label="Fullscreen" />
         </div>
         <div className="srow">
-          <div className="slabel"><b>Smooth texture filtering</b><span>Optional enhancement: softens pixelated textures. Off is faithful to the original.</span></div>
+          <div className="slabel"><b>Smooth texture filtering</b><span>Applies bilinear filtering to the game's textures.</span></div>
           <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
         </div>
         <div className="srow">
           <div className="slabel">
             <b>HUD scale</b>
-            <span>{(s.hudSize ?? 100) === 100 ? 'Original size.' : `${s.hudSize}% of the original size in quests: the health bar, the minimap and the items, each in its corner.`}</span>
+            <span>{(s.hudSize ?? 100) === 100 ? 'Original size.' : `Quest HUD at ${s.hudSize}% of its original size.`}</span>
           </div>
           <div className="seg wide" role="radiogroup" aria-label="HUD scale" style={{ '--n': hudSizes.length } as CSSProperties}>
             <span className="pill" style={{ transform: `translateX(${Math.max(0, hudSizes.indexOf(s.hudSize ?? 100)) * 100}%)` }} />
@@ -560,48 +560,48 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
         <h3>Game</h3>
         <div className="srow">
           <div className="slabel"><b>Show true weapon values</b><span>{fucomplete
-            ? "FUComplete's true raw display: menus show attack, element and status without the display multipliers."
-            : 'Optional enhancement: menus show attack and element without the display multipliers. Off is faithful to the original.'}</span></div>
+            ? "Uses FUComplete's true raw display for attack, element and status."
+            : "Displays attack and element without the game's display multipliers."}</span></div>
           <Toggle on={s.trueWeaponValues} onToggle={() => onChange({ trueWeaponValues: !s.trueWeaponValues })} label="Show true weapon values" />
         </div>
         <div className="srow">
-          <div className="slabel"><b>Fast supply box</b><span>Optional enhancement: after you take an item out of the supply box, the menu waits 2 frames instead of 30 before it accepts the next button. Off is faithful to the original.</span></div>
+          <div className="slabel"><b>Fast supply box</b><span>Shortens the delay between items taken from the supply box.</span></div>
           <Toggle on={s.fastSupplyBox ?? false} onToggle={() => onChange({ fastSupplyBox: !(s.fastSupplyBox ?? false) })} label="Fast supply box" />
         </div>
         <div className="srow">
-          <div className="slabel"><b>Smithy: browse with panels open</b><span>Optional enhancement: in the smithy, the list keeps scrolling while the materials (R) or Info panel is open, and the panel shows the highlighted item. Off is faithful to the original.</span></div>
+          <div className="slabel"><b>Smithy: browse with panels open</b><span>Keeps the smithy list scrollable while the materials or Info panel is open.</span></div>
           <Toggle on={s.smithyBrowse ?? false} onToggle={() => onChange({ smithyBrowse: !(s.smithyBrowse ?? false) })} label="Smithy: browse with panels open" />
         </div>
         {s.smithyBrowse && (
           <div className="srow">
-            <div className="slabel"><b>Smithy: improved layout</b><span>Optional enhancement: with Info open (X), Info sits on the left, the list stays visible with the materials under it, and the left stick turns Info's pages. Off is faithful to the original.</span></div>
+            <div className="slabel"><b>Smithy: improved layout</b><span>Shows the Info panel beside the item list and its materials.</span></div>
             <Toggle on={s.smithyLayout ?? false} onToggle={() => onChange({ smithyLayout: !(s.smithyLayout ?? false) })} label="Smithy: improved layout" />
           </div>
         )}
         <div className="srow">
-          <div className="slabel"><b>Analog camera</b><span>Optional enhancement: the right stick turns the camera as fast as you push it, and tilts it smoothly from the game's lowest view to its highest. Off is faithful to the original (the stick works as the d-pad).</span></div>
+          <div className="slabel"><b>Analog camera</b><span>The right stick turns and tilts the camera in proportion to how far it is pushed.</span></div>
           <Toggle on={s.analogCamera ?? false} onToggle={() => onChange({ analogCamera: !(s.analogCamera ?? false) })} label="Analog camera" />
         </div>
         {s.analogCamera && (
           <>
-            <PercentSlider id="camera-turn-speed" label="Analog camera turn speed" help="How fast a full push turns the camera. 100% is as fast as the d-pad." min={50} max={200} step={10} value={s.analogCameraTurnSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTurnSpeed: v })} />
-            <PercentSlider id="camera-tilt-speed" label="Analog camera tilt speed" help="How fast a full push tilts the camera. At 100% it goes from the lowest view to the highest in about a second." min={50} max={200} step={10} value={s.analogCameraTiltSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTiltSpeed: v })} />
+            <PercentSlider id="camera-turn-speed" label="Analog camera turn speed" help="Turn speed at full stick deflection. 100% matches the D-pad." min={50} max={200} step={10} value={s.analogCameraTurnSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTurnSpeed: v })} />
+            <PercentSlider id="camera-tilt-speed" label="Analog camera tilt speed" help="Tilt speed at full stick deflection." min={50} max={200} step={10} value={s.analogCameraTiltSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTiltSpeed: v })} />
             <div className="srow">
-              <div className="slabel"><b>Mouse camera</b><span>The mouse turns and tilts the camera too, and aims a bow or a bowgun, while the game window holds it (its pointer is hidden). Escape lets the mouse go and opens the in-game menu.</span></div>
+              <div className="slabel"><b>Mouse camera</b><span>The mouse controls the camera and bow and bowgun aiming. Press Esc to release the mouse.</span></div>
               <Toggle on={s.mouseCamera ?? false} onToggle={() => onChange({ mouseCamera: !(s.mouseCamera ?? false) })} label="Mouse camera" />
             </div>
             {s.mouseCamera && (
-              <PercentSlider id="mouse-camera-speed" label="Mouse sensitivity" help="How far the camera moves for the same mouse motion." min={25} max={300} step={25} value={s.mouseCameraSpeed ?? 100} onCommit={(v) => onChange({ mouseCameraSpeed: v })} />
+              <PercentSlider id="mouse-camera-speed" label="Mouse sensitivity" help="Camera sensitivity to mouse movement." min={25} max={300} step={25} value={s.mouseCameraSpeed ?? 100} onCommit={(v) => onChange({ mouseCameraSpeed: v })} />
             )}
           </>
         )}
         <div className="srow">
-          <div className="slabel"><b>Show hunting horn songs</b><span>Optional enhancement: in quests with a hunting horn, the songs it can play are listed on screen, the one being played lights up and the ones in effect turn green. Off is faithful to the original.</span></div>
+          <div className="slabel"><b>Show hunting horn songs</b><span>Displays the hunting horn's songs, the song being played and active effects during quests.</span></div>
           <Toggle on={s.hornSongs ?? false} onToggle={() => onChange({ hornSongs: !(s.hornSongs ?? false) })} label="Show hunting horn songs" />
         </div>
         {s.hornSongs && (
           <div className="srow">
-            <div className="slabel"><b>Hunting horn songs position</b><span>{(s.hornSongsPlace ?? '').startsWith('custom:') ? 'A spot of your own, moved in the game. Pick one of these to use it instead.' : "Where the list is shown, out of the way of the game's HUD. In the game, Esc > Game moves it too, anywhere you like."}</span></div>
+            <div className="slabel"><b>Hunting horn songs position</b><span>{(s.hornSongsPlace ?? '').startsWith('custom:') ? 'Custom position set in game.' : 'Position of the song list. It can also be moved in game from Esc > Game.'}</span></div>
             <div className="seg wide" role="radiogroup" aria-label="Hunting horn songs position" style={{ '--n': songPlaces.length } as CSSProperties}>
               {!(s.hornSongsPlace ?? '').startsWith('custom:') && <span className="pill" style={{ transform: `translateX(${Math.max(0, songPlaces.findIndex((p) => p.id === (s.hornSongsPlace ?? 'next-to-sheet'))) * 100}%)` }} />}
               {songPlaces.map((p) => (
@@ -614,6 +614,23 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
       <motion.div className="glass section" {...rise(0.07)}>
         <h3>Texture pack</h3>
         <TexturePackSection state={state} onState={onState} say={say} toggle={(p) => <Toggle {...p} />} />
+        {s.texturePack && s.texturePackEnabled && (
+          <>
+            <div className="srow">
+              <div className="slabel"><b>Mipmaps</b><span>Smooths distant textures and reduces shimmering.</span></div>
+              <Toggle on={s.packMipmaps ?? false} onToggle={() => onChange({ packMipmaps: !(s.packMipmaps ?? false) })} label="Mipmaps" />
+            </div>
+            <div className="srow">
+              <div className="slabel"><b>Anisotropic filtering</b><span>Sharpens textures viewed at an angle.</span></div>
+              <div className="seg wide" role="radiogroup" aria-label="Anisotropic filtering" style={{ '--n': anisotropyLevels.length } as CSSProperties}>
+                <span className="pill" style={{ transform: `translateX(${Math.max(0, anisotropyLevels.indexOf(s.anisotropy ?? 16)) * 100}%)` }} />
+                {anisotropyLevels.map((n) => (
+                  <button key={n} className={(s.anisotropy ?? 16) === n ? 'on' : ''} role="radio" aria-checked={(s.anisotropy ?? 16) === n} onClick={() => onChange({ anisotropy: n })}>{n === 1 ? 'Off' : `${n}×`}</button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </motion.div>
       {fucomplete && <motion.div className="glass section" {...rise(0.07)}>
         <h3>FUComplete</h3>
@@ -626,8 +643,8 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
             <b>Language</b>
             <span>
               {s.language === ''
-                ? 'The game shows its own language screen at every start, as the original does.'
-                : `The game starts in ${languageNames[s.language] ?? s.language} and skips its language screen.`}
+                ? 'The game asks for a language at every start.'
+                : `The game starts in ${languageNames[s.language] ?? s.language}.`}
             </span>
           </div>
           <div className="seg wide" role="radiogroup" aria-label="Language" style={{ '--n': languages.length } as CSSProperties}>

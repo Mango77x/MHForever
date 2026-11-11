@@ -3,7 +3,7 @@
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
-//             [--smooth-textures] [--fps 30..180] [--hud-size 50-100] [--true-weapon-values] [--fast-supply-box]
+//             [--smooth-textures] [--texture-pack <folder> [--pack-mipmaps] [--anisotropy 1|2|4|8|16]] [--fps 30..180] [--hud-size 50-100] [--true-weapon-values] [--fast-supply-box]
 //             [--smithy-browse [--smithy-layout]]
 //             [--analog-camera [--analog-camera-turn-speed 50-200] [--analog-camera-tilt-speed 50-200]]
 //             [--mouse-camera [--mouse-camera-speed 25-300]]
@@ -831,6 +831,8 @@ int main(int argc, char **argv) {
     mhf::host::PadBindings controller; // --padmap: the launcher's controller bindings
     std::string controls_file;         // --controls-file: where the in-game menu writes the bindings the player changes
     std::string texture_pack;          // --texture-pack: a texture pack's folder (MHF_TEXTURE_PACK too; the argument wins)
+    bool pack_mipmaps = false;         // --pack-mipmaps: mip levels made for the pack's images that ship none
+    int anisotropy = 16;               // --anisotropy N: the pack's anisotropic filtering, 1 (off) to 16
     std::string friends_file, friend_actions_file; // --friends-file, --friend-actions-file: friends in the Online tab
     std::string adhoc_nick;            // --adhoc-nick: the name other players see online (default: --name)
     std::vector<ScriptedPress> script;
@@ -886,6 +888,8 @@ int main(int argc, char **argv) {
         else if (a == "--padmap" && i + 1 < argc) controller = mhf::host::parse_padmap(argv[++i]);
         else if (a == "--controls-file" && i + 1 < argc) controls_file = argv[++i];
         else if (a == "--texture-pack" && i + 1 < argc) texture_pack = argv[++i];
+        else if (a == "--pack-mipmaps") pack_mipmaps = true;
+        else if (a == "--anisotropy" && i + 1 < argc) anisotropy = std::clamp(std::stoi(argv[++i]), 1, 16);
         else if (a == "--friends-file" && i + 1 < argc) friends_file = argv[++i];
         else if (a == "--friend-actions-file" && i + 1 < argc) friend_actions_file = argv[++i];
         else if (a == "--adhoc-server" && i + 1 < argc) options.adhoc_server = argv[++i]; // online play: an ad hoc server (PPSSPP's)
@@ -1044,7 +1048,7 @@ int main(int argc, char **argv) {
         if (window && frontend.open(window_title(options.disc_image).c_str(), false, 2, !software, render_scale, fullscreen, smooth_textures, target_fps, keyboard, controller)) {
             frontend.set_controls_file(controls_file);
             frontend.set_friends_files(friends_file, friend_actions_file);
-            if (!texture_pack.empty()) frontend.set_texture_pack(texture_pack, disc_product_code(options.disc_image));
+            if (!texture_pack.empty()) frontend.set_texture_pack(texture_pack, disc_product_code(options.disc_image), pack_mipmaps, anisotropy);
             frontend.set_hud(hud_size);
             // The horn's songs over the quest HUD, read from the game a few times a second (horn_songs.hpp). The
             // in-game menu turns them on and off, so they are read even while off.
@@ -1061,31 +1065,31 @@ int main(int argc, char **argv) {
             const auto percent = [](float speed) { return static_cast<int>(std::lround(speed * 100.0f)); };
             if (kTrueWeaponValuesMapped && !kFucomplete) {
                 frontend.add_game_option({"trueWeaponValues", "Show true weapon values",
-                                          "Menus show attack and element without the game's display multipliers.", false,
+                                          "Displays attack and element without the game's display multipliers.", false,
                                           g_true_weapon_values ? 1 : 0, 0, 1, 1, "",
                                           [](int v) { g_true_weapon_values = v != 0; }});
             }
             frontend.add_game_option({"fastSupplyBox", "Fast supply box",
-                                      "After you take an item out, the supply box takes the next button 2 frames later instead of 30.",
+                                      "Shortens the delay between items taken from the supply box.",
                                       false, g_fast_supply_box ? 1 : 0, 0, 1, 1, "",
                                       [](int v) { g_fast_supply_box = v != 0; }});
             {
                 frontend.add_game_option({"analogCamera", "Analog camera",
-                                          "The right stick turns the camera as fast as you push it and tilts it smoothly.",
+                                          "The right stick turns and tilts the camera in proportion to how far it is pushed.",
                                           false, g_analog_camera ? 1 : 0, 0, 1, 1, "",
                                           [](int v) { g_analog_camera = v != 0; }});
-                frontend.add_game_option({"analogCameraTurnSpeed", "Camera turn speed", "100% is as fast as the d-pad.", true,
+                frontend.add_game_option({"analogCameraTurnSpeed", "Camera turn speed", "100% matches the D-pad.", true,
                                           percent(g_turn_speed), 50, 200, 10, "analogCamera",
                                           [](int v) { g_turn_speed = static_cast<float>(v) / 100.0f; }});
                 frontend.add_game_option({"analogCameraTiltSpeed", "Camera tilt speed",
-                                          "At 100% the camera goes from its lowest view to its highest in about a second.",
+                                          "Tilt speed at full stick deflection.",
                                           true, percent(g_tilt_speed), 50, 200, 10, "analogCamera",
                                           [](int v) { g_tilt_speed = static_cast<float>(v) / 100.0f; }});
                 frontend.add_game_option({"mouseCamera", "Mouse camera",
-                                          "The mouse turns and tilts the camera, and aims a bow or a bowgun. Escape lets the mouse go.", false,
+                                          "The mouse controls the camera and bow and bowgun aiming. Press Esc to release the mouse.", false,
                                           g_mouse_camera ? 1 : 0, 0, 1, 1, "analogCamera",
                                           [](int v) { g_mouse_camera = v != 0; }});
-                frontend.add_game_option({"mouseCameraSpeed", "Mouse sensitivity", "How far the camera moves for the same mouse motion.",
+                frontend.add_game_option({"mouseCameraSpeed", "Mouse sensitivity", "Camera sensitivity to mouse movement.",
                                           true, percent(g_mouse_speed), 25, 300, 25, "mouseCamera",
                                           [](int v) { g_mouse_speed = static_cast<float>(v) / 100.0f; }});
                 // The mouse is held in the window while it moves the camera: both switches on.
