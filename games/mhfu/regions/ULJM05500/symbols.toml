@@ -87,3 +87,9 @@ mh_camera_buttons_copied     = "executable 0x0888CD98 call" # the camera has cop
 mh_camera_tilt_preset_chosen = "executable 0x08886DB8 call" # the tilt level has picked the preset the camera moves to
 mh_camera_turn_buttons_test  = "executable 0x08887178 call" # the camera tests whether Left or Right is held (a1)
 mh_camera_turn_amount_chosen = "executable 0x088871A8 call" # v1 holds this frame's turn amount (Left adds, Right subtracts)
+
+# Call patches registered by the widescreen setting (found 2026-11-11): the two functions that set up a camera store
+# its aspect ratio (the PSP's 480:272, 0x3FE1E1E2, built with lui/ori into v0) at camera + 8. The hook runs before
+# that store and changes v0 (the same place PPSSPP's ultrawide cheat for Portable 2nd G patches).
+mh_camera_aspect_made  = "executable 0x0881388C call" # a camera is made (s0 is the camera)
+mh_camera_aspect_reset = "executable 0x08813984 call" # a camera is set up again, as when a zone loads (a0 is the camera)

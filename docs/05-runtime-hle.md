@@ -380,6 +380,7 @@ one ubershader (texture functions, fog, alpha test, depth range) and fixed-funct
   Limits: the cost of an in-between picture grows with the geometry of the scene, so 180 fps is not sustained in the
   heaviest areas; the output has no vsync yet, so a monitor whose refresh differs from the target may show uneven
   pacing or tearing.
+- *Widescreen* (enhancement, off by default; `--widescreen`, the Video tab changes it while playing; 2026-11-11): in a window wider than 480:272 the game draws its 3D at the window's shape (up to 32:9; the camera hooks in `06-mhfu-module.md` §9) and a picture with 3D in it is stretched to the window. 2D drawn over such a picture is narrowed by as much, so it keeps its shape: the quest HUD toward the edge it sits at (the clock's layer to the left, the minimap and the item panel to the right, as `size_hud` places them), everything else toward the middle; what covers the whole screen (fades, backgrounds) is stretched with the picture. A narrowed draw is filtered and its texture coordinates pulled in by half a texel, as a sized HUD piece. A screen without 3D (menus, movies, loading) is shown at 480:272. The hunting horn's songs are drawn over the stretched picture, by the HUD at the left edge (top middle and the player's own spot stay around the middle). The in-game menu and the system dialogs keep 480:272. A window no wider than 480:272 and the software renderer change nothing. Name tags over hunters are 2D placed by the game where the head is: they are narrowed toward the middle like other 2D, so a hunter far from the middle of the screen has its tag a little off its head. Debugging: `MHF_WINDOW_SIZE=2560x1080` opens the window at that size and `MHF_WINDOW_HIDDEN=1` keeps it hidden (with `MHF_GL_DUMP`, wide pictures can be checked without a wide screen).
 - *Projected shadows* (enhancement, off by default; `--projected-shadows` or `MHF_SHADOW=1` turns them on): the hunter,
   the monsters and, with Whole map shadows, the scenery cast shadows from the game's own light, and sides turned away from
   it go dark. The Video tab of the in-game menu turns them on and off and sets Whole map shadows (`--no-whole-map-shadows`),
@@ -401,7 +402,7 @@ Remaining components for a fuller hardware backend (Vulkan or extending this one
 4. **Texture cache**: by address + format + CLUT + hash; deswizzle; CLUT shift/mask; DXT.
 5. **Framebuffer manager**: each GE framebuffer ↔ a Vulkan image; detect textures reading a framebuffer (render-to-texture), copies
    to/from RAM, depth reads. The hardest part; start with what FU needs.
-6. **Scaling**: internal resolution ×N; widescreen (enhancement) later.
+6. **Scaling**: internal resolution ×N; widescreen as an enhancement (done, 2026-11-11: see the GL backend).
 
 Behavior references: PPSSPP docs, ACX recomp's `runtime/gpu` (respect its license).
 

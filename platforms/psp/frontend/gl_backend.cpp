@@ -651,6 +651,9 @@ struct DrawSetup {
     std::uint32_t largest_draw{}; // triangles of the largest single draw in the batch
     float hud[3]{1, 0, 0};  // HUD size: the scale of a 2D draw and the point it shrinks toward (its scissor follows)
     bool hud_clamp{};       // and its texture coordinates stay inside the texture (no repeating pattern)
+    // Widescreen: a 2D draw over a widened 3D picture, narrowed by wide[0] (1 / the stretch) toward x = wide[1] (the
+    // left edge, the middle or the right edge), so that it keeps its shape once the picture is stretched to the window.
+    float wide[2]{1, 240};
 };
 
 // The camera a vertex was placed with: view and projection matrices, viewport and screen offset.
@@ -1176,6 +1179,17 @@ private:
     bool redraw_only_ = false; // show() draws the same picture again (tick with nothing new): the blur can be kept
     GLuint last_texture_{}; // the picture shown last, kept on screen while the game is paused behind an overlay
     float last_uv_[2] = {1.0f, 1.0f};
+    // Widescreen (LiveSettings::wide_aspect): this flip's stretch (the window's shape over the PSP's 480:272, 1: none),
+    // whether 3D was drawn on a shown screen yet this flip (2D drawn after it is narrowed, see size_hud), and the shape
+    // the picture being shown is drawn at: stretched when it holds 3D, 480:272 otherwise (menus, movies, loading).
+    float frame_stretch_ = 1.0f;
+    bool frame_has_3d_ = false;
+    bool last_flip_had_3d_ = false; // the flip before: 2D drawn before this flip's 3D (a title over a model) follows it
+    float picture_aspect_ = 480.0f / 272.0f;
+    void update_stretch() {
+        const float aspect = live_->wide_aspect.load(std::memory_order_relaxed);
+        frame_stretch_ = aspect > 480.0f / 272.0f ? aspect / (480.0f / 272.0f) : 1.0f;
+    }
     std::chrono::steady_clock::time_point last_show_{};
     GLuint overlay_program_{}, overlay_texture_{};
     GLint overlay_tex_{}, overlay_alpha_{}, overlay_uv_max_{};
@@ -1350,6 +1364,7 @@ private:
         GLuint final_texture{};
         ShadowPass shadow; // the shadows of this flip's picture, for the in-between ones
         float uv_max[2]{1, 1};
+        float aspect = 480.0f / 272.0f; // the shape its pictures are shown at (widescreen)
     } flip_;
     // The flip being shown, in time: in-between pictures go out as often as the drawing thread can, at most one per
     // step (the chosen rate), each one placed where things are at the moment it is drawn; there is no fixed slot a
@@ -3707,9 +3722,10 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
         // 2D art drawn smaller than its pixels would shimmer if left nearest; filtered, a texture set to repeat would
         // also blend in its opposite edge (a faint frame around the minimap), so a sized draw that stays inside its
         // texture clamps. One that repeats it (the dotted line under a menu's title) has to keep repeating.
-        if (setup.hud[0] < 1.0f) linear = true;
+        const bool resized = setup.hud[0] < 1.0f || setup.wide[0] < 1.0f;
+        if (resized) linear = true;
         if (setup.texture_filter != 0) linear = setup.texture_filter == 2; // a texture pack's [filtering]
-        const bool clamp = setup.hud[0] < 1.0f && setup.hud_clamp;
+        const bool clamp = resized && setup.hud_clamp;
         set_texture_params(linear, clamp || (R(kTexWrap) & 1u) != 0, clamp || (R(kTexWrap) & 0x100u) != 0, setup.texture_mips);
     }
 
@@ -3719,12 +3735,12 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
     const std::uint32_t x2 = std::min(sx2, rt.width - 1u), y2 = std::min(sy2, rt.height - 1u);
     if (sx1 > x2 || sy1 > y2) {
         gl_.Scissor(0, 0, 0, 0);
-    } else if (setup.hud[0] != 1.0f) { // a sized 2D draw: its scissor shrinks with it, toward the same point
-        const auto at = [&](float p, float anchor) {
-            return static_cast<GLint>(std::lround((anchor + (p - anchor) * setup.hud[0]) * static_cast<float>(scale_)));
-        };
-        const GLint left = at(static_cast<float>(sx1), setup.hud[1]), top = at(static_cast<float>(sy1), setup.hud[2]);
-        const GLint right = at(static_cast<float>(x2 + 1u), setup.hud[1]), bottom = at(static_cast<float>(y2 + 1u), setup.hud[2]);
+    } else if (setup.hud[0] != 1.0f || setup.wide[0] != 1.0f) { // a sized 2D draw: its scissor shrinks with it, toward the same point
+        const auto at = [&](float p, float anchor) { return anchor + (p - anchor) * setup.hud[0]; };
+        const auto px = [&](float p) { return static_cast<GLint>(std::lround(p * static_cast<float>(scale_))); };
+        const auto across = [&](float p) { return px(setup.wide[1] + (at(p, setup.hud[1]) - setup.wide[1]) * setup.wide[0]); };
+        const GLint left = across(static_cast<float>(sx1)), top = px(at(static_cast<float>(sy1), setup.hud[2]));
+        const GLint right = across(static_cast<float>(x2 + 1u)), bottom = px(at(static_cast<float>(y2 + 1u), setup.hud[2]));
         gl_.Scissor(left, top, std::max(0, right - left), std::max(0, bottom - top));
     } else {
         gl_.Scissor(static_cast<GLint>(sx1) * scale_, static_cast<GLint>(sy1) * scale_,
@@ -3856,8 +3872,9 @@ void GlBackend::draw_batch() {
     if (batch_.empty() && raw_batch_.empty()) return;
     if (setup_.through && !batch_.empty()) {
         size_hud();
-    } else if (hud_log_flip_ && hud_drawn_ != 0 && !batch_.empty() && shown_target(setup_.target)) {
-        ++hud_3d_after_;
+    } else if (!batch_.empty() && shown_target(setup_.target)) {
+        if (hud_log_flip_ && hud_drawn_ != 0) ++hud_3d_after_;
+        if ((key_reg(setup_.key, kClearMode) & 1u) == 0) frame_has_3d_ = true; // widescreen: this flip shows 3D
     }
     if (interpolate_) {
         if (tape_.size() >= 20000) { // a game that never flips: do not keep everything
@@ -3982,8 +3999,9 @@ template <typename Box> bool hud_over(const Box &b, const Box &panel) {
 
 // HUD size for the 2D batch about to be drawn: places it (see above), then sizes its vertices and its scissor.
 void GlBackend::size_hud() {
-    const bool was_sized = setup_.hud[0] != 1.0f; // the state of a previous batch with the same registers
+    const bool was_sized = setup_.hud[0] != 1.0f || setup_.wide[0] != 1.0f; // the state of a previous batch with the same registers
     setup_.hud[0] = 1.0f;
+    setup_.wide[0] = 1.0f;
     HudBox box{1e9f, 1e9f, -1e9f, -1e9f};
     for (const GpuVertex &v : batch_) {
         box.x1 = std::min(box.x1, v.x);
@@ -4060,12 +4078,23 @@ void GlBackend::size_hud() {
         else std::fprintf(stderr, "%s\n", what);
     }
     const int size = live_->hud_size.load(std::memory_order_relaxed);
-    if (skip == nullptr && sized && size > 0 && size < 100) {
-        const float s = static_cast<float>(size) / 100.0f;
+    const float s = skip == nullptr && sized && size > 0 && size < 100 ? static_cast<float>(size) / 100.0f : 1.0f;
+    // Widescreen: over a 3D picture that will be stretched to the window, 2D is narrowed by as much, so it keeps its
+    // shape. The quest HUD goes to the edge it sits at (the clock's layer to the left, the minimap and the item panel
+    // to the right), everything else toward the middle. What covers the whole screen (fades, backgrounds) is stretched
+    // with the picture, and so is all 2D on screens without 3D (menus, which are then shown at the PSP's shape).
+    float narrow = 1.0f, toward = 240.0f;
+    if (skip == nullptr && (frame_has_3d_ || last_flip_had_3d_) && frame_stretch_ > 1.0f) {
+        narrow = 1.0f / frame_stretch_;
+        if (what[0] == 'h') toward = 0.0f;                          // health: the clock's layer
+        else if (what[0] == 'm' || what[0] == 'i') toward = 480.0f; // minimap, items, items (cursor)
+    }
+    if (s < 1.0f || narrow < 1.0f) {
         bool inside = true; // texture coordinates (through mode: 0..1 across the texture)
         for (GpuVertex &v : batch_) {
             v.x = ax + (v.x - ax) * s;
             v.y = ay + (v.y - ay) * s;
+            v.x = toward + (v.x - toward) * narrow;
             inside = inside && v.u >= -1e-3f && v.u <= 1.001f && v.v >= -1e-3f && v.v <= 1.001f;
         }
         // A sized piece is drawn filtered (emit_state): at its edges the filter would take half a texel from outside
@@ -4088,9 +4117,11 @@ void GlBackend::size_hud() {
         setup_.hud[0] = s;
         setup_.hud[1] = ax;
         setup_.hud[2] = ay;
+        setup_.wide[0] = narrow;
+        setup_.wide[1] = toward;
         setup_.hud_clamp = inside;
     }
-    if (current_ != nullptr && (was_sized || setup_.hud[0] != 1.0f)) emit_state(setup_, *current_);
+    if (current_ != nullptr && (was_sized || setup_.hud[0] != 1.0f || setup_.wide[0] != 1.0f)) emit_state(setup_, *current_);
 }
 
 // At the flip: the next flip's 2D draws start the HUD's run again.
@@ -4289,6 +4320,8 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
         }
     }
 
+    // Widescreen: a picture with 3D in it is stretched to the window's shape; the rest keeps the PSP's.
+    picture_aspect_ = drawn != nullptr && frame_has_3d_ ? 480.0f / 272.0f * frame_stretch_ : 480.0f / 272.0f;
     if (interpolate_) {
         if (drawn == nullptr || !present_interpolated(*drawn, uv_max)) show(texture, uv_max[0], uv_max[1]);
         if (drawn == nullptr) previous_valid_ = false;
@@ -4367,7 +4400,8 @@ void GlBackend::copy_shown_to_vram(RenderTarget *shown) {
     have_state_ = false;
 }
 
-// Puts a picture on the window: letterboxed to the PSP's 480:272, with the dialog overlay on top.
+// Puts a picture on the window: letterboxed to the PSP's 480:272 (or stretched wider, widescreen), with the dialog
+// overlay on top, which always keeps the PSP's shape.
 void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
     const auto show_start = std::chrono::steady_clock::now();
     last_texture_ = texture;
@@ -4394,10 +4428,11 @@ void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
         have_state_ = false;
     } else if (texture != 0 && window_w > 0 && window_h > 0) {
         blur_ready_ = false;
-        int w = window_w, h = window_w * 272 / 480;
+        // At the picture's shape: the PSP's 480:272, or wider for a 3D picture with widescreen on (picture_aspect_).
+        int w = window_w, h = static_cast<int>(std::lround(static_cast<float>(window_w) / picture_aspect_));
         if (h > window_h) {
             h = window_h;
-            w = window_h * 480 / 272;
+            w = static_cast<int>(std::lround(static_cast<float>(window_h) * picture_aspect_));
         }
         gl_.Viewport((window_w - w) / 2, (window_h - h) / 2, w, h);
         gl_.Disable(GL_DEPTH_TEST);
@@ -4412,10 +4447,15 @@ void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
         gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
     if (window_w > 0 && window_h > 0) {
-        int w = window_w, h = window_w * 272 / 480;
+        float overlay_aspect = 480.0f / 272.0f;
+        if (overlay_ != nullptr) {
+            std::lock_guard lock(overlay_->mutex);
+            if (overlay_->aspect > 0.0f) overlay_aspect = overlay_->aspect;
+        }
+        int w = window_w, h = static_cast<int>(std::lround(static_cast<float>(window_w) / overlay_aspect));
         if (h > window_h) {
             h = window_h;
-            w = window_h * 480 / 272;
+            w = static_cast<int>(std::lround(static_cast<float>(window_h) * overlay_aspect));
         }
         gl_.Viewport((window_w - w) / 2, (window_h - h) / 2, w, h);
         draw_overlay();
@@ -4433,6 +4473,9 @@ void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
 void GlBackend::finish_flip() {
     finish_hud_flip();
     ++frame_;
+    last_flip_had_3d_ = frame_has_3d_;
+    frame_has_3d_ = false;
+    update_stretch(); // the next flip's (the window or the setting may have changed)
     hud_log_flip_ = hud_log_ && frame_ % hud_log_every_ == 0;
     tape_.clear();
     touched_.clear();
@@ -5339,6 +5382,7 @@ float GlBackend::phase_at(std::chrono::steady_clock::time_point when) const {
 
 void GlBackend::show_final() {
     pacing_.active = false;
+    picture_aspect_ = flip_.aspect;
     show(flip_.final_texture, flip_.uv_max[0], flip_.uv_max[1]);
 }
 
@@ -5350,6 +5394,7 @@ void GlBackend::show_between(float phase) {
     shown.stride = flip_.stride;
     shown.format = flip_.format;
     render_between(shown, *flip_.now, flip_.before, slots_[flip_.before_slot], phase);
+    picture_aspect_ = flip_.aspect;
     show(scratch_.color, flip_.uv_max[0], flip_.uv_max[1]);
 }
 
@@ -5583,6 +5628,7 @@ bool GlBackend::present_interpolated(RenderTarget &shown, const float uv_max[2])
         flip_.shadow.valid = shadow_pass_.valid && shadow_done_frame_ == frame_ && shadow_pass_.address == shown.address;
         flip_.uv_max[0] = uv_max[0];
         flip_.uv_max[1] = uv_max[1];
+        flip_.aspect = picture_aspect_;
         pacing_.active = true;
         pacing_.start = now;
         pacing_.interval = interval;

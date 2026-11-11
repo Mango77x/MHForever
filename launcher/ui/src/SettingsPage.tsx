@@ -540,6 +540,10 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           <Toggle on={s.fullscreen} onToggle={() => onChange({ fullscreen: !s.fullscreen })} label="Fullscreen" />
         </div>
         <div className="srow">
+          <div className="slabel"><b>Widescreen</b><span>Fills wide windows and screens with a wider view.</span></div>
+          <Toggle on={!!s.widescreen} onToggle={() => onChange({ widescreen: !s.widescreen })} label="Widescreen" />
+        </div>
+        <div className="srow">
           <div className="slabel"><b>Smooth texture filtering</b><span>Applies bilinear filtering to the game's textures.</span></div>
           <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
         </div>

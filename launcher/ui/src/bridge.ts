@@ -24,6 +24,7 @@ export interface Settings {
   smoothTextures: boolean;
   packMipmaps?: boolean; // texture packs: mip levels made for images that ship none (softer at a distance, no shimmer)
   anisotropy?: number; // texture packs: anisotropic filtering, 1 (off), 2, 4, 8 or 16
+  widescreen?: boolean; // the 3D fills a window wider than the PSP's screen, 2D keeps its shape
   fps: number; // 30..180, a multiple of 30
   hudSize?: number; // the quest HUD's size in percent, 50..100 in steps of 10
   trueWeaponValues: boolean; // menus show attack and element without the game's display multipliers
@@ -228,7 +229,7 @@ function simulated(): Native {
     friends: [],
     blocked: [],
     settings: {
-      scale: 4, fullscreen: false, smoothTextures: false, packMipmaps: false, anisotropy: 16, fps: 30, hudSize: 100, trueWeaponValues: false, fastSupplyBox: false,
+      scale: 4, fullscreen: false, smoothTextures: false, packMipmaps: false, anisotropy: 16, widescreen: false, fps: 30, hudSize: 100, trueWeaponValues: false, fastSupplyBox: false,
       smithyBrowse: false, smithyLayout: false, analogCamera: false, analogCameraTurnSpeed: 100, analogCameraTiltSpeed: 100, mouseCamera: false, mouseCameraSpeed: 100,
       hornSongs: false, hornSongsPlace: 'next-to-sheet', language: '', copyImage: false, musicVolume: 80, sfxVolume: 90,
       keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '', adhocRoom: '', checkUpdates: true,

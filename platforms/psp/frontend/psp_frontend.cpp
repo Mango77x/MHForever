@@ -157,6 +157,7 @@ struct Frontend::Impl {
         overlay::SongSpot spot;
         int hud_size{}, width{}, height{};
         bool placing{};
+        float aspect{}; // widescreen: the stretched picture's shape (0: the PSP's)
         bool operator==(const SongsView &) const = default;
     };
     std::optional<overlay::SongSpot> song_spot; // where the player wants them (std::nullopt: the songs are off)
@@ -165,6 +166,7 @@ struct Frontend::Impl {
     std::vector<Frontend::GameOption> game_options; // add_game_option: the Game tab's options of the game
     std::function<bool()> mouse_look;               // set_mouse_look
     bool hud_size_changed{}; // the Video tab changed the HUD's size: the controls file keeps it
+    bool widescreen_known{}; // widescreen came from the launcher or the Video tab changed it: the controls file keeps it
     bool pack_filter_changed{}; // the Video tab changed the texture pack's mipmaps or anisotropic filtering: kept too
     bool shadows_known{}; // the shadows' settings came from the launcher or the Video tab changed them: the controls file keeps them
     std::optional<overlay::SongPanel> songs;
@@ -214,6 +216,7 @@ struct Frontend::Impl {
                     if (!menu_open && !dialog_visible && (!down || overlay_owner == OverlayOwner::notice)) {
                         overlay.pixels = std::move(pixels);
                         overlay.width = width;
+                        overlay.aspect = 0.0f;
                         overlay.height = height;
                         overlay.visible = !down;
                         overlay_owner = down ? OverlayOwner::none : OverlayOwner::notice;
@@ -229,7 +232,13 @@ struct Frontend::Impl {
                     std::vector<std::uint32_t> pixels;
                     if (songs_view) {
                         if (!menu_renderer) menu_renderer = std::make_unique<overlay::MenuRenderer>(font_directory);
-                        const SongAnchor a = song_anchor(songs_view->spot, songs_view->hud_size);
+                        SongAnchor a = song_anchor(songs_view->spot, songs_view->hud_size);
+                        // Widescreen: the canvas is wider than 480. The spots by the HUD keep their distance from the left
+                        // edge (the HUD moved there); the middle and the player's own spot move with the middle.
+                        const auto place = songs_view->spot.place;
+                        if (songs_view->aspect > 0.0f && (place == overlay::SongPlace::top_middle || place == overlay::SongPlace::custom)) {
+                            a.x += (272.0f * songs_view->aspect - 480.0f) * 0.5f;
+                        }
                         menu_renderer->render_song_panel(songs_view->panel, a.x, a.y, a.ax, a.ay, songs_view->width, songs_view->height,
                                                          pixels, songs_view->placing);
                     }
@@ -238,6 +247,7 @@ struct Frontend::Impl {
                     if (!menu_open && !dialog_visible && free) {
                         overlay.pixels = std::move(pixels);
                         overlay.width = songs_view ? songs_view->width : 0;
+                        overlay.aspect = songs_view ? songs_view->aspect : 0.0f;
                         overlay.height = songs_view ? songs_view->height : 0;
                         overlay.visible = songs_view.has_value();
                         overlay_owner = songs_view ? OverlayOwner::songs : OverlayOwner::none;
@@ -267,6 +277,7 @@ struct Frontend::Impl {
                 if (menu_open) { // the menu may have been closed while this was drawn
                     overlay.pixels = std::move(pixels);
                     overlay.width = width;
+                    overlay.aspect = 0.0f;
                     overlay.height = height;
                     if (!overlay.visible) overlay.visible = true;
                     overlay_owner = OverlayOwner::menu;
@@ -288,6 +299,7 @@ struct Frontend::Impl {
                 std::lock_guard lock(overlay.mutex);
                 overlay.pixels = std::move(pixels);
                 overlay.width = width;
+                overlay.aspect = 0.0f;
                 overlay.height = height;
                 overlay.visible = visible;
                 overlay_owner = visible ? OverlayOwner::dialog : OverlayOwner::none;
@@ -359,6 +371,13 @@ void Frontend::set_shadow_zones(std::vector<std::string> names, std::vector<std:
 }
 
 void Frontend::set_hud(int size) { impl_->live.hud_size = std::clamp(size, 50, 100); }
+
+void Frontend::set_widescreen(bool on) {
+    impl_->live.widescreen = on;
+    impl_->widescreen_known = true;
+}
+
+float Frontend::game_aspect() const { return impl_->live.wide_aspect.load(std::memory_order_relaxed); }
 
 void Frontend::set_shadows(bool on, bool whole_map, int quality, int darkness) {
     impl_->live.shadow = on;
@@ -555,22 +574,35 @@ void show_songs(Frontend::Impl &impl, Runtime &rt) {
         spot = *impl.song_spot;
     }
     int width = 0, height = 0;
+    // Widescreen: over the stretched picture, so that they stay by the quest HUD at the window's edge.
+    const float aspect = impl.live.wide_aspect.load(std::memory_order_relaxed);
     if (panel != nullptr) {
         std::lock_guard lock(impl.dialog_mutex);
         shown_size(impl.host, impl.overlay_pixel_w, impl.overlay_pixel_h);
         width = impl.overlay_pixel_w;
         height = impl.overlay_pixel_h;
+        if (aspect > 0.0f) {
+            int pixel_w = 0, pixel_h = 0;
+            impl.host.window_pixel_size(pixel_w, pixel_h);
+            width = pixel_w;
+            height = static_cast<int>(std::lround(static_cast<float>(pixel_w) / aspect));
+            if (height > pixel_h) {
+                height = pixel_h;
+                width = static_cast<int>(std::lround(static_cast<float>(pixel_h) * aspect));
+            }
+        }
     }
     const int hud_size = impl.live.hud_size.load();
     const auto &shown = impl.songs_shown;
     const bool same = panel == nullptr ? !shown
                                        : shown && shown->panel == *panel && shown->spot == spot && shown->hud_size == hud_size &&
-                                             shown->width == width && shown->height == height && shown->placing == impl.song_placing;
+                                             shown->width == width && shown->height == height && shown->placing == impl.song_placing &&
+                                             shown->aspect == aspect;
     // Asked again when the screen lost them to something that is gone now (the overlay is free).
     const bool lost = panel != nullptr && impl.overlay_owner == Owner::none;
     if (same && !lost) return;
     std::optional<Frontend::Impl::SongsView> want;
-    if (panel != nullptr) want = Frontend::Impl::SongsView{*panel, spot, hud_size, width, height, impl.song_placing};
+    if (panel != nullptr) want = Frontend::Impl::SongsView{*panel, spot, hud_size, width, height, impl.song_placing, aspect};
     {
         std::lock_guard lock(impl.dialog_mutex);
         if (same && impl.songs_pending) return; // lost, but asked again already and not drawn yet
@@ -625,7 +657,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kHudSize, kSongPlace, kSongMove, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn, kPackMipmaps, kAnisotropy, kShadow, kShadowStrength, kShadowWholeMap, kShadowQuality
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn, kPackMipmaps, kAnisotropy, kShadow, kShadowStrength, kShadowWholeMap, kShadowQuality, kWidescreen
 };
 constexpr int kGameOptionBase = 3000; // the Game tab's options of the game: kGameOptionBase + an index into Impl::game_options
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
@@ -944,6 +976,11 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
                                       menu_item(Kind::Toggle, kFullscreen, "Fullscreen", impl.host.window_rect().fullscreen ? 1 : 0),
                                       menu_item(Kind::Toggle, kSmooth, "Smooth textures", impl.live.smooth_textures ? 1 : 0)},
                            "Changes apply immediately."};
+    if (impl.gpu_state == 1) { // the GPU renderer stretches the picture; the software one draws the PSP's screen as it is
+        overlay::MenuItem wide = menu_item(Kind::Toggle, kWidescreen, "Widescreen", impl.live.widescreen ? 1 : 0);
+        wide.detail = "Fills wide windows and screens with a wider view.";
+        video.items.push_back(wide);
+    }
     if (!impl.live.texture_pack_folder.empty()) {
         overlay::MenuItem pack = menu_item(Kind::Toggle, kTexturePack, "Texture pack", impl.live.texture_pack ? 1 : 0);
         pack.detail = "Replaces the game's textures with the selected pack.";
@@ -1035,6 +1072,7 @@ void save_controls(const Frontend::Impl &impl) {
         if (impl.song_spot) out << "horn-songs-place=" << overlay::format_song_spot(*impl.song_spot) << "\n";
         if (impl.songs_offered) out << "horn-songs=" << (impl.songs_on ? "true" : "false") << "\n";
         if (impl.hud_size_changed) out << "hud-size=" << impl.live.hud_size.load() << "\n";
+        if (impl.widescreen_known) out << "option.widescreen=" << (impl.live.widescreen ? "true" : "false") << "\n";
         if (impl.pack_filter_changed) {
             out << "option.packMipmaps=" << (impl.live.texture_pack_mipmaps ? "true" : "false") << "\n";
             out << "option.anisotropy=" << impl.live.texture_pack_anisotropy.load() << "\n";
@@ -1408,6 +1446,11 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             impl.live.shadow_quality = std::clamp(e.value, 0, 2);
             impl.shadows_known = true;
             save_controls(impl);
+            break;
+        case kWidescreen:
+            impl.live.widescreen = e.value != 0;
+            impl.widescreen_known = true;
+            save_controls(impl); // the launcher keeps it for the next time
             break;
         case kHudSize:
             if (e.value >= 0 && e.value < static_cast<int>(std::size(kHudSizes))) {
@@ -1872,6 +1915,18 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
             if (!impl->host.poll()) {
                 runtime->exit_program_from_host(0);
                 return;
+            }
+            // Widescreen: the shape the game draws its 3D at, the window's (from the PSP's 480:272 up to 32:9). Only the
+            // GPU renderer stretches the picture; a window narrower than 480:272 keeps the game as it is.
+            {
+                float aspect = 0.0f;
+                int pixel_w = 0, pixel_h = 0;
+                impl->host.window_pixel_size(pixel_w, pixel_h);
+                if (impl->live.widescreen.load(std::memory_order_relaxed) && impl->gpu_state == 1 && pixel_w > 0 && pixel_h > 0) {
+                    const float window = static_cast<float>(pixel_w) / static_cast<float>(pixel_h);
+                    if (window > 480.0f / 272.0f * 1.01f) aspect = std::min(window, 32.0f / 9.0f);
+                }
+                impl->live.wide_aspect.store(aspect, std::memory_order_relaxed);
             }
             const host::GamepadState pad = impl->host.input();
             // Mouse look holds the mouse only while the game has the input: a menu, a system dialog or moving the
