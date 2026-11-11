@@ -448,9 +448,12 @@ int main(int argc, char **argv) {
         {
             std::ofstream(l.controls_file()) << "horn-songs=true\nhud-size=70\noption.fastSupplyBox=true\noption.analogCamera=true\n"
                                              << "option.analogCameraTurnSpeed=140\noption.analogCameraTiltSpeed=999\n"
-                                             << "option.trueWeaponValues=maybe\noption.copyImage=true\n";
+                                             << "option.trueWeaponValues=maybe\noption.copyImage=true\n"
+                                             << "option.packMipmaps=true\noption.anisotropy=8\n";
         }
         l.import_game_controls();
+        CHECK(l.state()["settings"]["packMipmaps"].as_bool()); // the texture pack filtering from the Video tab
+        CHECK(l.state()["settings"]["anisotropy"].as_number() == 8);
         CHECK(l.state()["settings"]["hornSongs"].as_bool());
         CHECK(l.state()["settings"]["hudSize"].as_number() == 70);
         CHECK(l.state()["settings"]["fastSupplyBox"].as_bool());

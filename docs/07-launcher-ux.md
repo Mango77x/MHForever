@@ -109,7 +109,8 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   default: images are drawn as PPSSPP draws them, sharp far away with some shimmer; on, mip levels are made for images
   that ship none, softer far away without shimmer; passed as `--pack-mipmaps`) and **Anisotropic filtering**
   (`anisotropy`: Off, 2x, 4x, 8x or 16x, 16x by default; passed as `--anisotropy N` when not 16). Both go to the game
-  with the pack only.
+  with the pack only; the in-game menu's Video tab changes both while playing (mipmaps upload the pack's images
+  again) and the launcher keeps what was chosen there (`option.packMipmaps`, `option.anisotropy` in the controls file).
 - **HUD scale (2026-11-02)**: **Game settings → Video → HUD scale** (100% down to 50%, steps of 10; `hudSize` per copy,
   passed as `--hud-size`) shrinks the hunting HUD into its corners; the in-game menu's Video tab has the same choice for the
   session. Only the quest HUD is sized: scaling the menus was tried and dropped (`05-runtime-hle.md`, HUD scale).

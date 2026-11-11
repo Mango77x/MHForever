@@ -44,10 +44,10 @@ struct LiveSettings {
     // the pack's folder (empty: none, or MHF_TEXTURE_PACK) and the release it is drawn for ("ULES01213").
     std::atomic<bool> texture_pack{true};
     std::string texture_pack_folder, texture_pack_game;
-    // Its filtering, also set before the backend is made: mip levels made for images that ship none (softer far away,
-    // no shimmer; off draws them as PPSSPP does), and the anisotropic filtering of its images, 1 (off) to 16.
-    bool texture_pack_mipmaps = false;
-    int texture_pack_anisotropy = 16;
+    // Its filtering, changed in the menu while the game runs: mip levels made for images that ship none (softer far
+    // away, no shimmer; off draws them as PPSSPP does), and the anisotropic filtering of its images, 1 (off) to 16.
+    std::atomic<bool> texture_pack_mipmaps{false};
+    std::atomic<int> texture_pack_anisotropy{16};
     // HUD size in percent (100: as the game draws it): in quests, the HUD shrinks into the corners it sits in.
     std::atomic<int> hud_size{100};
     // Written by the drawing thread at every flip: that flip drew the quest HUD (its clock). The hunting horn's song

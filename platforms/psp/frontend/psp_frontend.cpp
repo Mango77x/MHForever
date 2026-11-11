@@ -165,6 +165,7 @@ struct Frontend::Impl {
     std::vector<Frontend::GameOption> game_options; // add_game_option: the Game tab's options of the game
     std::function<bool()> mouse_look;               // set_mouse_look
     bool hud_size_changed{}; // the Video tab changed the HUD's size: the controls file keeps it
+    bool pack_filter_changed{}; // the Video tab changed the texture pack's mipmaps or anisotropic filtering: kept too
     std::optional<overlay::SongPanel> songs;
     std::optional<overlay::SongPanel> songs_seen; // the last songs the host gave, for moving them from the menu
     // Moving the songs (the Game tab's "Move them anywhere"): where the card's top left corner is now, and the mouse's
@@ -600,7 +601,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kHudSize, kSongPlace, kSongMove, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn, kPackMipmaps, kAnisotropy
 };
 constexpr int kGameOptionBase = 3000; // the Game tab's options of the game: kGameOptionBase + an index into Impl::game_options
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
@@ -688,6 +689,7 @@ constexpr std::string_view kStickChoices[] = {"left", "right", ""};
 constexpr int kMaxScale = 10;                 // 1x..10x the PSP's 480x272
 constexpr int kFpsChoices[] = {30, 60, 90, 120, 150, 180}; // whole multiples of the game's 30 fps
 constexpr int kHudSizes[] = {100, 90, 80, 70, 60, 50};      // percent of the size the game draws its HUD at
+constexpr int kAnisotropyLevels[] = {1, 2, 4, 8, 16};       // a texture pack's anisotropic filtering, 1 being off
 
 // The on-screen keyboard for a friend's room code (with a controller): these characters, then Delete and Join.
 constexpr std::string_view kCodeAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"; // Crockford base32, as room codes
@@ -922,6 +924,16 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         overlay::MenuItem pack = menu_item(Kind::Toggle, kTexturePack, "Texture pack", impl.live.texture_pack ? 1 : 0);
         pack.detail = "Off draws the game's own textures again.";
         video.items.push_back(pack);
+        overlay::MenuItem mips = menu_item(Kind::Toggle, kPackMipmaps, "Texture pack mipmaps", impl.live.texture_pack_mipmaps ? 1 : 0);
+        mips.detail = "On: softer far away, no shimmer. Off: as sharp as in PPSSPP.";
+        video.items.push_back(mips);
+        overlay::MenuItem aniso = menu_item(Kind::Choice, kAnisotropy, "Anisotropic filtering");
+        for (std::size_t i = 0; i < std::size(kAnisotropyLevels); ++i) {
+            aniso.options.push_back(kAnisotropyLevels[i] == 1 ? std::string("Off") : std::to_string(kAnisotropyLevels[i]) + "x");
+            if (kAnisotropyLevels[i] <= impl.live.texture_pack_anisotropy) aniso.value = static_cast<int>(i);
+        }
+        aniso.detail = "Keeps the pack's ground and walls sharp at a slant. Needs mipmaps, made or the pack's own.";
+        video.items.push_back(aniso);
     }
     overlay::MenuItem hud = menu_item(Kind::Choice, kHudSize, "HUD scale");
     for (std::size_t i = 0; i < std::size(kHudSizes); ++i) {
@@ -981,6 +993,10 @@ void save_controls(const Frontend::Impl &impl) {
         if (impl.song_spot) out << "horn-songs-place=" << overlay::format_song_spot(*impl.song_spot) << "\n";
         if (impl.songs_offered) out << "horn-songs=" << (impl.songs_on ? "true" : "false") << "\n";
         if (impl.hud_size_changed) out << "hud-size=" << impl.live.hud_size.load() << "\n";
+        if (impl.pack_filter_changed) {
+            out << "option.packMipmaps=" << (impl.live.texture_pack_mipmaps ? "true" : "false") << "\n";
+            out << "option.anisotropy=" << impl.live.texture_pack_anisotropy.load() << "\n";
+        }
         for (const Frontend::GameOption &o : impl.game_options) {
             out << "option." << o.setting << "=";
             if (o.slider) out << o.value << "\n";
@@ -1309,6 +1325,18 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         case kFullscreen: impl.host.toggle_fullscreen(); break;
         case kSmooth: impl.live.smooth_textures = e.value != 0; break;
         case kTexturePack: impl.live.texture_pack = e.value != 0; break;
+        case kPackMipmaps:
+            impl.live.texture_pack_mipmaps = e.value != 0;
+            impl.pack_filter_changed = true;
+            save_controls(impl); // the launcher keeps it for the next time
+            break;
+        case kAnisotropy:
+            if (e.value >= 0 && e.value < static_cast<int>(std::size(kAnisotropyLevels))) {
+                impl.live.texture_pack_anisotropy = kAnisotropyLevels[e.value];
+                impl.pack_filter_changed = true;
+                save_controls(impl);
+            }
+            break;
         case kHudSize:
             if (e.value >= 0 && e.value < static_cast<int>(std::size(kHudSizes))) {
                 impl.live.hud_size = kHudSizes[e.value];

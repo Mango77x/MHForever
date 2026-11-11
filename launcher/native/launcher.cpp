@@ -902,7 +902,7 @@ void Launcher::import_game_controls() {
                 // the launcher's own names. Only these settings; apply_settings checks each value.
                 static constexpr std::string_view kGameOptions[] = {"trueWeaponValues", "fastSupplyBox", "analogCamera",
                                                                     "analogCameraTurnSpeed", "analogCameraTiltSpeed",
-                                                                    "mouseCamera", "mouseCameraSpeed"};
+                                                                    "mouseCamera", "mouseCameraSpeed", "packMipmaps", "anisotropy"};
                 const std::string setting = name == "horn-songs" ? "hornSongs" : name == "hud-size" ? "hudSize" : name.substr(7);
                 if (setting != "hornSongs" && setting != "hudSize" && std::ranges::find(kGameOptions, setting) == std::end(kGameOptions)) continue;
                 int value = 0;
