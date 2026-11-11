@@ -562,7 +562,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
             <PercentSlider id="camera-turn-speed" label="Analog camera turn speed" help="How fast a full push turns the camera. 100% is as fast as the d-pad." min={50} max={200} step={10} value={s.analogCameraTurnSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTurnSpeed: v })} />
             <PercentSlider id="camera-tilt-speed" label="Analog camera tilt speed" help="How fast a full push tilts the camera. At 100% it goes from the lowest view to the highest in about a second." min={50} max={200} step={10} value={s.analogCameraTiltSpeed ?? 100} onCommit={(v) => onChange({ analogCameraTiltSpeed: v })} />
             <div className="srow">
-              <div className="slabel"><b>Mouse camera</b><span>The mouse turns and tilts the camera too, while the game window holds it (its pointer is hidden). Escape lets the mouse go and opens the in-game menu.</span></div>
+              <div className="slabel"><b>Mouse camera</b><span>The mouse turns and tilts the camera too, and aims a bow or a bowgun, while the game window holds it (its pointer is hidden). Escape lets the mouse go and opens the in-game menu.</span></div>
               <Toggle on={s.mouseCamera ?? false} onToggle={() => onChange({ mouseCamera: !(s.mouseCamera ?? false) })} label="Mouse camera" />
             </div>
             {s.mouseCamera && (

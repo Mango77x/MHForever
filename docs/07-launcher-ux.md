@@ -123,7 +123,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   it smoothly from the game's lowest view to its highest; while it is on, **Analog camera turn speed** and **tilt speed**
   (`analogCameraTurnSpeed`, `analogCameraTiltSpeed`, 50% to 200% in steps of 10, passed as `--analog-camera-turn-speed`
   and `--analog-camera-tilt-speed` when not 100%) set how fast a full push goes, and **Mouse camera** (`mouseCamera`,
-  `--mouse-camera`, off by default: the mouse turns and tilts the camera too, held in the game window with its pointer
+  `--mouse-camera`, off by default: the mouse turns and tilts the camera, and aims a bow or a bowgun, held in the game window with its pointer
   hidden while the game has the input; the in-game menu, a system dialog or another window lets it go) with **Mouse
   sensitivity** (`mouseCameraSpeed`, 25% to 300% in steps of 25, `--mouse-camera-speed` when not 100%)):
   the game's options live there, Video keeps the picture's.

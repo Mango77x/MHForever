@@ -503,6 +503,64 @@ std::optional<std::uint32_t> g_tilt_preset_block; // where the curve's preset is
 // Otherwise a menu or a scene has the pad (the camera keeps only L, or nothing), and the stick leaves the camera alone
 // too. The right stick presses the d-pad as well (bowgun aiming reads it), but the camera takes only the d-pad's own
 // presses: a quick push would step its tilt level.
+// Mouse aiming (--mouse-camera, while aiming a bowgun or a bow). Aiming does not move the camera: the d-pad turns the
+// hunter's aim (the camera follows it) by 576 a frame and raises or lowers it by 5 a frame, from -100 to 100 (measured
+// 2026-11-11, EU). While the hunter aims, the camera does not take the whole pad (a0 is 0 in the camera's hook) and
+// the hunter's aim state is 5 (as it starts) or 10; then the mouse turns and raises the aim itself, a frame's
+// motion of kMousePixelsPerPush counting as a frame of the d-pad.
+constexpr std::uint32_t kGameSysPlayerSlot = 0x28;      // u8 in GameSys: the player slot this machine plays
+constexpr std::uint32_t kPlayerManagerPlayers = 0x0C;   // Player*[6] in the PlayerManager, by player slot
+constexpr std::uint32_t kPlayerAimYaw = 0x1F4;          // u16 in the Player: where the hunter faces and aims
+constexpr std::uint32_t kPlayerAimYawCopy = 0x320;      // u16: its copy, kept equal while aiming
+constexpr std::uint32_t kPlayerAimState = 0x11B0;       // u8: 5 as the aim starts, 10 while it holds
+constexpr std::uint32_t kPlayerAimHeight = 0x67E;       // s8: the aim's height, -100 (down) to 100 (up)
+constexpr float kAimTurnPerPush = 576.0f, kAimRaisePerPush = 5.0f;
+constexpr int kAimHeightMost = 100;
+float g_aim_turn_rest = 0.0f, g_aim_raise_rest = 0.0f;
+
+// The Player of the hunter on this machine, 0 when there is none (horn_songs.cpp local_player).
+std::uint32_t local_player(const psprecomp::GuestMemory &memory) {
+    if constexpr (region::mh_game_sys.has_value() && region::mh_player_manager.has_value()) {
+        const std::uint32_t sys = memory.load32(*region::mh_game_sys), manager = memory.load32(*region::mh_player_manager);
+        if (!memory.contains(sys + kGameSysPlayerSlot) || !memory.contains(manager + kPlayerManagerPlayers, 24)) return 0;
+        const std::uint32_t slot = memory.load8(sys + kGameSysPlayerSlot);
+        if (slot >= 6) return 0;
+        const std::uint32_t player = memory.load32(manager + kPlayerManagerPlayers + slot * 4);
+        return memory.contains(player, kPlayerAimState + 1) ? player : 0;
+    } else {
+        (void)memory;
+        return 0;
+    }
+}
+
+void mouse_aim(Runtime &rt, float dx, float dy) {
+    auto &memory = rt.memory();
+    const std::uint32_t player = local_player(memory);
+    const std::uint32_t state = player != 0 ? memory.load8(player + kPlayerAimState) : 0u;
+    if (state != 5u && state != 10u) { // 5 as the aim starts, 10 while it holds
+        g_aim_turn_rest = g_aim_raise_rest = 0.0f;
+        return;
+    }
+    const float speed = g_mouse_speed.load() / kMousePixelsPerPush;
+    // Left turns the aim up the angle, as the d-pad's Left; a turn and a raise too small for a whole step carry over.
+    const float turn = std::clamp(-dx * speed, -kMouseMostPush, kMouseMostPush) * kAimTurnPerPush + g_aim_turn_rest;
+    const long whole_turn = std::lround(turn);
+    g_aim_turn_rest = turn - static_cast<float>(whole_turn);
+    if (whole_turn != 0) {
+        const auto yaw = static_cast<std::uint16_t>(memory.load16(player + kPlayerAimYaw) + static_cast<std::uint16_t>(whole_turn));
+        memory.store16(player + kPlayerAimYaw, yaw);
+        memory.store16(player + kPlayerAimYawCopy, yaw);
+    }
+    const float raise = std::clamp(-dy * speed, -kMouseMostPush, kMouseMostPush) * kAimRaisePerPush + g_aim_raise_rest;
+    const long whole_raise = std::lround(raise);
+    g_aim_raise_rest = raise - static_cast<float>(whole_raise);
+    if (whole_raise != 0) {
+        const int height = std::clamp(static_cast<int>(static_cast<std::int8_t>(memory.load8(player + kPlayerAimHeight))) +
+                                          static_cast<int>(whole_raise), -kAimHeightMost, kAimHeightMost);
+        memory.store8(player + kPlayerAimHeight, static_cast<std::uint8_t>(static_cast<std::int8_t>(height)));
+    }
+}
+
 void on_camera_buttons_copied(Runtime &rt, Context &ctx) {
     g_camera_has_pad = g_analog_camera.load() && ctx.gpr[kRegA0] == 1u; // off: the stick is the d-pad, as on the PSP
     // The mouse's motion since the last frame. It is read every frame, so motion while a menu or a scene had the pad is
@@ -516,6 +574,8 @@ void on_camera_buttons_copied(Runtime &rt, Context &ctx) {
     g_mouse_dx = mouse ? static_cast<float>(dx) : 0.0f;
     g_mouse_dy = mouse ? static_cast<float>(dy) : 0.0f;
     if (!mouse) g_turn_rest = 0.0f;
+    // The camera does not have the pad: the hunter may be aiming, and then the mouse moves the aim.
+    if (g_analog_camera.load() && g_mouse_camera.load() && ctx.gpr[kRegA0] != 1u) mouse_aim(rt, static_cast<float>(dx), static_cast<float>(dy));
     if (!g_camera_has_pad) return;
     constexpr std::uint32_t kDpad =
         mhf::psp::buttons::kUp | mhf::psp::buttons::kDown | mhf::psp::buttons::kLeft | mhf::psp::buttons::kRight;
@@ -1022,7 +1082,7 @@ int main(int argc, char **argv) {
                                           true, percent(g_tilt_speed), 50, 200, 10, "analogCamera",
                                           [](int v) { g_tilt_speed = static_cast<float>(v) / 100.0f; }});
                 frontend.add_game_option({"mouseCamera", "Mouse camera",
-                                          "The mouse turns and tilts the camera too. Escape lets the mouse go.", false,
+                                          "The mouse turns and tilts the camera, and aims a bow or a bowgun. Escape lets the mouse go.", false,
                                           g_mouse_camera ? 1 : 0, 0, 1, 1, "analogCamera",
                                           [](int v) { g_mouse_camera = v != 0; }});
                 frontend.add_game_option({"mouseCameraSpeed", "Mouse sensitivity", "How far the camera moves for the same mouse motion.",
