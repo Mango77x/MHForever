@@ -181,7 +181,30 @@ int main() {
         const Matching &m = matcher.match(town(camera(0, 0, 0)), town(camera(3.0f, 0, -30.0f)), CutThresholds{});
         MHF_CHECK(m.cut == nullptr && m.camera_found);
         MHF_CHECK(std::fabs(m.camera_angle_degrees - 3.0f) < 0.05f && std::fabs(m.camera_distance - 30.0f) < 0.5f);
-        MHF_CHECK(m.camera_votes == 200u && m.camera_voters == 203u);
+        MHF_CHECK(m.camera_votes == 14u && m.camera_voters == 17u); // the square root of 200, and 3 more
+    }
+
+    // A house: the room drawn as four objects (887, 36, 30 and 12 draws) that move with the camera, and one object of 1144
+    // draws turning its own way (an effect stuck to the view). Counting every draw it would win 1144 to 965 and move the
+    // room off its path; weighing the square root of each, the room's motion wins.
+    {
+        Matcher matcher;
+        const auto house = [&](const Matrix &cam, const Matrix &spin) {
+            std::vector<DrawSummary> out;
+            std::uint32_t mesh = 0;
+            const std::uint32_t sizes[] = {887u, 36u, 30u, 12u};
+            for (std::uint32_t part = 0; part < 4u; ++part) {
+                const Matrix place = at(static_cast<float>(part) * 50.0f, 0.0f, -100.0f * static_cast<float>(part + 1));
+                for (std::uint32_t k = 0; k < sizes[part]; ++k) out.push_back(draw(0x08B00000u + (mesh++) * 0x100u, cam, place));
+            }
+            for (std::uint32_t k = 0; k < 1144u; ++k) out.push_back(draw(0x08D00000u + k * 0x100u, spin, identity()));
+            mark_eligible(out, 0x88000u);
+            return out;
+        };
+        const Matching &m = matcher.match(house(camera(0, 0, 0), camera(0, 0, 0)), house(camera(0, 0, -22.0f), camera(22.0f, 0, -121.0f)),
+                                          CutThresholds{});
+        MHF_CHECK(m.cut == nullptr && m.camera_found);
+        MHF_CHECK(std::fabs(m.camera_angle_degrees) < 0.05f && std::fabs(m.camera_distance - 22.0f) < 0.5f);
     }
 
     // Following the camera's turn part of the way: half of a 10-degree turn is a 5-degree turn.
