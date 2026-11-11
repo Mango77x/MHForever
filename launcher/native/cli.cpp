@@ -22,10 +22,10 @@ namespace {
 #endif
 
 // The settings `--set` changes (the others, such as the controls, are changed in the game's own menu).
-constexpr const char *kBoolSettings[] = {"fullscreen", "smoothTextures", "trueWeaponValues", "fastSupplyBox",
+constexpr const char *kBoolSettings[] = {"fullscreen", "smoothTextures", "packMipmaps", "trueWeaponValues", "fastSupplyBox",
                                          "smithyBrowse", "smithyLayout", "analogCamera", "mouseCamera", "hornSongs"};
 constexpr const char *kNumberSettings[] = {"scale", "fps", "hudSize", "musicVolume", "sfxVolume",
-                                           "analogCameraTurnSpeed", "analogCameraTiltSpeed", "mouseCameraSpeed"};
+                                           "analogCameraTurnSpeed", "analogCameraTiltSpeed", "mouseCameraSpeed", "anisotropy"};
 
 void usage() {
     std::fprintf(stderr,
@@ -33,9 +33,10 @@ void usage() {
                  "  --install <image.iso> [--in-place | --copy]   add your copy of the game (once)\n"
                  "  --list                                        your copies and their settings\n"
                  "  --set <name>=<value>... [--disc <disc id>]    change a copy's settings\n"
-                 "        fullscreen, smoothTextures, trueWeaponValues, fastSupplyBox, smithyBrowse, smithyLayout:\n"
-                 "        true or false\n"
-                 "        scale 1-10, fps 30-180, hudSize 50-100, musicVolume 0-100, sfxVolume 0-100\n"
+                 "        fullscreen, smoothTextures, packMipmaps, trueWeaponValues, fastSupplyBox, smithyBrowse,\n"
+                 "        smithyLayout: true or false\n"
+                 "        scale 1-10, fps 30-180, hudSize 50-100, musicVolume 0-100, sfxVolume 0-100,\n"
+                 "        anisotropy 1 (off), 2, 4, 8 or 16 (texture packs)\n"
                  "  --play [<disc id>]                            start the game and wait until it ends\n"
                  "  --update                                      update MHForever\n"
                  "  --version\n\n"

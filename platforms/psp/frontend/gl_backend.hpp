@@ -46,6 +46,10 @@ struct LiveSettings {
     // the pack's folder (empty: none, or MHF_TEXTURE_PACK) and the release it is drawn for ("ULES01213").
     std::atomic<bool> texture_pack{true};
     std::string texture_pack_folder, texture_pack_game;
+    // Its filtering, changed in the menu while the game runs: mip levels made for images that ship none (softer far
+    // away, no shimmer; off draws them as PPSSPP does), and the anisotropic filtering of its images, 1 (off) to 16.
+    std::atomic<bool> texture_pack_mipmaps{false};
+    std::atomic<int> texture_pack_anisotropy{16};
     // Projected shadows (enhancement): on or off while the game runs (MHF_SHADOW=1 starts with them on). Skinned draws (the
     // hunter, the monsters) always cast. shadow_whole_map: all the solid scenery casts too, and surfaces turned away from the sun
     // are shaded; off, only the hunter and monsters cast. shadow_quality: the size of the map of shadows, 0 low (2048), 1 medium
