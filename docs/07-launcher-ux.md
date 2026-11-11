@@ -59,7 +59,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   pseudonym, identity seed, settings, library, stats. Adding a copy reads PARAM.SFO (`platforms/psp/tools/param_sfo`)
   and compares size + SHA-1 with `games/*/regions/*/region.toml` (catalog generated at configure time; identification
   data only). Launching runs `mhfu(.exe)` next to the launcher with the settings as flags (`--scale`, `--fullscreen`,
-  `--smooth-textures`, `--pack-mipmaps`, `--anisotropy`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--smithy-browse`, `--smithy-layout`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
+  `--smooth-textures`, `--pack-mipmaps`, `--anisotropy`, `--projected-shadows`, `--no-whole-map-shadows`, `--shadow-quality`, `--shadow-darkness`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--smithy-browse`, `--smithy-layout`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
   sessions. The game also needs the prepared executable: the installer produces it (below); developer builds can instead use
   `../exe/<DISC_ID>_EBOOT.BIN` (or one next to the ISO), checked against `dev_executable` in region.toml.
 - **Friend code**: generated locally (SHA-256 of a random identity seed, Crockford base32). Provisional: online play will
@@ -111,6 +111,12 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   (`anisotropy`: Off, 2x, 4x, 8x or 16x, 16x by default; passed as `--anisotropy N` when not 16). Both go to the game
   with the pack only; the in-game menu's Video tab changes both while playing (mipmaps upload the pack's images
   again) and the launcher keeps what was chosen there (`option.packMipmaps`, `option.anisotropy` in the controls file).
+- **Projected shadows (2026-11-11)**: set in the in-game menu's Video tab (docs/05-runtime-hle.md) and kept per copy:
+  `projectedShadows` (off by default, `--projected-shadows`), `wholeMapShadows` (on by default, `--no-whole-map-shadows`
+  when off), `shadowQuality` (0 low by default, 1 medium, 2 high; `--shadow-quality N` when not 0) and `shadowDarkness`
+  (0..100, 50 by default; `--shadow-darkness N` when not 50). The launcher reads them back from the controls file
+  (`option.projectedShadows`, `option.wholeMapShadows`, `option.shadowQuality`, `option.shadowDarkness`); the last three
+  travel even while the shadows are off, so turning them on in the game finds them as they were.
 - **HUD scale (2026-11-02)**: **Game settings → Video → HUD scale** (100% down to 50%, steps of 10; `hudSize` per copy,
   passed as `--hud-size`) shrinks the hunting HUD into its corners; the in-game menu's Video tab has the same choice for the
   session. Only the quest HUD is sized: scaling the menus was tried and dropped (`05-runtime-hle.md`, HUD scale).

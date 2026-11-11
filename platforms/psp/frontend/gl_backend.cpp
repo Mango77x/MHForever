@@ -2386,7 +2386,9 @@ void GlBackend::shadow_capture(const gpu::Ge &ge, const gpu::Vertex &a, const gp
 bool GlBackend::shadow_setup() {
     if (shadow_tried_) return shadow_ready_;
     shadow_tried_ = true;
-    shadow_size_ = 8192;
+    // The maps are made at the chosen quality (0 low 2048, 1 medium 4096, 2 high 8192); run_shadow resizes them on a change.
+    shadow_quality_used_ = std::clamp(live_->shadow_quality.load(std::memory_order_relaxed), 0, 2);
+    shadow_size_ = 2048 << shadow_quality_used_;
     shadow_map_program_ = compile(kShadowMapVertex, kShadowMapFragment);
     shadow_factor_program_ = compile(kShadowQuadVertex, kShadowFactorFragment);
     shadow_apply_program_ = compile(kShadowQuadVertex, kShadowApplyFragment);
