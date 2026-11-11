@@ -9,7 +9,11 @@
 // host/keymap.hpp and host/padmap.hpp are not included here on purpose: the PSP runtime and the homebrew runners include this
 // header without the SDL host's include directories. The keyboard and controller bindings travel as templates instead.
 #include <functional>
+#include <cstdint>
 #include <memory>
+#include <array>
+#include <utility>
+#include <vector>
 #include <optional>
 #include <string>
 
@@ -48,9 +52,18 @@ public:
     // 8 or 16) filters them (gl_backend.hpp, LiveSettings). Before attach(). The Video tab of the in-game menu then
     // turns the pack on and off.
     void set_texture_pack(const std::string &folder, const std::string &game_id, bool mipmaps = false, int anisotropy = 16);
+    // What a game knows about its textures, for the projected shadows (LiveSettings). Before attach().
+    void set_shadow_textures(std::vector<std::uint64_t> air, std::vector<std::uint64_t> solid, std::vector<std::uint64_t> cave);
+    void set_shadow_cave_zones(std::vector<std::string> zones);
+    void set_shadow_haze_textures(std::vector<std::uint64_t> textures); // the shadows are worked out before these
+    void set_shadow_zone_suns(std::vector<std::pair<std::string, std::array<float, 3>>> suns); // zone: height in degrees, darkness (< 0: 0.4), turn in degrees
+    void set_shadow_zones(std::vector<std::string> names, std::vector<std::pair<std::uint32_t, int>> textures);
     // The quest HUD's size in percent, 50..100 (gl_backend.hpp, LiveSettings). The Video tab of the in-game menu
     // changes it while playing.
     void set_hud(int size);
+    // The projected shadows as the launcher keeps them (gl_backend.hpp, LiveSettings): on, whole map, quality 0..2,
+    // darkness 0..100. The Video tab changes them while playing, and the controls file keeps them for the launcher.
+    void set_shadows(bool on, bool whole_map, int quality, int darkness);
     // Turns the hunting horn's songs on (an enhancement, off unless called) at the place the player chose; the Game tab
     // of the in-game menu changes the place or lets the player drag them anywhere, and the controls file keeps the new
     // spot for the launcher.

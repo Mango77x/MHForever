@@ -166,6 +166,7 @@ struct Frontend::Impl {
     std::function<bool()> mouse_look;               // set_mouse_look
     bool hud_size_changed{}; // the Video tab changed the HUD's size: the controls file keeps it
     bool pack_filter_changed{}; // the Video tab changed the texture pack's mipmaps or anisotropic filtering: kept too
+    bool shadows_known{}; // the shadows' settings came from the launcher or the Video tab changed them: the controls file keeps them
     std::optional<overlay::SongPanel> songs;
     std::optional<overlay::SongPanel> songs_seen; // the last songs the host gave, for moving them from the menu
     // Moving the songs (the Game tab's "Move them anywhere"): where the card's top left corner is now, and the mouse's
@@ -342,7 +343,30 @@ void Frontend::set_texture_pack(const std::string &folder, const std::string &ga
     impl_->live.texture_pack_anisotropy = std::clamp(anisotropy, 1, 16);
 }
 
+void Frontend::set_shadow_textures(std::vector<std::uint64_t> air, std::vector<std::uint64_t> solid, std::vector<std::uint64_t> cave) {
+    impl_->live.shadow_air_textures = std::move(air);
+    impl_->live.shadow_solid_textures = std::move(solid);
+    impl_->live.shadow_cave_textures = std::move(cave);
+}
+
+void Frontend::set_shadow_haze_textures(std::vector<std::uint64_t> textures) { impl_->live.shadow_haze_textures = std::move(textures); }
+void Frontend::set_shadow_zone_suns(std::vector<std::pair<std::string, std::array<float, 3>>> suns) { impl_->live.shadow_zone_suns = std::move(suns); }
+void Frontend::set_shadow_cave_zones(std::vector<std::string> zones) { impl_->live.shadow_cave_zones = std::move(zones); }
+
+void Frontend::set_shadow_zones(std::vector<std::string> names, std::vector<std::pair<std::uint32_t, int>> textures) {
+    impl_->live.shadow_zone_names = std::move(names);
+    impl_->live.shadow_zone_textures = std::move(textures);
+}
+
 void Frontend::set_hud(int size) { impl_->live.hud_size = std::clamp(size, 50, 100); }
+
+void Frontend::set_shadows(bool on, bool whole_map, int quality, int darkness) {
+    impl_->live.shadow = on;
+    impl_->live.shadow_whole_map = whole_map;
+    impl_->live.shadow_quality = std::clamp(quality, 0, 2);
+    impl_->live.shadow_strength = static_cast<float>(std::clamp(darkness, 0, 100)) / 100.0f;
+    impl_->shadows_known = true;
+}
 
 void Frontend::set_song_spot(overlay::SongSpot spot) { impl_->song_spot = spot; }
 
@@ -601,7 +625,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kHudSize, kSongPlace, kSongMove, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn, kPackMipmaps, kAnisotropy
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn, kPackMipmaps, kAnisotropy, kShadow, kShadowStrength, kShadowWholeMap, kShadowQuality
 };
 constexpr int kGameOptionBase = 3000; // the Game tab's options of the game: kGameOptionBase + an index into Impl::game_options
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
@@ -937,6 +961,22 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         aniso.detail = "Sharpens textures viewed at an angle.";
         video.items.push_back(aniso);
     }
+    overlay::MenuItem shadow = menu_item(Kind::Toggle, kShadow, "Projected shadows", impl.live.shadow ? 1 : 0);
+    shadow.detail = "Characters and scenery cast shadows.";
+    video.items.push_back(shadow);
+    if (impl.live.shadow) { // its settings unfold under the switch while it is on
+        overlay::MenuItem whole = menu_item(Kind::Toggle, kShadowWholeMap, "Whole map shadows", impl.live.shadow_whole_map ? 1 : 0);
+        whole.detail = "Scenery casts shadows too.";
+        video.items.push_back(whole);
+        overlay::MenuItem quality = menu_item(Kind::Choice, kShadowQuality, "Shadow quality");
+        quality.options = {"Low", "Medium", "High"};
+        quality.value = impl.live.shadow_quality.load();
+        quality.detail = "Higher quality costs more performance.";
+        video.items.push_back(quality);
+        overlay::MenuItem dark = menu_item(Kind::Slider, kShadowStrength, "Shadow darkness", static_cast<int>(impl.live.shadow_strength * 100.0f + 0.5f));
+        dark.detail = "Adjusts how dark shadows are.";
+        video.items.push_back(dark);
+    }
     overlay::MenuItem hud = menu_item(Kind::Choice, kHudSize, "HUD scale");
     for (std::size_t i = 0; i < std::size(kHudSizes); ++i) {
         hud.options.push_back(std::to_string(kHudSizes[i]) + "%");
@@ -998,6 +1038,12 @@ void save_controls(const Frontend::Impl &impl) {
         if (impl.pack_filter_changed) {
             out << "option.packMipmaps=" << (impl.live.texture_pack_mipmaps ? "true" : "false") << "\n";
             out << "option.anisotropy=" << impl.live.texture_pack_anisotropy.load() << "\n";
+        }
+        if (impl.shadows_known) {
+            out << "option.projectedShadows=" << (impl.live.shadow ? "true" : "false") << "\n";
+            out << "option.wholeMapShadows=" << (impl.live.shadow_whole_map ? "true" : "false") << "\n";
+            out << "option.shadowQuality=" << impl.live.shadow_quality.load() << "\n";
+            out << "option.shadowDarkness=" << static_cast<int>(impl.live.shadow_strength * 100.0f + 0.5f) << "\n";
         }
         for (const Frontend::GameOption &o : impl.game_options) {
             out << "option." << o.setting << "=";
@@ -1341,6 +1387,27 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
                 impl.pack_filter_changed = true;
                 save_controls(impl);
             }
+            break;
+        case kShadow:
+            impl.live.shadow = e.value != 0;
+            impl.shadows_known = true;
+            save_controls(impl); // the launcher keeps them for the next time
+            refresh_menu(impl); // the settings under it appear or go
+            break;
+        case kShadowStrength:
+            impl.live.shadow_strength = static_cast<float>(std::clamp(e.value, 0, 100)) / 100.0f;
+            impl.shadows_known = true;
+            save_controls(impl);
+            break;
+        case kShadowWholeMap:
+            impl.live.shadow_whole_map = e.value != 0;
+            impl.shadows_known = true;
+            save_controls(impl);
+            break;
+        case kShadowQuality:
+            impl.live.shadow_quality = std::clamp(e.value, 0, 2);
+            impl.shadows_known = true;
+            save_controls(impl);
             break;
         case kHudSize:
             if (e.value >= 0 && e.value < static_cast<int>(std::size(kHudSizes))) {

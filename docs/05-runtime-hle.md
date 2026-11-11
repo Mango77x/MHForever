@@ -380,6 +380,14 @@ one ubershader (texture functions, fog, alpha test, depth range) and fixed-funct
   Limits: the cost of an in-between picture grows with the geometry of the scene, so 180 fps is not sustained in the
   heaviest areas; the output has no vsync yet, so a monitor whose refresh differs from the target may show uneven
   pacing or tearing.
+- *Projected shadows* (enhancement, off by default; `--projected-shadows` or `MHF_SHADOW=1` turns them on): the hunter,
+  the monsters and, with Whole map shadows, the scenery cast shadows from the game's own light, and sides turned away from
+  it go dark. The Video tab of the in-game menu turns them on and off and sets Whole map shadows (`--no-whole-map-shadows`),
+  Shadow quality (`--shadow-quality 0-2`, Low by default) and Shadow darkness (`--shadow-darkness 0-100`; 50: as each zone
+  was tuned, 0: no shade, 100: half as dark again); the controls file keeps them as `option.projectedShadows`,
+  `option.wholeMapShadows`, `option.shadowQuality` and `option.shadowDarkness`. Zones are recognised from their textures
+  (`games/mhfu/host/shadow_zones.inc`, made by `games/mhfu/tools/make_shadow_zones.py` from the zone folders of the
+  MH2G_KHD texture pack's ini), and the zone settings live in `games/mhfu/host/shadow_textures.hpp`.
 
 Why OpenGL first instead of Vulkan : the same code runs on Windows, Linux and the Steam Deck, it needs no shader
 toolchain, and it was the fastest way to 30 fps at high resolution. The backend interface keeps a Vulkan

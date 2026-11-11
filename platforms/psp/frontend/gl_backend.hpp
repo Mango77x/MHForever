@@ -14,6 +14,8 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <array>
+#include <utility>
 #include <vector>
 
 struct SDL_Window;
@@ -48,6 +50,27 @@ struct LiveSettings {
     // away, no shimmer; off draws them as PPSSPP does), and the anisotropic filtering of its images, 1 (off) to 16.
     std::atomic<bool> texture_pack_mipmaps{false};
     std::atomic<int> texture_pack_anisotropy{16};
+    // Projected shadows (enhancement): on or off while the game runs (MHF_SHADOW=1 starts with them on). Skinned draws (the
+    // hunter, the monsters) always cast. shadow_whole_map: all the solid scenery casts too, and surfaces turned away from the sun
+    // are shaded; off, only the hunter and monsters cast. shadow_quality: the size of the map of shadows, 0 low (2048), 1 medium
+    // (4096), 2 high (8192); low unless chosen. shadow_strength: how dark, 0..1; at 0.5 each zone is as it was tuned, below it lighter down to no
+    // shade at 0, above it darker up to half as dark again at 1.
+    std::atomic<bool> shadow{false};
+    std::atomic<bool> shadow_whole_map{true};
+    std::atomic<int> shadow_quality{0};
+    // What the game knows about its own textures (Frontend::set_shadow_textures), set before the backend is made: air (mist,
+    // haze), solid (rock that looks like mist to the guesses), and the insides of caves, where only objects cast.
+    std::vector<std::uint64_t> shadow_air_textures, shadow_solid_textures, shadow_cave_textures, shadow_haze_textures;
+    // Where the game is: the zones of its maps ("areas/hunting/desert/area6"), the game's textures that only a zone uses (a hash
+    // of the game's own texture, as packs key them, and an index into the names), and the zones that are caves.
+    std::vector<std::string> shadow_zone_names, shadow_cave_zones;
+    std::vector<std::pair<std::string, std::array<float, 3>>> shadow_zone_suns; // some zones' sun: height in degrees, darkness (< 0: 0.4), turn in degrees
+    std::vector<std::pair<std::uint32_t, int>> shadow_zone_textures;
+    std::atomic<float> shadow_strength{0.5f};
+    // What casts, set by the backend as it goes in and out of caves: objects up to shadow_max_object long (world units), and
+    // inside the scenery slender pieces up to shadow_max_piece (0: none).
+    std::atomic<float> shadow_max_object{39450.0f};
+    std::atomic<float> shadow_max_piece{39450.0f};
     // HUD size in percent (100: as the game draws it): in quests, the HUD shrinks into the corners it sits in.
     std::atomic<int> hud_size{100};
     // Written by the drawing thread at every flip: that flip drew the quest HUD (its clock). The hunting horn's song
