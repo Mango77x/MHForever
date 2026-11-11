@@ -1,7 +1,7 @@
 #pragma once
 
 // What the projected shadows should know about this game's textures (identification hashes, as the backend's texture cache
-// computes them; "Test: identify centre" in the Video tab writes them to the log). Each entry beats the guesses by shape.
+// computes them). Each entry beats the guesses by shape.
 
 #include "shadow_zones.inc"
 
@@ -59,8 +59,8 @@ inline constexpr const char *kShadowCaveZones[] = {
 };
 
 // How high the sun stands in some zones, in degrees over the horizon (below 0: where the game has it), and
-// how dark the shadows are there, as on the "Shadow darkness" slider (nothing: as that slider says), and how far the sun is
-// turned from where the game has it, as on the "Sun direction" slider (0..100: a whole turn; nothing: not at all).
+// how dark the shadows are there in percent (nothing: 40), which the "Shadow darkness" slider then scales, and how far the sun
+// is turned from where the game has it (0..100: a whole turn; nothing: not at all).
 struct ShadowZoneSun {
     const char *zone;
     float height;
