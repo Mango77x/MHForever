@@ -1065,31 +1065,31 @@ int main(int argc, char **argv) {
             const auto percent = [](float speed) { return static_cast<int>(std::lround(speed * 100.0f)); };
             if (kTrueWeaponValuesMapped && !kFucomplete) {
                 frontend.add_game_option({"trueWeaponValues", "Show true weapon values",
-                                          "Menus show attack and element without the game's display multipliers.", false,
+                                          "Displays attack and element without the game's display multipliers.", false,
                                           g_true_weapon_values ? 1 : 0, 0, 1, 1, "",
                                           [](int v) { g_true_weapon_values = v != 0; }});
             }
             frontend.add_game_option({"fastSupplyBox", "Fast supply box",
-                                      "After you take an item out, the supply box takes the next button 2 frames later instead of 30.",
+                                      "Shortens the delay between items taken from the supply box.",
                                       false, g_fast_supply_box ? 1 : 0, 0, 1, 1, "",
                                       [](int v) { g_fast_supply_box = v != 0; }});
             {
                 frontend.add_game_option({"analogCamera", "Analog camera",
-                                          "The right stick turns the camera as fast as you push it and tilts it smoothly.",
+                                          "The right stick turns and tilts the camera in proportion to how far it is pushed.",
                                           false, g_analog_camera ? 1 : 0, 0, 1, 1, "",
                                           [](int v) { g_analog_camera = v != 0; }});
-                frontend.add_game_option({"analogCameraTurnSpeed", "Camera turn speed", "100% is as fast as the d-pad.", true,
+                frontend.add_game_option({"analogCameraTurnSpeed", "Camera turn speed", "100% matches the D-pad.", true,
                                           percent(g_turn_speed), 50, 200, 10, "analogCamera",
                                           [](int v) { g_turn_speed = static_cast<float>(v) / 100.0f; }});
                 frontend.add_game_option({"analogCameraTiltSpeed", "Camera tilt speed",
-                                          "At 100% the camera goes from its lowest view to its highest in about a second.",
+                                          "Tilt speed at full stick deflection.",
                                           true, percent(g_tilt_speed), 50, 200, 10, "analogCamera",
                                           [](int v) { g_tilt_speed = static_cast<float>(v) / 100.0f; }});
                 frontend.add_game_option({"mouseCamera", "Mouse camera",
-                                          "The mouse turns and tilts the camera, and aims a bow or a bowgun. Escape lets the mouse go.", false,
+                                          "The mouse controls the camera and bow and bowgun aiming. Press Esc to release the mouse.", false,
                                           g_mouse_camera ? 1 : 0, 0, 1, 1, "analogCamera",
                                           [](int v) { g_mouse_camera = v != 0; }});
-                frontend.add_game_option({"mouseCameraSpeed", "Mouse sensitivity", "How far the camera moves for the same mouse motion.",
+                frontend.add_game_option({"mouseCameraSpeed", "Mouse sensitivity", "Camera sensitivity to mouse movement.",
                                           true, percent(g_mouse_speed), 25, 300, 25, "mouseCamera",
                                           [](int v) { g_mouse_speed = static_cast<float>(v) / 100.0f; }});
                 // The mouse is held in the window while it moves the camera: both switches on.

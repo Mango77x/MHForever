@@ -10,7 +10,7 @@ export interface AdhocServer {
 }
 
 export const adhocServers: AdhocServer[] = [
-  { host: 'socom.cc', name: 'Socom', location: 'France', note: "PPSSPP's default server, the busiest one" },
+  { host: 'socom.cc', name: 'Socom', location: 'France', note: 'The busiest server' },
   { host: 'psp.mgn.pub', name: 'Madness Gaming Network', location: 'United States', note: 'Has a Monster Hunter community' },
   { host: 'adhoc.gamesnexus.ovh', name: 'Games Nexus', location: 'Italy', note: 'For any game' },
   { host: 'psi-hate.com', name: 'Psi-Hate', location: 'United States', note: 'For any game' },

@@ -51,7 +51,7 @@ export function TexturePackSection({ state, onState, say, toggle }: {
       <div className="srow">
         <div className="slabel">
           <b>HD textures</b>
-          <span className="prose">Replaces the game's textures with a pack in PPSSPP format. Select the folder that contains its textures.ini.</span>
+          <span className="prose">Replaces the game's textures with a PPSSPP-format pack. Select the folder that contains textures.ini.</span>
           {pack ? (
             <>
               <span className="path">{pack}</span>
