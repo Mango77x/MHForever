@@ -613,6 +613,41 @@ void set_camera_aspect(Context &ctx, std::uint32_t camera) {
 void on_camera_aspect_made(Runtime &, Context &ctx) { set_camera_aspect(ctx, ctx.gpr[16]); }  // s0 is the camera
 void on_camera_aspect_reset(Runtime &, Context &ctx) { set_camera_aspect(ctx, ctx.gpr[4]); }  // a0 is the camera
 
+// The camera's culling planes (view space, through the eye, the game draws characters and props only inside them),
+// made at every update (call patch mh_camera_aspect_culling, right after). The game makes the side planes from the
+// field of view alone, a little wider than the PSP's picture, and the top and bottom ones from those divided by the
+// aspect ratio: with a wider shape the sides stay where they were (what the picture shows past them, an NPC, a post,
+// is left out) and the top and bottom close in. With a wider shape than 480:272 the planes are made again as the PSP
+// has them, the sides then widened by as much as the picture: everything keeps the margin it has on the PSP.
+constexpr std::uint32_t kCameraCullLeft = 3408, kCameraCullRight = 3424, kCameraCullTop = 3440, kCameraCullBottom = 3456;
+void on_camera_aspect_culling(Runtime &rt, Context &ctx) {
+    auto &memory = rt.memory();
+    const std::uint32_t camera = ctx.gpr[16]; // s0
+    if (!memory.contains(camera + kCameraAspect, 4) ||
+        !memory.contains(camera + kCameraCullLeft, kCameraCullBottom + 16 - kCameraCullLeft)) {
+        return;
+    }
+    const float aspect = std::bit_cast<float>(memory.load32(camera + kCameraAspect));
+    const float psp = std::bit_cast<float>(kPspAspectBits);
+    if (!(aspect > psp * 1.001f) || aspect > 16.0f) return;
+    // The right plane's normal is (cos a, 0, sin a) for a side half-angle a (the view looks down -z): tan a = z / x.
+    const float x = std::bit_cast<float>(memory.load32(camera + kCameraCullRight));
+    const float z = std::bit_cast<float>(memory.load32(camera + kCameraCullRight + 8));
+    if (!(x > 1e-4f) || !(z > 0.0f)) return;
+    const float side = z / x * (aspect / psp); // tan of the side half-angle, widened with the picture
+    const float up = z / x / psp;              // tan of the top half-angle, as on the PSP
+    const auto put = [&](std::uint32_t plane, float nx, float ny, float nz) {
+        memory.store32(camera + plane, std::bit_cast<std::uint32_t>(nx));
+        memory.store32(camera + plane + 4, std::bit_cast<std::uint32_t>(ny));
+        memory.store32(camera + plane + 8, std::bit_cast<std::uint32_t>(nz));
+    };
+    const float side_len = std::sqrt(1.0f + side * side), up_len = std::sqrt(1.0f + up * up);
+    put(kCameraCullLeft, -1.0f / side_len, 0.0f, side / side_len);
+    put(kCameraCullRight, 1.0f / side_len, 0.0f, side / side_len);
+    put(kCameraCullTop, 0.0f, 1.0f / up_len, up / up_len);
+    put(kCameraCullBottom, 0.0f, -1.0f / up_len, up / up_len);
+}
+
 // At every host poll: the shape the frontend wants, into every remembered camera that holds 480:272 or a shape put there
 // before. A camera holding anything else is left alone (the game set it itself, or that memory is something else now).
 void keep_camera_aspect(Runtime &rt, float aspect) {
@@ -1046,6 +1081,7 @@ int main(int argc, char **argv) {
         { // the region map's call patches (FUComplete's camera function runs in the interpreter, which runs them too)
             runtime.register_hook("mh_camera_aspect_made", &on_camera_aspect_made); // widescreen
             runtime.register_hook("mh_camera_aspect_reset", &on_camera_aspect_reset);
+            runtime.register_hook("mh_camera_aspect_culling", &on_camera_aspect_culling);
             runtime.register_hook("mh_camera_buttons_copied", &on_camera_buttons_copied);
             runtime.register_hook("mh_camera_turn_buttons_test", &on_camera_turn_buttons_test);
             runtime.register_hook("mh_camera_turn_amount_chosen", &on_camera_turn_amount_chosen);
