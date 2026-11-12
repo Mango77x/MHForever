@@ -4198,6 +4198,9 @@ template <typename Box> bool hud_item_panel_start(const Box &b) {
 constexpr float kHudItemPanelTall = 190.0f; // a panel that starts above this holds the list
 // A window's background is one draw at least 32 wide, 12 high and 32x32 in area: the start menu's is 96x128, the
 // banner over an area's exit ("To Pokke Farm") 176x16. A letter is 7x14, a name tag's pieces at most 24x24.
+// A window's frame, around its background: 16 wide, and its lines of text start over it (the start menu's background
+// starts at x 360, its text at 352).
+constexpr float kPanelFrame = 16.0f;
 template <typename Box> bool hud_panel(const Box &b) {
     const float w = b.x2 - b.x1, h = b.y2 - b.y1;
     return w >= 32.0f && h >= 12.0f && w * h >= 32.0f * 32.0f;
@@ -4220,10 +4223,17 @@ float GlBackend::tag_anchor(float x1, float y1, float x2, float y2) {
     const float middle = 0.5f * (x1 + x2);
     const float row = 0.5f * (y1 + y2);
     for (const auto &p : panels_) {
-        if (middle >= p[0] && middle <= p[2] && row >= p[1] && row <= p[3]) return 240.0f;
+        if (middle >= p[0] - kPanelFrame && middle <= p[2] + kPanelFrame && row >= p[1] - kPanelFrame &&
+            row <= p[3] + kPanelFrame) {
+            return 240.0f;
+        }
     }
-    for (const auto &tag : tags_) { // a piece of a tag already placed this flip
-        if (std::fabs(tag[1] - y2) <= 4.0f && middle >= tag[2] - 40.0f && middle <= tag[3] + 40.0f) return tag[0];
+    for (auto &tag : tags_) { // a piece of a tag already placed this flip; the tag grows with it (a long name)
+        if (std::fabs(tag[1] - y2) <= 4.0f && middle >= tag[2] - 40.0f && middle <= tag[3] + 40.0f) {
+            tag[2] = std::min(tag[2], middle);
+            tag[3] = std::max(tag[3], middle);
+            return tag[0];
+        }
     }
     float best = 240.0f, best_above = 1e9f;
     for (const auto &d : figure_draws_) {
@@ -4261,7 +4271,10 @@ void GlBackend::size_hud() {
     if ((key_reg(setup_.key, kClearMode) & 1u) != 0) skip = "clear";
     else if (setup_.self_sampled) skip = "copy of its own target";
     else if (!shown_target(setup_.target)) skip = "not on a shown screen";
-    else if (box.x2 - box.x1 >= 448.0f && box.y2 - box.y1 >= 256.0f) {
+    else if ((box.x2 - box.x1 >= 448.0f && box.y2 - box.y1 >= 32.0f) || box.y2 - box.y1 >= 256.0f) {
+        // The whole screen, or all of its width or height: a fade, a background, the darkening of a snowstorm drawn in
+        // strips the screen's height. Narrowed, it would leave bands at the sides; it stretches with the picture. (Not
+        // a thin bar across: the quest HUD's longest health bar is one.)
         skip = "whole screen";
     }
     const char *what = "";
