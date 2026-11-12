@@ -111,6 +111,23 @@ private:
     [[nodiscard]] std::uint32_t vertex_size() const;
     [[nodiscard]] Vertex transform(const DecodedVertex &in) const;
     void light(const float world_pos[3], const float world_normal[3], Vertex &out, const DecodedVertex &in) const;
+    // Lighting's values that do not change within a draw (registers are only written between draws), worked out once
+    // by draw_primitive instead of once per vertex: the same operations in the same order, so the colours are the same.
+    struct LightSetup {
+        float ambient[4]{}, diffuse[4]{}, specular[4]{}, emissive[4]{}, global[4]{};
+        std::uint32_t update{};
+        bool reverse_normal{}, separate{};
+        float shininess{};
+        struct Light {
+            bool on{};
+            unsigned kind{}, comp{};
+            float lp[3]{}, ld[3]{}, att[3]{}, cutoff{}, spot_exp{};
+            float lac[4]{}, ldc[4]{}, lsc[4]{};
+            float direction[3]{}; // a directional light's L, normalized
+        } lights[4];
+    };
+    void prepare_lighting();
+    LightSetup light_setup_;
 
     // Rasterizer.
     void draw_triangle(const Vertex &a, const Vertex &b, const Vertex &c);
@@ -186,6 +203,7 @@ private:
     static constexpr std::uint32_t kMaxLayers = 256u;
     std::vector<std::uint32_t> call_stack_;
     std::array<std::uint32_t, 256> clut_{};
+    std::vector<Vertex> verts_; // draw_primitive's vertices, kept between draws so that a draw allocates nothing
     Stats stats_;
 };
 
