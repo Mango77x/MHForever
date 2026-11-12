@@ -1185,6 +1185,11 @@ private:
     float frame_stretch_ = 1.0f;
     bool frame_has_3d_ = false;
     bool last_flip_had_3d_ = false; // the flip before: 2D drawn before this flip's 3D (a title over a model) follows it
+    // The skinned 3D of this flip on screen (hunters, Felynes, monsters), each draw's box in PSP pixels (a name tag sits
+    // on a head), and the tags placed this flip: anchor, bottom, and the span of their pieces' middles.
+    std::vector<std::array<float, 4>> figure_draws_;
+    std::vector<std::array<float, 4>> tags_;
+    float tag_anchor(float x1, float y1, float x2, float y2);
     float picture_aspect_ = 480.0f / 272.0f;
     void update_stretch() {
         const float aspect = live_->wide_aspect.load(std::memory_order_relaxed);
@@ -3875,6 +3880,16 @@ void GlBackend::draw_batch() {
     } else if (!batch_.empty() && shown_target(setup_.target)) {
         if (hud_log_flip_ && hud_drawn_ != 0) ++hud_3d_after_;
         if ((key_reg(setup_.key, kClearMode) & 1u) == 0) frame_has_3d_ = true; // widescreen: this flip shows 3D
+        if (frame_stretch_ > 1.0f && ((key_reg(setup_.key, kVertexType) >> 9u) & 3u) != 0 && figure_draws_.size() < 512) {
+            std::array<float, 4> box{1e9f, 1e9f, -1e9f, -1e9f};
+            for (const GpuVertex &v : batch_) {
+                box[0] = std::min(box[0], v.x);
+                box[1] = std::min(box[1], v.y);
+                box[2] = std::max(box[2], v.x);
+                box[3] = std::max(box[3], v.y);
+            }
+            figure_draws_.push_back(box);
+        }
     }
     if (interpolate_) {
         if (tape_.size() >= 20000) { // a game that never flips: do not keep everything
@@ -3997,6 +4012,38 @@ template <typename Box> bool hud_over(const Box &b, const Box &panel) {
     return b.x1 <= panel.x2 + 8.0f && panel.x1 <= b.x2 + 8.0f && b.y1 <= panel.y2 + 8.0f && panel.y1 <= b.y2 + 8.0f;
 }
 
+// Widescreen: where a piece of 2D is narrowed toward. The game draws a name tag (a weapon icon, then each letter, each
+// its own small 2D draw) where a hunter's head is on screen, after the 3D. Narrowed toward the middle like other 2D,
+// a tag of a hunter away from the middle would leave its head; narrowed toward the head's middle, every piece of it
+// keeps its place over the head. A piece is a tag's when it is small and a skinned 3D draw (a hunter's head or hood)
+// has its top right under the piece's bottom, across the piece's middle. The other pieces of the same tag (on the same
+// row, next to it) take the anchor the first one found, so the letters keep their spacing. Anything else: the middle.
+float GlBackend::tag_anchor(float x1, float y1, float x2, float y2) {
+    if (x2 - x1 > 24.0f || y2 - y1 > 24.0f || figure_draws_.empty()) return 240.0f;
+    const float middle = 0.5f * (x1 + x2);
+    for (const auto &tag : tags_) { // a piece of a tag already placed this flip
+        if (std::fabs(tag[1] - y2) <= 4.0f && middle >= tag[2] - 40.0f && middle <= tag[3] + 40.0f) return tag[0];
+    }
+    float best = 240.0f, best_above = 1e9f;
+    for (const auto &d : figure_draws_) {
+        if (d[3] - d[1] < 4.0f || d[2] - d[0] > 160.0f) continue; // a speck, or a monster
+        const float above = d[1] - y2; // the draw's top under the piece's bottom
+        if (above < -12.0f || above > 28.0f || middle < d[0] - 24.0f || middle > d[2] + 24.0f) continue;
+        if (std::fabs(above) < best_above) {
+            best_above = std::fabs(above);
+            best = 0.5f * (d[0] + d[2]);
+        }
+    }
+    if (best_above < 1e9f && tags_.size() < 64) tags_.push_back({best, y2, middle, middle});
+    for (auto &tag : tags_) { // the tag grows as its pieces come
+        if (tag[0] == best && std::fabs(tag[1] - y2) <= 4.0f) {
+            tag[2] = std::min(tag[2], middle);
+            tag[3] = std::max(tag[3], middle);
+        }
+    }
+    return best;
+}
+
 // HUD size for the 2D batch about to be drawn: places it (see above), then sizes its vertices and its scissor.
 void GlBackend::size_hud() {
     const bool was_sized = setup_.hud[0] != 1.0f || setup_.wide[0] != 1.0f; // the state of a previous batch with the same registers
@@ -4088,6 +4135,7 @@ void GlBackend::size_hud() {
         narrow = 1.0f / frame_stretch_;
         if (what[0] == 'h') toward = 0.0f;                          // health: the clock's layer
         else if (what[0] == 'm' || what[0] == 'i') toward = 480.0f; // minimap, items, items (cursor)
+        else toward = tag_anchor(box.x1, box.y1, box.x2, box.y2);  // a name tag: its figure; else the middle
     }
     if (s < 1.0f || narrow < 1.0f) {
         bool inside = true; // texture coordinates (through mode: 0..1 across the texture)
@@ -4475,6 +4523,8 @@ void GlBackend::finish_flip() {
     ++frame_;
     last_flip_had_3d_ = frame_has_3d_;
     frame_has_3d_ = false;
+    figure_draws_.clear();
+    tags_.clear();
     update_stretch(); // the next flip's (the window or the setting may have changed)
     hud_log_flip_ = hud_log_ && frame_ % hud_log_every_ == 0;
     tape_.clear();
