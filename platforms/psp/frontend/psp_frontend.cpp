@@ -1898,6 +1898,10 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
     impl->music_volume = rt.options().music_volume;
     impl->sfx_volume = rt.options().sfx_volume;
     impl->live.smooth_textures = impl->smooth_textures;
+    {
+        const std::u8string folder = (rt.options().font_directory / "hd-text").u8string();
+        impl->live.builtin_textures_folder.assign(folder.begin(), folder.end());
+    }
     if (impl->gpu && impl->open) {
         set_gpu_backend_factory(rt, [impl, runtime]() -> std::unique_ptr<gpu::Backend> {
             auto backend = make_gl_backend(static_cast<SDL_Window *>(impl->host.window_handle()), impl->render_scale,

@@ -18,6 +18,7 @@ Read `docs/02-architecture.md` §9 before adding anything.
 | aemu_postoffice client (adhocctl and postoffice relay clients for PSP ad hoc servers) | `third_party/aemu_postoffice/` | GPL-3.0 (binaries that include it are distributed under GPL-3.0) | `51e8409` (2026-10-22), unmodified, desktop files only | https://github.com/Kethen/aemu_postoffice (by Kethen). See `third_party/aemu_postoffice/NOTICE.md`. Online play (`docs/08-multiplayer.md` §1.2) |
 | ENet, single-header variant (bundled with aemu_postoffice) | `third_party/aemu_postoffice/ext/enet/` | MIT | zpl-c/enet v2.7.0 | https://github.com/zpl-c/enet |
 | Liberation Sans Regular (font) | `third_party/fonts/liberation-sans/` | SIL OFL 1.1 | 2.1.5 | https://github.com/liberationfonts/liberation-fonts (TTF as packaged by Debian `fonts-liberation` 1:2.1.5) |
+| HD text (the game's character map at 16 times its size) | `assets/hd-text/` | made for MHForever by Kaneda, from Liberation Sans (SIL OFL 1.1) | 2026-11-12 | The Latin character map the game builds at boot from MHForever's font, drawn again at 4096x4096; shipped in `fonts/hd-text/` and drawn as a built-in texture pack |
 
 Fetched at build time (not stored in the repository):
 

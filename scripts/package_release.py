@@ -88,7 +88,11 @@ def check_inputs(args, launcher_name: str, game_name: str) -> dict[str, pathlib.
         print(f"error: {args.fonts} is not a folder", file=sys.stderr)
         return None
     for font in sorted(args.fonts.iterdir()):
-        if font.suffix.lower() in {".ttf", ".otf"} or font.name == "LICENSE" or font.name.startswith("LICENSE-"):
+        if font.is_dir() and font.name == "hd-text":  # the HD text, a texture pack drawn with the game's font
+            for image in sorted(font.iterdir()):
+                if image.suffix.lower() in {".png", ".ini"}:
+                    files[f"fonts/hd-text/{image.name}"] = image
+        elif font.suffix.lower() in {".ttf", ".otf"} or font.name == "LICENSE" or font.name.startswith("LICENSE-"):
             files[f"fonts/{font.name}"] = font
         else:
             print(f"error: unexpected file in the fonts folder: {font.name}", file=sys.stderr)

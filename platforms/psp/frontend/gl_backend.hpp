@@ -49,6 +49,9 @@ struct LiveSettings {
     // the pack's folder (empty: none, or MHF_TEXTURE_PACK) and the release it is drawn for ("ULES01213").
     std::atomic<bool> texture_pack{true};
     std::string texture_pack_folder, texture_pack_game;
+    // The textures MHForever ships (a pack in PPSSPP's format, fonts/hd-text: the HD text by Kaneda), drawn with or
+    // without the player's pack; the player's pack wins for a texture both have. Empty: none.
+    std::string builtin_textures_folder;
     // Its filtering, changed in the menu while the game runs: mip levels made for images that ship none (softer far
     // away, no shimmer; off draws them as PPSSPP does), and the anisotropic filtering of its images, 1 (off) to 16.
     std::atomic<bool> texture_pack_mipmaps{false};
