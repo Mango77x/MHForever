@@ -341,15 +341,49 @@ Ge::DecodedVertex Ge::decode_vertex(std::uint32_t address) const {
 
 // ---------------------------------------------------------------- transform and lighting
 
+void Ge::prepare_lighting() {
+    LightSetup &s = light_setup_;
+    unpack(regs_[kMaterialAmbient] | (regs_[kMaterialAlpha] << 24u), s.ambient);
+    unpack(regs_[kMaterialDiffuse], s.diffuse);
+    unpack(regs_[kMaterialSpecular], s.specular);
+    unpack(regs_[kMaterialEmissive], s.emissive);
+    unpack(regs_[kAmbientColor] | (regs_[kAmbientAlpha] << 24u), s.global);
+    s.update = regs_[kMaterialUpdate];
+    s.reverse_normal = (regs_[kReverseNormal] & 1u) != 0;
+    s.shininess = float24(regs_[kMaterialSpecularCoef]);
+    s.separate = (regs_[kLightMode] & 1u) != 0;
+    for (unsigned i = 0; i < 4; ++i) {
+        LightSetup::Light &l = s.lights[i];
+        l.on = (regs_[kLightEnable0 + i] & 1u) != 0;
+        if (!l.on) continue;
+        const std::uint32_t type = regs_[kLightType0 + i];
+        l.kind = (type >> 8u) & 3u; // 0 directional, 1 point, 2 spot
+        l.comp = type & 3u;         // 0 diffuse, 1 diffuse+specular, 2 powered diffuse
+        for (unsigned c = 0; c < 3; ++c) {
+            l.lp[c] = float24(regs_[kLightPos0 + i * 3 + c]);
+            l.ld[c] = float24(regs_[kLightDir0 + i * 3 + c]);
+            l.att[c] = float24(regs_[kLightAtt0 + i * 3 + c]);
+        }
+        l.cutoff = float24(regs_[kLightSpotCutoff0 + i]);
+        l.spot_exp = float24(regs_[kLightSpotExp0 + i]);
+        unpack(regs_[kLightColor0 + i * 3 + 0], l.lac);
+        unpack(regs_[kLightColor0 + i * 3 + 1], l.ldc);
+        unpack(regs_[kLightColor0 + i * 3 + 2], l.lsc);
+        std::copy(l.lp, l.lp + 3, l.direction);
+        const float ll = std::sqrt(l.direction[0] * l.direction[0] + l.direction[1] * l.direction[1] + l.direction[2] * l.direction[2]);
+        if (ll > 0) for (float &c : l.direction) c /= ll;
+    }
+}
+
 void Ge::light(const float wp[3], const float wn[3], Vertex &out, const DecodedVertex &in) const {
+    const LightSetup &s = light_setup_;
     float vc[4] = {in.color[0], in.color[1], in.color[2], in.color[3]};
-    const std::uint32_t update = in.has_color ? regs_[kMaterialUpdate] : 0u;
-    float ambient[4], diffuse[4], specular[4], emissive[4], global[4];
-    unpack(regs_[kMaterialAmbient] | (regs_[kMaterialAlpha] << 24u), ambient);
-    unpack(regs_[kMaterialDiffuse], diffuse);
-    unpack(regs_[kMaterialSpecular], specular);
-    unpack(regs_[kMaterialEmissive], emissive);
-    unpack(regs_[kAmbientColor] | (regs_[kAmbientAlpha] << 24u), global);
+    const std::uint32_t update = in.has_color ? s.update : 0u;
+    float ambient[4], diffuse[4], specular[4];
+    std::copy(s.ambient, s.ambient + 4, ambient);
+    std::copy(s.diffuse, s.diffuse + 4, diffuse);
+    std::copy(s.specular, s.specular + 4, specular);
+    const float *emissive = s.emissive, *global = s.global;
     if ((update & 1u) != 0) std::copy(vc, vc + 4, ambient);
     if ((update & 2u) != 0) std::copy(vc, vc + 4, diffuse);
     if ((update & 4u) != 0) std::copy(vc, vc + 4, specular);
@@ -362,60 +396,48 @@ void Ge::light(const float wp[3], const float wn[3], Vertex &out, const DecodedV
     float n[3] = {wn[0], wn[1], wn[2]};
     const float nl = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
     if (nl > 0) for (float &c : n) c /= nl;
-    if ((regs_[kReverseNormal] & 1u) != 0) for (float &c : n) c = -c;
-    const float shininess = float24(regs_[kMaterialSpecularCoef]);
+    if (s.reverse_normal) for (float &c : n) c = -c;
+    const float shininess = s.shininess;
 
     for (unsigned i = 0; i < 4; ++i) {
-        if ((regs_[kLightEnable0 + i] & 1u) == 0) continue;
-        const std::uint32_t type = regs_[kLightType0 + i];
-        const unsigned kind = (type >> 8u) & 3u;    // 0 directional, 1 point, 2 spot
-        const unsigned comp = type & 3u;            // 0 diffuse, 1 diffuse+specular, 2 powered diffuse
-        float lp[3], ld[3], att[3];
-        for (unsigned c = 0; c < 3; ++c) {
-            lp[c] = float24(regs_[kLightPos0 + i * 3 + c]);
-            ld[c] = float24(regs_[kLightDir0 + i * 3 + c]);
-            att[c] = float24(regs_[kLightAtt0 + i * 3 + c]);
-        }
+        const LightSetup::Light &l = s.lights[i];
+        if (!l.on) continue;
         float L[3];
         float attenuation = 1.0f;
-        if (kind == 0) {
-            std::copy(lp, lp + 3, L);
+        if (l.kind == 0) {
+            std::copy(l.direction, l.direction + 3, L);
         } else {
-            for (unsigned c = 0; c < 3; ++c) L[c] = lp[c] - wp[c];
+            for (unsigned c = 0; c < 3; ++c) L[c] = l.lp[c] - wp[c];
             const float d = std::sqrt(L[0] * L[0] + L[1] * L[1] + L[2] * L[2]);
-            const float denom = att[0] + att[1] * d + att[2] * d * d;
+            const float denom = l.att[0] + l.att[1] * d + l.att[2] * d * d;
             attenuation = denom > 0 ? std::min(1.0f, 1.0f / denom) : 1.0f;
+            const float ll = std::sqrt(L[0] * L[0] + L[1] * L[1] + L[2] * L[2]);
+            if (ll > 0) for (float &c : L) c /= ll;
         }
-        const float ll = std::sqrt(L[0] * L[0] + L[1] * L[1] + L[2] * L[2]);
-        if (ll > 0) for (float &c : L) c /= ll;
-        if (kind == 2) {
+        if (l.kind == 2) {
+            const float *ld = l.ld;
             const float dl = std::sqrt(ld[0] * ld[0] + ld[1] * ld[1] + ld[2] * ld[2]);
             float spot = dl > 0 ? -(L[0] * ld[0] + L[1] * ld[1] + L[2] * ld[2]) / dl : 0.0f;
-            const float cutoff = float24(regs_[kLightSpotCutoff0 + i]);
-            spot = spot >= cutoff ? std::pow(std::max(spot, 0.0f), float24(regs_[kLightSpotExp0 + i])) : 0.0f;
+            spot = spot >= l.cutoff ? std::pow(std::max(spot, 0.0f), l.spot_exp) : 0.0f;
             attenuation *= spot;
         }
-        float lac[4], ldc[4], lsc[4];
-        unpack(regs_[kLightColor0 + i * 3 + 0], lac);
-        unpack(regs_[kLightColor0 + i * 3 + 1], ldc);
-        unpack(regs_[kLightColor0 + i * 3 + 2], lsc);
+        const float *lac = l.lac, *ldc = l.ldc, *lsc = l.lsc;
         float dot = std::max(0.0f, n[0] * L[0] + n[1] * L[1] + n[2] * L[2]);
-        if (comp == 2) dot = std::pow(dot, shininess);
+        if (l.comp == 2) dot = std::pow(dot, shininess);
         r += attenuation * (lac[0] * ambient[0] + ldc[0] * diffuse[0] * dot) / 255.0f;
         g += attenuation * (lac[1] * ambient[1] + ldc[1] * diffuse[1] * dot) / 255.0f;
         b += attenuation * (lac[2] * ambient[2] + ldc[2] * diffuse[2] * dot) / 255.0f;
-        if (comp == 1 && dot > 0) {
+        if (l.comp == 1 && dot > 0) {
             float h[3] = {L[0], L[1], L[2] + 1.0f};
             const float hl = std::sqrt(h[0] * h[0] + h[1] * h[1] + h[2] * h[2]);
-            const float s = hl > 0 ? std::pow(std::max(0.0f, (n[0] * h[0] + n[1] * h[1] + n[2] * h[2]) / hl), shininess)
-                                   : 0.0f;
-            sr += attenuation * lsc[0] * specular[0] * s / 255.0f;
-            sg += attenuation * lsc[1] * specular[1] * s / 255.0f;
-            sb += attenuation * lsc[2] * specular[2] * s / 255.0f;
+            const float sp = hl > 0 ? std::pow(std::max(0.0f, (n[0] * h[0] + n[1] * h[1] + n[2] * h[2]) / hl), shininess)
+                                    : 0.0f;
+            sr += attenuation * lsc[0] * specular[0] * sp / 255.0f;
+            sg += attenuation * lsc[1] * specular[1] * sp / 255.0f;
+            sb += attenuation * lsc[2] * specular[2] * sp / 255.0f;
         }
     }
-    const bool separate = (regs_[kLightMode] & 1u) != 0;
-    if (!separate) {
+    if (!s.separate) {
         r += sr; g += sg; b += sb;
         sr = sg = sb = 0;
     }
@@ -561,41 +583,17 @@ void Ge::draw_primitive(std::uint32_t data) {
     // Timing the drawing commands costs a clock read each; only when the interpolation log is on.
     static const bool timed = std::getenv("MHF_INTERP_LOG") != nullptr;
     const auto t_start = timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    if (!through && (regs_[kLightingEnable] & 1u) != 0) prepare_lighting(); // once per draw (see LightSetup)
     std::vector<Vertex> &verts = verts_;
     verts.clear();
     verts.reserve(count);
-    if (index_format == 0) {
-        for (unsigned i = 0; i < count; ++i) {
-            verts.push_back(transform(decode_vertex(vaddr + i * vsize)));
-            verts.back().source = vaddr + i * vsize;
-        }
-    } else {
-        // Each vertex once: the state cannot change within a draw, so a vertex listed again transforms the same.
-        if (++index_draws_ == 0) { // wrapped: forget every vertex
-            std::fill(index_draw_.begin(), index_draw_.end(), 0u);
-            index_draws_ = 1;
-        }
-        for (unsigned i = 0; i < count; ++i) {
-            std::uint32_t index = 0;
-            if (index_format == 1) index = rd8(iaddr + i);
-            else if (index_format == 2) index = rd16(iaddr + i * 2u);
-            else index = rd32(iaddr + i * 4u);
-            if (index >= 65536u) { // a 32-bit index far out: not worth a slot
-                verts.push_back(transform(decode_vertex(vaddr + index * vsize)));
-                verts.back().source = vaddr + index * vsize;
-                continue;
-            }
-            if (index >= index_draw_.size()) {
-                index_draw_.resize(index + 1u, 0u);
-                index_vertex_.resize(index + 1u);
-            }
-            if (index_draw_[index] != index_draws_) {
-                index_draw_[index] = index_draws_;
-                index_vertex_[index] = transform(decode_vertex(vaddr + index * vsize));
-                index_vertex_[index].source = vaddr + index * vsize;
-            }
-            verts.push_back(index_vertex_[index]);
-        }
+    for (unsigned i = 0; i < count; ++i) {
+        std::uint32_t index = i;
+        if (index_format == 1) index = rd8(iaddr + i);
+        else if (index_format == 2) index = rd16(iaddr + i * 2u);
+        else if (index_format == 3) index = rd32(iaddr + i * 4u);
+        verts.push_back(transform(decode_vertex(vaddr + index * vsize)));
+        verts.back().source = vaddr + index * vsize;
     }
     const auto t_vertices = timed ? std::chrono::steady_clock::now() : t_start;
     // The vertex (or index) pointer advances past what was consumed.
