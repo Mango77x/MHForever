@@ -57,6 +57,8 @@ The first four rows work today (online play is experimental). The others are pla
 | **Resolution** | Up to several times the original 480x272, with an optional smoother texture filter. |
 | **HUD scale** | The hunting HUD (health and stamina, clock, minimap, item bar) can be made smaller, down to 50%, each part staying in its corner: Game settings → Video → HUD scale, or the in-game menu. Menus and the village keep their size. |
 | **HD textures** | Texture packs made for PPSSPP (a folder with a `textures.ini`, PNG or KTX2 images), such as KHD, for the European, North American and Japanese releases: choose one per copy of the game in Game settings → Texture pack. None is included: download a pack yourself. |
+| **Widescreen** | On a wide window or screen (21:9, 32:9) the 3D fills it with a wider view while the HUD and menus keep their shape, the quest HUD at the screen's edges: Game settings → Video → Widescreen, or the in-game menu. |
+| **Projected shadows** | The hunter, monsters and scenery cast shadows from the game's own light, with a quality and a darkness setting: in the in-game menu's Video tab. Optional, off by default. |
 | **Other games and regions** | The Japanese release (Portable 2nd G, `ULJM05500`) is playable too, with its Japanese text. Other games of the series are planned. |
 | **Latest release** | [![Latest release](https://img.shields.io/github/v/release/Mango77x/MHForever?label=version)](https://github.com/Mango77x/MHForever/releases/latest) [![Release date](https://img.shields.io/github/release-date/Mango77x/MHForever?label=published)](https://github.com/Mango77x/MHForever/releases/latest) See the [Releases](../../releases) page. |
 
@@ -109,7 +111,8 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
   came with them (pull request #7), the keyboard bindings in the launcher (#9), the movies (#12) and the language choice
   (#20).
 - **[ibonplix](https://github.com/ibonplix)**, for the first texture pack support (pull request #39): the PPSSPP quick hash, the
-  KTX2 decoding and the launcher setting that the HD textures are built on.
+  KTX2 decoding and the launcher setting that the HD textures are built on; and for the projected shadows (#90), tuned zone
+  by zone across the maps.
 - **[Pablo1517](https://github.com/Pablo1517)**, for the hunting horn songs card (pull request #49), the true weapon values
   (#44), keeping the volumes changed in the in-game menu (#45), the fast supply box (#59), browsing the smithy with its
   panels open (#60, with the recompiler's instruction patches) and its improved layout (#62), and the analog camera (#68,
