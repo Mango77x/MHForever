@@ -561,17 +561,41 @@ void Ge::draw_primitive(std::uint32_t data) {
     // Timing the drawing commands costs a clock read each; only when the interpolation log is on.
     static const bool timed = std::getenv("MHF_INTERP_LOG") != nullptr;
     const auto t_start = timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-    std::vector<Vertex> verts;
+    std::vector<Vertex> &verts = verts_;
+    verts.clear();
     verts.reserve(count);
-    std::uint32_t max_index = 0;
-    for (unsigned i = 0; i < count; ++i) {
-        std::uint32_t index = i;
-        if (index_format == 1) index = rd8(iaddr + i);
-        else if (index_format == 2) index = rd16(iaddr + i * 2u);
-        else if (index_format == 3) index = rd32(iaddr + i * 4u);
-        max_index = std::max(max_index, index);
-        verts.push_back(transform(decode_vertex(vaddr + index * vsize)));
-        verts.back().source = vaddr + index * vsize;
+    if (index_format == 0) {
+        for (unsigned i = 0; i < count; ++i) {
+            verts.push_back(transform(decode_vertex(vaddr + i * vsize)));
+            verts.back().source = vaddr + i * vsize;
+        }
+    } else {
+        // Each vertex once: the state cannot change within a draw, so a vertex listed again transforms the same.
+        if (++index_draws_ == 0) { // wrapped: forget every vertex
+            std::fill(index_draw_.begin(), index_draw_.end(), 0u);
+            index_draws_ = 1;
+        }
+        for (unsigned i = 0; i < count; ++i) {
+            std::uint32_t index = 0;
+            if (index_format == 1) index = rd8(iaddr + i);
+            else if (index_format == 2) index = rd16(iaddr + i * 2u);
+            else index = rd32(iaddr + i * 4u);
+            if (index >= 65536u) { // a 32-bit index far out: not worth a slot
+                verts.push_back(transform(decode_vertex(vaddr + index * vsize)));
+                verts.back().source = vaddr + index * vsize;
+                continue;
+            }
+            if (index >= index_draw_.size()) {
+                index_draw_.resize(index + 1u, 0u);
+                index_vertex_.resize(index + 1u);
+            }
+            if (index_draw_[index] != index_draws_) {
+                index_draw_[index] = index_draws_;
+                index_vertex_[index] = transform(decode_vertex(vaddr + index * vsize));
+                index_vertex_[index].source = vaddr + index * vsize;
+            }
+            verts.push_back(index_vertex_[index]);
+        }
     }
     const auto t_vertices = timed ? std::chrono::steady_clock::now() : t_start;
     // The vertex (or index) pointer advances past what was consumed.

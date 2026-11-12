@@ -186,6 +186,13 @@ private:
     static constexpr std::uint32_t kMaxLayers = 256u;
     std::vector<std::uint32_t> call_stack_;
     std::array<std::uint32_t, 256> clut_{};
+    // draw_primitive's vertices, kept between draws so that a draw allocates nothing. An indexed draw transforms each
+    // vertex it uses once (models list most of their vertices several times): index_draw_[i] is the draw that last
+    // transformed vertex i, into index_vertex_[i].
+    std::vector<Vertex> verts_;
+    std::vector<std::uint32_t> index_draw_;
+    std::vector<Vertex> index_vertex_;
+    std::uint32_t index_draws_{};
     Stats stats_;
 };
 

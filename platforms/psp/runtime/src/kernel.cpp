@@ -24,17 +24,32 @@ namespace mhf::psp {
 
 namespace {
 
-// Sleeps for `us` microseconds with sub-millisecond accuracy. Plain sleeps on Windows round up to the 15.6 ms system
-// tick, which would make every frame miss its vblank: raise the timer resolution once, sleep for most of the wait and
-// yield for the rest.
+// Sleeps for `us` microseconds with sub-millisecond accuracy: it sleeps for most of the wait and yields for the rest.
+// The scheduler sleeps whenever every guest thread waits, which is many times a frame (the sound threads wake every
+// few milliseconds), so the yielding part is kept short: spent yielding, it is CPU the drawing thread could use, which
+// slowed busy scenes down on machines with few cores. Plain sleeps on Windows round up to the 15.6 ms system tick:
+// a high-resolution waitable timer (Windows 10 1803 and later) wakes within about half a millisecond; without one, the
+// timer resolution is raised to 1 ms and the last 1.5 ms are yielded, as before.
 void precise_sleep(std::uint64_t us) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(us);
 #if defined(_WIN32)
     static const bool raised = [] { return timeBeginPeriod(1) == 0; }();
     (void)raised;
+    thread_local HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    const std::uint64_t spin_us = timer != nullptr ? 300 : 1500;
+    if (us > spin_us) {
+        LARGE_INTEGER due;
+        due.QuadPart = -static_cast<LONGLONG>((us - spin_us) * 10u); // relative, in 100 ns units
+        if (timer != nullptr && SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
+            WaitForSingleObject(timer, INFINITE);
+        } else {
+            std::this_thread::sleep_for(std::chrono::microseconds(us - spin_us));
+        }
+    }
+#else
+    constexpr std::uint64_t spin_us = 300; // nanosleep wakes within tens of microseconds
+    if (us > spin_us) std::this_thread::sleep_for(std::chrono::microseconds(us - spin_us));
 #endif
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(us);
-    constexpr std::uint64_t kSpinUs = 1500;
-    if (us > kSpinUs) std::this_thread::sleep_for(std::chrono::microseconds(us - kSpinUs));
     while (std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
 }
 
