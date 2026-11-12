@@ -253,7 +253,8 @@ int Runtime::run(const Program &program, std::string_view boot_path) {
         unsigned ticks = 0;
         while (!ticker_stop_.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
-            abi::interrupt_pending.store(true, std::memory_order_relaxed);
+            abi::interrupt_pending.store(true, std::memory_order_release);
+            abi::interrupt_pending.notify_all(); // a guest busy wait sleeping in wait_for_interrupt
             if (!watches.empty() && ++ticks % 10 == 0) {
                 for (Watch &w : watches) {
                     std::vector<std::uint8_t> now(w.length);
@@ -425,6 +426,10 @@ void interpret(Runtime &rt, Context &ctx, std::uint32_t entry) {
 void call_import(Runtime &rt, Context &ctx, ImportEntry &import) { mhf::psp::call_import(rt, ctx, import); }
 
 std::atomic<bool> interrupt_pending{false};
+
+void wait_for_interrupt() {
+    if (!interrupt_pending.load(std::memory_order_acquire)) interrupt_pending.wait(false, std::memory_order_acquire);
+}
 
 void service_interrupts(Runtime &rt) {
     interrupt_pending.store(false, std::memory_order_relaxed);

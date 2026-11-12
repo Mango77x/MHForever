@@ -58,7 +58,7 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
     if (functions != map.tables.end()) {
         for (const char *hooked :
              {"mh_overlay_prepare", "mh_supply_box_update", "mh_smithy_create_list_update",
-              "mh_smithy_improve_list_update", "mh_smithy_panel_draw", "mh_smithy_model_update"}) {
+              "mh_smithy_improve_list_update", "mh_smithy_panel_draw", "mh_smithy_model_update", "mh_draw_wait"}) {
             MHF_CHECK(mhf::psp::recomp::toml::get(functions->second, hooked).has_value());
         }
     }
@@ -84,7 +84,7 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
     MHF_CHECK(aspect_patches == std::set<std::string>({"mh_camera_aspect_made", "mh_camera_aspect_reset"}));
     for (const char *table : {"mh_smithy_panel_layout", "mh_smithy_side_layout", "mh_smithy_question_box",
                               "mh_smithy_skill_info_hint", "mh_smithy_model_scissor", "mh_smithy_panel_draw_entry",
-                              "mh_pad_input"}) {
+                              "mh_pad_input", "mh_draw_done"}) {
         MHF_CHECK(entries.contains(table) && entries.at(table).has_value());
     }
     MHF_CHECK(entries.contains("mh_smithy_create_info_setup") && entries.at("mh_smithy_create_info_setup").has_value());

@@ -115,7 +115,8 @@ struct GeState {
         stored.pc = result.pc;
         if (!raised.empty()) {
             events.insert(events.end(), raised.begin(), raised.end());
-            abi::interrupt_pending.store(true, std::memory_order_relaxed); // deliver them promptly
+            abi::interrupt_pending.store(true, std::memory_order_release); // deliver them promptly
+            abi::interrupt_pending.notify_all();
         }
         if (result.ended) {
             stored.done = true;
