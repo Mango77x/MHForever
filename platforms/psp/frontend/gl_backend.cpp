@@ -1477,7 +1477,8 @@ private:
     int shadow_cur_{};
     ShadowPass shadow_pass_;
     ShadowKept shadow_kept_[3];        // by generation: the flip shown, the one before it, and the one being drawn
-    std::vector<float> shadow_between_;
+    std::vector<float> shadow_between_;  // an in-between picture's player pieces (their vertices, moved to this moment)
+    ShadowKept shadow_between_kept_;     // and their ranges in it
     // The scenery seen so far in this zone, in the frame of one of its pieces (the game only draws what the camera sees, and
     // keeps the camera in every matrix), and its map, drawn again only when it has to be.
     std::vector<float> shadow_seen_vertices_;              // x, y, z and u, v in that frame
@@ -5218,7 +5219,8 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
         // The shadows must follow the ground as it is drawn in this picture. The camera found by the votes of all the draws can
         // differ from that (in some places monsters or plants outvote it), and the shadows would slide over the ground and back.
         // A single piece can be wrong too (a thing that moves, or a piece paired with its neighbour), so the biggest pieces vote,
-        // by their triangles, standing still included. Everything built on the ground moves alike.
+        // by their triangles, standing still included. Everything built on the ground moves alike. Only for the shadows.
+        if (live_->shadow.load(std::memory_order_relaxed)) {
         v2_scene_votes_.clear();
         for (const std::uint32_t n : v2_needed_) {
             if (!summaries_before_[n].skinned && n < v2_new_count_.size() && v2_new_count_[n] != 0) v2_scene_votes_.push_back(n);
@@ -5281,6 +5283,7 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                 scene_moved = true;
             }
         }
+        } // the shadows
     }
     staging_.clear();
     ranges_.assign(now.size(), Range{});
@@ -5368,31 +5371,42 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                 const ShadowKept &kept = shadow_kept_[flip_.shadow.generation % 3u];
                 const ShadowKept &older = shadow_kept_[(flip_.shadow.generation + 2u) % 3u];
                 if (v2 && (scene_moved || v2_camera_.valid) && flip_.shadow.player_half > 0.0f && kept.generation == flip_.shadow.generation) {
-                    shadow_between_ = kept.vertices;
-                    if (older.generation + 1u == kept.generation) {
-                        // By the same motion as the rest of the shadows, or the hunter's would jump between its two places.
-                        const interpolation::Matrix motion = scene_moved ? scene_whole : interpolation::rigid_at(v2_camera_, 1.0f);
+                    // Only the player's pieces: the map drawn here holds nothing else, so nothing else is copied or uploaded
+                    // (the scenery's vertices are most of the picture, and copying them for every in-between picture cost
+                    // more than drawing the map).
+                    shadow_between_.clear();
+                    shadow_between_kept_.ranges.clear();
+                    const bool blend = older.generation + 1u == kept.generation;
+                    // By the same motion as the rest of the shadows, or the hunter's would jump between its two places.
+                    const interpolation::Matrix motion = !blend ? interpolation::Matrix{} : scene_moved ? scene_whole : interpolation::rigid_at(v2_camera_, 1.0f);
+                    if (blend) {
                         for (const KeptRange &o : older.ranges) o.paired = false;
-                        for (const KeptRange &r : kept.ranges) {
-                            if (!r.player) continue;
-                            // The same model: characters come and go from what is drawn, so the order says nothing.
-                            const auto from = std::find_if(older.ranges.begin(), older.ranges.end(), [&r](const KeptRange &o) {
-                                return !o.paired && o.vertices == r.vertices && o.count == r.count;
-                            });
-                            if (from == older.ranges.end()) continue;
-                            from->paired = true;
-                            for (std::uint32_t v = 0; v < r.count; ++v) {
-                                float *out = shadow_between_.data() + (static_cast<std::size_t>(r.first) + v) * 5u;
-                                const float *in = older.vertices.data() + (static_cast<std::size_t>(from->first) + v) * 5u;
-                                for (int k = 0; k < 3; ++k) {
-                                    const float old_here = motion[static_cast<std::size_t>(k)] * in[0] + motion[static_cast<std::size_t>(4 + k)] * in[1] +
-                                                           motion[static_cast<std::size_t>(8 + k)] * in[2] + motion[static_cast<std::size_t>(12 + k)];
-                                    out[k] = old_here + (out[k] - old_here) * t;
-                                }
+                    }
+                    for (const KeptRange &r : kept.ranges) {
+                        if (!r.player) continue;
+                        KeptRange piece = r;
+                        piece.first = static_cast<std::uint32_t>(shadow_between_.size() / 5u);
+                        const float *source = kept.vertices.data() + static_cast<std::size_t>(r.first) * 5u;
+                        shadow_between_.insert(shadow_between_.end(), source, source + static_cast<std::size_t>(r.count) * 5u);
+                        shadow_between_kept_.ranges.push_back(piece);
+                        if (!blend) continue;
+                        // The same model: characters come and go from what is drawn, so the order says nothing.
+                        const auto from = std::find_if(older.ranges.begin(), older.ranges.end(), [&r](const KeptRange &o) {
+                            return !o.paired && o.vertices == r.vertices && o.count == r.count;
+                        });
+                        if (from == older.ranges.end()) continue;
+                        from->paired = true;
+                        for (std::uint32_t v = 0; v < r.count; ++v) {
+                            float *out = shadow_between_.data() + (static_cast<std::size_t>(piece.first) + v) * 5u;
+                            const float *in = older.vertices.data() + (static_cast<std::size_t>(from->first) + v) * 5u;
+                            for (int k = 0; k < 3; ++k) {
+                                const float old_here = motion[static_cast<std::size_t>(k)] * in[0] + motion[static_cast<std::size_t>(4 + k)] * in[1] +
+                                                       motion[static_cast<std::size_t>(8 + k)] * in[2] + motion[static_cast<std::size_t>(12 + k)];
+                                out[k] = old_here + (out[k] - old_here) * t;
                             }
                         }
                     }
-                    draw_shadow_map(flip_.shadow, kept, shadow_between_, true);
+                    draw_shadow_map(flip_.shadow, shadow_between_kept_, shadow_between_, true);
                 }
                 apply_shadow(scratch_, flip_.shadow, eye_to_map);
                 gl_.BindVertexArray(vao_);

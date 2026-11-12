@@ -17,6 +17,7 @@
 // The executable supplies the initial data sections. The launcher's installer prepares it from the player's own disc image
 // (launcher/native/install/); developer builds can also point --exe at a file that matches region.toml's dev_executable.
 
+#include "mhf/psp/abi.hpp"
 #include "mhf/psp/frame_dump.hpp"
 #include "mhf/psp/generated.hpp"
 #include "mhf/psp/host.hpp"
@@ -222,6 +223,21 @@ constexpr std::uint8_t kFastSupplyBoxFrames = 2;          // what is left of it:
 
 // Hook on mh_supply_box_update(?, Player*), before the game counts the cooldown down.
 std::atomic<bool> g_fast_supply_box{false}; // the in-game menu turns it on and off while playing
+
+// The game's wait for its draw-done flag (region map mh_draw_wait): it reads the flag in a loop until an interrupt (a
+// finished display list) sets it, which kept a core busy for as long as the drawing took and slowed busy scenes on
+// machines with few cores, the projected shadows most. Hooked at its start: the host sleeps until an interrupt may be
+// due, services it (the guest thread it wakes may set the flag) and looks again; the game's own loop then finds the
+// flag set and returns.
+constexpr bool kDrawWaitMapped = region::mh_draw_done.has_value();
+void on_draw_wait([[maybe_unused]] Runtime &rt, Context &) {
+    if constexpr (kDrawWaitMapped) {
+        while (rt.memory().load8(*region::mh_draw_done) == 0) {
+            mhf::psp::abi::wait_for_interrupt();
+            mhf::psp::abi::service_interrupts(rt);
+        }
+    }
+}
 
 void on_supply_box_update(Runtime &rt, Context &ctx) {
     if (!g_fast_supply_box.load()) return;
@@ -1009,6 +1025,7 @@ int main(int argc, char **argv) {
         // Hooks that read a switch every time, so the in-game menu can turn their enhancement on and off.
         g_fast_supply_box = fast_supply_box;
         runtime.register_hook("mh_supply_box_update", &on_supply_box_update);
+        runtime.register_hook("mh_draw_wait", &on_draw_wait); // sleeps through the game's wait for its drawing
         if (smithy_layout) smithy_browse = true; // the layout scrolls the list with Info open
         if (smithy_browse && kSmithyBrowseMapped) {
             for (const char *patch : kSmithyBrowsePatches) runtime.enable_patch(patch);

@@ -86,6 +86,9 @@ void service_interrupts(Runtime &rt);
 inline void poll_interrupts(Runtime &rt) {
     if (interrupt_pending.load(std::memory_order_relaxed)) [[unlikely]] service_interrupts(rt);
 }
+// Blocks the calling (guest) thread until an interrupt may be due, instead of spinning on poll_interrupts: for a guest
+// busy wait whose condition only an interrupt can change. The ticker raises the flag every few milliseconds.
+void wait_for_interrupt();
 } // namespace abi
 
 } // namespace mhf::psp
