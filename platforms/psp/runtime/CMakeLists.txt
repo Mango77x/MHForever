@@ -43,7 +43,9 @@ if(WIN32)
     target_link_libraries(mhf_psp_runtime PRIVATE winmm dbghelp) # timeBeginPeriod; the sampling profiler (profiler.cpp)
 endif()
 
-# mhf_psp_copy_fonts(<target>): puts the free fonts used by sceLibFont next to the executable, in fonts/.
+# mhf_psp_copy_fonts(<target>): puts the free fonts used by sceLibFont next to the executable, in fonts/, and the HD
+# text drawn from them (assets/hd-text, a texture pack the GL frontend draws with or without the player's) in
+# fonts/hd-text/.
 function(mhf_psp_copy_fonts target)
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${target}>/fonts
@@ -55,6 +57,10 @@ function(mhf_psp_copy_fonts target)
                 $<TARGET_FILE_DIR:${target}>/fonts/NotoSansJP-Regular.otf
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PROJECT_SOURCE_DIR}/third_party/fonts/noto-sans-jp/LICENSE
                 $<TARGET_FILE_DIR:${target}>/fonts/LICENSE-NotoSansJP
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${target}>/fonts/hd-text
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PROJECT_SOURCE_DIR}/assets/hd-text/textures.ini
+                ${PROJECT_SOURCE_DIR}/assets/hd-text/040cc000ecbb8936c6a18eee.png
+                $<TARGET_FILE_DIR:${target}>/fonts/hd-text/
         VERBATIM)
 endfunction()
 

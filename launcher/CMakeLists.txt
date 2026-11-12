@@ -227,6 +227,7 @@ if(UNIX AND NOT APPLE)
         install(FILES ${MHF_NOTO_SANS_JP} DESTINATION ${CMAKE_INSTALL_BINDIR}/fonts RENAME NotoSansJP-Regular.otf)
         install(FILES ${PROJECT_SOURCE_DIR}/third_party/fonts/noto-sans-jp/LICENSE
                 DESTINATION ${CMAKE_INSTALL_BINDIR}/fonts RENAME LICENSE-NotoSansJP)
+        install(DIRECTORY ${PROJECT_SOURCE_DIR}/assets/hd-text/ DESTINATION ${CMAKE_INSTALL_BINDIR}/fonts/hd-text)
     endif()
     install(FILES ${PROJECT_SOURCE_DIR}/packaging/linux/MHForever.desktop
             DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)

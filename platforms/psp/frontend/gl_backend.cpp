@@ -784,6 +784,9 @@ struct Slot {
     GLsizei width{}, height{};
 };
 
+// The name the built-in textures' images go by among the pack images (a pack may use the same file names).
+constexpr const char *kBuiltinImage = "builtin:";
+
 std::uint8_t to_byte(float v) { return static_cast<std::uint8_t>(std::clamp(v, 0.0f, 255.0f) + 0.5f); }
 
 // ---------------------------------------------------------------- the backend
@@ -1215,6 +1218,7 @@ private:
     RenderTarget *current_{};
     std::unordered_map<std::uint64_t, CachedTexture> textures_;
     std::unique_ptr<textures::Pack> pack_;     // the texture pack, when one was given and could be opened
+    std::unique_ptr<textures::Pack> builtin_;  // the textures MHForever ships (LiveSettings::builtin_textures_folder)
     std::unique_ptr<textures::Loader> loader_; // decodes its images
     bool pack_on_ = false;                     // drawing it (the player can turn it off in the menu)
     bool pack_mips_ = false;                   // its images get mip levels made here (the player's Mipmaps choice)
@@ -1800,6 +1804,7 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
         drop_textures();
         std::fprintf(stderr, "[gl] texture pack mipmaps %s\n", pack_mips_ ? "made" : "the pack's own");
     }
+    const bool packs_on = pack_on_ || builtin_ != nullptr; // something may replace this texture
     const auto info = ge.texture_info();
     tex_width_ = static_cast<float>(info.width);
     tex_height_ = static_cast<float>(info.height);
@@ -1857,14 +1862,14 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
         t.checked_frame = frame_;
         t.checked_clut = ge.clut_generation();
         // A 512-tall texture drawn lower than before has another pack key.
-        const bool rekey = pack_on_ && info.height == 512 && t.max_seen_v != t.keyed_max_v;
+        const bool rekey = packs_on && info.height == 512 && t.max_seen_v != t.keyed_max_v;
         if (t.texture == 0 || hash != t.hash || rekey) {
             t.hash = hash;
             t.holes = -1.0f; // the content changed: counted again below
             t.keyed_max_v = t.max_seen_v;
             std::shared_ptr<const textures::Image> image;
             bool kept = false;
-            if (pack_on_) {
+            if (packs_on) {
                 look_up_pack(ge, info, t);
                 if (!t.pending.empty() && pack_images_.count(t.pending) != 0) {
                     use_pack_image(t, t.pending); // on the GPU already: no decoding, no upload
@@ -1895,7 +1900,7 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
         }
     }
     // The pack's image arrived (the loader moves on only when one finished): it takes the game's texture's place.
-    if (!t.pending.empty() && pack_on_ && loader_->generation() != t.pending_generation && pack_uploads_ < kPackUploadsPerFlip) {
+    if (!t.pending.empty() && packs_on && loader_->generation() != t.pending_generation && pack_uploads_ < kPackUploadsPerFlip) {
         t.pending_generation = loader_->generation();
         std::shared_ptr<const textures::Image> image;
         const auto state = pack_images_.count(t.pending) != 0 ? textures::Loader::State::Ready : loader_->get(t.pending, t.pending_files, image);
@@ -1912,7 +1917,7 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
     uv_xform[1] = t.uv_scale[1];
     tex_mips_ = t.mips;
     tex_filter_ = t.filter;
-    if (pack_on_ && info.height == 512) seen_v_ = &t.max_seen_v;
+    if (packs_on && info.height == 512) seen_v_ = &t.max_seen_v;
     if (t.holes < 0.0f && live_->shadow.load(std::memory_order_relaxed)) {
         // Which textures really have holes (leaves, fronds): the game leaves the alpha test on for plain rock and ground too.
         if (info.format == 0) {
@@ -1966,9 +1971,18 @@ void GlBackend::open_texture_pack() {
         } else {
             std::fprintf(stderr, "[textures] texture pack: %zu textures from %s\n", pack_->size(), textures::utf8(pack_->ini()).c_str());
             for (const std::string &w : pack_->warnings()) std::fprintf(stderr, "[textures] %s\n", w.c_str());
-            const unsigned cores = std::max(1u, std::thread::hardware_concurrency());
-            loader_ = std::make_unique<textures::Loader>(std::clamp(cores / 3u, 1u, 3u));
         }
+    }
+    if (!live_->builtin_textures_folder.empty()) {
+        std::error_code ec;
+        const std::filesystem::path builtin = textures::from_utf8(live_->builtin_textures_folder);
+        std::string error;
+        if (std::filesystem::exists(builtin / "textures.ini", ec)) builtin_ = textures::Pack::open(builtin, {}, error);
+        if (builtin_) std::fprintf(stderr, "[textures] built-in textures: %zu from %s\n", builtin_->size(), textures::utf8(builtin).c_str());
+    }
+    if (pack_ || builtin_) {
+        const unsigned cores = std::max(1u, std::thread::hardware_concurrency());
+        loader_ = std::make_unique<textures::Loader>(std::clamp(cores / 3u, 1u, 3u));
     }
     // Dumps take their keys from the pack's options when there is a pack (so edited images fit in it), else from a
     // new pack's: the quick hash, as PPSSPP writes them.
@@ -2010,9 +2024,28 @@ void GlBackend::look_up_pack(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info
     textures::Key key;
     std::uint32_t covered_w = info.width, covered_h = info.height;
     const auto memory = [&ge](std::uint32_t address, std::uint32_t size) { return ge.guest_bytes(address, size); };
-    if (!pack_->key_of(texture_facts(ge, info, t.max_seen_v), memory, key, covered_w, covered_h)) return;
-    const textures::Match m = pack_->find(key);
-    if (pack_log_) {
+    const textures::Pack *from = nullptr;
+    textures::Match m;
+    if (pack_on_ && pack_->key_of(texture_facts(ge, info, t.max_seen_v), memory, key, covered_w, covered_h)) {
+        m = pack_->find(key);
+        from = pack_.get();
+    }
+    // The textures MHForever ships, for one the player's pack leaves to the game. Their images are named apart from
+    // the pack's, which may use the same file names.
+    if ((m.entry == nullptr || m.entry->keeps_original()) && builtin_) {
+        textures::Key builtin_key;
+        std::uint32_t builtin_w = info.width, builtin_h = info.height;
+        if (builtin_->key_of(texture_facts(ge, info, t.max_seen_v), memory, builtin_key, builtin_w, builtin_h)) {
+            if (const textures::Match b = builtin_->find(builtin_key); b.entry != nullptr && !b.entry->keeps_original()) {
+                m = b;
+                key = builtin_key;
+                covered_w = builtin_w;
+                covered_h = builtin_h;
+                from = builtin_.get();
+            }
+        }
+    }
+    if (pack_log_ && from != nullptr) {
         std::fprintf(stderr, "[textures] %s %ux%u format %u: %s\n", textures::format_key(key).c_str(), info.width, info.height,
                      info.format, m.entry == nullptr ? "not in the pack" : m.entry->keeps_original() ? "kept" : m.entry->image().c_str());
     }
@@ -2024,8 +2057,8 @@ void GlBackend::look_up_pack(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info
     // A [hashranges] image covers only part of the texture: coordinates reach past it in the same proportion.
     t.uv_scale[0] = static_cast<float>(info.width) / static_cast<float>(std::max(1u, covered_w));
     t.uv_scale[1] = static_cast<float>(info.height) / static_cast<float>(std::max(1u, covered_h));
-    t.pending = m.entry->image();
-    for (const auto &[level, name] : m.entry->levels) t.pending_files.push_back(pack_->path_of(name));
+    t.pending = (from == builtin_.get() ? kBuiltinImage : std::string()) + m.entry->image();
+    for (const auto &[level, name] : m.entry->levels) t.pending_files.push_back(from->path_of(name));
 }
 
 // The cached texture lets go of its texture: its own is deleted (or retired, when a recorded batch may replay with it);
@@ -2064,7 +2097,8 @@ void GlBackend::upload_pack_image(CachedTexture &t, const std::string &name, con
         // The pack's own mip levels only, as PPSSPP: an image without them is sampled at full size (with anisotropic
         // filtering), sharp at a distance as its author saw it. Packs such as KHD ship a single level. With the player's
         // mipmaps setting (or MHF_TEXTURE_PACK_MIPMAPS=1) the levels are made here instead (softer far away, no shimmer).
-        const bool made = pack_mips_ && image.levels.size() == 1;
+        // The built-in images always get them: the HD text is drawn much smaller than its image.
+        const bool made = (pack_mips_ || name.starts_with(kBuiltinImage)) && image.levels.size() == 1;
         if (made) gl_.GenerateMipmap(GL_TEXTURE_2D);
         gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, made ? 1000 : static_cast<GLint>(image.levels.size() - 1));
         const std::size_t bytes = std::size_t(image.width) * image.height * 4u * (made || image.levels.size() > 1 ? 4u : 3u) / 3u;
