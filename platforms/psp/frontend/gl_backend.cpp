@@ -1189,6 +1189,7 @@ private:
     // on a head), and the tags placed this flip: anchor, bottom, and the span of their pieces' middles.
     std::vector<std::array<float, 4>> figure_draws_;
     std::vector<std::array<float, 4>> tags_;
+    std::vector<std::array<float, 4>> panels_; // this flip's big 2D draws (a window's background): text on them is no tag
     float tag_anchor(float x1, float y1, float x2, float y2);
     float picture_aspect_ = 480.0f / 272.0f;
     void update_stretch() {
@@ -4009,6 +4010,8 @@ template <typename Box> bool hud_item_panel_start(const Box &b) {
 // after: pieces over the item panel while it is that tall (the supply box and the menus of that layer come with the
 // item panel hidden, or leave it alone). They shrink with the panel.
 constexpr float kHudItemPanelTall = 190.0f; // a panel that starts above this holds the list
+// A window's background is one draw of at least this much each way (the start menu's is 96x128); a letter is 7x14.
+constexpr float kPanelSide = 32.0f;
 template <typename Box> bool hud_over(const Box &b, const Box &panel) {
     return b.x1 <= panel.x2 + 8.0f && panel.x1 <= b.x2 + 8.0f && b.y1 <= panel.y2 + 8.0f && panel.y1 <= b.y2 + 8.0f;
 }
@@ -4018,10 +4021,17 @@ template <typename Box> bool hud_over(const Box &b, const Box &panel) {
 // a tag of a hunter away from the middle would leave its head; narrowed toward the head's middle, every piece of it
 // keeps its place over the head. A piece is a tag's when it is small and a skinned 3D draw (a hunter's head or hood)
 // has its top right under the piece's bottom, across the piece's middle. The other pieces of the same tag (on the same
-// row, next to it) take the anchor the first one found, so the letters keep their spacing. Anything else: the middle.
+// row, next to it) take the anchor the first one found, so the letters keep their spacing. A window's text is drawn
+// the same way, letter by letter, and stays with its window: a piece on a big 2D draw already drawn this flip (the
+// window's background; a tag has nothing behind it) is no tag's, wherever a figure stands under it. Anything else: the
+// middle.
 float GlBackend::tag_anchor(float x1, float y1, float x2, float y2) {
     if (x2 - x1 > 24.0f || y2 - y1 > 24.0f || figure_draws_.empty()) return 240.0f;
     const float middle = 0.5f * (x1 + x2);
+    const float row = 0.5f * (y1 + y2);
+    for (const auto &p : panels_) {
+        if (middle >= p[0] && middle <= p[2] && row >= p[1] && row <= p[3]) return 240.0f;
+    }
     for (const auto &tag : tags_) { // a piece of a tag already placed this flip
         if (std::fabs(tag[1] - y2) <= 4.0f && middle >= tag[2] - 40.0f && middle <= tag[3] + 40.0f) return tag[0];
     }
@@ -4137,6 +4147,9 @@ void GlBackend::size_hud() {
         if (what[0] == 'h') toward = 0.0f;                          // health: the clock's layer
         else if (what[0] == 'm' || what[0] == 'i') toward = 480.0f; // minimap, items, items (cursor)
         else toward = tag_anchor(box.x1, box.y1, box.x2, box.y2);  // a name tag: its figure; else the middle
+        if (box.x2 - box.x1 >= kPanelSide && box.y2 - box.y1 >= kPanelSide && panels_.size() < 64) {
+            panels_.push_back({box.x1, box.y1, box.x2, box.y2});
+        }
     }
     if (s < 1.0f || narrow < 1.0f) {
         bool inside = true; // texture coordinates (through mode: 0..1 across the texture)
@@ -4526,6 +4539,7 @@ void GlBackend::finish_flip() {
     frame_has_3d_ = false;
     figure_draws_.clear();
     tags_.clear();
+    panels_.clear();
     update_stretch(); // the next flip's (the window or the setting may have changed)
     hud_log_flip_ = hud_log_ && frame_ % hud_log_every_ == 0;
     tape_.clear();
