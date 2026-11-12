@@ -64,7 +64,8 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
     }
     // --smithy-browse and --smithy-layout: their nine patches, all in the village overlay, the two Info functions and
     // the layout tables. --analog-camera: its four call patches, in the camera's d-pad code in the executable (not
-    // mapped for every release: then none). Widescreen: its two call patches where a camera is set up, in every release.
+    // mapped for every release: then none). Widescreen: its three call patches where a camera is set up and where it
+    // makes its culling planes, in every release.
     std::set<std::string> smithy_patches, camera_patches, aspect_patches;
     for (const auto &p : mhf::psp::recomp::region_patches(map_path)) {
         if (p.patch.name.starts_with("mh_smithy_")) {
@@ -81,7 +82,8 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
                                                                         "mh_camera_turn_buttons_test",
                                                                         "mh_camera_turn_amount_chosen"})
                                                : std::set<std::string>{}));
-    MHF_CHECK(aspect_patches == std::set<std::string>({"mh_camera_aspect_made", "mh_camera_aspect_reset"}));
+    MHF_CHECK(aspect_patches ==
+              std::set<std::string>({"mh_camera_aspect_made", "mh_camera_aspect_reset", "mh_camera_aspect_culling"}));
     for (const char *table : {"mh_smithy_panel_layout", "mh_smithy_side_layout", "mh_smithy_question_box",
                               "mh_smithy_skill_info_hint", "mh_smithy_model_scissor", "mh_smithy_panel_draw_entry",
                               "mh_pad_input", "mh_draw_done"}) {

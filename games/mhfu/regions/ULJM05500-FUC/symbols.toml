@@ -99,6 +99,9 @@ mh_camera_turn_amount_chosen = "executable 0x088871A8 call" # v1 holds this fram
 # that store and changes v0 (the same place PPSSPP's ultrawide cheat for Portable 2nd G patches).
 mh_camera_aspect_made  = "executable 0x0881388C call" # a camera is made (s0 is the camera)
 mh_camera_aspect_reset = "executable 0x08813984 call" # a camera is set up again, as when a zone loads (a0 is the camera)
+# The camera's update makes its culling planes (camera + 3408..3471, in view space) right before this: the
+# game draws a character or a prop only inside them (found 2026-11-12, an NPC vanishing at the edges in 32:9).
+mh_camera_aspect_culling = "executable 0x08815424 call" # the culling planes are made (s0 is the camera)
 
 # Words FUComplete's PRELOAD.BIN and MODLOAD.BIN rewrite at run time, according to the options in its CONFIG.BIN. A
 # function that holds one checks it on entry and runs in the interpreter when it changed, so FUComplete's options apply
