@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 namespace mhf::host {
@@ -76,7 +77,9 @@ bool SdlHost::open(const HostOptions &options) {
         return false;
     }
     impl_->initialized = true;
-    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | (options.hidden ? SDL_WINDOW_HIDDEN : 0);
+    // Debugging: MHF_WINDOW_HIDDEN=1 keeps the window hidden (unattended runs that dump what it shows).
+    const bool hidden = options.hidden || std::getenv("MHF_WINDOW_HIDDEN") != nullptr;
+    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | (hidden ? SDL_WINDOW_HIDDEN : 0);
     if (options.opengl) {
         flags |= SDL_WINDOW_OPENGL;
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -84,7 +87,17 @@ bool SdlHost::open(const HostOptions &options) {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
         SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
-        impl_->window = SDL_CreateWindow(options.title, options.width * options.scale, options.height * options.scale, flags);
+        // Debugging: MHF_WINDOW_SIZE=<width>x<height> opens the window at that size (a wide window, say, to see the
+        // widescreen setting without a wide screen).
+        int width = options.width * options.scale, height = options.height * options.scale;
+        if (const char *size = std::getenv("MHF_WINDOW_SIZE")) {
+            int w = 0, h = 0;
+            if (std::sscanf(size, "%dx%d", &w, &h) == 2 && w >= 160 && h >= 90 && w <= 16384 && h <= 16384) {
+                width = w;
+                height = h;
+            }
+        }
+        impl_->window = SDL_CreateWindow(options.title, width, height, flags);
         if (impl_->window == nullptr) {
             std::fprintf(stderr, "[host] cannot create the window: %s\n", SDL_GetError());
             return false;

@@ -911,6 +911,8 @@ bool MenuRenderer::render_song_panel(const SongPanel &panel, float at_x, float a
                                      int width, int height, std::vector<std::uint32_t> &pixels, bool placing) {
     Impl &d = *impl_;
     d.begin(pixels, width, height, static_cast<float>(height) / Impl::kH);
+    // As wide as the picture, in logical units: 480 at the PSP's shape, more over a widescreen picture.
+    const float canvas_w = static_cast<float>(width) * Impl::kH / static_cast<float>(std::max(height, 1));
     const std::string eighth = kEighth, arrow = kArrowRight;
     const SongMetrics m = song_metrics(d, panel);
     const float note_w = m.note_w, name_w = m.name_w, w = m.w, h = m.h;
@@ -920,14 +922,14 @@ bool MenuRenderer::render_song_panel(const SongPanel &panel, float at_x, float a
         return d.text(x, baseline, s, size, c, alpha, false, track);
     };
     // Placed by its anchor, and kept on the canvas (its frame's studs stick out by a unit).
-    const float x = std::clamp(at_x - w * align_x, 1.0f, Impl::kW - w - 1.0f);
+    const float x = std::clamp(at_x - w * align_x, 1.0f, canvas_w - w - 1.0f);
     const float top = std::clamp(at_y - h * align_y, 1.0f, Impl::kH - h - 1.0f);
     const float notes_x = x + kSongPad + name_w + kSongGap;
     if (placing) { // being moved: a bright outline, and how to move it under (or over) the card
         d.rect(x - 2.5f, top - 2.5f, w + 5.0f, h + 5.0f, kSongPlaying, 0.18f);
         const std::string hint = "Drag it, or use the arrows / D-pad.  Enter / A keeps it, Esc / B cancels.";
         const float hw = d.measure(hint, 4.4f);
-        const float hx = std::clamp(x + (w - hw) * 0.5f, 3.0f, Impl::kW - hw - 3.0f);
+        const float hx = std::clamp(x + (w - hw) * 0.5f, 3.0f, canvas_w - hw - 3.0f);
         const float hy = top + h + 12.0f < Impl::kH ? top + h + 10.0f : top - 6.0f;
         d.rrect(hx - 4.0f, hy - 6.5f, hw + 8.0f, 9.0f, 3.0f, kBlack, 0.7f);
         d.text(hx, hy, hint, 4.4f, kText, 1.0f);

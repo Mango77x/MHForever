@@ -3,7 +3,7 @@
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
-//             [--smooth-textures] [--texture-pack <folder> [--pack-mipmaps] [--anisotropy 1|2|4|8|16]] [--fps 30..180] [--hud-size 50-100] [--true-weapon-values] [--fast-supply-box]
+//             [--smooth-textures] [--texture-pack <folder> [--pack-mipmaps] [--anisotropy 1|2|4|8|16]] [--fps 30..180] [--hud-size 50-100] [--widescreen] [--true-weapon-values] [--fast-supply-box]
 //             [--smithy-browse [--smithy-layout]]
 //             [--analog-camera [--analog-camera-turn-speed 50-200] [--analog-camera-tilt-speed 50-200]]
 //             [--mouse-camera [--mouse-camera-speed 25-300]]
@@ -563,6 +563,60 @@ void mouse_aim(Runtime &rt, float dx, float dy) {
     }
 }
 
+// --widescreen. The game's 3D camera keeps its aspect ratio (width over height) at camera + 8, which the projection reads
+// for every picture. The two functions that set a camera up store the PSP's 480:272 there (built with lui/ori in v0);
+// their call patches (the region map's mh_camera_aspect_made and mh_camera_aspect_reset) put the window's shape in v0
+// instead. The main camera (EU 0x09998D30, JP 0x09994A70) is set up again whenever a screen or a zone loads; the game
+// can set up others in between. Every camera set up is remembered, and at every host poll each one that still holds
+// 480:272 or a shape put there before gets the wanted shape, so a change of window or setting applies at once, also to
+// a camera the game reset itself. The camera's update builds its projection again only when camera + 12 differs from
+// the copy it keeps at camera + 16 (the copy is taken as it builds it), so a shape written from outside also changes
+// that copy: the next update builds the projection with the new shape. The GL backend stretches the picture to the
+// same shape (gl_backend.cpp).
+constexpr std::uint32_t kCameraAspect = 8;             // float
+constexpr std::uint32_t kCameraBuilt = 12;             // float, read by the projection
+constexpr std::uint32_t kCameraBuiltCopy = 16;         // float, kCameraBuilt as the projection was last built
+constexpr std::uint32_t kPspAspectBits = 0x3FE1E1E2u;  // 480 / 272, as the game builds it
+std::atomic<std::uint32_t> g_wanted_aspect{kPspAspectBits}; // from the frontend at every poll
+std::vector<std::uint32_t> g_cameras;                   // the cameras set up so far (the latest last)
+std::vector<std::uint32_t> g_aspects_put;               // the shapes put into them so far (wider than 480:272)
+
+void set_camera_aspect(Context &ctx, std::uint32_t camera) {
+    const std::uint32_t wanted = g_wanted_aspect.load();
+    ctx.gpr[2] = wanted; // v0: what the next instruction stores at camera + 8
+    std::erase(g_cameras, camera);
+    g_cameras.push_back(camera);
+    if (g_cameras.size() > 16) g_cameras.erase(g_cameras.begin()); // the oldest: long gone
+    if (wanted != kPspAspectBits && std::find(g_aspects_put.begin(), g_aspects_put.end(), wanted) == g_aspects_put.end()) {
+        if (g_aspects_put.empty()) {
+            std::fprintf(stderr, "[mhfu] widescreen: the camera at %08X draws at %.3f:1\n", camera, std::bit_cast<float>(wanted));
+        }
+        g_aspects_put.push_back(wanted);
+    }
+}
+void on_camera_aspect_made(Runtime &, Context &ctx) { set_camera_aspect(ctx, ctx.gpr[16]); }  // s0 is the camera
+void on_camera_aspect_reset(Runtime &, Context &ctx) { set_camera_aspect(ctx, ctx.gpr[4]); }  // a0 is the camera
+
+// At every host poll: the shape the frontend wants, into every remembered camera that holds 480:272 or a shape put there
+// before. A camera holding anything else is left alone (the game set it itself, or that memory is something else now).
+void keep_camera_aspect(Runtime &rt, float aspect) {
+    const std::uint32_t wanted = aspect > 0.0f ? std::bit_cast<std::uint32_t>(aspect) : kPspAspectBits;
+    g_wanted_aspect = wanted;
+    if (wanted != kPspAspectBits && std::find(g_aspects_put.begin(), g_aspects_put.end(), wanted) == g_aspects_put.end()) {
+        g_aspects_put.push_back(wanted);
+    }
+    auto &memory = rt.memory();
+    for (const std::uint32_t camera : g_cameras) {
+        if (!memory.contains(camera + kCameraAspect, kCameraBuiltCopy - kCameraAspect + 4)) continue;
+        const std::uint32_t now = memory.load32(camera + kCameraAspect);
+        if (now == wanted) continue;
+        if (now == kPspAspectBits || std::find(g_aspects_put.begin(), g_aspects_put.end(), now) != g_aspects_put.end()) {
+            memory.store32(camera + kCameraAspect, wanted);
+            memory.store32(camera + kCameraBuiltCopy, memory.load32(camera + kCameraBuilt) ^ 1u); // build it again
+        }
+    }
+}
+
 void on_camera_buttons_copied(Runtime &rt, Context &ctx) {
     g_camera_has_pad = g_analog_camera.load() && ctx.gpr[kRegA0] == 1u; // off: the stick is the d-pad, as on the PSP
     // The mouse's motion since the last frame. It is read every frame, so motion while a menu or a scene had the pad is
@@ -822,6 +876,7 @@ int main(int argc, char **argv) {
     bool smooth_textures = false;
     int target_fps = 30; // --fps N: 30 (the game's own rate) or a multiple of it up to 180
     int hud_size = 100; // --hud-size N: the quest HUD's size in percent (enhancement)
+    bool widescreen = false; // --widescreen: the 3D fills a window wider than the PSP's screen (enhancement)
     // The projected shadows (enhancement): --projected-shadows turns them on, --no-whole-map-shadows leaves only the hunter and
     // monsters casting, --shadow-quality 0..2 (low by default), --shadow-darkness 0..100 (50: as each zone was tuned).
     bool projected_shadows = false, whole_map_shadows = true;
@@ -861,6 +916,7 @@ int main(int argc, char **argv) {
         else if (a == "--smooth-textures") smooth_textures = true; // enhancement, off by default
         else if (a == "--fps" && i + 1 < argc) target_fps = std::clamp(std::stoi(argv[++i]), 30, 180); // enhancement
         else if (a == "--hud-size" && i + 1 < argc) hud_size = std::clamp(std::stoi(argv[++i]), 50, 100); // enhancement
+        else if (a == "--widescreen") widescreen = true; // enhancement, off by default
         else if (a == "--projected-shadows") projected_shadows = true; // enhancement, off by default
         else if (a == "--no-whole-map-shadows") whole_map_shadows = false;
         else if (a == "--shadow-quality" && i + 1 < argc) shadow_quality = std::clamp(std::stoi(argv[++i]), 0, 2);
@@ -971,6 +1027,8 @@ int main(int argc, char **argv) {
         }
         g_analog_camera = analog_camera;
         { // the region map's call patches (FUComplete's camera function runs in the interpreter, which runs them too)
+            runtime.register_hook("mh_camera_aspect_made", &on_camera_aspect_made); // widescreen
+            runtime.register_hook("mh_camera_aspect_reset", &on_camera_aspect_reset);
             runtime.register_hook("mh_camera_buttons_copied", &on_camera_buttons_copied);
             runtime.register_hook("mh_camera_turn_buttons_test", &on_camera_turn_buttons_test);
             runtime.register_hook("mh_camera_turn_amount_chosen", &on_camera_turn_amount_chosen);
@@ -1067,6 +1125,7 @@ int main(int argc, char **argv) {
             frontend.set_shadow_zone_suns(shadow_zone_suns());
             frontend.set_shadow_zones({std::begin(kShadowZoneNames), std::end(kShadowZoneNames)}, shadow_zone_textures());
             frontend.set_hud(hud_size);
+            frontend.set_widescreen(widescreen);
             const char *shadow_env = std::getenv("MHF_SHADOW"); // MHF_SHADOW=1 turns them on as --projected-shadows does
             frontend.set_shadows(projected_shadows || (shadow_env != nullptr && shadow_env[0] != '0'), whole_map_shadows, shadow_quality,
                                  shadow_darkness);
@@ -1115,6 +1174,11 @@ int main(int argc, char **argv) {
                 // The mouse is held in the window while it moves the camera: both switches on.
                 frontend.set_mouse_look([] { return g_analog_camera.load() && g_mouse_camera.load(); });
             }
+            // Widescreen: the shape the frontend works out from the window reaches the game's camera at every poll.
+            extra = [rt = &runtime, fe = &frontend, previous = std::move(extra)]() {
+                keep_camera_aspect(*rt, fe->game_aspect());
+                if (previous) previous();
+            };
             frontend.attach(runtime, extra);
         } else if (window) {
             // A player asked for a window: never keep running invisibly.

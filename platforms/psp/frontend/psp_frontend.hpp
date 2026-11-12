@@ -61,6 +61,12 @@ public:
     // The quest HUD's size in percent, 50..100 (gl_backend.hpp, LiveSettings). The Video tab of the in-game menu
     // changes it while playing.
     void set_hud(int size);
+    // Widescreen (gl_backend.hpp, LiveSettings): the 3D fills a window wider than the PSP's screen, 2D keeps its shape.
+    // Before attach(); the Video tab turns it on and off while playing.
+    void set_widescreen(bool on);
+    // The shape the game should draw its 3D at (width over height), 0 while widescreen does not apply. Read by the
+    // game program's camera hooks.
+    [[nodiscard]] float game_aspect() const;
     // The projected shadows as the launcher keeps them (gl_backend.hpp, LiveSettings): on, whole map, quality 0..2,
     // darkness 0..100. The Video tab changes them while playing, and the controls file keeps them for the launcher.
     void set_shadows(bool on, bool whole_map, int quality, int darkness);

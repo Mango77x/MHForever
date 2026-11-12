@@ -32,6 +32,9 @@ struct OverlayImage {
     // The image is the in-game menu: the game runs on behind it, blurred, and the backend draws it at least as often as the
     // display refreshes, also when the game shows nothing new.
     bool continuous = false;
+    // The shape it covers: 0 the PSP's 480:272, centred in the window; wider, the stretched widescreen picture (the
+    // hunting horn's songs, which sit by the quest HUD).
+    float aspect = 0.0f;
     std::uint64_t generation = 0;
 };
 
@@ -73,6 +76,11 @@ struct LiveSettings {
     std::atomic<float> shadow_max_piece{39450.0f};
     // HUD size in percent (100: as the game draws it): in quests, the HUD shrinks into the corners it sits in.
     std::atomic<int> hud_size{100};
+    // Widescreen (enhancement, off by default): the game's 3D is drawn at the window's shape and the picture stretched
+    // to it, 2D kept in shape (gl_backend.cpp, size_hud). wide_aspect is that shape (width over height), worked out by
+    // the frontend at every poll: 0 while off, with the software renderer or in a window no wider than 480:272.
+    std::atomic<bool> widescreen{false};
+    std::atomic<float> wide_aspect{0.0f};
     // Written by the drawing thread at every flip: that flip drew the quest HUD (its clock). The hunting horn's song
     // panel is only shown over it.
     std::atomic<bool> quest_hud{false};
