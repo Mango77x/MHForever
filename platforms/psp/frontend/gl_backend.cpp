@@ -4010,8 +4010,12 @@ template <typename Box> bool hud_item_panel_start(const Box &b) {
 // after: pieces over the item panel while it is that tall (the supply box and the menus of that layer come with the
 // item panel hidden, or leave it alone). They shrink with the panel.
 constexpr float kHudItemPanelTall = 190.0f; // a panel that starts above this holds the list
-// A window's background is one draw of at least this much each way (the start menu's is 96x128); a letter is 7x14.
-constexpr float kPanelSide = 32.0f;
+// A window's background is one draw at least 32 wide, 12 high and 32x32 in area: the start menu's is 96x128, the
+// banner over an area's exit ("To Pokke Farm") 176x16. A letter is 7x14, a name tag's pieces at most 24x24.
+template <typename Box> bool hud_panel(const Box &b) {
+    const float w = b.x2 - b.x1, h = b.y2 - b.y1;
+    return w >= 32.0f && h >= 12.0f && w * h >= 32.0f * 32.0f;
+}
 template <typename Box> bool hud_over(const Box &b, const Box &panel) {
     return b.x1 <= panel.x2 + 8.0f && panel.x1 <= b.x2 + 8.0f && b.y1 <= panel.y2 + 8.0f && panel.y1 <= b.y2 + 8.0f;
 }
@@ -4147,7 +4151,7 @@ void GlBackend::size_hud() {
         if (what[0] == 'h') toward = 0.0f;                          // health: the clock's layer
         else if (what[0] == 'm' || what[0] == 'i') toward = 480.0f; // minimap, items, items (cursor)
         else toward = tag_anchor(box.x1, box.y1, box.x2, box.y2);  // a name tag: its figure; else the middle
-        if (box.x2 - box.x1 >= kPanelSide && box.y2 - box.y1 >= kPanelSide && panels_.size() < 64) {
+        if (hud_panel(box) && panels_.size() < 64) {
             panels_.push_back({box.x1, box.y1, box.x2, box.y2});
         }
     }
