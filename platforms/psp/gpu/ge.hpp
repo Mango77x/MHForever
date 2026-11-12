@@ -87,6 +87,8 @@ public:
     [[nodiscard]] std::uint32_t clut_max_bytes() const noexcept { return clut_max_bytes_; }
     // Incremented whenever the palette is reloaded.
     [[nodiscard]] std::uint64_t clut_generation() const noexcept { return clut_generation_; }
+    // The colour (ABGR8888) entry `index` of the palette gives, as the current CLUT format reads it.
+    [[nodiscard]] std::uint32_t clut_lookup(std::uint32_t index) const;
     // The current camera, for backends that place vertices again (frame interpolation).
     [[nodiscard]] const Matrix43 &view_matrix() const noexcept { return view_; }
     [[nodiscard]] const Matrix44 &proj_matrix() const noexcept { return proj_; }
@@ -141,7 +143,6 @@ private:
     // Textures.
     void sample_texture(float u, float v, float out[4]) const;
     [[nodiscard]] std::uint32_t fetch_texel(int level, int x, int y) const;
-    [[nodiscard]] std::uint32_t clut_lookup(std::uint32_t index) const;
 
     // Framebuffer access.
     [[nodiscard]] std::uint32_t read_pixel(int x, int y) const;

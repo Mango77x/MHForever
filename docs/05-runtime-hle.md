@@ -442,11 +442,23 @@ its folder (`--texture-pack`, or `MHF_TEXTURE_PACK`).
   texture's key and what the pack does with it, and a summary every 300 flips; `MHF_TEXTURE_DUMP=<folder>` writes every
   texture the game uploads, once, as `<key>.png` with a `textures.ini`, which makes the folder a pack to edit (an edited
   image is never written over).
-- **Built-in HD text**: MHForever ships one texture of its own as a pack, `fonts/hd-text/` (from `assets/hd-text/`): the
-  Latin character map the European and North American releases build at boot from MHForever's font, drawn at 16 times
-  its size by Kaneda. It is drawn with or without the player's pack (the player's wins for the same key), always with mip
-  levels. Japan and FUComplete build other maps, and the second page of the font (accented letters, kana and kanji)
-  changes as text appears, so neither can be replaced by key.
+- **HD text**: the game draws its text from two 4-bit pages (256x256, palette) that sceLibFont fills: one built at
+  boot (digits, Latin letters) and a cache it fills as new characters appear (accented letters, kana, kanji), whose
+  content changes with what has been shown, so no key can name it. The runtime keeps every glyph it draws into a page
+  (`mhf/psp/font_glyphs.hpp`: where, which character, and the same glyph drawn at 8 times the size from the same
+  font), and the GL frontend draws a page at 8 times its size whenever it changes: the texture as the game has it,
+  scaled up, with every glyph still in it (something other than the background in its box) drawn again sharp, with
+  mip levels. Every release, every character, no pack needed.
+  - **Glyph sheets**: an artist's drawing takes the font's place, a sheet per block of 256 code points,
+    `glyphs-XXXX.png` (XXXX the block's first code point in hex), 16 x 16 cells of 32 pixels at the PSP's size or any
+    whole multiple of it, character c in cell c & 0xFF (row-major) with its pen at (6, 24) in the cell; white on
+    transparent, the alpha is the coverage. They are looked for in the player's pack folder first, then in
+    `fonts/hd-text/`. `MHF_GLYPH_SHEETS=<folder>` writes the font's own sheets to draw over (Latin text, stars,
+    Japanese punctuation, kana and full-width forms at start, any other block once a glyph of it is drawn;
+    `MHF_GLYPH_SHEETS_ALL=1` adds every block of kanji).
+  - **The boot page as one texture**: MHForever also ships the European and North American boot page drawn at 16
+    times its size by Kaneda, as a built-in pack in `fonts/hd-text/` (from `assets/hd-text/`), drawn with or without
+    the player's pack (the player's wins for the same key). A pack's image for a page takes the place of the HD page.
 - Not supported: zipped packs (unzip them), DDS and ZIM images, and `[indexed]` (palette-index images).
 
 ### HUD scale (`frontend/gl_backend.cpp`, `size_hud`)
