@@ -12,17 +12,26 @@
 
 #include "hle.hpp"
 
+#include "mhf/psp/font_glyphs.hpp"
 #include "stb_truetype.h"
+#define STB_IMAGE_WRITE_STATIC // the font's glyph sheets (MHF_GLYPH_SHEETS); static, the frontend has its own copy
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <set>
+#include <tuple>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -56,6 +65,8 @@ struct Face {
 std::unique_ptr<Face> g_face;
 std::unique_ptr<Face> g_japanese; // for the characters g_face does not have; may be missing
 bool g_face_tried = false;
+std::filesystem::path g_sheet_folder; // MHF_GLYPH_SHEETS: where the glyph sheets go (empty: none)
+void write_sheet(const Face &fc, std::uint32_t block);
 
 std::unique_ptr<Face> load_face(const std::filesystem::path &path) {
     std::ifstream f(path, std::ios::binary);
@@ -104,6 +115,14 @@ Face *face(Runtime &rt) {
     std::fprintf(stderr, "[hle] sceLibFont: using %s (%d glyphs measured)%s\n", kFontName, fc.glyph_count,
                  g_japanese ? ", Japanese from Noto Sans JP" : "");
     g_face = std::move(result);
+    if (const char *sheets = std::getenv("MHF_GLYPH_SHEETS"); sheets != nullptr && sheets[0] != '\0') {
+        g_sheet_folder = sheets;
+        // Latin text (accents included), the stars, the Japanese punctuation, kana and full-width forms
+        for (const std::uint32_t block : {0x0000u, 0x0100u, 0x2000u, 0x2600u, 0x3000u, 0xFF00u}) write_sheet(*g_face, block);
+        if (const char *all = std::getenv("MHF_GLYPH_SHEETS_ALL"); all != nullptr && all[0] == '1') {
+            for (std::uint32_t block = 0x4E00u; block <= 0x9F00u; block += 0x100u) write_sheet(*g_face, block);
+        }
+    }
     return g_face.get();
 }
 
@@ -228,6 +247,98 @@ Glyph glyph_for(const Face &fc, std::uint32_t code) {
         glyph = stbtt_FindGlyphIndex(&fc.info, static_cast<int>(kAltCharacter));
     }
     return {&fc, glyph};
+}
+
+// ---------------------------------------------------------------- HD glyphs and glyph sheets (font_glyphs.hpp)
+
+namespace fg = mhf::psp::font_glyphs;
+
+// A glyph drawn at fg::kScale times the size, its pen `shift` (0..1) into its first pixel; kept, the game draws the
+// same characters again and again (and each twice, a pixel apart, for its bold text).
+std::shared_ptr<const fg::Coverage> hd_glyph(const Glyph &g, float shift_x, float shift_y, int &x0, int &y0) {
+    static std::map<std::tuple<const Face *, int, int, int>, std::tuple<std::shared_ptr<const fg::Coverage>, int, int>> cache;
+    const int sx = static_cast<int>(shift_x * 64.0f), sy = static_cast<int>(shift_y * 64.0f);
+    const auto key = std::make_tuple(g.face, g.index, sx, sy);
+    if (const auto it = cache.find(key); it != cache.end()) {
+        x0 = std::get<1>(it->second);
+        y0 = std::get<2>(it->second);
+        return std::get<0>(it->second);
+    }
+    const float scale = g.face->scale * static_cast<float>(fg::kScale);
+    int x1, y1;
+    stbtt_GetGlyphBitmapBoxSubpixel(&g.face->info, g.index, scale, scale, shift_x, shift_y, &x0, &y0, &x1, &y1);
+    auto cov = std::make_shared<fg::Coverage>();
+    cov->width = std::max(0, x1 - x0);
+    cov->height = std::max(0, y1 - y0);
+    cov->values.resize(static_cast<std::size_t>(cov->width) * static_cast<std::size_t>(cov->height));
+    if (!cov->values.empty()) {
+        stbtt_MakeGlyphBitmapSubpixel(&g.face->info, cov->values.data(), cov->width, cov->height, cov->width, scale, scale,
+                                      shift_x, shift_y, g.index);
+    }
+    if (cache.size() > 8192) cache.clear(); // a long session of Japanese text: start over rather than grow
+    cache[key] = {cov, x0, y0};
+    return cov;
+}
+
+// Whether a font has the character (the glyph sheets leave out what would be drawn as '_').
+bool has_glyph(const Face &fc, std::uint32_t code) {
+    if (is_star(code)) return true;
+    if (stbtt_FindGlyphIndex(&fc.info, static_cast<int>(code)) != 0) return true;
+    if (const std::uint32_t latin = latin_equivalent(code); latin != 0 && stbtt_FindGlyphIndex(&fc.info, static_cast<int>(latin)) != 0) return true;
+    return g_japanese && stbtt_FindGlyphIndex(&g_japanese->info, static_cast<int>(code)) != 0;
+}
+
+std::set<std::uint32_t> g_sheets_written;
+
+// The font's sheet of the block of 256 code points from `block`: white glyphs on transparent, each with its pen at
+// fg::kSheetPen of its cell, at the PSP's size, as glyphs-XXXX.png.
+void write_sheet(const Face &fc, std::uint32_t block) {
+    if (g_sheet_folder.empty() || !g_sheets_written.insert(block).second) return;
+    constexpr int size = fg::kSheetSize;
+    std::vector<std::uint32_t> rgba(static_cast<std::size_t>(size) * size, 0x00FFFFFFu);
+    int drawn = 0;
+    for (std::uint32_t i = 0; i < 256; ++i) {
+        const std::uint32_t code = block + i;
+        if (code < 0x21u || !has_glyph(fc, code)) continue;
+        const int pen_x = static_cast<int>(i % 16u) * fg::kSheetCell + fg::kSheetPenX;
+        const int pen_y = static_cast<int>(i / 16u) * fg::kSheetCell + fg::kSheetPenY;
+        int x0 = 0, y0 = 0, w = 0, h = 0;
+        std::vector<unsigned char> px;
+        if (is_star(code)) {
+            const StarBox b = star_box(fc);
+            x0 = b.x0;
+            y0 = b.y0;
+            w = h = b.size;
+            px = star_bitmap(b.size, code == kBlackStar);
+        } else {
+            const Glyph g = glyph_for(fc, code);
+            int x1, y1;
+            stbtt_GetGlyphBitmapBox(&g.face->info, g.index, g.face->scale, g.face->scale, &x0, &y0, &x1, &y1);
+            w = x1 - x0;
+            h = y1 - y0;
+            if (w <= 0 || h <= 0) continue;
+            px.resize(static_cast<std::size_t>(w * h));
+            stbtt_MakeGlyphBitmap(&g.face->info, px.data(), w, h, w, g.face->scale, g.face->scale, g.index);
+        }
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                const int ox = pen_x + x0 + x, oy = pen_y + y0 + y;
+                if (ox < 0 || oy < 0 || ox >= size || oy >= size) continue;
+                rgba[static_cast<std::size_t>(oy) * size + static_cast<std::size_t>(ox)] =
+                    0x00FFFFFFu | (static_cast<std::uint32_t>(px[static_cast<std::size_t>(y * w + x)]) << 24u);
+            }
+        }
+        ++drawn;
+    }
+    if (drawn == 0) return;
+    char name[32];
+    std::snprintf(name, sizeof name, "glyphs-%04X.png", static_cast<unsigned>(block));
+    std::error_code ec;
+    std::filesystem::create_directories(g_sheet_folder, ec);
+    const std::string path = (g_sheet_folder / name).string();
+    if (stbi_write_png(path.c_str(), size, size, 4, rgba.data(), size * 4) != 0) {
+        std::fprintf(stderr, "[hle] sceLibFont: glyph sheet %s (%d characters)\n", path.c_str(), drawn);
+    }
 }
 
 // ---------------------------------------------------------------- functions
@@ -399,9 +510,25 @@ void draw_glyph(Runtime &rt, Context &ctx, int clip_x, int clip_y, int clip_w, i
     }
     int width = 0, height = 0;
     std::vector<unsigned char> pixels;
+    fg::Glyph placed; // for the HD text (font_glyphs.hpp)
+    placed.code = code;
+    const int left = x64 >> 6, top = y64 >> 6;
     if (is_star(code)) {
-        width = height = star_box(*fc).size;
+        const StarBox b = star_box(*fc);
+        width = height = b.size;
         pixels = star_bitmap(width, code == kBlackStar);
+        placed.pen_x64 = (left - b.x0) * 64;
+        placed.pen_y64 = (top - b.y0) * 64;
+        placed.box_x = b.x0;
+        placed.box_y = b.y0;
+        placed.box_width = placed.box_height = b.size;
+        auto hd = std::make_shared<fg::Coverage>();
+        hd->width = hd->height = b.size * fg::kScale;
+        const auto big = star_bitmap(hd->width, code == kBlackStar);
+        hd->values.assign(big.begin(), big.end());
+        placed.hd = std::move(hd);
+        placed.hd_x = left * fg::kScale;
+        placed.hd_y = top * fg::kScale;
     } else {
         const Glyph g = glyph_for(*fc, code);
         const float shift_x = static_cast<float>(x64 & 63) / 64.0f, shift_y = static_cast<float>(y64 & 63) / 64.0f;
@@ -417,12 +544,35 @@ void draw_glyph(Runtime &rt, Context &ctx, int clip_x, int clip_y, int clip_w, i
         pixels.resize(static_cast<std::size_t>(width * height));
         stbtt_MakeGlyphBitmapSubpixel(&g.face->info, pixels.data(), width, height, width, g.face->scale, g.face->scale, shift_x,
                                       shift_y, g.index);
+        // The pen: the bitmap's first pixel is x0 from the pen's pixel, the pen `shift` into that pixel.
+        const float pen_x = static_cast<float>(left - x0) + shift_x, pen_y = static_cast<float>(top - y0) + shift_y;
+        placed.pen_x64 = static_cast<std::int32_t>(std::lround(pen_x * 64.0f));
+        placed.pen_y64 = static_cast<std::int32_t>(std::lround(pen_y * 64.0f));
+        int bx1, by1;
+        stbtt_GetGlyphBitmapBox(&g.face->info, g.index, g.face->scale, g.face->scale, &placed.box_x, &placed.box_y, &bx1, &by1);
+        placed.box_width = bx1 - placed.box_x;
+        placed.box_height = by1 - placed.box_y;
+        const float hd_pen_x = pen_x * static_cast<float>(fg::kScale), hd_pen_y = pen_y * static_cast<float>(fg::kScale);
+        const float hd_origin_x = std::floor(hd_pen_x), hd_origin_y = std::floor(hd_pen_y);
+        int hx0 = 0, hy0 = 0;
+        placed.hd = hd_glyph(g, hd_pen_x - hd_origin_x, hd_pen_y - hd_origin_y, hx0, hy0);
+        placed.hd_x = static_cast<int>(hd_origin_x) + hx0;
+        placed.hd_y = static_cast<int>(hd_origin_y) + hy0;
     }
     // How many pixels fit in one line of the caller's buffer.
     const int per_line = format <= 1 ? static_cast<int>(pitch * 2u) : static_cast<int>(pitch / (format == 2 ? 1u : format == 3 ? 3u : 4u));
     const int max_x = std::min({buffer_width, per_line, clip_x + clip_w});
     const int max_y = std::min(buffer_height, clip_y + clip_h);
-    const int left = x64 >> 6, top = y64 >> 6;
+    placed.x = left;
+    placed.y = top;
+    placed.width = width;
+    placed.height = height;
+    placed.clip_x0 = std::max(0, clip_x);
+    placed.clip_y0 = std::max(0, clip_y);
+    placed.clip_x1 = max_x;
+    placed.clip_y1 = max_y;
+    if (format <= 1) fg::placed(buffer, buffer_width, buffer_height, std::move(placed)); // the game's text pages are 4-bit
+    if (!g_sheet_folder.empty()) write_sheet(*fc, code & ~0xFFu);
     for (int yy = 0; yy < height; ++yy) {
         const int y = top + yy;
         if (y < std::max(0, clip_y) || y >= max_y) continue;
@@ -499,3 +649,38 @@ const HleFunction kFunctions[] = {
 std::span<const HleFunction> font_functions() { return kFunctions; }
 
 } // namespace mhf::psp::hle
+
+namespace mhf::psp::font_glyphs {
+
+namespace {
+std::mutex g_pages_mutex;
+std::unordered_map<std::uint32_t, Page> g_pages;
+std::uint32_t page_key(std::uint32_t address) { return address & 0x1FFFFFFFu; } // the same memory through any mirror
+bool overlaps(const Glyph &a, const Glyph &b) {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+} // namespace
+
+void placed(std::uint32_t buffer, int width, int height, Glyph glyph) {
+    std::lock_guard lock(g_pages_mutex);
+    Page &page = g_pages[page_key(buffer)];
+    if (page.width != width || page.height != height) page = Page{page.generation, width, height, {}}; // another page there now
+    // The same character a pixel or two over is the game's bold text (drawn twice); anything else under the new glyph
+    // is gone (its cell was cleared and reused).
+    std::erase_if(page.glyphs, [&](const Glyph &old) {
+        if (!overlaps(old, glyph)) return false;
+        return old.code != glyph.code || std::abs(old.x - glyph.x) > 2 || std::abs(old.y - glyph.y) > 2;
+    });
+    if (page.glyphs.size() < 4096) page.glyphs.push_back(std::move(glyph));
+    ++page.generation;
+}
+
+bool page(std::uint32_t address, Page &out) {
+    std::lock_guard lock(g_pages_mutex);
+    const auto it = g_pages.find(page_key(address));
+    if (it == g_pages.end() || it->second.glyphs.empty()) return false;
+    out = it->second;
+    return true;
+}
+
+} // namespace mhf::psp::font_glyphs
