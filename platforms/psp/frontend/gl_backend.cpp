@@ -655,6 +655,9 @@ struct DrawSetup {
     // Widescreen: a 2D draw over a widened 3D picture, narrowed by wide[0] (1 / the stretch) toward x = wide[1] (the
     // left edge, the middle or the right edge), so that it keeps its shape once the picture is stretched to the window.
     float wide[2]{1, 240};
+    // Widescreen: a 3D overlay sized to the PSP's picture (a snowstorm's darkening in front of the camera), widened by
+    // this much around x 240 so it still covers the wider picture; 1: none.
+    float overlay_stretch{1};
 };
 
 // The camera a vertex was placed with: view and projection matrices, viewport and screen offset.
@@ -787,6 +790,8 @@ struct Slot {
 
 // The name the built-in textures' images go by among the pack images (a pack may use the same file names).
 constexpr const char *kBuiltinImage = "builtin:";
+// The `shown` name of a cached texture drawn with its HD text page (the page's texture is not the slot's own).
+constexpr const char *kHdTextImage = "hd-text:";
 
 std::uint8_t to_byte(float v) { return static_cast<std::uint8_t>(std::clamp(v, 0.0f, 255.0f) + 0.5f); }
 
@@ -1192,8 +1197,12 @@ private:
     // The skinned 3D of this flip on screen (hunters, Felynes, monsters), each draw's box in PSP pixels (a name tag sits
     // on a head), and the tags placed this flip: anchor, bottom, and the span of their pieces' middles.
     std::vector<std::array<float, 4>> figure_draws_;
-    std::vector<std::array<float, 4>> tags_;
+    std::vector<std::array<float, 4>> tags_, last_tags_; // anchor, bottom, the span of the pieces' boxes; the last flip's
+    std::vector<std::vector<float>> tag_pieces_, last_tag_pieces_; // each tag's pieces' left edges, by tags_' index
     std::vector<std::array<float, 4>> panels_; // this flip's big 2D draws (a window's background): text on them is no tag
+    std::set<std::uint32_t> panel_layers_, last_panel_layers_; // the game's 2D layers that hold a window, this flip and the last
+    std::vector<std::array<float, 3>> window_rows_, last_window_rows_; // lines of a window's text: bottom, left, right
+    bool window_row(float x1, float y2, float x2) const;
     float tag_anchor(float x1, float y1, float x2, float y2);
     float picture_aspect_ = 480.0f / 272.0f;
     void update_stretch() {
@@ -1222,10 +1231,20 @@ private:
     std::unique_ptr<textures::Pack> builtin_;  // the textures MHForever ships (LiveSettings::builtin_textures_folder)
     // HD text (font_glyphs.hpp): the pages the game draws its text from, drawn again at kScale times their size from
     // the glyphs sceLibFont put in them; the glyph sheets found so far by block (nullptr: none), and the buffers.
-    bool draw_hd_text(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info);
+    // Each page has a texture of its own, kept and updated where the game's page changed (a menu or a dialog adds
+    // letters every frame or so; drawing and uploading the whole page each time cost a third of a frame).
+    struct HdTextPage {
+        GLuint texture{};
+        int width{}, height{};
+        std::array<std::uint32_t, 16> clut{};
+        std::vector<std::uint32_t> source; // the game's page as last drawn (width x height)
+        std::vector<std::uint32_t> pixels; // the HD page (kScale times each way)
+        std::uint64_t last_use{};
+    };
+    GLuint draw_hd_text(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info);
     const textures::Image *glyph_sheet(std::uint32_t block);
     std::map<std::uint32_t, std::unique_ptr<textures::Image>> glyph_sheets_;
-    std::vector<std::uint32_t> hd_text_pixels_;
+    std::map<std::uint32_t, HdTextPage> hd_pages_; // by the page's guest address
     std::vector<std::uint8_t> hd_text_cover_;
     std::unique_ptr<textures::Loader> loader_; // decodes its images
     bool pack_on_ = false;                     // drawing it (the player can turn it off in the menu)
@@ -1898,13 +1917,17 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
                 pixels_.resize(static_cast<std::size_t>(info.width) * info.height);
                 ge.decode_texture(pixels_.data());
                 if (!dump_folder_.empty()) dump_texture(ge, info, pixels_.data());
-                if (!t.shown.empty() || interpolate_) release_texture(t); // a pack image's, or one a batch may replay
-                if (t.texture == 0) gl_.GenTextures(1, &t.texture);
-                t.mips = false;
-                gl_.BindTexture(GL_TEXTURE_2D, t.texture);
-                if (draw_hd_text(ge, info)) {
+                if (const GLuint hd = draw_hd_text(ge, info); hd != 0) {
+                    // A text page: its HD page's texture, which stays with the page (as a pack image's does).
+                    if (t.shown != kHdTextImage) release_texture(t);
+                    t.texture = hd;
+                    t.shown = kHdTextImage;
                     t.mips = true;
                 } else {
+                    if (!t.shown.empty() || interpolate_) release_texture(t); // a pack image's, or one a batch may replay
+                    if (t.texture == 0) gl_.GenTextures(1, &t.texture);
+                    t.mips = false;
+                    gl_.BindTexture(GL_TEXTURE_2D, t.texture);
                     gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(info.width), static_cast<GLsizei>(info.height),
                                    0, GL_RGBA, GL_UNSIGNED_BYTE, pixels_.data());
                     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
@@ -1993,28 +2016,66 @@ const textures::Image *GlBackend::glyph_sheet(std::uint32_t block) {
 // with every glyph still in it drawn again sharp, from a glyph sheet when there is one for its block, else from the
 // font at that size (the runtime drew it already). A glyph is still in the page when something other than the
 // background is in its box (the game clears a cell before it reuses it). False: not a text page.
-bool GlBackend::draw_hd_text(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info) {
-    if (info.format != 4 || info.width == 0 || info.height == 0 || info.width > 512 || info.height > 512) return false;
+GLuint GlBackend::draw_hd_text(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info) {
+    if (info.format != 4 || info.width == 0 || info.height == 0 || info.width > 512 || info.height > 512) return 0;
     font_glyphs::Page page;
-    if (!font_glyphs::page(info.address, page)) return false;
-    if (page.width != static_cast<int>(info.width) || page.height != static_cast<int>(info.height)) return false; // not that page
+    if (!font_glyphs::page(info.address, page)) return 0;
+    if (page.width != static_cast<int>(info.width) || page.height != static_cast<int>(info.height)) return 0; // not that page
     constexpr int s = font_glyphs::kScale;
     const int w = static_cast<int>(info.width), h = static_cast<int>(info.height), hw = w * s, hh = h * s;
     std::array<std::uint32_t, 16> clut{};
     for (std::uint32_t i = 0; i < 16; ++i) clut[i] = ge.clut_lookup(i);
     const std::uint32_t background = clut[0];
-    hd_text_pixels_.resize(static_cast<std::size_t>(hw) * static_cast<std::size_t>(hh));
-    hd_text_cover_.assign(hd_text_pixels_.size(), 0);
-    for (int y = 0; y < hh; ++y) {
-        const std::uint32_t *row = pixels_.data() + static_cast<std::size_t>(y / s) * static_cast<std::size_t>(w);
-        std::uint32_t *out = hd_text_pixels_.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(hw);
-        for (int x = 0; x < hw; ++x) out[x] = row[x / s];
+
+    HdTextPage &hp = hd_pages_[info.address & 0x1FFFFFFFu];
+    hp.last_use = frame_;
+    // Where the game's page changed: all of it for a new page or another palette, else the box of the texels that
+    // differ (a letter or a line), one texel wider for the filter.
+    int rx0 = 0, ry0 = 0, rx1 = w, ry1 = h;
+    const bool whole = hp.texture == 0 || hp.width != w || hp.height != h || hp.clut != clut || hp.source.size() != pixels_.size();
+    if (!whole) {
+        rx0 = w;
+        ry0 = h;
+        rx1 = 0;
+        ry1 = 0;
+        for (int y = 0; y < h; ++y) {
+            const std::uint32_t *a = pixels_.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(w);
+            const std::uint32_t *b = hp.source.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(w);
+            for (int x = 0; x < w; ++x) {
+                if (a[x] == b[x]) continue;
+                rx0 = std::min(rx0, x);
+                rx1 = std::max(rx1, x + 1);
+                ry0 = std::min(ry0, y);
+                ry1 = y + 1;
+            }
+        }
+        if (rx1 <= rx0) return hp.texture; // the same page
+        rx0 = std::max(0, rx0 - 1);
+        ry0 = std::max(0, ry0 - 1);
+        rx1 = std::min(w, rx1 + 1);
+        ry1 = std::min(h, ry1 + 1);
     }
-    // Which glyphs are still there; their boxes go back to the background before they are drawn again.
+    if (whole) {
+        if (hp.texture == 0) gl_.GenTextures(1, &hp.texture);
+        hp.width = w;
+        hp.height = h;
+        hp.clut = clut;
+        hp.pixels.assign(static_cast<std::size_t>(hw) * static_cast<std::size_t>(hh), background);
+    }
+    hp.source = pixels_;
+    // The region in the HD page, drawn again: the game's texels scaled up, then every glyph still there over them.
+    const int hx0 = rx0 * s, hy0 = ry0 * s, hx1 = rx1 * s, hy1 = ry1 * s, rw = hx1 - hx0, rh = hy1 - hy0;
+    hd_text_cover_.assign(static_cast<std::size_t>(rw) * static_cast<std::size_t>(rh), 0);
+    for (int y = hy0; y < hy1; ++y) {
+        const std::uint32_t *row = pixels_.data() + static_cast<std::size_t>(y / s) * static_cast<std::size_t>(w);
+        std::uint32_t *out = hp.pixels.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(hw);
+        for (int x = hx0; x < hx1; ++x) out[x] = row[x / s];
+    }
     std::vector<const font_glyphs::Glyph *> kept;
     for (const font_glyphs::Glyph &g : page.glyphs) {
         const int x0 = std::max({0, g.x, g.clip_x0}), y0 = std::max({0, g.y, g.clip_y0});
         const int x1 = std::min({w, g.x + g.width, g.clip_x1}), y1 = std::min({h, g.y + g.height, g.clip_y1});
+        if (x1 <= rx0 || x0 >= rx1 || y1 <= ry0 || y0 >= ry1) continue; // not in the region
         bool there = false;
         for (int y = y0; y < y1 && !there; ++y) {
             for (int x = x0; x < x1; ++x) {
@@ -2026,18 +2087,19 @@ bool GlBackend::draw_hd_text(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info
         }
         if (!there) continue;
         kept.push_back(&g);
-        for (int y = y0 * s; y < y1 * s; ++y) {
-            std::fill_n(hd_text_pixels_.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(hw) + static_cast<std::size_t>(x0) * s,
-                        static_cast<std::size_t>(x1 - x0) * s, background);
+        // Its box goes back to the background (inside the region) before it is drawn again.
+        const int bx0 = std::max(x0, rx0) * s, bx1 = std::min(x1, rx1) * s;
+        for (int y = std::max(y0, ry0) * s; y < std::min(y1, ry1) * s; ++y) {
+            std::fill_n(hp.pixels.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(hw) + static_cast<std::size_t>(bx0),
+                        static_cast<std::size_t>(bx1 - bx0), background);
         }
     }
-    if (kept.empty()) return false;
     for (const font_glyphs::Glyph *g : kept) {
-        const int cx0 = std::max(0, g->clip_x0) * s, cy0 = std::max(0, g->clip_y0) * s;
-        const int cx1 = std::min(w, g->clip_x1) * s, cy1 = std::min(h, g->clip_y1) * s;
+        const int cx0 = std::max(std::max(0, g->clip_x0) * s, hx0), cy0 = std::max(std::max(0, g->clip_y0) * s, hy0);
+        const int cx1 = std::min(std::min(w, g->clip_x1) * s, hx1), cy1 = std::min(std::min(h, g->clip_y1) * s, hy1);
         const auto put = [&](int x, int y, std::uint8_t v) {
             if (v == 0 || x < cx0 || y < cy0 || x >= cx1 || y >= cy1) return;
-            std::uint8_t &c = hd_text_cover_[static_cast<std::size_t>(y) * static_cast<std::size_t>(hw) + static_cast<std::size_t>(x)];
+            std::uint8_t &c = hd_text_cover_[static_cast<std::size_t>(y - hy0) * static_cast<std::size_t>(rw) + static_cast<std::size_t>(x - hx0)];
             c = std::max(c, v);
         };
         const textures::Image *sheet = glyph_sheet(g->code & ~0xFFu);
@@ -2057,11 +2119,11 @@ bool GlBackend::draw_hd_text(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info
                 y = std::clamp(y, 0, sw - 1);
                 return rgba[(static_cast<std::size_t>(y) * static_cast<std::size_t>(sw) + static_cast<std::size_t>(x)) * 4u + 3u];
             };
-            for (int y = 0; y < g->box_height * s; ++y) {
+            for (int y = std::max(0, cy0 - dy0); y < std::min(g->box_height * s, cy1 - dy0); ++y) {
                 const float fy = sy0 + (static_cast<float>(y) + 0.5f) * step - 0.5f;
                 const int iy = static_cast<int>(std::floor(fy));
                 const float ty = fy - static_cast<float>(iy);
-                for (int x = 0; x < g->box_width * s; ++x) {
+                for (int x = std::max(0, cx0 - dx0); x < std::min(g->box_width * s, cx1 - dx0); ++x) {
                     const float fx = sx0 + (static_cast<float>(x) + 0.5f) * step - 0.5f;
                     const int ix = static_cast<int>(std::floor(fx));
                     const float tx = fx - static_cast<float>(ix);
@@ -2071,32 +2133,58 @@ bool GlBackend::draw_hd_text(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info
                 }
             }
         } else if (g->hd) {
-            for (int y = 0; y < g->hd->height; ++y) {
-                for (int x = 0; x < g->hd->width; ++x) {
+            for (int y = std::max(0, cy0 - g->hd_y); y < std::min(g->hd->height, cy1 - g->hd_y); ++y) {
+                for (int x = std::max(0, cx0 - g->hd_x); x < std::min(g->hd->width, cx1 - g->hd_x); ++x) {
                     put(g->hd_x + x, g->hd_y + y, g->hd->values[static_cast<std::size_t>(y) * static_cast<std::size_t>(g->hd->width) + static_cast<std::size_t>(x)]);
                 }
             }
         }
     }
     // Coverage to colour through the palette, as the game's 16 levels are, in between them too.
-    for (std::size_t i = 0; i < hd_text_cover_.size(); ++i) {
-        const std::uint8_t c = hd_text_cover_[i];
-        if (c == 0) continue;
-        const float f = static_cast<float>(c) * 15.0f / 255.0f;
-        const int i0 = std::min(14, static_cast<int>(f));
-        const float t = f - static_cast<float>(i0);
-        std::uint32_t colour = 0;
-        for (int shift = 0; shift < 32; shift += 8) {
-            const float a = static_cast<float>((clut[static_cast<std::size_t>(i0)] >> shift) & 0xFFu);
-            const float b = static_cast<float>((clut[static_cast<std::size_t>(i0) + 1u] >> shift) & 0xFFu);
-            colour |= static_cast<std::uint32_t>(std::lround(a + (b - a) * t)) << shift;
+    for (int y = 0; y < rh; ++y) {
+        const std::uint8_t *cov = hd_text_cover_.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(rw);
+        std::uint32_t *out = hp.pixels.data() + static_cast<std::size_t>(y + hy0) * static_cast<std::size_t>(hw) + static_cast<std::size_t>(hx0);
+        for (int x = 0; x < rw; ++x) {
+            const std::uint8_t c = cov[x];
+            if (c == 0) continue;
+            const float f = static_cast<float>(c) * 15.0f / 255.0f;
+            const int i0 = std::min(14, static_cast<int>(f));
+            const float tf = f - static_cast<float>(i0);
+            std::uint32_t colour = 0;
+            for (int shift = 0; shift < 32; shift += 8) {
+                const float a = static_cast<float>((clut[static_cast<std::size_t>(i0)] >> shift) & 0xFFu);
+                const float b = static_cast<float>((clut[static_cast<std::size_t>(i0) + 1u] >> shift) & 0xFFu);
+                colour |= static_cast<std::uint32_t>(std::lround(a + (b - a) * tf)) << shift;
+            }
+            out[x] = colour;
         }
-        hd_text_pixels_[i] = colour;
     }
-    gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, hw, hh, 0, GL_RGBA, GL_UNSIGNED_BYTE, hd_text_pixels_.data());
+    gl_.BindTexture(GL_TEXTURE_2D, hp.texture);
+    if (whole) {
+        gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, hw, hh, 0, GL_RGBA, GL_UNSIGNED_BYTE, hp.pixels.data());
+    } else {
+        gl_.PixelStorei(GL_UNPACK_ROW_LENGTH, hw);
+        gl_.TexSubImage2D(GL_TEXTURE_2D, 0, hx0, hy0, rw, rh, GL_RGBA, GL_UNSIGNED_BYTE,
+                          hp.pixels.data() + static_cast<std::size_t>(hy0) * static_cast<std::size_t>(hw) + static_cast<std::size_t>(hx0));
+        gl_.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    }
     gl_.GenerateMipmap(GL_TEXTURE_2D);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 1000);
-    return true;
+    // Pages not drawn for a long while (another screen's) give their memory back.
+    if (hd_pages_.size() > 6) {
+        for (auto it = hd_pages_.begin(); it != hd_pages_.end();) {
+            if (frame_ - it->second.last_use > 600 && &it->second != &hp) {
+                if (it->second.texture != 0) {
+                    if (interpolate_) retired_textures_.emplace_back(frame_, it->second.texture);
+                    else gl_.DeleteTextures(1, &it->second.texture);
+                }
+                it = hd_pages_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    return hp.texture;
 }
 
 // ---------------------------------------------------------------- texture packs
@@ -4068,7 +4156,27 @@ void GlBackend::draw_batch() {
     } else if (!batch_.empty() && shown_target(setup_.target)) {
         if (hud_log_flip_ && hud_drawn_ != 0) ++hud_3d_after_;
         if ((key_reg(setup_.key, kClearMode) & 1u) == 0) frame_has_3d_ = true; // widescreen: this flip shows 3D
-        if (frame_stretch_ > 1.0f && ((key_reg(setup_.key, kVertexType) >> 9u) & 3u) != 0 && figure_draws_.size() < 512) {
+        setup_.overlay_stretch = 1.0f;
+        if (frame_stretch_ > 1.0f && batch_.size() <= 24 && setup_.texture != 0 && (key_reg(setup_.key, kZWriteDisable) & 1u) != 0 &&
+            (key_reg(setup_.key, kAlphaBlendEnable) & 1u) != 0) {
+            // A weather overlay: a few textured, blended triangles in front of the camera, not writing the depth, from
+            // above the screen's top to below its bottom and around its middle, as wide as the PSP's picture or a little
+            // more. In a wider picture its sides showed as bands; it is widened with the picture.
+            float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+            for (const GpuVertex &v : batch_) {
+                bx0 = std::min(bx0, v.x);
+                by0 = std::min(by0, v.y);
+                bx1 = std::max(bx1, v.x);
+                by1 = std::max(by1, v.y);
+            }
+            const float middle = 0.5f * (bx0 + bx1), width = bx1 - bx0;
+            if (by0 <= 4.0f && by1 >= 268.0f && std::fabs(middle - 240.0f) <= 40.0f && width >= 480.0f / frame_stretch_ * 0.9f &&
+                width <= 640.0f) {
+                setup_.overlay_stretch = frame_stretch_;
+            }
+        }
+        // (A busy village draws more than a thousand skinned pieces a flip: the hunter's head must not fall past the end.)
+        if (frame_stretch_ > 1.0f && ((key_reg(setup_.key, kVertexType) >> 9u) & 3u) != 0 && figure_draws_.size() < 8192) {
             std::array<float, 4> box{1e9f, 1e9f, -1e9f, -1e9f};
             for (const GpuVertex &v : batch_) {
                 box[0] = std::min(box[0], v.x);
@@ -4076,7 +4184,8 @@ void GlBackend::draw_batch() {
                 box[2] = std::max(box[2], v.x);
                 box[3] = std::max(box[3], v.y);
             }
-            figure_draws_.push_back(box);
+            const bool on_screen = box[2] >= 0.0f && box[0] <= 480.0f && box[3] >= 0.0f && box[1] <= 272.0f;
+            if (on_screen && box[3] - box[1] >= 4.0f && box[2] - box[0] <= 160.0f) figure_draws_.push_back(box); // tag_anchor's
         }
     }
     if (interpolate_) {
@@ -4086,6 +4195,9 @@ void GlBackend::draw_batch() {
         }
         // A batch culled whole in this flip is kept for its triangles before clipping: in between it may show.
         tape_.push_back({setup_, batch_, batch_origins_, std::move(raw_batch_), raw_complete_});
+    }
+    if (setup_.overlay_stretch != 1.0f && !setup_.through) { // recorded as placed; widened only to be drawn
+        for (GpuVertex &v : batch_) v.x = 240.0f + (v.x - 240.0f) * setup_.overlay_stretch;
     }
     if (!batch_.empty()) {
         const bool haze = setup_.haze || is_camera_haze(setup_.key, batch_);
@@ -4198,6 +4310,9 @@ template <typename Box> bool hud_item_panel_start(const Box &b) {
 constexpr float kHudItemPanelTall = 190.0f; // a panel that starts above this holds the list
 // A window's background is one draw at least 32 wide, 12 high and 32x32 in area: the start menu's is 96x128, the
 // banner over an area's exit ("To Pokke Farm") 176x16. A letter is 7x14, a name tag's pieces at most 24x24.
+// A window's frame, around its background: 16 wide, and its lines of text start over it (the start menu's background
+// starts at x 360, its text at 352).
+constexpr float kPanelFrame = 24.0f; // and some windows' text starts further out (the quest details)
 template <typename Box> bool hud_panel(const Box &b) {
     const float w = b.x2 - b.x1, h = b.y2 - b.y1;
     return w >= 32.0f && h >= 12.0f && w * h >= 32.0f * 32.0f;
@@ -4207,40 +4322,92 @@ template <typename Box> bool hud_over(const Box &b, const Box &panel) {
 }
 
 // Widescreen: where a piece of 2D is narrowed toward. The game draws a name tag (a weapon icon, then each letter, each
-// its own small 2D draw) where a hunter's head is on screen, after the 3D. Narrowed toward the middle like other 2D,
-// a tag of a hunter away from the middle would leave its head; narrowed toward the head's middle, every piece of it
-// keeps its place over the head. A piece is a tag's when it is small and a skinned 3D draw (a hunter's head or hood)
-// has its top right under the piece's bottom, across the piece's middle. The other pieces of the same tag (on the same
-// row, next to it) take the anchor the first one found, so the letters keep their spacing. A window's text is drawn
-// the same way, letter by letter, and stays with its window: a piece on a big 2D draw already drawn this flip (the
-// window's background; a tag has nothing behind it) is no tag's, wherever a figure stands under it. Anything else: the
-// middle.
+// its own small 2D draw) where a hunter's head is on screen, after the 3D, in a layer of its own. Narrowed toward the
+// middle like other 2D, a tag of a hunter away from the middle would leave its head; narrowed toward its own middle, it
+// stays where the game put it (over the head, by the wider camera) and only gets thinner. A piece is a tag's when it is
+// small and a skinned 3D draw (a hunter's head or hood) has its top right under the piece's bottom, across the piece's
+// middle. Its anchor is the middle of the tag as the last flip drew it (found by its row), so it does not follow the
+// figure's box, which changes with every arm and weapon movement; a tag new this flip takes the figure's middle. The
+// other pieces of the same tag (on the same row, next to it) take the anchor the first one found, so the letters keep
+// their spacing. A window's text is drawn the same way, letter by letter, and stays with its window: never a tag on a
+// window's background (frame included) or in a layer that holds a window, this flip or the last (a tag's layer holds
+// none; a menu's page counter over the hunter's head was taken for one). Anything else: the middle.
+// Whether a piece is on a line of a window's text, this flip's or the last's: the same row, next to it.
+bool GlBackend::window_row(float x1, float y2, float x2) const {
+    for (const auto *rows : {&window_rows_, &last_window_rows_}) {
+        for (const auto &r : *rows) {
+            if (std::fabs(r[0] - y2) <= 2.0f && x1 <= r[2] + 24.0f && x2 >= r[1] - 24.0f) return true;
+        }
+    }
+    return false;
+}
+
 float GlBackend::tag_anchor(float x1, float y1, float x2, float y2) {
     if (x2 - x1 > 24.0f || y2 - y1 > 24.0f || figure_draws_.empty()) return 240.0f;
+    if (panel_layers_.contains(batch_layer_) || last_panel_layers_.contains(batch_layer_)) return 240.0f;
     const float middle = 0.5f * (x1 + x2);
     const float row = 0.5f * (y1 + y2);
     for (const auto &p : panels_) {
-        if (middle >= p[0] && middle <= p[2] && row >= p[1] && row <= p[3]) return 240.0f;
-    }
-    for (const auto &tag : tags_) { // a piece of a tag already placed this flip
-        if (std::fabs(tag[1] - y2) <= 4.0f && middle >= tag[2] - 40.0f && middle <= tag[3] + 40.0f) return tag[0];
-    }
-    float best = 240.0f, best_above = 1e9f;
-    for (const auto &d : figure_draws_) {
-        if (d[3] - d[1] < 4.0f || d[2] - d[0] > 160.0f) continue; // a speck, or a monster
-        const float above = d[1] - y2; // the draw's top under the piece's bottom
-        if (above < -12.0f || above > 28.0f || middle < d[0] - 24.0f || middle > d[2] + 24.0f) continue;
-        if (std::fabs(above) < best_above) {
-            best_above = std::fabs(above);
-            best = 0.5f * (d[0] + d[2]);
+        if (middle >= p[0] - kPanelFrame && middle <= p[2] + kPanelFrame && row >= p[1] - kPanelFrame &&
+            row <= p[3] + kPanelFrame) {
+            // A line of the window's text: its first letter may come before the window's background reaches it
+            // (it starts over the frame), and is then known by the line it starts (window_row).
+            if (window_rows_.size() < 128) {
+                bool joined = false;
+                for (auto &r : window_rows_) {
+                    if (std::fabs(r[0] - y2) <= 2.0f && x1 <= r[2] + 24.0f && x2 >= r[1] - 24.0f) {
+                        r[1] = std::min(r[1], x1);
+                        r[2] = std::max(r[2], x2);
+                        joined = true;
+                        break;
+                    }
+                }
+                if (!joined) window_rows_.push_back({y2, x1, x2});
+            }
+            return 240.0f;
         }
     }
-    if (best_above < 1e9f && tags_.size() < 64) tags_.push_back({best, y2, middle, middle});
-    for (auto &tag : tags_) { // the tag grows as its pieces come
-        if (tag[0] == best && std::fabs(tag[1] - y2) <= 4.0f) {
-            tag[2] = std::min(tag[2], middle);
-            tag[3] = std::max(tag[3], middle);
+    if (window_row(x1, y2, x2)) return 240.0f;
+    for (std::size_t i = 0; i < tags_.size(); ++i) { // a piece of a tag already placed this flip; the tag grows with it
+        auto &tag = tags_[i];
+        if (std::fabs(tag[1] - y2) <= 4.0f && x1 <= tag[3] + 40.0f && x2 >= tag[2] - 40.0f) {
+            tag[2] = std::min(tag[2], x1);
+            tag[3] = std::max(tag[3], x2);
+            if (tag_pieces_[i].size() < 32) tag_pieces_[i].push_back(x1);
+            return tag[0];
         }
+    }
+    // The same tag in the last flip: its middle then, moved as this piece moved since. The piece is matched to the
+    // nearest piece of that tag, not to its first one (the game does not always draw them in the same order), and a
+    // tag known from the last flip needs no figure under it: the head's box changes with every movement, and the
+    // weapon icon, a little higher than the letters, lost its figure in some flips and went to the middle alone.
+    float best = 240.0f, nearest = 1e9f;
+    for (std::size_t i = 0; i < last_tags_.size(); ++i) {
+        const auto &last = last_tags_[i];
+        if (std::fabs(last[1] - y2) > 8.0f || x1 > last[3] + 24.0f || x2 < last[2] - 24.0f) continue;
+        for (const float piece : last_tag_pieces_[i]) {
+            if (std::fabs(piece - x1) < nearest) {
+                nearest = std::fabs(piece - x1);
+                best = 0.5f * (last[2] + last[3]) + (x1 - piece);
+            }
+        }
+    }
+    if (nearest >= 1e9f) { // a new tag: the figure under it, a skinned draw whose top is right under the piece
+        float best_above = 1e9f;
+        for (const auto &d : figure_draws_) {
+            if (d[3] - d[1] < 4.0f || d[2] - d[0] > 160.0f) continue; // a speck, or a monster
+            const float above = d[1] - y2; // the draw's top under the piece's bottom
+            if (above < -12.0f || above > 28.0f || middle < d[0] - 24.0f || middle > d[2] + 24.0f) continue;
+            if (std::fabs(above) < best_above) {
+                best_above = std::fabs(above);
+                best = 0.5f * (d[0] + d[2]);
+            }
+        }
+        if (best_above >= 1e9f) return 240.0f;
+    }
+    if (tags_.size() < 64) {
+        tags_.push_back({best, y2, x1, x2});
+        tag_pieces_.push_back({x1});
     }
     return best;
 }
@@ -4261,7 +4428,10 @@ void GlBackend::size_hud() {
     if ((key_reg(setup_.key, kClearMode) & 1u) != 0) skip = "clear";
     else if (setup_.self_sampled) skip = "copy of its own target";
     else if (!shown_target(setup_.target)) skip = "not on a shown screen";
-    else if (box.x2 - box.x1 >= 448.0f && box.y2 - box.y1 >= 256.0f) {
+    else if ((box.x2 - box.x1 >= 448.0f && box.y2 - box.y1 >= 32.0f) || box.y2 - box.y1 >= 256.0f) {
+        // The whole screen, or all of its width or height: a fade, a background, the darkening of a snowstorm drawn in
+        // strips the screen's height. Narrowed, it would leave bands at the sides; it stretches with the picture. (Not
+        // a thin bar across: the quest HUD's longest health bar is one.)
         skip = "whole screen";
     }
     const char *what = "";
@@ -4339,6 +4509,7 @@ void GlBackend::size_hud() {
         else toward = tag_anchor(box.x1, box.y1, box.x2, box.y2);  // a name tag: its figure; else the middle
         if (hud_panel(box) && panels_.size() < 64) {
             panels_.push_back({box.x1, box.y1, box.x2, box.y2});
+            panel_layers_.insert(batch_layer_);
         }
     }
     if (s < 1.0f || narrow < 1.0f) {
@@ -4728,8 +4899,15 @@ void GlBackend::finish_flip() {
     last_flip_had_3d_ = frame_has_3d_;
     frame_has_3d_ = false;
     figure_draws_.clear();
+    last_tags_ = std::move(tags_);
     tags_.clear();
+    last_tag_pieces_ = std::move(tag_pieces_);
+    last_window_rows_ = std::move(window_rows_);
+    window_rows_.clear();
+    tag_pieces_.clear();
     panels_.clear();
+    last_panel_layers_ = std::move(panel_layers_);
+    panel_layers_.clear();
     update_stretch(); // the next flip's (the window or the setting may have changed)
     hud_log_flip_ = hud_log_ && frame_ % hud_log_every_ == 0;
     tape_.clear();
@@ -5518,6 +5696,9 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                 }
             } else if (!(v2 && entry.raw_complete)) {
                 place_again(entry, cameras, vertices, t);
+            }
+            if (entry.setup.overlay_stretch != 1.0f && !entry.setup.through) {
+                for (GpuVertex &v : vertices) v.x = 240.0f + (v.x - 240.0f) * entry.setup.overlay_stretch;
             }
         }
     };
