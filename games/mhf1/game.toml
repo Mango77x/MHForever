@@ -1,0 +1,6 @@
+# Game module metadata. See docs/02-architecture.md §6.
+id = "mhf1"
+platform = "psp"
+display_name = "Freedom (PSP)"   # descriptive only, never used as the product name
+short_title = "Freedom"          # shown in the launcher library (descriptive compatibility statement)
+regions = ["ULES00318"]

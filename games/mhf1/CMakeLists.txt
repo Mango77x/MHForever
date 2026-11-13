@@ -1,0 +1,45 @@
+# Freedom module (docs/16-mhf1-module.md): its own game program on the PSP platform, independent of the other games.
+
+add_library(mhf_game_mhf1 INTERFACE)
+target_link_libraries(mhf_game_mhf1 INTERFACE mhf_psp)
+
+# The game itself, built from code recompiled on the developer's machine (never committed, CONTRIBUTING.md).
+# Prepare it with games/mhf1/tools/prepare.py, then configure with -DMHF_MHF1_GENERATED=<that folder>.
+set(MHF_MHF1_GENERATED "" CACHE PATH "Folder with mhf_recomp output for Freedom (developer-only)")
+if(MHF_MHF1_GENERATED)
+    file(GLOB mhf1_generated_sources CONFIGURE_DEPENDS ${MHF_MHF1_GENERATED}/*.cpp)
+    # The generated code is its own library, compiled only against the stable ABI headers, so that host-side changes
+    # never force the long rebuild of the game code.
+    if(MSVC)
+        # Debug info (/Zi) and /O2 push the compiler out of heap on the largest generated files; this directory only.
+        string(REGEX REPLACE "/Zi|/O2|/Ob[0-9]" "" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
+        string(REGEX REPLACE "/Zi|/O2|/Ob[0-9]" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+    endif()
+    add_library(mhf1_generated STATIC ${mhf1_generated_sources})
+    target_include_directories(mhf1_generated PRIVATE ${MHF_MHF1_GENERATED})
+    target_link_libraries(mhf1_generated PRIVATE mhf_psp_runtime)
+    if(MSVC)
+        target_compile_options(mhf1_generated PRIVATE /w /bigobj /O1)
+        foreach(src ${mhf1_generated_sources})
+            file(SIZE ${src} src_size)
+            if(src_size GREATER 5000000)
+                set_source_files_properties(${src} PROPERTIES COMPILE_OPTIONS /Od)
+            endif()
+        endforeach()
+    else()
+        target_compile_options(mhf1_generated PRIVATE -w -O1)
+    endif()
+    add_executable(mhf1 host/main.cpp)
+    set(MHF_MHF1_PROGRAM_NAME "mhf1" CACHE STRING "File name of the Freedom program (one per region)")
+    set_target_properties(mhf1 PROPERTIES OUTPUT_NAME ${MHF_MHF1_PROGRAM_NAME})
+    target_include_directories(mhf1 PRIVATE ${MHF_MHF1_GENERATED})
+    target_link_libraries(mhf1 PRIVATE mhf1_generated mhf_psp_runtime mhf_psp_tools mhf_core)
+    mhf_psp_copy_fonts(mhf1)
+    if(WIN32)
+        target_sources(mhf1 PRIVATE ${MHF_WINDOWS_ICON_RC})
+    endif()
+    if(TARGET mhf_psp_frontend)
+        target_link_libraries(mhf1 PRIVATE mhf_psp_frontend)
+    endif()
+    mhf_target_warnings(mhf1)
+endif()

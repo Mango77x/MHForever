@@ -1,0 +1,25 @@
+# Europe and Australia. Identification data only (hashes identify a dump; they contain no game content).
+disc_id = "ULES00318"
+disc_version = "1.01"
+market = "EU"
+languages = ["en", "fr", "de", "es", "it"]
+status = "in-development"
+
+[[accepted_dumps]]
+kind = "iso"
+size = 749699072
+sha1 = "4a5d3ab167e911b67685e862b48ee539db8a5bd4"
+md5 = "03bb24c5b91ce6ca815b33c8d464beed"
+
+# The encrypted executable on the disc (PSP_GAME/SYSDIR/EBOOT.BIN). The installer accepts only this file.
+[encrypted_executable]
+size = 1193776
+sha1 = "aaa845638dd7e6b06e06f259ac91daff442773e3"
+
+# The prepared (plain) executable the recompiled code was generated from: the plain ELF followed by the signing
+# trailer, as the installer builds it. Identification only: never shipped, never committed.
+[dev_executable]
+size = 1193776
+sha1 = "9056e51e6b99761b233eeded0a1884de45e7c2d9"
+entry = 0x0889AF1C
+text_base = 0x08804000
