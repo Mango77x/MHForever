@@ -57,10 +57,8 @@ function(mhf_psp_copy_fonts target)
                 $<TARGET_FILE_DIR:${target}>/fonts/NotoSansJP-Regular.otf
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PROJECT_SOURCE_DIR}/third_party/fonts/noto-sans-jp/LICENSE
                 $<TARGET_FILE_DIR:${target}>/fonts/LICENSE-NotoSansJP
-        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${target}>/fonts/hd-text
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PROJECT_SOURCE_DIR}/assets/hd-text/textures.ini
-                ${PROJECT_SOURCE_DIR}/assets/hd-text/040cc000ecbb8936c6a18eee.png
-                $<TARGET_FILE_DIR:${target}>/fonts/hd-text/
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different ${PROJECT_SOURCE_DIR}/assets/hd-text
+                $<TARGET_FILE_DIR:${target}>/fonts/hd-text
         VERBATIM)
 endfunction()
 

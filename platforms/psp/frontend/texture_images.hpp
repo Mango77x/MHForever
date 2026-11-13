@@ -37,6 +37,9 @@ bool decode_image(const std::filesystem::path &path, Image &image, std::string &
 bool decode_levels(const std::vector<std::filesystem::path> &files, Image &image, std::string &error);
 // Writes RGBA8 pixels as a PNG (texture dumps for pack makers).
 bool write_png(const std::filesystem::path &path, std::uint32_t width, std::uint32_t height, const std::uint32_t *rgba);
+// A PNG as one byte a texel: its alpha, or its grey when it has none (decoded at that size when it is greyscale).
+bool decode_coverage(const std::filesystem::path &path, std::uint32_t &width, std::uint32_t &height, std::vector<std::uint8_t> &out,
+                     std::string &error);
 
 // Decodes images on background threads. get() never blocks: it queues what it has not seen and returns the image once
 // it is decoded. The backend takes it (forget) once it is on the GPU; decoded images nobody took are dropped, oldest

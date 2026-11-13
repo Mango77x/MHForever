@@ -1240,10 +1240,28 @@ private:
         std::vector<std::uint32_t> source; // the game's page as last drawn (width x height)
         std::vector<std::uint32_t> pixels; // the HD page (kScale times each way)
         std::uint64_t last_use{};
+        std::uint64_t sheets_generation{};
     };
     GLuint draw_hd_text(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info);
-    const textures::Image *glyph_sheet(std::uint32_t block);
-    std::map<std::uint32_t, std::unique_ptr<textures::Image>> glyph_sheets_;
+    // Glyph sheets (font_glyphs.hpp): decoded away from the drawing thread when a glyph of their block is first
+    // wanted (the font draws it meanwhile), kept as one byte a texel, a few at a time; the glyphs taken from them are
+    // kept on their own, cut to their boxes at the HD page's scale.
+    struct GlyphSheet {
+        bool missing{};
+        std::future<std::shared_ptr<const std::vector<std::uint8_t>>> pending;
+        std::shared_ptr<const std::vector<std::uint8_t>> coverage; // width x width, or null when not decoded now
+        int width{};
+        std::uint64_t last_use{};
+    };
+    struct SheetGlyph {
+        int width{}, height{};
+        std::vector<std::uint8_t> values;
+    };
+    std::shared_ptr<const SheetGlyph> sheet_glyph(const font_glyphs::Glyph &g);
+    void poll_glyph_sheets();
+    std::map<std::uint32_t, GlyphSheet> glyph_sheets_;
+    std::unordered_map<std::uint32_t, std::shared_ptr<const SheetGlyph>> sheet_glyphs_;
+    std::uint64_t sheets_generation_ = 0; // a sheet arrived: the HD pages are drawn again with it
     std::map<std::uint32_t, HdTextPage> hd_pages_; // by the page's guest address
     std::vector<std::uint8_t> hd_text_cover_;
     std::unique_ptr<textures::Loader> loader_; // decodes its images
@@ -1890,7 +1908,13 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
         t.checked_clut = ge.clut_generation();
         // A 512-tall texture drawn lower than before has another pack key.
         const bool rekey = packs_on && info.height == 512 && t.max_seen_v != t.keyed_max_v;
-        if (t.texture == 0 || hash != t.hash || rekey) {
+        // A text page drawn before a glyph sheet arrived: drawn again with it.
+        bool hd_outdated = false;
+        if (t.shown == kHdTextImage) {
+            const auto page = hd_pages_.find(info.address & 0x1FFFFFFFu);
+            hd_outdated = page != hd_pages_.end() && page->second.sheets_generation != sheets_generation_;
+        }
+        if (t.texture == 0 || hash != t.hash || rekey || hd_outdated) {
             t.hash = hash;
             t.holes = -1.0f; // the content changed: counted again below
             t.keyed_max_v = t.max_seen_v;
@@ -1986,30 +2010,113 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
 // ---------------------------------------------------------------- HD text
 
 // A glyph sheet (font_glyphs.hpp) of the block from `block`: the player's pack's first, then MHForever's own. Read once.
-const textures::Image *GlBackend::glyph_sheet(std::uint32_t block) {
-    if (const auto it = glyph_sheets_.find(block); it != glyph_sheets_.end()) return it->second.get();
-    char name[32];
-    std::snprintf(name, sizeof name, "glyphs-%04X.png", static_cast<unsigned>(block));
-    std::vector<std::filesystem::path> folders;
-    if (pack_on_) folders.push_back(pack_->folder());
-    if (!live_->builtin_textures_folder.empty()) folders.push_back(textures::from_utf8(live_->builtin_textures_folder));
-    std::unique_ptr<textures::Image> found;
-    for (const auto &folder : folders) {
-        std::error_code ec;
-        if (!std::filesystem::exists(folder / name, ec)) continue;
-        auto image = std::make_unique<textures::Image>();
-        std::string error;
-        if (textures::decode_image(folder / name, *image, error) && image->width % font_glyphs::kSheetSize == 0 &&
-            image->width == image->height && !image->levels.empty()) {
-            std::fprintf(stderr, "[textures] glyph sheet %s (%ux)\n", textures::utf8(folder / name).c_str(),
-                         image->width / font_glyphs::kSheetSize);
-            found = std::move(image);
-            break;
-        }
-        std::fprintf(stderr, "[textures] glyph sheet %s not used: %s\n", textures::utf8(folder / name).c_str(),
+namespace {
+// A glyph sheet's coverage, one byte a texel: its alpha, or its grey when it has none (sheets saved as greyscale).
+std::shared_ptr<const std::vector<std::uint8_t>> decode_glyph_sheet(const std::filesystem::path &path, int &width) {
+    auto out = std::make_shared<std::vector<std::uint8_t>>();
+    std::uint32_t w = 0, h = 0;
+    std::string error;
+    if (!textures::decode_coverage(path, w, h, *out, error) || w != h || w % font_glyphs::kSheetSize != 0) {
+        std::fprintf(stderr, "[textures] glyph sheet %s not used: %s\n", textures::utf8(path).c_str(),
                      error.empty() ? "not square, or not a multiple of 512 wide" : error.c_str());
+        return nullptr;
     }
-    return (glyph_sheets_[block] = std::move(found)).get();
+    width = static_cast<int>(w);
+    return out;
+}
+constexpr std::size_t kGlyphSheetsKept = 3;    // decoded sheets kept at once (16 MB each at 8x)
+constexpr std::size_t kGlyphSheetsDecoding = 1; // and decoding at once
+} // namespace
+
+// Sheets that finished decoding take their place (once per flip); the oldest beyond kGlyphSheetsKept let go.
+void GlBackend::poll_glyph_sheets() {
+    bool arrived = false;
+    for (auto &[block, sheet] : glyph_sheets_) {
+        if (!sheet.pending.valid() || sheet.pending.wait_for(std::chrono::seconds(0)) != std::future_status::ready) continue;
+        sheet.coverage = sheet.pending.get();
+        if (!sheet.coverage) sheet.missing = true;
+        else if (pack_log_) std::fprintf(stderr, "[textures] glyph sheet U+%04X.. (%dx) in use\n", static_cast<unsigned>(block), sheet.width / font_glyphs::kSheetSize);
+        sheet.last_use = frame_;
+        arrived = arrived || sheet.coverage != nullptr;
+    }
+    if (!arrived) return;
+    ++sheets_generation_;
+    std::vector<std::pair<std::uint64_t, std::uint32_t>> held;
+    for (const auto &[block, sheet] : glyph_sheets_) {
+        if (sheet.coverage) held.emplace_back(sheet.last_use, block);
+    }
+    if (held.size() <= kGlyphSheetsKept) return;
+    std::sort(held.begin(), held.end());
+    for (std::size_t i = 0; i + kGlyphSheetsKept < held.size(); ++i) glyph_sheets_[held[i].second].coverage.reset();
+}
+
+// The glyph from its sheet, cut to its box at the HD page's scale; null when there is no sheet for its block, or it
+// is not decoded yet (asked for, the font draws the glyph meanwhile). The player's pack is looked in first.
+std::shared_ptr<const GlBackend::SheetGlyph> GlBackend::sheet_glyph(const font_glyphs::Glyph &g) {
+    if (g.box_width <= 0 || g.box_height <= 0) return nullptr;
+    if (const auto it = sheet_glyphs_.find(g.code); it != sheet_glyphs_.end()) return it->second;
+    const std::uint32_t block = g.code & ~0xFFu;
+    GlyphSheet &sheet = glyph_sheets_[block];
+    if (sheet.missing) return nullptr;
+    sheet.last_use = frame_;
+    if (!sheet.coverage) {
+        if (sheet.pending.valid()) return nullptr; // on its way
+        std::size_t decoding = 0;
+        for (const auto &[b, other] : glyph_sheets_) decoding += other.pending.valid() ? 1u : 0u;
+        if (decoding >= kGlyphSheetsDecoding) return nullptr; // asked again when a page is drawn again
+        char name[32];
+        std::snprintf(name, sizeof name, "glyphs-%04X.png", static_cast<unsigned>(block));
+        std::filesystem::path path;
+        std::error_code ec;
+        if (pack_on_ && std::filesystem::exists(pack_->folder() / name, ec)) path = pack_->folder() / name;
+        else if (!live_->builtin_textures_folder.empty() &&
+                 std::filesystem::exists(textures::from_utf8(live_->builtin_textures_folder) / name, ec)) {
+            path = textures::from_utf8(live_->builtin_textures_folder) / name;
+        }
+        if (path.empty()) {
+            sheet.missing = true;
+            return nullptr;
+        }
+        sheet.pending = std::async(std::launch::async, [path, &width = sheet.width]() { return decode_glyph_sheet(path, width); });
+        return nullptr;
+    }
+    // The box from the cell's pen, at the sheet's scale, resampled to the page's (copied when they are the same).
+    constexpr int s = font_glyphs::kScale;
+    const int n = sheet.width / font_glyphs::kSheetSize;
+    const int cell = static_cast<int>(g.code & 0xFFu);
+    const int sx0 = ((cell % 16) * font_glyphs::kSheetCell + font_glyphs::kSheetPenX + g.box_x) * n;
+    const int sy0 = ((cell / 16) * font_glyphs::kSheetCell + font_glyphs::kSheetPenY + g.box_y) * n;
+    const std::uint8_t *src = sheet.coverage->data();
+    const int sw = sheet.width;
+    const auto at = [&](int x, int y) -> float {
+        return src[static_cast<std::size_t>(std::clamp(y, 0, sw - 1)) * static_cast<std::size_t>(sw) + static_cast<std::size_t>(std::clamp(x, 0, sw - 1))];
+    };
+    auto glyph = std::make_shared<SheetGlyph>();
+    glyph->width = g.box_width * s;
+    glyph->height = g.box_height * s;
+    glyph->values.resize(static_cast<std::size_t>(glyph->width) * static_cast<std::size_t>(glyph->height));
+    const float step = static_cast<float>(n) / static_cast<float>(s);
+    for (int y = 0; y < glyph->height; ++y) {
+        for (int x = 0; x < glyph->width; ++x) {
+            float v;
+            if (n == s) {
+                v = at(sx0 + x, sy0 + y);
+            } else {
+                const float fx = static_cast<float>(sx0) + (static_cast<float>(x) + 0.5f) * step - 0.5f;
+                const float fy = static_cast<float>(sy0) + (static_cast<float>(y) + 0.5f) * step - 0.5f;
+                const int ix = static_cast<int>(std::floor(fx)), iy = static_cast<int>(std::floor(fy));
+                const float tx = fx - static_cast<float>(ix), ty = fy - static_cast<float>(iy);
+                const float top = at(ix, iy) + (at(ix + 1, iy) - at(ix, iy)) * tx;
+                const float bottom = at(ix, iy + 1) + (at(ix + 1, iy + 1) - at(ix, iy + 1)) * tx;
+                v = top + (bottom - top) * ty;
+            }
+            glyph->values[static_cast<std::size_t>(y) * static_cast<std::size_t>(glyph->width) + static_cast<std::size_t>(x)] =
+                static_cast<std::uint8_t>(std::clamp(v, 0.0f, 255.0f));
+        }
+    }
+    if (sheet_glyphs_.size() > 8192) sheet_glyphs_.clear(); // a long session of Japanese text: start over
+    sheet_glyphs_[g.code] = glyph;
+    return glyph;
 }
 
 // The game's text pages (4-bit, palette) drawn at kScale times their size: the texture as the game has it, scaled up,
@@ -2032,7 +2139,8 @@ GLuint GlBackend::draw_hd_text(const gpu::Ge &ge, const gpu::Ge::TextureInfo &in
     // Where the game's page changed: all of it for a new page or another palette, else the box of the texels that
     // differ (a letter or a line), one texel wider for the filter.
     int rx0 = 0, ry0 = 0, rx1 = w, ry1 = h;
-    const bool whole = hp.texture == 0 || hp.width != w || hp.height != h || hp.clut != clut || hp.source.size() != pixels_.size();
+    const bool whole = hp.texture == 0 || hp.width != w || hp.height != h || hp.clut != clut || hp.source.size() != pixels_.size() ||
+                       hp.sheets_generation != sheets_generation_;
     if (!whole) {
         rx0 = w;
         ry0 = h;
@@ -2060,6 +2168,7 @@ GLuint GlBackend::draw_hd_text(const gpu::Ge &ge, const gpu::Ge::TextureInfo &in
         hp.width = w;
         hp.height = h;
         hp.clut = clut;
+        hp.sheets_generation = sheets_generation_;
         hp.pixels.assign(static_cast<std::size_t>(hw) * static_cast<std::size_t>(hh), background);
     }
     hp.source = pixels_;
@@ -2102,34 +2211,13 @@ GLuint GlBackend::draw_hd_text(const gpu::Ge &ge, const gpu::Ge::TextureInfo &in
             std::uint8_t &c = hd_text_cover_[static_cast<std::size_t>(y - hy0) * static_cast<std::size_t>(rw) + static_cast<std::size_t>(x - hx0)];
             c = std::max(c, v);
         };
-        const textures::Image *sheet = glyph_sheet(g->code & ~0xFFu);
-        if (sheet != nullptr && g->box_width > 0 && g->box_height > 0) {
-            // The artist's glyph: its box from the cell's pen, scaled from the sheet's size to the page's.
-            const int n = static_cast<int>(sheet->width) / font_glyphs::kSheetSize;
-            const int cell = static_cast<int>(g->code & 0xFFu);
-            const float sx0 = static_cast<float>((cell % 16) * font_glyphs::kSheetCell + font_glyphs::kSheetPenX + g->box_x) * static_cast<float>(n);
-            const float sy0 = static_cast<float>((cell / 16) * font_glyphs::kSheetCell + font_glyphs::kSheetPenY + g->box_y) * static_cast<float>(n);
+        if (const auto glyph = sheet_glyph(*g)) {
+            // The artist's glyph, cut to its box, placed by the pen.
             const int dx0 = static_cast<int>(std::lround(static_cast<double>(g->pen_x64) * s / 64.0)) + g->box_x * s;
             const int dy0 = static_cast<int>(std::lround(static_cast<double>(g->pen_y64) * s / 64.0)) + g->box_y * s;
-            const float step = static_cast<float>(n) / static_cast<float>(s);
-            const std::uint8_t *rgba = sheet->levels[0].data();
-            const int sw = static_cast<int>(sheet->width);
-            const auto alpha = [&](int x, int y) -> float {
-                x = std::clamp(x, 0, sw - 1);
-                y = std::clamp(y, 0, sw - 1);
-                return rgba[(static_cast<std::size_t>(y) * static_cast<std::size_t>(sw) + static_cast<std::size_t>(x)) * 4u + 3u];
-            };
-            for (int y = std::max(0, cy0 - dy0); y < std::min(g->box_height * s, cy1 - dy0); ++y) {
-                const float fy = sy0 + (static_cast<float>(y) + 0.5f) * step - 0.5f;
-                const int iy = static_cast<int>(std::floor(fy));
-                const float ty = fy - static_cast<float>(iy);
-                for (int x = std::max(0, cx0 - dx0); x < std::min(g->box_width * s, cx1 - dx0); ++x) {
-                    const float fx = sx0 + (static_cast<float>(x) + 0.5f) * step - 0.5f;
-                    const int ix = static_cast<int>(std::floor(fx));
-                    const float tx = fx - static_cast<float>(ix);
-                    const float top = alpha(ix, iy) + (alpha(ix + 1, iy) - alpha(ix, iy)) * tx;
-                    const float bottom = alpha(ix, iy + 1) + (alpha(ix + 1, iy + 1) - alpha(ix, iy + 1)) * tx;
-                    put(dx0 + x, dy0 + y, static_cast<std::uint8_t>(std::clamp(top + (bottom - top) * ty, 0.0f, 255.0f)));
+            for (int y = std::max(0, cy0 - dy0); y < std::min(glyph->height, cy1 - dy0); ++y) {
+                for (int x = std::max(0, cx0 - dx0); x < std::min(glyph->width, cx1 - dx0); ++x) {
+                    put(dx0 + x, dy0 + y, glyph->values[static_cast<std::size_t>(y) * static_cast<std::size_t>(glyph->width) + static_cast<std::size_t>(x)]);
                 }
             }
         } else if (g->hd) {
@@ -4903,6 +4991,7 @@ void GlBackend::finish_flip() {
     tags_.clear();
     last_tag_pieces_ = std::move(tag_pieces_);
     last_window_rows_ = std::move(window_rows_);
+    poll_glyph_sheets();
     window_rows_.clear();
     tag_pieces_.clear();
     panels_.clear();

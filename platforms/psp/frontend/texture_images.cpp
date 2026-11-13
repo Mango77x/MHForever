@@ -135,6 +135,37 @@ bool decode_image(const fs::path &path, Image &image, std::string &error) {
     return false;
 }
 
+bool decode_coverage(const fs::path &path, std::uint32_t &width, std::uint32_t &height, std::vector<std::uint8_t> &out,
+                     std::string &error) {
+    std::vector<std::uint8_t> data;
+    if (!read_file(path, data, error)) return false;
+    int w = 0, h = 0, channels = 0;
+    if (data.size() > static_cast<std::size_t>(INT32_MAX) ||
+        stbi_info_from_memory(data.data(), static_cast<int>(data.size()), &w, &h, &channels) == 0) {
+        error = "not a PNG";
+        return false;
+    }
+    if (w <= 0 || h <= 0 || static_cast<std::uint32_t>(w) > kMaxSide || static_cast<std::uint32_t>(h) > kMaxSide) {
+        error = "too large";
+        return false;
+    }
+    // Greyscale or colour without alpha: the grey (one byte a texel as decoded); with alpha: the alpha.
+    const int wanted = channels == 2 ? 2 : channels == 4 ? 4 : 1;
+    int got = 0;
+    stbi_uc *pixels = stbi_load_from_memory(data.data(), static_cast<int>(data.size()), &w, &h, &got, wanted);
+    if (pixels == nullptr) {
+        error = stbi_failure_reason() != nullptr ? stbi_failure_reason() : "the PNG could not be decoded";
+        return false;
+    }
+    const std::size_t texels = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+    out.resize(texels);
+    for (std::size_t i = 0; i < texels; ++i) out[i] = pixels[i * static_cast<std::size_t>(wanted) + static_cast<std::size_t>(wanted - 1)];
+    stbi_image_free(pixels);
+    width = static_cast<std::uint32_t>(w);
+    height = static_cast<std::uint32_t>(h);
+    return true;
+}
+
 bool decode_levels(const std::vector<fs::path> &files, Image &image, std::string &error) {
     if (files.empty()) {
         error = "no image";
