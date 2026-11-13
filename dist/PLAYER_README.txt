@@ -15,6 +15,7 @@ What you need
   European (disc ID ULES01213) or North American (disc ID ULUS10391) release, or of Monster Hunter Portable 2nd G,
   the Japanese release (disc ID ULJM05500), version 1.01. A Japanese image patched with FUComplete's own tool
   (v1.4.0, https://fucomplete.github.io) works too, as its own copy.
+  Monster Hunter Freedom, European release (disc ID ULES00318, version 1.01), plays too, at 30 fps.
   CSO/ZSO compressed images are not supported. You can add several: choose which one to play in the Library.
 * A controller is optional. Gamepads work out of the box (tested with a PS5 DualSense).
   Keyboard: arrows = D-pad, WASD = analog stick, K/L/J/I = cross/circle/square/triangle,
