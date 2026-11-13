@@ -655,6 +655,9 @@ struct DrawSetup {
     // Widescreen: a 2D draw over a widened 3D picture, narrowed by wide[0] (1 / the stretch) toward x = wide[1] (the
     // left edge, the middle or the right edge), so that it keeps its shape once the picture is stretched to the window.
     float wide[2]{1, 240};
+    // Widescreen: a 3D overlay sized to the PSP's picture (a snowstorm's darkening in front of the camera), widened by
+    // this much around x 240 so it still covers the wider picture; 1: none.
+    float overlay_stretch{1};
 };
 
 // The camera a vertex was placed with: view and projection matrices, viewport and screen offset.
@@ -4153,9 +4156,12 @@ void GlBackend::draw_batch() {
     } else if (!batch_.empty() && shown_target(setup_.target)) {
         if (hud_log_flip_ && hud_drawn_ != 0) ++hud_3d_after_;
         if ((key_reg(setup_.key, kClearMode) & 1u) == 0) frame_has_3d_ = true; // widescreen: this flip shows 3D
-        if (static const bool wide_log = std::getenv("MHF_WIDE_LOG") != nullptr; wide_log && frame_ % 60 == 0) {
-            // MHF_WIDE_LOG=1: the 3D draws that cover most of the screen (a weather overlay drawn as a plane in front
-            // of the camera shows its edges in a wider picture), every 60th flip.
+        setup_.overlay_stretch = 1.0f;
+        if (frame_stretch_ > 1.0f && batch_.size() <= 24 && setup_.texture != 0 && (key_reg(setup_.key, kZWriteDisable) & 1u) != 0 &&
+            (key_reg(setup_.key, kAlphaBlendEnable) & 1u) != 0) {
+            // A weather overlay: a few textured, blended triangles in front of the camera, not writing the depth, from
+            // above the screen's top to below its bottom and around its middle, as wide as the PSP's picture or a little
+            // more. In a wider picture its sides showed as bands; it is widened with the picture.
             float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
             for (const GpuVertex &v : batch_) {
                 bx0 = std::min(bx0, v.x);
@@ -4163,12 +4169,10 @@ void GlBackend::draw_batch() {
                 bx1 = std::max(bx1, v.x);
                 by1 = std::max(by1, v.y);
             }
-            if (bx1 - bx0 >= 300.0f && by1 - by0 >= 200.0f) {
-                std::fprintf(stderr, "[wide] flip %llu 3D draw box=(%.0f,%.0f)-(%.0f,%.0f) verts=%zu tex=%s %gx%g blend=%u vtype=%06X zwrite_off=%u\n",
-                             static_cast<unsigned long long>(frame_), bx0, by0, bx1, by1, batch_.size(),
-                             setup_.texture != 0 ? "yes" : "no", setup_.tex_width, setup_.tex_height,
-                             key_reg(setup_.key, kAlphaBlendEnable) & 1u, key_reg(setup_.key, kVertexType) & 0xFFFFFFu,
-                             key_reg(setup_.key, kZWriteDisable) & 1u);
+            const float middle = 0.5f * (bx0 + bx1), width = bx1 - bx0;
+            if (by0 <= 4.0f && by1 >= 268.0f && std::fabs(middle - 240.0f) <= 40.0f && width >= 480.0f / frame_stretch_ * 0.9f &&
+                width <= 640.0f) {
+                setup_.overlay_stretch = frame_stretch_;
             }
         }
         // (A busy village draws more than a thousand skinned pieces a flip: the hunter's head must not fall past the end.)
@@ -4191,6 +4195,9 @@ void GlBackend::draw_batch() {
         }
         // A batch culled whole in this flip is kept for its triangles before clipping: in between it may show.
         tape_.push_back({setup_, batch_, batch_origins_, std::move(raw_batch_), raw_complete_});
+    }
+    if (setup_.overlay_stretch != 1.0f && !setup_.through) { // recorded as placed; widened only to be drawn
+        for (GpuVertex &v : batch_) v.x = 240.0f + (v.x - 240.0f) * setup_.overlay_stretch;
     }
     if (!batch_.empty()) {
         const bool haze = setup_.haze || is_camera_haze(setup_.key, batch_);
@@ -5689,6 +5696,9 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                 }
             } else if (!(v2 && entry.raw_complete)) {
                 place_again(entry, cameras, vertices, t);
+            }
+            if (entry.setup.overlay_stretch != 1.0f && !entry.setup.through) {
+                for (GpuVertex &v : vertices) v.x = 240.0f + (v.x - 240.0f) * entry.setup.overlay_stretch;
             }
         }
     };
