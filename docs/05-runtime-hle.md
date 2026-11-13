@@ -452,7 +452,10 @@ its folder (`--texture-pack`, or `MHF_TEXTURE_PACK`).
   - **Glyph sheets**: an artist's drawing takes the font's place, a sheet per block of 256 code points,
     `glyphs-XXXX.png` (XXXX the block's first code point in hex), 16 x 16 cells of 32 pixels at the PSP's size or any
     whole multiple of it, character c in cell c & 0xFF (row-major) with its pen at (6, 24) in the cell; white on
-    transparent, the alpha is the coverage. They are looked for in the player's pack folder first, then in
+    transparent, the alpha is the coverage (a sheet without alpha: its grey). A sheet is decoded away from the
+    drawing thread when a glyph of its block is first wanted (the font draws it meanwhile, and the pages are drawn
+    again when it arrives), three are kept decoded at a time, and the glyphs taken from them are kept on their own.
+    MHForever ships Kaneda's sheets for every block in `fonts/hd-text/` (greyscale). They are looked for in the player's pack folder first, then in
     `fonts/hd-text/`. `MHF_GLYPH_SHEETS=<folder>` writes the font's own sheets to draw over (Latin text, stars,
     Japanese punctuation, kana and full-width forms at start, any other block once a glyph of it is drawn;
     `MHF_GLYPH_SHEETS_ALL=1` adds every block of kanji).

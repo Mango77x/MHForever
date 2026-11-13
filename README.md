@@ -120,8 +120,8 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
 - **[The FUComplete team](https://fucomplete.github.io)** ([FUComplete/Patch](https://github.com/FUComplete/Patch)), whose fan patch for the Japanese release (its English translation, events and options) MHForever
   runs as its own copy of the game: the player patches their own image with FUComplete's tool, and the launcher sets its
   options.
-- **Kaneda**, for the HD text MHForever ships (the game's character map drawn at 16 times its size from MHForever's
-  font), and for the texture pack ideas.
+- **Kaneda**, for the HD text MHForever ships (the game's character map at 16 times its size and every character of
+  the font, accents and Japanese included, at 8 times), and for the texture pack ideas.
 - **Mobilozor**, for proving HD texture packs on MHForever first (on SteamOS), and for the audit and
   test logs shared with the project.
 - **[TeamGDB's Yakumo](https://github.com/TeamGDB/Yakumo)** (MIT), whose frame interpolation MHForever's is ported from, and
