@@ -1195,6 +1195,7 @@ private:
     // on a head), and the tags placed this flip: anchor, bottom, and the span of their pieces' middles.
     std::vector<std::array<float, 4>> figure_draws_;
     std::vector<std::array<float, 4>> tags_, last_tags_; // anchor, bottom, the span of the pieces' boxes; the last flip's
+    std::vector<std::vector<float>> tag_pieces_, last_tag_pieces_; // each tag's pieces' left edges, by tags_' index
     std::vector<std::array<float, 4>> panels_; // this flip's big 2D draws (a window's background): text on them is no tag
     std::set<std::uint32_t> panel_layers_, last_panel_layers_; // the game's 2D layers that hold a window, this flip and the last
     float tag_anchor(float x1, float y1, float x2, float y2);
@@ -4315,35 +4316,47 @@ float GlBackend::tag_anchor(float x1, float y1, float x2, float y2) {
             return 240.0f;
         }
     }
-    for (auto &tag : tags_) { // a piece of a tag already placed this flip; the tag grows with it (a long name)
+    for (std::size_t i = 0; i < tags_.size(); ++i) { // a piece of a tag already placed this flip; the tag grows with it
+        auto &tag = tags_[i];
         if (std::fabs(tag[1] - y2) <= 4.0f && x1 <= tag[3] + 40.0f && x2 >= tag[2] - 40.0f) {
             tag[2] = std::min(tag[2], x1);
             tag[3] = std::max(tag[3], x2);
+            if (tag_pieces_[i].size() < 32) tag_pieces_[i].push_back(x1);
             return tag[0];
         }
     }
-    float best = 240.0f, best_above = 1e9f;
-    for (const auto &d : figure_draws_) {
-        if (d[3] - d[1] < 4.0f || d[2] - d[0] > 160.0f) continue; // a speck, or a monster
-        const float above = d[1] - y2; // the draw's top under the piece's bottom
-        if (above < -12.0f || above > 28.0f || middle < d[0] - 24.0f || middle > d[2] + 24.0f) continue;
-        if (std::fabs(above) < best_above) {
-            best_above = std::fabs(above);
-            best = 0.5f * (d[0] + d[2]);
-        }
-    }
-    if (best_above >= 1e9f) return 240.0f;
-    // The same tag in the last flip: its middle then (a frame's movement off at most).
-    float nearest = 1e9f;
-    for (const auto &last : last_tags_) {
+    // The same tag in the last flip: its middle then, moved as this piece moved since. The piece is matched to the
+    // nearest piece of that tag, not to its first one (the game does not always draw them in the same order), and a
+    // tag known from the last flip needs no figure under it: the head's box changes with every movement, and the
+    // weapon icon, a little higher than the letters, lost its figure in some flips and went to the middle alone.
+    float best = 240.0f, nearest = 1e9f;
+    for (std::size_t i = 0; i < last_tags_.size(); ++i) {
+        const auto &last = last_tags_[i];
         if (std::fabs(last[1] - y2) > 8.0f || x1 > last[3] + 24.0f || x2 < last[2] - 24.0f) continue;
-        const float distance = std::fabs(last[2] - x1);
-        if (distance < nearest) {
-            nearest = distance;
-            best = 0.5f * (last[2] + last[3]) + (x1 - last[2]); // moved with the tag's first piece
+        for (const float piece : last_tag_pieces_[i]) {
+            if (std::fabs(piece - x1) < nearest) {
+                nearest = std::fabs(piece - x1);
+                best = 0.5f * (last[2] + last[3]) + (x1 - piece);
+            }
         }
     }
-    if (tags_.size() < 64) tags_.push_back({best, y2, x1, x2});
+    if (nearest >= 1e9f) { // a new tag: the figure under it, a skinned draw whose top is right under the piece
+        float best_above = 1e9f;
+        for (const auto &d : figure_draws_) {
+            if (d[3] - d[1] < 4.0f || d[2] - d[0] > 160.0f) continue; // a speck, or a monster
+            const float above = d[1] - y2; // the draw's top under the piece's bottom
+            if (above < -12.0f || above > 28.0f || middle < d[0] - 24.0f || middle > d[2] + 24.0f) continue;
+            if (std::fabs(above) < best_above) {
+                best_above = std::fabs(above);
+                best = 0.5f * (d[0] + d[2]);
+            }
+        }
+        if (best_above >= 1e9f) return 240.0f;
+    }
+    if (tags_.size() < 64) {
+        tags_.push_back({best, y2, x1, x2});
+        tag_pieces_.push_back({x1});
+    }
     return best;
 }
 
@@ -4836,6 +4849,8 @@ void GlBackend::finish_flip() {
     figure_draws_.clear();
     last_tags_ = std::move(tags_);
     tags_.clear();
+    last_tag_pieces_ = std::move(tag_pieces_);
+    tag_pieces_.clear();
     panels_.clear();
     last_panel_layers_ = std::move(panel_layers_);
     panel_layers_.clear();
