@@ -1198,6 +1198,8 @@ private:
     std::vector<std::vector<float>> tag_pieces_, last_tag_pieces_; // each tag's pieces' left edges, by tags_' index
     std::vector<std::array<float, 4>> panels_; // this flip's big 2D draws (a window's background): text on them is no tag
     std::set<std::uint32_t> panel_layers_, last_panel_layers_; // the game's 2D layers that hold a window, this flip and the last
+    std::vector<std::array<float, 3>> window_rows_, last_window_rows_; // lines of a window's text: bottom, left, right
+    bool window_row(float x1, float y2, float x2) const;
     float tag_anchor(float x1, float y1, float x2, float y2);
     float picture_aspect_ = 480.0f / 272.0f;
     void update_stretch() {
@@ -4151,6 +4153,24 @@ void GlBackend::draw_batch() {
     } else if (!batch_.empty() && shown_target(setup_.target)) {
         if (hud_log_flip_ && hud_drawn_ != 0) ++hud_3d_after_;
         if ((key_reg(setup_.key, kClearMode) & 1u) == 0) frame_has_3d_ = true; // widescreen: this flip shows 3D
+        if (static const bool wide_log = std::getenv("MHF_WIDE_LOG") != nullptr; wide_log && frame_ % 60 == 0) {
+            // MHF_WIDE_LOG=1: the 3D draws that cover most of the screen (a weather overlay drawn as a plane in front
+            // of the camera shows its edges in a wider picture), every 60th flip.
+            float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+            for (const GpuVertex &v : batch_) {
+                bx0 = std::min(bx0, v.x);
+                by0 = std::min(by0, v.y);
+                bx1 = std::max(bx1, v.x);
+                by1 = std::max(by1, v.y);
+            }
+            if (bx1 - bx0 >= 300.0f && by1 - by0 >= 200.0f) {
+                std::fprintf(stderr, "[wide] flip %llu 3D draw box=(%.0f,%.0f)-(%.0f,%.0f) verts=%zu tex=%s %gx%g blend=%u vtype=%06X zwrite_off=%u\n",
+                             static_cast<unsigned long long>(frame_), bx0, by0, bx1, by1, batch_.size(),
+                             setup_.texture != 0 ? "yes" : "no", setup_.tex_width, setup_.tex_height,
+                             key_reg(setup_.key, kAlphaBlendEnable) & 1u, key_reg(setup_.key, kVertexType) & 0xFFFFFFu,
+                             key_reg(setup_.key, kZWriteDisable) & 1u);
+            }
+        }
         // (A busy village draws more than a thousand skinned pieces a flip: the hunter's head must not fall past the end.)
         if (frame_stretch_ > 1.0f && ((key_reg(setup_.key, kVertexType) >> 9u) & 3u) != 0 && figure_draws_.size() < 8192) {
             std::array<float, 4> box{1e9f, 1e9f, -1e9f, -1e9f};
@@ -4285,7 +4305,7 @@ constexpr float kHudItemPanelTall = 190.0f; // a panel that starts above this ho
 // banner over an area's exit ("To Pokke Farm") 176x16. A letter is 7x14, a name tag's pieces at most 24x24.
 // A window's frame, around its background: 16 wide, and its lines of text start over it (the start menu's background
 // starts at x 360, its text at 352).
-constexpr float kPanelFrame = 16.0f;
+constexpr float kPanelFrame = 24.0f; // and some windows' text starts further out (the quest details)
 template <typename Box> bool hud_panel(const Box &b) {
     const float w = b.x2 - b.x1, h = b.y2 - b.y1;
     return w >= 32.0f && h >= 12.0f && w * h >= 32.0f * 32.0f;
@@ -4305,6 +4325,16 @@ template <typename Box> bool hud_over(const Box &b, const Box &panel) {
 // their spacing. A window's text is drawn the same way, letter by letter, and stays with its window: never a tag on a
 // window's background (frame included) or in a layer that holds a window, this flip or the last (a tag's layer holds
 // none; a menu's page counter over the hunter's head was taken for one). Anything else: the middle.
+// Whether a piece is on a line of a window's text, this flip's or the last's: the same row, next to it.
+bool GlBackend::window_row(float x1, float y2, float x2) const {
+    for (const auto *rows : {&window_rows_, &last_window_rows_}) {
+        for (const auto &r : *rows) {
+            if (std::fabs(r[0] - y2) <= 2.0f && x1 <= r[2] + 24.0f && x2 >= r[1] - 24.0f) return true;
+        }
+    }
+    return false;
+}
+
 float GlBackend::tag_anchor(float x1, float y1, float x2, float y2) {
     if (x2 - x1 > 24.0f || y2 - y1 > 24.0f || figure_draws_.empty()) return 240.0f;
     if (panel_layers_.contains(batch_layer_) || last_panel_layers_.contains(batch_layer_)) return 240.0f;
@@ -4313,9 +4343,24 @@ float GlBackend::tag_anchor(float x1, float y1, float x2, float y2) {
     for (const auto &p : panels_) {
         if (middle >= p[0] - kPanelFrame && middle <= p[2] + kPanelFrame && row >= p[1] - kPanelFrame &&
             row <= p[3] + kPanelFrame) {
+            // A line of the window's text: its first letter may come before the window's background reaches it
+            // (it starts over the frame), and is then known by the line it starts (window_row).
+            if (window_rows_.size() < 128) {
+                bool joined = false;
+                for (auto &r : window_rows_) {
+                    if (std::fabs(r[0] - y2) <= 2.0f && x1 <= r[2] + 24.0f && x2 >= r[1] - 24.0f) {
+                        r[1] = std::min(r[1], x1);
+                        r[2] = std::max(r[2], x2);
+                        joined = true;
+                        break;
+                    }
+                }
+                if (!joined) window_rows_.push_back({y2, x1, x2});
+            }
             return 240.0f;
         }
     }
+    if (window_row(x1, y2, x2)) return 240.0f;
     for (std::size_t i = 0; i < tags_.size(); ++i) { // a piece of a tag already placed this flip; the tag grows with it
         auto &tag = tags_[i];
         if (std::fabs(tag[1] - y2) <= 4.0f && x1 <= tag[3] + 40.0f && x2 >= tag[2] - 40.0f) {
@@ -4850,6 +4895,8 @@ void GlBackend::finish_flip() {
     last_tags_ = std::move(tags_);
     tags_.clear();
     last_tag_pieces_ = std::move(tag_pieces_);
+    last_window_rows_ = std::move(window_rows_);
+    window_rows_.clear();
     tag_pieces_.clear();
     panels_.clear();
     last_panel_layers_ = std::move(panel_layers_);
