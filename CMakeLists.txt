@@ -22,7 +22,7 @@ option(MHF_WITH_SDL "Build the SDL3 desktop host (window, input, audio)" ON)
 option(MHF_BUILD_LAUNCHER "Build the launcher (needs Node.js to build its UI; WebKitGTK on Linux)" ON)
 option(MHF_WARNINGS_AS_ERRORS "Treat warnings in our own code as errors" OFF)
 option(MHF_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer (GCC/Clang)" OFF)
-set(MHF_GAMES "mhfu" CACHE STRING "Semicolon-separated list of game modules to build")
+set(MHF_GAMES "mhfu;mhf1" CACHE STRING "Semicolon-separated list of game modules to build")
 
 # Floating-point semantics must match across platforms (docs/04-recompiler.md §9).
 if(MSVC)

@@ -43,8 +43,8 @@ void usage() {
                  "  --update                                      update MHForever\n"
                  "  --version\n\n"
                  "The copy used is the one chosen in the launcher, else the first one that can be played; a disc id such as\n"
-                 "ULES01213 (Europe), ULUS10391 (North America), ULJM05500 (Japan) or ULJM05500-FUC (FUComplete)\n"
-                 "picks another.\n");
+                 "ULES01213 (Europe), ULUS10391 (North America), ULJM05500 (Japan) or ULJM05500-FUC (FUComplete) for\n"
+                 "Freedom Unite, or ULES00318 (Europe) for Freedom, picks another.\n");
 }
 
 bool contains(const char *const *list, std::size_t count, const std::string &name) {
@@ -221,7 +221,7 @@ int play(const std::vector<std::string> &args) {
     }
     Launcher launcher(platform::executable_dir());
     if (!choose_copy(launcher, disc_id)) return 2;
-    auto plan = launcher.plan_launch("mhfu");
+    auto plan = launcher.plan_launch("");
     if (!plan.error.empty()) {
         std::fprintf(stderr, "error: %s\n", plan.error.c_str());
         return 1;

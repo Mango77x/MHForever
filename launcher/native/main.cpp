@@ -230,7 +230,7 @@ void on_texture_pack(const char *id, const Json &args) {
     Json r;
     const auto &a = args.as_array();
     const std::string mode = a.empty() ? std::string() : a[0].as_string();
-    const std::string disc = g_app.launcher->disc_id_for("mhfu");
+    const std::string disc = g_app.launcher->disc_id_for("");
     r["error"] = std::string();
     if (disc.empty() && mode != "cancel") {
         r["error"] = std::string("Add your copy of the game first.");

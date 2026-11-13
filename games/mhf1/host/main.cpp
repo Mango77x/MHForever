@@ -35,8 +35,10 @@
 #include <exception>
 #include <filesystem>
 #include <functional>
+#include <cstdlib>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -122,6 +124,18 @@ std::vector<ScriptedPress> parse_input_script(const std::string &text) {
     return out;
 }
 
+// The disc's product code ("ULES00318") from its PARAM.SFO: what texture packs name the game by.
+std::string disc_product_code(const std::filesystem::path &disc_image) {
+    try {
+        mhf::psp::IsoImage image(disc_image);
+        if (const auto entry = image.find("/PSP_GAME/PARAM.SFO")) {
+            if (const auto sfo = mhf::psp::ParamSfo::parse(image.read_file(*entry, 0, entry->size))) return sfo->string("DISC_ID");
+        }
+    } catch (const std::exception &) {
+    }
+    return {};
+}
+
 // The window's title: the disc's own (PARAM.SFO), without its trademark sign.
 std::string window_title(const std::filesystem::path &disc_image) {
     std::string title;
@@ -147,9 +161,15 @@ int main(int argc, char **argv) {
     unsigned dump_every = 30;
     double dump_from = 0.0;
     double seconds = 0;
-    bool window = false, auto_dialogs = false, fullscreen = false;
+    bool window = false, auto_dialogs = false, fullscreen = false, smooth_textures = false;
     int render_scale = 4, target_fps = 30;
     std::vector<ScriptedPress> script;
+    mhf::host::KeyBindings keyboard;   // --keymap: the launcher's keyboard bindings
+    mhf::host::PadBindings controller; // --padmap: the launcher's controller bindings
+    std::string controls_file;         // --controls-file: where the in-game menu writes the bindings the player changes
+    std::string texture_pack;          // --texture-pack: a texture pack's folder
+    bool pack_mipmaps = false;
+    int anisotropy = 16;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--iso" && i + 1 < argc) options.disc_image = argv[++i];
@@ -168,10 +188,40 @@ int main(int argc, char **argv) {
         else if (a == "--input" && i + 1 < argc) script = parse_input_script(argv[++i]);
         else if (a == "--name" && i + 1 < argc) options.osk_default_text = argv[++i];
         else if (a == "--auto-dialogs") auto_dialogs = true;
+        else if (a == "--smooth-textures") smooth_textures = true;
+        else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
+        else if (a == "--sfx-volume" && i + 1 < argc) options.sfx_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
+        else if (a == "--language" && i + 1 < argc) {
+            // The PSP's system language, which the game reads with sceUtilityGetSystemParamInt(8): it preselects the
+            // language on the boot's language screen.
+            static const std::pair<std::string_view, int> languages[] = {
+                {"jp", 0}, {"en", 1}, {"fr", 2}, {"es", 3}, {"de", 4}, {"it", 5},
+            };
+            const std::string_view code = argv[++i];
+            for (const auto &[name, value] : languages) {
+                if (code == name) options.system_language = value;
+            }
+        }
+        else if (a == "--keymap" && i + 1 < argc) keyboard = mhf::host::parse_keymap(argv[++i]);
+        else if (a == "--padmap" && i + 1 < argc) controller = mhf::host::parse_padmap(argv[++i]);
+        else if (a == "--controls-file" && i + 1 < argc) controls_file = argv[++i];
+        else if (a == "--texture-pack" && i + 1 < argc) texture_pack = argv[++i];
+        else if (a == "--pack-mipmaps") pack_mipmaps = true;
+        else if (a == "--anisotropy" && i + 1 < argc) anisotropy = std::clamp(std::stoi(argv[++i]), 1, 16);
+        else if (a.starts_with("--")) {
+            // An option of another game's enhancements (the launcher passes the player's settings to every game):
+            // not available in Freedom yet, so it is skipped with its value, if it has one.
+            const bool has_value = i + 1 < argc && !std::string_view(argv[i + 1]).starts_with("--");
+            std::fprintf(stderr, "[mhf1] %s: not available in Freedom yet, ignored\n", a.c_str());
+            if (has_value) ++i;
+        }
         else {
             std::fprintf(stderr, "usage: %s --iso <image.iso> --exe <prepared executable> [--memstick <dir>] [--window]\n", argv[0]);
             return 2;
         }
+    }
+    if (texture_pack.empty()) {
+        if (const char *pack = std::getenv("MHF_TEXTURE_PACK")) texture_pack = pack;
     }
     if (options.disc_image.empty() || exe.empty()) {
         std::fprintf(stderr, "error: --iso and --exe are required\n");
@@ -222,8 +272,12 @@ int main(int argc, char **argv) {
         }
 #if defined(MHF_HAS_FRONTEND)
         mhf::psp::Frontend frontend;
-        if (window && frontend.open(window_title(options.disc_image).c_str(), false, 2, true, render_scale, fullscreen, false,
-                                    target_fps, mhf::host::KeyBindings{}, mhf::host::PadBindings{})) {
+        if (window && frontend.open(window_title(options.disc_image).c_str(), false, 2, true, render_scale, fullscreen,
+                                    smooth_textures, target_fps, keyboard, controller)) {
+            frontend.set_controls_file(controls_file);
+            if (!texture_pack.empty()) {
+                frontend.set_texture_pack(texture_pack, disc_product_code(options.disc_image), pack_mipmaps, anisotropy);
+            }
             frontend.attach(runtime, extra);
         } else if (window) {
             std::fprintf(stderr, "error: the game window could not be opened (see the messages above)\n");
@@ -235,6 +289,12 @@ int main(int argc, char **argv) {
         (void)fullscreen;
         (void)render_scale;
         (void)target_fps;
+        (void)smooth_textures;
+        (void)keyboard;
+        (void)controller;
+        (void)controls_file;
+        (void)pack_mipmaps;
+        (void)anisotropy;
         if (window) std::fprintf(stderr, "[mhf1] built without the SDL frontend; running headless\n");
         if (extra) runtime.kernel_host_poll(extra);
 #endif
