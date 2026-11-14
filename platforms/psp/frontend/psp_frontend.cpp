@@ -1898,7 +1898,8 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
     impl->music_volume = rt.options().music_volume;
     impl->sfx_volume = rt.options().sfx_volume;
     impl->live.smooth_textures = impl->smooth_textures;
-    {
+    if (std::error_code ec; rt.options().custom_font.empty() || !std::filesystem::is_regular_file(rt.options().custom_font, ec)) {
+        // Kaneda's HD text is drawn over Liberation Sans: with a font of the player's, the text is drawn from that font.
         const std::u8string folder = (rt.options().font_directory / "hd-text").u8string();
         impl->live.builtin_textures_folder.assign(folder.begin(), folder.end());
     }

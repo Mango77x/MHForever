@@ -409,6 +409,60 @@ bool Launcher::set_texture_pack(const std::string &disc_id, const fs::path &fold
     return true;
 }
 
+namespace {
+
+// A TrueType, OpenType or TrueType collection file, by its first four bytes.
+bool looks_like_font(const fs::path &file) {
+    std::ifstream in(file, std::ios::binary);
+    char tag[4] = {};
+    if (!in.read(tag, 4)) return false;
+    const std::string_view t(tag, 4);
+    return t == std::string_view("\0\1\0\0", 4) || t == "true" || t == "OTTO" || t == "ttcf";
+}
+
+} // namespace
+
+std::string Launcher::set_text_font(const std::string &disc_id, const fs::path &file) {
+    if (disc_id.empty()) return "Add your copy of the game first.";
+    std::error_code ec;
+    const fs::path folder = data_dir_ / "fonts" / disc_id;
+    if (file.empty()) {
+        std::lock_guard lock(mutex_);
+        Json &own = own_settings(data_, disc_id);
+        own.object().erase("textFont");
+        own.object().erase("textFontName");
+        fs::remove_all(folder, ec);
+        save();
+        return {};
+    }
+    const auto size = fs::file_size(file, ec);
+    if (ec || size == 0 || size > 64ull * 1024 * 1024 || !looks_like_font(file)) {
+        return "That file is not a font. Choose a .ttf or .otf file.";
+    }
+    // Copied, so the game still finds it if the original moves; the copy before goes once the new one is in place.
+    const fs::path staged = data_dir_ / "fonts" / (".incoming-" + disc_id);
+    fs::remove_all(staged, ec);
+    fs::create_directories(staged, ec);
+    const fs::path target_name = file.filename();
+    fs::copy_file(file, staged / target_name, fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        fs::remove_all(staged, ec);
+        return "Could not copy the font: " + ec.message();
+    }
+    fs::remove_all(folder, ec);
+    fs::rename(staged, folder, ec);
+    if (ec) {
+        fs::remove_all(staged, ec);
+        return "Could not keep the font: " + ec.message();
+    }
+    std::lock_guard lock(mutex_);
+    Json &own = own_settings(data_, disc_id);
+    own["textFont"] = platform::to_utf8(folder / target_name);
+    own["textFontName"] = platform::to_utf8(target_name);
+    save();
+    return {};
+}
+
 void Launcher::set_texture_pack_enabled(const std::string &disc_id, bool enabled) {
     if (disc_id.empty()) return;
     std::lock_guard lock(mutex_);
@@ -1430,6 +1484,14 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
                 plan.args.push_back("--anisotropy");
                 plan.args.push_back(num("anisotropy"));
             }
+        }
+    }
+    if (s["textFont"].is_string() && !s["textFont"].as_string().empty()) {
+        // The player's font, while its copy in the data folder is there.
+        std::error_code font_ec;
+        if (fs::is_regular_file(platform::from_utf8(s["textFont"].as_string()), font_ec)) {
+            plan.args.push_back("--font");
+            plan.args.push_back(s["textFont"].as_string());
         }
     }
     // The shadows' settings travel even while they are off, so that turning them on in the game's menu finds them.

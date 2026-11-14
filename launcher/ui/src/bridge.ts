@@ -69,6 +69,10 @@ export interface Settings {
   texturePack?: string;
   texturePackEnabled?: boolean;
   texturePackSummary?: string;
+  // This copy's text font: MHForever's copy of a font file the player chose, and its file name (missing: the default,
+  // Liberation Sans with the HD text).
+  textFont?: string;
+  textFontName?: string;
 }
 
 // A line of the game's Online tab: a friend and where they are, or an invite from one.
@@ -193,6 +197,8 @@ type Native = {
   // into MHForever's folder (events: texturePackProgress, then texturePackDone or texturePackFailed), 'cancel' stops the
   // copy, 'on'/'off' switch it, 'none' forgets it (deleting MHForever's copy).
   mhf_texturePack(mode: 'review' | 'use' | 'copy' | 'cancel' | 'on' | 'off' | 'none'): Promise<{ picked?: boolean; review?: PackReview; error?: string; state: State }>;
+  // Text font: 'choose' asks for a font file and uses it for the chosen copy, 'default' goes back to the default font.
+  mhf_textFont(mode: 'choose' | 'default'): Promise<{ picked?: boolean; error?: string; state: State }>;
 };
 
 const listeners = new Set<(e: LauncherEvent) => void>();
@@ -309,6 +315,16 @@ function simulated(): Native {
       state.savesFolderCustom = mode !== 'default';
       state.savesFolder = mode === 'default' ? 'C:\\Users\\Hunter\\Documents\\MHForever\\saves' : 'D:\\Games\\MHForever saves';
       return { picked: true, copied: mode === 'default' ? 0 : 1, error: '', state: copy() };
+    },
+    async mhf_textFont(mode) {
+      if (mode === 'choose') {
+        state.settings.textFont = 'C:\\Users\\Hunter\\AppData\\Roaming\\MHForever\\fonts\\ULES01213\\MyFont.ttf';
+        state.settings.textFontName = 'MyFont.ttf';
+      } else {
+        delete state.settings.textFont;
+        delete state.settings.textFontName;
+      }
+      return { picked: mode === 'choose', state: copy() };
     },
     async mhf_texturePack(mode) {
       const folder = 'D:\\Mods\\MH2G_KHD 1.3\\MAIN';

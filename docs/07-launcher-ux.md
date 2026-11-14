@@ -111,6 +111,13 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   (`anisotropy`: Off, 2x, 4x, 8x or 16x, 16x by default; passed as `--anisotropy N` when not 16). Both go to the game
   with the pack only; the in-game menu's Video tab changes both while playing (mipmaps upload the pack's images
   again) and the launcher keeps what was chosen there (`option.packMipmaps`, `option.anisotropy` in the controls file).
+- **Text font (2026-11-14)**: Game settings > Video > **Text font** takes a TrueType or OpenType file of the player's for
+  that copy (`set_text_font`: the file is checked by its first bytes, copied to `<data>/fonts/<DISC_ID>` and kept as
+  `textFont` / `textFontName` in `gameSettings.<DISC_ID>`); **Default** goes back to Liberation Sans with Kaneda's HD
+  text and deletes the copy. The game gets `--font <file>` (every game program: Freedom Unite and Freedom), draws the
+  text from that font, sharp at any resolution, and takes the characters it lacks from Liberation Sans and Noto Sans JP;
+  Kaneda's glyphs, made for Liberation Sans, are left out. `MHForever-cli --font <file> | default [--disc <id>]` does
+  the same without the window.
 - **Projected shadows (2026-11-11)**: set in the in-game menu's Video tab (docs/05-runtime-hle.md) and kept per copy:
   `projectedShadows` (off by default, `--projected-shadows`), `wholeMapShadows` (on by default, `--no-whole-map-shadows`
   when off), `shadowQuality` (0 low by default, 1 medium, 2 high; `--shadow-quality N` when not 0) and `shadowDarkness`

@@ -103,6 +103,9 @@ struct RuntimeOptions {
     // The PSP's system language, as sceUtilityGetSystemParamInt(8) reports it: 0 Japanese, 1 English, 2 French,
     // 3 Spanish, 4 German, 5 Italian. English by default. A game that reads it starts in that language.
     int system_language = 1;
+    // A font file of the player's (TrueType or OpenType) drawn instead of Liberation Sans; the characters it lacks still
+    // come from Liberation Sans and Noto Sans JP. Empty, or a file that cannot be read: Liberation Sans.
+    std::filesystem::path custom_font;
 };
 
 class Runtime {

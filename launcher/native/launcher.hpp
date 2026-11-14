@@ -132,6 +132,10 @@ public:
     // MHForever's copy. False (nothing changed) when there is no pack there for that release.
     bool set_texture_pack(const std::string &disc_id, const std::filesystem::path &folder);
     void set_texture_pack_enabled(const std::string &disc_id, bool enabled);
+    // The text font of the copy `disc_id`: a TrueType or OpenType file of the player's, copied into the data folder
+    // (fonts/<disc_id>) and passed to the game as --font. Empty `file` goes back to the default (Liberation Sans with the
+    // HD text). An error message when the file is not a font (nothing changed), else empty.
+    std::string set_text_font(const std::string &disc_id, const std::filesystem::path &file);
     // Copies the pack in `folder` into the data folder (textures/<disc_id>) and uses it from there. The copy goes to a
     // hidden folder first: the pack in use stays until the copy is complete, and the copy before is kept in
     // textures/.backup/<time>. `progress` gets the share done and the file being copied, and stops the copy by returning false.
