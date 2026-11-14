@@ -301,6 +301,23 @@ void on_pick_executable(const char *id, const Json &) {
     reply(id, g_app.launcher->state());
 }
 
+// The chosen copy's text font: 'choose' asks for a font file, 'default' goes back to Liberation Sans with the HD text.
+void on_text_font(const char *id, const Json &args) {
+    const std::string mode = args.as_array().empty() ? std::string() : args.as_array()[0].as_string();
+    Json r(Json::Object{});
+    const std::string disc_id = g_app.launcher->disc_id_for("");
+    if (mode == "choose") {
+        if (const auto file = platform::open_file(native_window(), "Choose a font", "Fonts", {"*.ttf", "*.otf", "*.ttc", "*.TTF", "*.OTF"})) {
+            r["picked"] = true;
+            if (const std::string error = g_app.launcher->set_text_font(disc_id, *file); !error.empty()) r["error"] = error;
+        }
+    } else if (mode == "default") {
+        g_app.launcher->set_text_font(disc_id, {});
+    }
+    r["state"] = g_app.launcher->state();
+    reply(id, r);
+}
+
 void on_copy_text(const char *id, const Json &args) {
     const bool ok = !args.as_array().empty() && platform::copy_to_clipboard(native_window(), args.as_array()[0].as_string());
     reply(id, Json(ok));
@@ -606,6 +623,7 @@ int main(int argc, char **argv) {
     bind("mhf_selectGame", on_select_game);
     bind("mhf_play", on_play);
     bind("mhf_copyText", on_copy_text);
+    bind("mhf_textFont", on_text_font);
     bind("mhf_exportIdentity", on_export_identity);
     bind("mhf_setFriends", on_set_friends);
     bind("mhf_setGameFriends", on_set_game_friends);

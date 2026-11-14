@@ -9,7 +9,7 @@
 //             [--mouse-camera [--mouse-camera-speed 25-300]]
 //             [--horn-songs [--horn-songs-place next-to-sheet|top-middle|under-names|bottom-left|custom:X,Y]]
 //             [--projected-shadows [--no-whole-map-shadows] [--shadow-quality 0-2] [--shadow-darkness 0-100]]
-//             [--music-volume 0-100] [--sfx-volume 0-100]
+//             [--music-volume 0-100] [--sfx-volume 0-100] [--font <font file>]
 //             [--language en|fr|de|es|it|jp]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
 //             [--controls-file <path>]
@@ -1017,6 +1017,7 @@ int main(int argc, char **argv) {
         }
         else if (a == "--input" && i + 1 < argc) script = parse_input_script(argv[++i]);
         else if (a == "--name" && i + 1 < argc) options.osk_default_text = argv[++i]; // text typed into keyboards
+        else if (a == "--font" && i + 1 < argc) options.custom_font = argv[++i]; // a font file of the player's
         else if (a == "--auto-dialogs") auto_dialogs = true; // system dialogs answer at once even in a window
         else {
             std::fprintf(stderr, "usage: %s --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]\n",

@@ -187,6 +187,7 @@ int main(int argc, char **argv) {
         else if (a == "--fps" && i + 1 < argc) target_fps = std::clamp(std::stoi(argv[++i]), 30, 180);
         else if (a == "--input" && i + 1 < argc) script = parse_input_script(argv[++i]);
         else if (a == "--name" && i + 1 < argc) options.osk_default_text = argv[++i];
+        else if (a == "--font" && i + 1 < argc) options.custom_font = argv[++i]; // a font file of the player's
         else if (a == "--auto-dialogs") auto_dialogs = true;
         else if (a == "--smooth-textures") smooth_textures = true;
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);

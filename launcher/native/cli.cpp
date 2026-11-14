@@ -39,6 +39,7 @@ void usage() {
                  "        smithyLayout, projectedShadows, wholeMapShadows, widescreen: true or false\n"
                  "        scale 1-10, fps 30-180, hudSize 50-100, musicVolume 0-100, sfxVolume 0-100,\n"
                  "        anisotropy 1 (off), 2, 4, 8 or 16 (texture packs), shadowQuality 0-2, shadowDarkness 0-100\n"
+                 "  --font <font file> | default [--disc <id>]    a copy's text font (.ttf or .otf), or the default\n"
                  "  --play [<disc id>]                            start the game and wait until it ends\n"
                  "  --update                                      update MHForever\n"
                  "  --version\n\n"
@@ -207,6 +208,35 @@ int set(const std::vector<std::string> &args) {
     return 0;
 }
 
+// `--font <font file> | default [--disc <disc id>]`: the copy's text font, as Game settings > Text font.
+int font(const std::vector<std::string> &args) {
+    std::string disc_id, file;
+    for (std::size_t i = 1; i < args.size(); ++i) {
+        if (args[i] == "--font") continue;
+        if (args[i] == "--disc" && i + 1 < args.size()) disc_id = args[++i];
+        else if (!args[i].empty() && args[i][0] != '-') file = args[i];
+        else {
+            std::fprintf(stderr, "unknown option: %s\n", args[i].c_str());
+            return 2;
+        }
+    }
+    if (file.empty()) {
+        std::fprintf(stderr, "usage: MHForever --font <font file> | default [--disc <disc id>]\n");
+        return 2;
+    }
+    Launcher launcher(platform::executable_dir());
+    if (!choose_copy(launcher, disc_id)) return 2;
+    const std::string chosen = launcher.disc_id_for("");
+    const std::string error = launcher.set_text_font(chosen, file == "default" ? fs::path() : platform::from_utf8(file));
+    if (!error.empty()) {
+        std::fprintf(stderr, "error: %s\n", error.c_str());
+        return 1;
+    }
+    const Json name = launcher.state()["settings"]["textFontName"];
+    std::printf("%s: text font %s\n", chosen.c_str(), name.is_string() ? name.as_string().c_str() : "default");
+    return 0;
+}
+
 // `--play [<disc id>]`: starts the game as the launcher's Play button does, and stays until it ends (a launcher entry in
 // Steam's game mode needs the program it started to keep running). What the player changes in the game's menu is kept.
 int play(const std::vector<std::string> &args) {
@@ -262,7 +292,7 @@ int play(const std::vector<std::string> &args) {
 
 bool handles(const std::string &first_argument) {
     return first_argument == "--install" || first_argument == "--update" || first_argument == "--list" ||
-           first_argument == "--set" || first_argument == "--play" || first_argument == "--version" ||
+           first_argument == "--set" || first_argument == "--font" || first_argument == "--play" || first_argument == "--version" ||
            first_argument == "--help" || first_argument == "-h";
 }
 
@@ -276,6 +306,7 @@ int run(const std::vector<std::string> &args) {
     if (mode == "--update") return update();
     if (mode == "--list") return list();
     if (mode == "--set") return set(args);
+    if (mode == "--font") return font(args);
     if (mode == "--play") return play(args);
     if (mode == "--version") {
         std::printf("MHForever %s\n", MHF_VERSION_STRING);

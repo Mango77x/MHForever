@@ -64,6 +64,8 @@ struct Face {
 
 std::unique_ptr<Face> g_face;
 std::unique_ptr<Face> g_japanese; // for the characters g_face does not have; may be missing
+std::unique_ptr<Face> g_latin;    // with a player's font: Liberation Sans, for the characters that font does not have
+std::string g_face_name = kFontName;
 bool g_face_tried = false;
 std::filesystem::path g_sheet_folder; // MHF_GLYPH_SHEETS: where the glyph sheets go (empty: none)
 void write_sheet(const Face &fc, std::uint32_t block);
@@ -86,7 +88,19 @@ Face *face(Runtime &rt) {
     if (g_face_tried) return g_face.get();
     g_face_tried = true;
     const auto path = rt.options().font_directory / kFontFile;
-    auto result = load_face(path);
+    std::unique_ptr<Face> result;
+    if (const auto &custom = rt.options().custom_font; !custom.empty()) {
+        result = load_face(custom);
+        if (result) {
+            const std::u8string name = custom.filename().u8string();
+            g_face_name.assign(name.begin(), name.end());
+            g_latin = load_face(path);
+        } else {
+            std::fprintf(stderr, "[hle] sceLibFont: the chosen font %s cannot be read; using %s\n", custom.string().c_str(),
+                         kFontName);
+        }
+    }
+    if (!result) result = load_face(path);
     if (!result) {
         std::fprintf(stderr, "[hle] sceLibFont: %s not found; text drawn with the font library will be missing\n",
                      path.string().c_str());
@@ -112,7 +126,7 @@ Face *face(Runtime &rt) {
     };
     measure(0x20, 0x7E);
     measure(0xA0, 0x24F);
-    std::fprintf(stderr, "[hle] sceLibFont: using %s (%d glyphs measured)%s\n", kFontName, fc.glyph_count,
+    std::fprintf(stderr, "[hle] sceLibFont: using %s (%d glyphs measured)%s\n", g_face_name.c_str(), fc.glyph_count,
                  g_japanese ? ", Japanese from Noto Sans JP" : "");
     g_face = std::move(result);
     if (const char *sheets = std::getenv("MHF_GLYPH_SHEETS"); sheets != nullptr && sheets[0] != '\0') {
@@ -233,6 +247,14 @@ Glyph glyph_for(const Face &fc, std::uint32_t code) {
     if (glyph == 0) {
         if (const std::uint32_t latin = latin_equivalent(code); latin != 0) glyph = stbtt_FindGlyphIndex(&fc.info, static_cast<int>(latin));
     }
+    if (glyph == 0 && g_latin && &fc != g_latin.get()) {
+        // A player's font without this character: Liberation Sans has the accents and symbols the game uses.
+        int latin = stbtt_FindGlyphIndex(&g_latin->info, static_cast<int>(code));
+        if (latin == 0) {
+            if (const std::uint32_t plain = latin_equivalent(code); plain != 0) latin = stbtt_FindGlyphIndex(&g_latin->info, static_cast<int>(plain));
+        }
+        if (latin != 0) return {g_latin.get(), latin};
+    }
     if (glyph == 0 && g_japanese) {
         if (const int japanese = stbtt_FindGlyphIndex(&g_japanese->info, static_cast<int>(code)); japanese != 0) {
             return {g_japanese.get(), japanese};
@@ -285,6 +307,7 @@ bool has_glyph(const Face &fc, std::uint32_t code) {
     if (is_star(code)) return true;
     if (stbtt_FindGlyphIndex(&fc.info, static_cast<int>(code)) != 0) return true;
     if (const std::uint32_t latin = latin_equivalent(code); latin != 0 && stbtt_FindGlyphIndex(&fc.info, static_cast<int>(latin)) != 0) return true;
+    if (g_latin && &fc != g_latin.get() && has_glyph(*g_latin, code)) return true;
     return g_japanese && stbtt_FindGlyphIndex(&g_japanese->info, static_cast<int>(code)) != 0;
 }
 
@@ -513,6 +536,7 @@ void draw_glyph(Runtime &rt, Context &ctx, int clip_x, int clip_y, int clip_w, i
     fg::Glyph placed; // for the HD text (font_glyphs.hpp)
     placed.code = code;
     const int left = x64 >> 6, top = y64 >> 6;
+    int origin_x = left, origin_y = top; // where the bitmap's first pixel goes
     if (is_star(code)) {
         const StarBox b = star_box(*fc);
         width = height = b.size;
@@ -544,14 +568,21 @@ void draw_glyph(Runtime &rt, Context &ctx, int clip_x, int clip_y, int clip_w, i
         pixels.resize(static_cast<std::size_t>(width * height));
         stbtt_MakeGlyphBitmapSubpixel(&g.face->info, pixels.data(), width, height, width, g.face->scale, g.face->scale, shift_x,
                                       shift_y, g.index);
-        // The pen: the bitmap's first pixel is x0 from the pen's pixel, the pen `shift` into that pixel.
-        const float pen_x = static_cast<float>(left - x0) + shift_x, pen_y = static_cast<float>(top - y0) + shift_y;
-        placed.pen_x64 = static_cast<std::int32_t>(std::lround(pen_x * 64.0f));
-        placed.pen_y64 = static_cast<std::int32_t>(std::lround(pen_y * 64.0f));
+        // The game asks for the glyph's top-left corner, worked out from the bearings sceFontGetCharInfo gave it (the
+        // whole-pixel box): the pen is that far from the corner, `shift` into its pixel. The bitmap drawn at that shift
+        // starts x0, y0 from the pen's pixel, which can be a pixel off the whole-pixel box: placing it by the pen keeps
+        // every letter on the same baseline (placed by the corner, letters whose outline crosses a pixel edge at that
+        // shift, such as b or f, sat a pixel high or low).
         int bx1, by1;
         stbtt_GetGlyphBitmapBox(&g.face->info, g.index, g.face->scale, g.face->scale, &placed.box_x, &placed.box_y, &bx1, &by1);
         placed.box_width = bx1 - placed.box_x;
         placed.box_height = by1 - placed.box_y;
+        const int pen_px = left - placed.box_x, pen_py = top - placed.box_y;
+        origin_x = pen_px + x0;
+        origin_y = pen_py + y0;
+        const float pen_x = static_cast<float>(pen_px) + shift_x, pen_y = static_cast<float>(pen_py) + shift_y;
+        placed.pen_x64 = static_cast<std::int32_t>(std::lround(pen_x * 64.0f));
+        placed.pen_y64 = static_cast<std::int32_t>(std::lround(pen_y * 64.0f));
         const float hd_pen_x = pen_x * static_cast<float>(fg::kScale), hd_pen_y = pen_y * static_cast<float>(fg::kScale);
         const float hd_origin_x = std::floor(hd_pen_x), hd_origin_y = std::floor(hd_pen_y);
         int hx0 = 0, hy0 = 0;
@@ -563,8 +594,8 @@ void draw_glyph(Runtime &rt, Context &ctx, int clip_x, int clip_y, int clip_w, i
     const int per_line = format <= 1 ? static_cast<int>(pitch * 2u) : static_cast<int>(pitch / (format == 2 ? 1u : format == 3 ? 3u : 4u));
     const int max_x = std::min({buffer_width, per_line, clip_x + clip_w});
     const int max_y = std::min(buffer_height, clip_y + clip_h);
-    placed.x = left;
-    placed.y = top;
+    placed.x = origin_x;
+    placed.y = origin_y;
     placed.width = width;
     placed.height = height;
     placed.clip_x0 = std::max(0, clip_x);
@@ -574,10 +605,10 @@ void draw_glyph(Runtime &rt, Context &ctx, int clip_x, int clip_y, int clip_w, i
     if (format <= 1) fg::placed(buffer, buffer_width, buffer_height, std::move(placed)); // the game's text pages are 4-bit
     if (!g_sheet_folder.empty()) write_sheet(*fc, code & ~0xFFu);
     for (int yy = 0; yy < height; ++yy) {
-        const int y = top + yy;
+        const int y = origin_y + yy;
         if (y < std::max(0, clip_y) || y >= max_y) continue;
         for (int xx = 0; xx < width; ++xx) {
-            const int x = left + xx;
+            const int x = origin_x + xx;
             if (x < std::max(0, clip_x) || x >= max_x) continue;
             const std::uint8_t v = pixels[static_cast<std::size_t>(yy * width + xx)];
             if (v != 0) put_pixel(mem, format, buffer, pitch, x, y, v);

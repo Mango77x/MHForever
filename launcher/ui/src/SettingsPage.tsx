@@ -548,6 +548,20 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           <div className="slabel"><b>Smooth texture filtering</b><span>Applies bilinear filtering to the game's textures.</span></div>
           <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
         </div>
+        <div className="srow">
+          <div className="slabel">
+            <b>Text font</b>
+            <span>{s.textFontName ? `${s.textFontName}. Large fonts may overlap.` : 'Default font with HD text. Choose a .ttf or .otf file to use your own.'}</span>
+          </div>
+          <div className="row-wrap" style={{ gap: 10 }}>
+            <button className="ghost mid" onClick={() => api.mhf_textFont('choose').then((r) => {
+              onState(r.state);
+              if (r.error) say(r.error);
+              else if (r.picked) say('Font set');
+            })}>Choose…</button>
+            {s.textFontName && <button className="ghost mid" onClick={() => api.mhf_textFont('default').then((r) => onState(r.state))}>Default</button>}
+          </div>
+        </div>
         {enhanced && <div className="srow">
           <div className="slabel">
             <b>HUD scale</b>
