@@ -67,7 +67,10 @@ std::string game_program_name(const CatalogEntry &e) {
     return name + kProgramSuffix;
 }
 
-// The copy of `game_id` the player chose (launcher.json "selectedDisc"), else the first supported one.
+constexpr const char *kAnyGame = ""; // chosen_copy: whichever game the chosen copy is of
+
+// The copy of `game_id` the player chose (launcher.json "selectedDisc"), else the first supported one. An empty
+// `game_id`: the chosen copy of any game (the one Home, Settings and Play work on).
 const Json *chosen_copy(const Json &data, const std::string &game_id, const CatalogEntry **entry_out) {
     const Json *first = nullptr;
     const CatalogEntry *first_entry = nullptr;
@@ -76,7 +79,7 @@ const Json *chosen_copy(const Json &data, const std::string &game_id, const Cata
         for (const auto &c : catalog()) {
             if (g["discId"].as_string() == c.disc_id) e = &c;
         }
-        if (e == nullptr || game_id != e->game || std::string(e->status) == "planned") continue;
+        if (e == nullptr || (!game_id.empty() && game_id != e->game) || std::string(e->status) == "planned") continue;
         if (g["discId"].as_string() == data["selectedDisc"].as_string()) {
             *entry_out = e;
             return &g;
@@ -839,7 +842,7 @@ Json Launcher::state() {
     s["friends"] = data_["friends"].is_array() ? data_["friends"] : Json(Json::Array{});
     s["blocked"] = data_["blocked"].is_array() ? data_["blocked"] : Json(Json::Array{});
     const CatalogEntry *shown = nullptr;
-    chosen_copy(data_, "mhfu", &shown);
+    chosen_copy(data_, kAnyGame, &shown);
     s["settings"] = settings_for(data_, shown != nullptr ? shown->disc_id : "");
     s["keyDefaults"] = default_settings()["keys"]; // what "Restore defaults" puts back
     s["padDefaults"] = default_settings()["pad"];
@@ -868,7 +871,7 @@ Json Launcher::state() {
     }
     s["games"] = games;
     // Home, Settings and Play work on one copy of the game: the one the player chose, else the first playable.
-    chosen_copy(data_, "mhfu", &playable);
+    chosen_copy(data_, kAnyGame, &playable);
     s["selectedDisc"] = playable != nullptr ? std::string(playable->disc_id) : std::string();
     Json exe;
     const fs::path found = playable ? find_executable(*playable) : fs::path{};
@@ -940,7 +943,7 @@ void Launcher::import_game_controls() {
     {
         std::lock_guard lock(mutex_);
         const CatalogEntry *entry = nullptr;
-        chosen_copy(data_, "mhfu", &entry);
+        chosen_copy(data_, kAnyGame, &entry);
         // The game that wrote the file is the one that was started, even if the Library shows another copy by now.
         apply_settings(!launched_disc_.empty() ? launched_disc_ : (entry != nullptr ? std::string(entry->disc_id) : std::string()), partial);
     }
@@ -950,7 +953,7 @@ void Launcher::import_game_controls() {
 void Launcher::set_settings(const Json &partial) {
     std::lock_guard lock(mutex_);
     const CatalogEntry *entry = nullptr;
-    chosen_copy(data_, "mhfu", &entry);
+    chosen_copy(data_, kAnyGame, &entry);
     apply_settings(entry != nullptr ? entry->disc_id : "", partial);
 }
 

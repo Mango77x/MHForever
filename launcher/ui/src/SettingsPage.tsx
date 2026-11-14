@@ -508,6 +508,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
   const s = state.settings;
   const game = selectedGame(state) ?? state.games[0];
   const fucomplete = game?.discId === 'ULJM05500-FUC'; // FUComplete's own options apply
+  const enhanced = !game || game.id === 'mhfu'; // the enhancements below are Freedom Unite's; other games have none yet
   return (
     <section className="settings">
       <motion.div className="page-title" {...rise(0)}>
@@ -526,7 +527,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
             ))}
           </div>
         </div>
-        <div className="srow">
+        {enhanced && <div className="srow">
           <div className="slabel"><b>Frame rate</b><span>{s.fps === 30 ? 'Original frame rate.' : `${s.fps} fps with interpolated frames. Experimental.`}</span></div>
           <div className="seg wide" role="radiogroup" aria-label="Frame rate" style={{ '--n': frameRates.length } as CSSProperties}>
             <span className="pill" style={{ transform: `translateX(${Math.max(0, frameRates.indexOf(s.fps)) * 100}%)` }} />
@@ -534,20 +535,20 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
               <button key={n} className={s.fps === n ? 'on' : ''} role="radio" aria-checked={s.fps === n} onClick={() => onChange({ fps: n })}>{n}</button>
             ))}
           </div>
-        </div>
+        </div>}
         <div className="srow">
           <div className="slabel"><b>Fullscreen</b><span>Starts the game in fullscreen. Press F11 or Alt+Enter to switch while playing.</span></div>
           <Toggle on={s.fullscreen} onToggle={() => onChange({ fullscreen: !s.fullscreen })} label="Fullscreen" />
         </div>
-        <div className="srow">
+        {enhanced && <div className="srow">
           <div className="slabel"><b>Widescreen</b><span>Fills wide windows and screens with a wider view.</span></div>
           <Toggle on={!!s.widescreen} onToggle={() => onChange({ widescreen: !s.widescreen })} label="Widescreen" />
-        </div>
+        </div>}
         <div className="srow">
           <div className="slabel"><b>Smooth texture filtering</b><span>Applies bilinear filtering to the game's textures.</span></div>
           <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
         </div>
-        <div className="srow">
+        {enhanced && <div className="srow">
           <div className="slabel">
             <b>HUD scale</b>
             <span>{(s.hudSize ?? 100) === 100 ? 'Original size.' : `Quest HUD at ${s.hudSize}% of its original size.`}</span>
@@ -558,9 +559,9 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
               <button key={n} className={(s.hudSize ?? 100) === n ? 'on' : ''} role="radio" aria-checked={(s.hudSize ?? 100) === n} onClick={() => onChange({ hudSize: n })}>{n}%</button>
             ))}
           </div>
-        </div>
+        </div>}
       </motion.div>
-      <motion.div className="glass section" {...rise(0.065)}>
+      {enhanced && <motion.div className="glass section" {...rise(0.065)}>
         <h3>Game</h3>
         <div className="srow">
           <div className="slabel"><b>Show true weapon values</b><span>{fucomplete
@@ -614,7 +615,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
             </div>
           </div>
         )}
-      </motion.div>
+      </motion.div>}
       <motion.div className="glass section" {...rise(0.07)}>
         <h3>Texture pack</h3>
         <TexturePackSection state={state} onState={onState} say={say} toggle={(p) => <Toggle {...p} />} />

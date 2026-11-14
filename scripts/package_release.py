@@ -167,6 +167,8 @@ def main() -> int:
     ap.add_argument("--game-fuc", type=pathlib.Path, default=None,
                     help="the program for Japanese images patched with FUComplete (mhfu-fuc[.exe]); only with its "
                          "authors' agreement (docs/06-mhfu-module.md section 2.1)")
+    ap.add_argument("--game-mhf1", type=pathlib.Path, default=None,
+                    help="the Freedom program (mhf1[.exe]): another game, one program per region as for Freedom Unite")
     ap.add_argument("--launcher-cli", type=pathlib.Path, default=None,
                     help="the launcher without a window (MHForever-cli[.exe]): installs and starts the game where the "
                          "launcher's window cannot start (no WebKitGTK, as on the Steam Deck's SteamOS)")
@@ -197,6 +199,13 @@ def main() -> int:
         if not program.is_file():
             print(f"error: missing {name}: {program}", file=sys.stderr)
             return 2
+    if args.game_mhf1 is not None:
+        name = game_name.replace("mhfu", "mhf1")
+        if not args.game_mhf1.is_file():
+            print(f"error: missing {name}: {args.game_mhf1}", file=sys.stderr)
+            return 2
+        files[name] = args.game_mhf1
+        programs.add(name)
 
     if args.launcher_cli is not None:
         name = launcher_name.replace("MHForever", "MHForever-cli", 1)

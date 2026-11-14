@@ -1,0 +1,14 @@
+# Monster Hunter Freedom, Europe (ULES00318 v1.01). Canonical names, addresses in this release.
+#
+# Found 2026-11-13 by matching Freedom Unite's mapped code (games/mhfu/regions/ULES01213) against this executable:
+# the instructions around each FU address, with jump targets and address-like immediates masked, occur once here.
+# Freedom runs an earlier version of the same engine (docs/16-mhf1-module.md).
+
+[functions]
+mh_main             = 0x0889AF1C # entry point (the ELF's)
+mh_overlay_prepare  = 0x088B0B30 # (image, size): an overlay is in memory, its static initializers about to run
+mh_static_init_run  = 0x088AF0C4 # runs a module's static initializers
+mh_draw_wait        = 0x0884A1DC # (): returns once mh_draw_done is set
+
+[data]
+mh_draw_done        = 0x0897AFC5 # u8: set when the game's drawing for the frame is done (mh_draw_wait waits for it)
