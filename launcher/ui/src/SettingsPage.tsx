@@ -87,6 +87,12 @@ function PercentSlider({ id, label, help, min, max, step, value, onCommit }: {
 }
 
 // Bringing in saves made by a PSP or PPSSPP: choose the folder, see what was found, confirm.
+// Where a copy of the game keeps its saves: its own folder inside the saves folder (launcher install::game_saves_dir).
+function copySavesPath(folder: string, discId: string): string {
+  const sep = folder.includes('\\') ? '\\' : '/';
+  return [folder.replace(/[\\/]+$/, ''), discId, 'PSP', 'SAVEDATA'].join(sep);
+}
+
 function ImportSaves({ gameId }: { gameId: string | undefined }) {
   const [scan, setScan] = useState<SaveScan | null>(null);
   const [done, setDone] = useState<SaveImportResult | null>(null);
@@ -470,8 +476,9 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
           <div className="slabel">
             <b>Saves folder</b>
             <span className="prose">
-              Location of your saves, one folder per game. Changing it copies your saves to the new folder; existing saves
-              there are kept.
+              Location of your saves. Each copy of the game saves in its own folder inside it (for example
+              ULUS10391\PSP\SAVEDATA), shown in its Game settings. Changing it copies your saves to the new folder;
+              existing saves there are kept.
             </span>
             <span className="path">{state.savesFolder}</span>
           </div>
@@ -686,6 +693,14 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
       </motion.div>
       <motion.div className="glass section" {...rise(0.21)}>
         <h3>Saves</h3>
+        {game && (
+          <div className="srow">
+            <div className="slabel">
+              <b>Saved in</b>
+              <span className="path">{copySavesPath(state.savesFolder, game.discId)}</span>
+            </div>
+          </div>
+        )}
         <ImportSaves gameId={game?.supported ? game.id : undefined} />
       </motion.div>
       <motion.div className="glass section" {...rise(0.24)}>
