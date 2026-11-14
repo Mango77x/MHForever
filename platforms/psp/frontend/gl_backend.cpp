@@ -869,6 +869,15 @@ public:
         const bool flat = (ge.reg(kShadeMode) & 1u) == 0;
         RawTriangle t;
         t.draw = static_cast<std::uint32_t>(recording_.size() - 1);
+        {
+            // Where the draw's geometry is (interpolation::DrawSummary::world_sum), for telling apart instances that
+            // share a matrix.
+            interpolation::DrawSummary &summary = recording_.back();
+            for (const gpu::Vertex *v : {&a, &b, &c}) {
+                for (int k = 0; k < 3; ++k) summary.world_sum[static_cast<std::size_t>(k)] += v->world[k];
+            }
+            summary.world_points += 3u;
+        }
         const gpu::Vertex *in[3] = {&a, &b, &c};
         for (int i = 0; i < 3; ++i) {
             const gpu::Vertex &v = *in[i];

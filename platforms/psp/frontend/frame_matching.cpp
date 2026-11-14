@@ -404,9 +404,22 @@ constexpr float kStillSquared = 1.0f;
 
 // The squared distance between where the camera's motion `c` takes the older
 // draw and where the newer one is, in eye space.
+// Where a draw is in eye space: the center of its geometry when its triangles were seen, else its matrix's translation.
+std::array<float, 3> eye_position(const DrawSummary &d) noexcept {
+    if (d.world_points == 0u) return d.eye_translation;
+    const float n = static_cast<float>(d.world_points);
+    const float w[3] = {d.world_sum[0] / n, d.world_sum[1] / n, d.world_sum[2] / n};
+    std::array<float, 3> out{};
+    for (std::size_t row = 0; row < 3u; ++row)
+        out[row] = d.view[row] * w[0] + d.view[4u + row] * w[1] + d.view[8u + row] * w[2] + d.view[12u + row];
+    return out;
+}
+
 float distance_squared(const Matrix &c, const DrawSummary &from, const DrawSummary &to) noexcept {
-    const std::array<float, 3> before = from.eye_translation;
-    const std::array<float, 3> after = to.eye_translation;
+    // Both by their geometry when both have it (instances that share a matrix differ only there), else by translation.
+    const bool geometry = from.world_points != 0u && to.world_points != 0u;
+    const std::array<float, 3> before = geometry ? eye_position(from) : from.eye_translation;
+    const std::array<float, 3> after = geometry ? eye_position(to) : to.eye_translation;
     float sum = 0.0f;
     for (std::size_t row = 0; row < 3u; ++row) {
         const float d =

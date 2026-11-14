@@ -30,6 +30,11 @@ struct DrawSummary {
     std::uint32_t target{}; // the framebuffer drawn into
     std::uint64_t key_hash{};
     std::array<float, 3> eye_translation{}; // the translation of view times world
+    // The sum of the world positions of the draw's 3D triangles' points, and how many: where its geometry is. Instances
+    // of one mesh that share their world matrix (skinned models placed by their bones, particles placed by their
+    // vertices: Freedom's villagers, herds and falling petals) differ only there.
+    std::array<float, 3> world_sum{};
+    std::uint32_t world_points{};
     bool perspective{}; // transformed through a perspective projection, and not a clear
     // A perspective draw into the framebuffer the frame showed: only these are blended; 2D, interface, orthographic
     // draws, clears and render-to-texture passes are shown as the frame drew them.
@@ -86,7 +91,7 @@ struct CutThresholds {
     float max_own_motion{120.0f};
     // Instances of one mesh paired by where they are, once the camera's motion is taken out (up to this many).
     bool nearest_instances{true};
-    std::uint32_t max_nearest_instances{64u};
+    std::uint32_t max_nearest_instances{128u}; // Freedom draws 87 falling petals as one mesh
     // Also count every object's agreement with the candidates (Matching::camera_off_crowd), for the log only.
     bool diagnose{false};
 };
