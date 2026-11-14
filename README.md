@@ -12,7 +12,7 @@
 MHForever turns the PSP version of *Monster Hunter Freedom Unite* (*Monster Hunter Portable 2nd G* in Japan, MHFU) into a
 native PC program: no emulator, any controller, and a launcher that sets everything up from your own disc image.
 
-**Right now only *Monster Hunter Freedom Unite* (European, North American and Japanese releases) is supported, and it is complete. More games are planned**: MHForever is
+**Supported today: *Monster Hunter Freedom Unite* (European, North American and Japanese releases), complete, and *Monster Hunter Freedom* (European release), new in 0.11.0. More games are planned**: MHForever is
 the first step of a wider Monster Hunter recompilation project, and each game is a module of its own.
 
 > Not affiliated with, endorsed by or sponsored by Capcom or Sony. Requires your own legitimate copy of the game.
@@ -40,15 +40,16 @@ no piracy talk there. Bugs can also be reported as [issues](https://github.com/M
 | **Monster Hunter Freedom Unite** | PSP | North America (`ULUS10391`, v1.01) | **Playable** |
 | Monster Hunter Portable 2nd G | PSP | Japan (`ULJM05500`, v1.01) | **Playable** |
 | Monster Hunter Portable 2nd G + FUComplete | PSP | Japan, patched with FUComplete v1.4.0 | **Playable** |
+| **Monster Hunter Freedom** | PSP | Europe (`ULES00318`, v1.01) | **Playable** at 30 fps, new |
 | Other Monster Hunter games | PSP, later PS2 | | Planned, see the [roadmap](docs/10-roadmap.md) |
 
-The first four rows work today (online play is experimental). The others are plans, not promises: they are listed so you know where the project is going.
+The first five rows work today (online play is experimental). The others are plans, not promises: they are listed so you know where the project is going.
 
 ## Where the project is today
 
 | | |
 |---|---|
-| **Playable game** | **Monster Hunter Freedom Unite** (PSP), European (`ULES01213`, v1.01) and North American (`ULUS10391`, v1.01) releases. It is the only game for now. Each release has its own video, audio and control settings in the launcher. |
+| **Playable game** | **Monster Hunter Freedom Unite** (PSP), European (`ULES01213`, v1.01) and North American (`ULUS10391`, v1.01) releases. Each release has its own video, audio and control settings in the launcher. |
 | **Frame rate** | **30 fps** as on the original console, or **60 to 180 fps** (any multiple of 30) with frame interpolation, chosen in the game's settings in the launcher (Home → Game settings). Experimental: heavy scenes may not hold the top rates. |
 | **Online play** | **Experimental (0.6).** Quests together on the PSP ad hoc servers PPSSPP uses, with other copies of MHForever and with PPSSPP players; pick the server in the launcher under Settings → Online. Private rooms with a code and friends (added by code, who is online, invites) shipped in 0.8.0. |
 | **Platforms** | Windows (64-bit) and Linux (64-bit). The launcher needs WebKitGTK 4.1, which SteamOS (Steam Deck) does not include: there use `MHForever-cli`, the same launcher without a window (`--install`, `--set`, `--play`), which needs nothing besides the C library. The maintainers have no Deck to test on; reports are welcome. |
@@ -59,7 +60,7 @@ The first four rows work today (online play is experimental). The others are pla
 | **HD textures** | Texture packs made for PPSSPP (a folder with a `textures.ini`, PNG or KTX2 images), such as KHD, for the European, North American and Japanese releases: choose one per copy of the game in Game settings → Texture pack. None is included: download a pack yourself. |
 | **Widescreen** | On a wide window or screen (21:9, 32:9) the 3D fills it with a wider view while the HUD and menus keep their shape, the quest HUD at the screen's edges: Game settings → Video → Widescreen, or the in-game menu. |
 | **Projected shadows** | The hunter, monsters and scenery cast shadows from the game's own light, with a quality and a darkness setting: in the in-game menu's Video tab. Optional, off by default. |
-| **Other games and regions** | The Japanese release (Portable 2nd G, `ULJM05500`) is playable too, with its Japanese text. Other games of the series are planned. |
+| **Other games and regions** | The Japanese release (Portable 2nd G, `ULJM05500`) is playable too, with its Japanese text. **Monster Hunter Freedom** (European release, `ULES00318`) is playable at its original 30 fps, with the launcher's video, audio, language, controls and texture pack settings; Freedom Unite's enhancements (frame interpolation, widescreen, HUD scale and the rest) are not available for it yet. Other games of the series are planned. |
 | **Latest release** | [![Latest release](https://img.shields.io/github/v/release/Mango77x/MHForever?label=version)](https://github.com/Mango77x/MHForever/releases/latest) [![Release date](https://img.shields.io/github/release-date/Mango77x/MHForever?label=published)](https://github.com/Mango77x/MHForever/releases/latest) See the [Releases](../../releases) page. |
 
 It is early software: according to the maintainer's testing, single player can be played from start to finish, but expect rough edges and bugs. Reports are welcome.
@@ -68,7 +69,7 @@ It is early software: according to the maintainer's testing, single player can b
 
 1. Download MHForever from the [Releases](../../releases) page and unzip it anywhere. On Linux the launcher needs
    WebKitGTK 4.1 and GTK 3 (see [BUILDING.md](BUILDING.md#running-on-linux)).
-2. Open `MHForever.exe` on Windows or `MHForever` on Linux, and add **your own** `.iso` of Freedom Unite (a plain,
+2. Open `MHForever.exe` on Windows or `MHForever` on Linux, and add **your own** `.iso` of Freedom Unite or Freedom (a plain,
    uncompressed image of your UMD).
 3. The launcher checks your copy and prepares everything it needs from it on your PC. You can also let it keep a copy
    of your image in its own folder.
