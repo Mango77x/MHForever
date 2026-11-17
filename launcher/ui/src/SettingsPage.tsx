@@ -658,6 +658,22 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           </>
         )}
       </motion.div>
+      {game?.discId.endsWith('-FDX') && <motion.div className="glass section" {...rise(0.07)}>
+        <h3>Freedom DX</h3>
+        <div className="srow">
+          <div className="slabel">
+            <b>FDXDAT folder</b>
+            <span>{state.fdxData
+              ? "In place. Freedom DX's options and event quests are read from it."
+              : 'Needed for event quests and options. Choose the FDXDAT folder from your Freedom DX download.'}</span>
+          </div>
+          <button className="ghost mid" onClick={() => api.mhf_fdxData().then((r) => {
+            onState(r.state);
+            if (r.error) say(r.error);
+            else if (r.picked) say('FDXDAT folder copied');
+          })}>{state.fdxData ? 'Replace…' : 'Choose…'}</button>
+        </div>
+      </motion.div>}
       {fucomplete && <motion.div className="glass section" {...rise(0.07)}>
         <h3>FUComplete</h3>
         <FucOptions s={s} onChange={onChange} toggle={(p) => <Toggle {...p} />} />

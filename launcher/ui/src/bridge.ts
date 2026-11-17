@@ -115,6 +115,7 @@ export interface State {
   savesFolder: string; // where the saves are kept (Settings > Storage)
   savesFolderCustom: boolean; // the player chose it; false: the default one
   texturePackInstalled: boolean; // the shown copy's texture pack is MHForever's copy of it (removing it deletes it)
+  fdxData?: boolean; // the shown copy's saves hold Freedom DX's FDXDAT folder
 }
 
 // What a texture pack in a chosen folder holds for the shown copy of the game (Game settings > Texture pack), before
@@ -199,6 +200,8 @@ type Native = {
   mhf_texturePack(mode: 'review' | 'use' | 'copy' | 'cancel' | 'on' | 'off' | 'none'): Promise<{ picked?: boolean; review?: PackReview; error?: string; state: State }>;
   // Text font: 'choose' asks for a font file and uses it for the chosen copy, 'default' goes back to the default font.
   mhf_textFont(mode: 'choose' | 'default'): Promise<{ picked?: boolean; error?: string; state: State }>;
+  // Freedom DX: asks for the FDXDAT folder of the player's download and copies it into the copy's saves.
+  mhf_fdxData(): Promise<{ picked?: boolean; error?: string; state: State }>;
 };
 
 const listeners = new Set<(e: LauncherEvent) => void>();
@@ -315,6 +318,10 @@ function simulated(): Native {
       state.savesFolderCustom = mode !== 'default';
       state.savesFolder = mode === 'default' ? 'C:\\Users\\Hunter\\Documents\\MHForever\\saves' : 'D:\\Games\\MHForever saves';
       return { picked: true, copied: mode === 'default' ? 0 : 1, error: '', state: copy() };
+    },
+    async mhf_fdxData() {
+      state.fdxData = true;
+      return { picked: true, state: copy() };
     },
     async mhf_textFont(mode) {
       if (mode === 'choose') {

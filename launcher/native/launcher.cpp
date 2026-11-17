@@ -422,6 +422,43 @@ bool looks_like_font(const fs::path &file) {
 
 } // namespace
 
+bool Launcher::has_fdx_data(const std::string &disc_id) const {
+    std::error_code ec;
+    const fs::path folder = install::game_saves_dir(saves_dir_, disc_id) / "PSP" / "SAVEDATA" / "FDXDAT";
+    return fs::is_regular_file(folder / "EVENT.BIN", ec) || fs::is_regular_file(folder / "CONFIG.BIN", ec);
+}
+
+std::string Launcher::set_fdx_data(const std::string &disc_id, const fs::path &folder) {
+    if (disc_id.empty()) return "Add your copy of the game first.";
+    std::error_code ec;
+    // The folder chosen, or an FDXDAT inside it (the unzipped download).
+    fs::path source;
+    for (const fs::path &candidate : {folder, folder / "FDXDAT"}) {
+        if (fs::is_regular_file(candidate / "EVENT.BIN", ec) || fs::is_regular_file(candidate / "CONFIG.BIN", ec)) {
+            source = candidate;
+            break;
+        }
+    }
+    if (source.empty()) return "No FDXDAT folder there. Choose the FDXDAT folder from your Freedom DX download.";
+    const fs::path savedata = install::game_saves_dir(saves_dir_, disc_id) / "PSP" / "SAVEDATA";
+    const fs::path target = savedata / "FDXDAT";
+    const fs::path staged = savedata / ".FDXDAT-incoming";
+    fs::remove_all(staged, ec);
+    fs::create_directories(staged, ec);
+    fs::copy(source, staged, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        fs::remove_all(staged, ec);
+        return "Could not copy the FDXDAT folder: " + ec.message();
+    }
+    fs::remove_all(target, ec);
+    fs::rename(staged, target, ec);
+    if (ec) {
+        fs::remove_all(staged, ec);
+        return "Could not put the FDXDAT folder in place: " + ec.message();
+    }
+    return {};
+}
+
 std::string Launcher::set_text_font(const std::string &disc_id, const fs::path &file) {
     if (disc_id.empty()) return "Add your copy of the game first.";
     std::error_code ec;
@@ -597,6 +634,8 @@ Launcher::SaveScan Launcher::scan_saves(const std::string &disc_id, const fs::pa
     // picks (its folders carry that release's id), and decrypts them with that release's key.
     std::string wanted = upper_ascii(disc_id);
     const CatalogEntry *entry = entry_for(disc_id);
+    // A patched edition reads the saves of the disc it was made from (Freedom DX: the European release's).
+    if (entry != nullptr && *entry->sfo_disc_id != '\0') wanted = upper_ascii(entry->sfo_disc_id);
     const bool fucomplete = entry != nullptr && std::string_view(entry->edition) == "fuc";
     if (fucomplete) {
         std::lock_guard lock(mutex_);
@@ -849,7 +888,11 @@ const CatalogEntry *identify(const psp::IsoImage &image, const std::string &sfo_
         if (id != sfo_disc_id) continue;
         if (*e.marker_file == '\0') {
             if (plain == nullptr) plain = &e;
-        } else if (image.find(e.marker_file)) {
+        } else if (const auto marker = image.find(e.marker_file)) {
+            // An edition that adds no file of its own (Freedom DX) names the executable, which every disc has: it is
+            // that edition's only when it has the edition's size (the release's is encrypted, and larger).
+            if (std::string_view(e.marker_file) == "/PSP_GAME/SYSDIR/EBOOT.BIN" && marker->size != e.encrypted_executable_size)
+                continue;
             return &e;
         }
     }
@@ -906,6 +949,7 @@ Json Launcher::state() {
     // The shown copy's texture pack is in its settings; whether it is MHForever's copy of it (removing deletes that).
     const std::string pack = s["settings"]["texturePack"].is_string() ? s["settings"]["texturePack"].as_string() : std::string();
     s["texturePackInstalled"] = shown != nullptr && !pack.empty() && platform::from_utf8(pack) == installed_texture_pack(shown->disc_id);
+    s["fdxData"] = shown != nullptr && has_fdx_data(shown->disc_id); // Freedom DX's folder in the shown copy's saves
     Json games(Json::Array{});
     const CatalogEntry *playable = nullptr;
     for (const auto &g : data_["games"].as_array()) {
