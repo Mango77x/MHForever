@@ -515,7 +515,9 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
   const s = state.settings;
   const game = selectedGame(state) ?? state.games[0];
   const fucomplete = game?.discId === 'ULJM05500-FUC'; // FUComplete's own options apply
-  const enhanced = !game || game.id === 'mhfu'; // the enhancements below are Freedom Unite's; other games have none yet
+  // Freedom Unite's own enhancements (widescreen, HUD scale, the Game section); other games have none yet. Frame
+  // interpolation is the frontend's and works for every game.
+  const enhanced = !game || game.id === 'mhfu';
   return (
     <section className="settings">
       <motion.div className="page-title" {...rise(0)}>
@@ -534,7 +536,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
             ))}
           </div>
         </div>
-        {enhanced && <div className="srow">
+        <div className="srow">
           <div className="slabel"><b>Frame rate</b><span>{s.fps === 30 ? 'Original frame rate.' : `${s.fps} fps with interpolated frames. Experimental.`}</span></div>
           <div className="seg wide" role="radiogroup" aria-label="Frame rate" style={{ '--n': frameRates.length } as CSSProperties}>
             <span className="pill" style={{ transform: `translateX(${Math.max(0, frameRates.indexOf(s.fps)) * 100}%)` }} />
@@ -542,7 +544,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
               <button key={n} className={s.fps === n ? 'on' : ''} role="radio" aria-checked={s.fps === n} onClick={() => onChange({ fps: n })}>{n}</button>
             ))}
           </div>
-        </div>}
+        </div>
         <div className="srow">
           <div className="slabel"><b>Fullscreen</b><span>Starts the game in fullscreen. Press F11 or Alt+Enter to switch while playing.</span></div>
           <Toggle on={s.fullscreen} onToggle={() => onChange({ fullscreen: !s.fullscreen })} label="Fullscreen" />

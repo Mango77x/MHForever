@@ -169,6 +169,9 @@ struct Frontend::Impl {
     bool widescreen_known{}; // widescreen came from the launcher or the Video tab changed it: the controls file keeps it
     bool pack_filter_changed{}; // the Video tab changed the texture pack's mipmaps or anisotropic filtering: kept too
     bool shadows_known{}; // the shadows' settings came from the launcher or the Video tab changed them: the controls file keeps them
+    // The game supports them (it called set_widescreen / set_shadows: camera hooks, zones): only then does the Video tab
+    // offer them. A game without them (Freedom) would get a stretched picture, or shadows that cost and show nothing.
+    bool widescreen_offered{}, shadows_offered{};
     std::optional<overlay::SongPanel> songs;
     std::optional<overlay::SongPanel> songs_seen; // the last songs the host gave, for moving them from the menu
     // Moving the songs (the Game tab's "Move them anywhere"): where the card's top left corner is now, and the mouse's
@@ -375,6 +378,7 @@ void Frontend::set_hud(int size) { impl_->live.hud_size = std::clamp(size, 50, 1
 void Frontend::set_widescreen(bool on) {
     impl_->live.widescreen = on;
     impl_->widescreen_known = true;
+    impl_->widescreen_offered = true;
 }
 
 float Frontend::game_aspect() const { return impl_->live.wide_aspect.load(std::memory_order_relaxed); }
@@ -385,6 +389,7 @@ void Frontend::set_shadows(bool on, bool whole_map, int quality, int darkness) {
     impl_->live.shadow_quality = std::clamp(quality, 0, 2);
     impl_->live.shadow_strength = static_cast<float>(std::clamp(darkness, 0, 100)) / 100.0f;
     impl_->shadows_known = true;
+    impl_->shadows_offered = true;
 }
 
 void Frontend::set_song_spot(overlay::SongSpot spot) { impl_->song_spot = spot; }
@@ -976,7 +981,7 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
                                       menu_item(Kind::Toggle, kFullscreen, "Fullscreen", impl.host.window_rect().fullscreen ? 1 : 0),
                                       menu_item(Kind::Toggle, kSmooth, "Smooth textures", impl.live.smooth_textures ? 1 : 0)},
                            "Changes apply immediately."};
-    if (impl.gpu_state == 1) { // the GPU renderer stretches the picture; the software one draws the PSP's screen as it is
+    if (impl.gpu_state == 1 && impl.widescreen_offered) { // the GPU renderer stretches the picture; the software one draws the PSP's screen as it is
         overlay::MenuItem wide = menu_item(Kind::Toggle, kWidescreen, "Widescreen", impl.live.widescreen ? 1 : 0);
         wide.detail = "Fills wide windows and screens with a wider view.";
         video.items.push_back(wide);
@@ -998,10 +1003,12 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         aniso.detail = "Sharpens textures viewed at an angle.";
         video.items.push_back(aniso);
     }
-    overlay::MenuItem shadow = menu_item(Kind::Toggle, kShadow, "Projected shadows", impl.live.shadow ? 1 : 0);
-    shadow.detail = "Characters and scenery cast shadows.";
-    video.items.push_back(shadow);
-    if (impl.live.shadow) { // its settings unfold under the switch while it is on
+    if (impl.shadows_offered) {
+        overlay::MenuItem shadow = menu_item(Kind::Toggle, kShadow, "Projected shadows", impl.live.shadow ? 1 : 0);
+        shadow.detail = "Characters and scenery cast shadows.";
+        video.items.push_back(shadow);
+    }
+    if (impl.shadows_offered && impl.live.shadow) { // its settings unfold under the switch while it is on
         overlay::MenuItem whole = menu_item(Kind::Toggle, kShadowWholeMap, "Whole map shadows", impl.live.shadow_whole_map ? 1 : 0);
         whole.detail = "Scenery casts shadows too.";
         video.items.push_back(whole);

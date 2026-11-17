@@ -869,6 +869,15 @@ public:
         const bool flat = (ge.reg(kShadeMode) & 1u) == 0;
         RawTriangle t;
         t.draw = static_cast<std::uint32_t>(recording_.size() - 1);
+        {
+            // Where the draw's geometry is (interpolation::DrawSummary::world_sum), for telling apart instances that
+            // share a matrix.
+            interpolation::DrawSummary &summary = recording_.back();
+            for (const gpu::Vertex *v : {&a, &b, &c}) {
+                for (int k = 0; k < 3; ++k) summary.world_sum[static_cast<std::size_t>(k)] += v->world[k];
+            }
+            summary.world_points += 3u;
+        }
         const gpu::Vertex *in[3] = {&a, &b, &c};
         for (int i = 0; i < 3; ++i) {
             const gpu::Vertex &v = *in[i];
@@ -1382,6 +1391,7 @@ private:
     // Each needed draw's motion in eye space (newer times older's inverse), as a key, and how many objects moved alike:
     // scenery that stood still all moved as the camera did, a monster or a hunter moved its own way.
     std::vector<std::uint64_t> v2_motion_key_;
+    std::unordered_map<std::uint64_t, std::uint32_t> v2_key_draws_; // how many eligible draws of each key, both flips
     std::unordered_map<std::uint64_t, std::uint32_t> v2_motion_count_;
     std::vector<V2Chunk> v2_chunks_;
     std::vector<std::size_t> v2_first_chunk_; // per batch
@@ -1391,10 +1401,12 @@ private:
     // The triangles of the previous flip in drawing order, and per draw of either flip where its triangles start and
     // how many there are; per batch of this flip, the order of its first triangle.
     std::vector<const RawTriangle *> v2_old_tris_;
+    std::vector<const RawTriangle *> v2_new_tris_; // the shown flip's 3D triangles in the same order as v2_new_first_ counts
     std::vector<std::size_t> v2_old_first_, v2_old_count_, v2_new_first_, v2_new_count_, v2_batch_ordinal_;
     std::vector<interpolation::Matrix> v2_view_t_; // per deforming draw: eye space to clip space at the moment
     float v2_t_ = 1.0f;
     void prepare_v2_draw(std::uint32_t n);
+    [[nodiscard]] bool same_points(const V2Draw &d, std::size_t count) const;
     void place_v2(std::size_t batch, const TapeEntry &entry, std::size_t from, std::size_t to, std::vector<GpuVertex> &out) const;
     std::uint32_t draw_use_{};              // of the current drawing command: tells repeated draws of a model apart
     struct PointSlot {
@@ -4383,8 +4395,15 @@ template <typename Box> bool hud_in_clock_corner(const Box &b) { return b.x1 < 1
 // minimap mark that reaches past the square (a monster's icon at its edge) stays with the minimap, and a longer panel
 // stays one panel. Checked against every recorded quest (EU and FUComplete, every weapon, menus): the minimap always
 // comes first and the item panel always starts with that corner.
+// Freedom's square is a few pixels further down and right (measured: 324,36 to 476,188); the bounds take both.
 template <typename Box> bool hud_in_map_square(const Box &b) {
-    return b.x1 >= 314.0f && b.y1 >= 30.0f && b.x2 <= 470.0f && b.y2 <= 186.0f;
+    return b.x1 >= 314.0f && b.y1 >= 30.0f && b.x2 <= 478.0f && b.y2 <= 190.0f;
+}
+// A small piece in the left half below the clock, as Freedom draws first in the layer after the clock's (measured:
+// 16,80 to 67,131). Freedom Unite's layer starts with the minimap or the item panel, and its start menu with a corner
+// at x 232 or more.
+template <typename Box> bool hud_left_piece(const Box &b) {
+    return b.x2 < 200.0f && b.y1 >= 60.0f && b.y2 <= 160.0f && b.x2 - b.x1 <= 64.0f && b.y2 - b.y1 <= 64.0f;
 }
 template <typename Box> bool hud_menu_frame(const Box &b) { return std::fabs(b.y1 - 40.0f) < 2.0f && b.y2 - b.y1 < 10.0f; }
 template <typename Box> bool hud_on_map(const Box &b) { return hud_in_map_square(b) && !hud_menu_frame(b); }
@@ -4541,8 +4560,18 @@ void GlBackend::size_hud() {
             sized = true;
             ax = 0.0f;
             ay = 0.0f;
+        } else if (hud_layer_ != kNoLayer && batch_layer_ == hud_layer_ + 1u && (first || hud_right_ == HudRight::unknown) &&
+                   hud_left_piece(box)) {
+            // Freedom starts the layer with a piece under the health bar, on the left, before the minimap: it shrinks
+            // with the health bar, and the next piece tells what the layer is.
+            hud_right_ = HudRight::unknown;
+            what = "health (left)";
+            sized = true;
+            ax = 0.0f;
+            ay = 0.0f;
         } else if (hud_layer_ != kNoLayer && batch_layer_ == hud_layer_ + 1u) {
-            if (first) hud_right_ = hud_item_panel_start(box) ? HudRight::items : hud_on_map(box) ? HudRight::map : HudRight::menu;
+            if (first || hud_right_ == HudRight::unknown)
+                hud_right_ = hud_item_panel_start(box) ? HudRight::items : hud_on_map(box) ? HudRight::map : HudRight::menu;
             if (hud_right_ == HudRight::map && hud_item_panel_start(box)) hud_right_ = HudRight::items; // the minimap is over
             if (hud_right_ == HudRight::menu || box.x1 < 240.0f) {
                 what = hud_right_ == HudRight::menu ? "kept (menu)" : "kept";
@@ -5326,12 +5355,14 @@ void GlBackend::prepare_v2(const std::vector<TapeEntry> &now, const std::vector<
     v2_new_first_.assign(newer.size(), 0);
     v2_new_count_.assign(newer.size(), 0);
     v2_batch_ordinal_.assign(now.size(), 0);
+    v2_new_tris_.clear();
     std::size_t ordinal = 0;
     for (std::size_t i = 0; i < now.size(); ++i) {
         v2_batch_ordinal_[i] = ordinal;
         if (now[i].setup.through) continue;
         for (const RawTriangle &tri : now[i].raw) {
             if (tri.draw < newer.size() && v2_new_count_[tri.draw]++ == 0) v2_new_first_[tri.draw] = ordinal;
+            v2_new_tris_.push_back(&tri);
             ++ordinal;
         }
     }
@@ -5357,6 +5388,15 @@ void GlBackend::prepare_v2(const std::vector<TapeEntry> &now, const std::vector<
     // Which draws moved as many others did (the scenery, which moved only with the camera): those, and only those,
     // follow their own motion's arc (V2Draw::rigid). A monster or a hunter moved its own way and keeps its own motion
     // blended under the camera's, so it does not swing off its path while the camera turns.
+    // Meshes drawn more than once in a flip (instances): only their skinned draws can be paired with another model.
+    v2_key_draws_.clear();
+    for (const std::vector<interpolation::DrawSummary> *flip : {&newer, static_cast<const std::vector<interpolation::DrawSummary> *>(&v2_older_)}) {
+        std::unordered_map<std::uint64_t, std::uint32_t> here;
+        for (const interpolation::DrawSummary &d : *flip) {
+            if (d.eligible) ++here[d.key_hash];
+        }
+        for (const auto &[key, count] : here) v2_key_draws_[key] = std::max(v2_key_draws_[key], count);
+    }
     v2_motion_key_.assign(newer.size(), 0);
     v2_motion_count_.clear();
     {
@@ -5395,6 +5435,34 @@ void GlBackend::prepare_v2(const std::vector<TapeEntry> &now, const std::vector<
     });
 }
 
+// Whether a skinned draw of a mesh drawn more than once and its partner are the same model, point for point: no point
+// moves more than half the piece's size in one flip. Freedom draws a herd or a crowd from one mesh; a piece paired with the same piece of
+// another animal or villager would blend each point from one to the other (long thin triangles across the picture).
+// Such a draw is then not blended point by point: it moves as a whole.
+bool GlBackend::same_points(const V2Draw &d, std::size_t count) const {
+    if (d.old_first + count > v2_old_tris_.size() || d.new_first + count > v2_new_tris_.size()) return false;
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    float moved = 0.0f; // the largest move, squared
+    for (std::size_t k = 0; k < count; ++k) {
+        const RawTriangle &now = *v2_new_tris_[d.new_first + k], &then = *v2_old_tris_[d.old_first + k];
+        for (int i = 0; i < 3; ++i) {
+            const float *a = now.v[i].world, *b = then.v[i].world;
+            float dist = 0.0f;
+            for (int row = 0; row < 3; ++row) {
+                const float now_at = d.back[row] * a[0] + d.back[4 + row] * a[1] + d.back[8 + row] * a[2] + d.back[12 + row];
+                const float then_at = d.back_old[row] * b[0] + d.back_old[4 + row] * b[1] + d.back_old[8 + row] * b[2] + d.back_old[12 + row];
+                lo[row] = std::min(lo[row], now_at);
+                hi[row] = std::max(hi[row], now_at);
+                dist += (now_at - then_at) * (now_at - then_at);
+            }
+            moved = std::max(moved, dist);
+        }
+    }
+    float size = 0.0f; // the model's size, squared (the diagonal of its box)
+    for (int row = 0; row < 3; ++row) size += (hi[row] - lo[row]) * (hi[row] - lo[row]);
+    return moved <= std::max(0.25f * size, 1.0f);
+}
+
 void GlBackend::prepare_v2_draw(std::uint32_t n) {
     {
         const interpolation::DrawSummary &d = summaries_before_[n];
@@ -5421,6 +5489,10 @@ void GlBackend::prepare_v2_draw(std::uint32_t n) {
                 out.old_first = v2_old_first_[oi];
                 out.new_first = v2_new_first_[n];
                 out.back_old = interpolation::multiply(older_inverse, from.view);
+                // A mesh drawn once in both flips has its partner for certain (the hunter's pieces); instances of one
+                // mesh (a herd) are checked point for point.
+                if (const auto shared = v2_key_draws_.find(d.key_hash); shared != v2_key_draws_.end() && shared->second > 1u)
+                    out.deform = same_points(out, v2_new_count_[n]);
             }
             if (out.older_eye == eye) {
                 // Fixed in eye space (interpolation::blend_eye keeps it): at most the projection changes.
