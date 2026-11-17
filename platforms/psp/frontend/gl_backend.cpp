@@ -1400,10 +1400,12 @@ private:
     // The triangles of the previous flip in drawing order, and per draw of either flip where its triangles start and
     // how many there are; per batch of this flip, the order of its first triangle.
     std::vector<const RawTriangle *> v2_old_tris_;
+    std::vector<const RawTriangle *> v2_new_tris_; // the shown flip's 3D triangles in the same order as v2_new_first_ counts
     std::vector<std::size_t> v2_old_first_, v2_old_count_, v2_new_first_, v2_new_count_, v2_batch_ordinal_;
     std::vector<interpolation::Matrix> v2_view_t_; // per deforming draw: eye space to clip space at the moment
     float v2_t_ = 1.0f;
     void prepare_v2_draw(std::uint32_t n);
+    [[nodiscard]] bool same_points(const V2Draw &d, std::size_t count) const;
     void place_v2(std::size_t batch, const TapeEntry &entry, std::size_t from, std::size_t to, std::vector<GpuVertex> &out) const;
     std::uint32_t draw_use_{};              // of the current drawing command: tells repeated draws of a model apart
     struct PointSlot {
@@ -5352,12 +5354,14 @@ void GlBackend::prepare_v2(const std::vector<TapeEntry> &now, const std::vector<
     v2_new_first_.assign(newer.size(), 0);
     v2_new_count_.assign(newer.size(), 0);
     v2_batch_ordinal_.assign(now.size(), 0);
+    v2_new_tris_.clear();
     std::size_t ordinal = 0;
     for (std::size_t i = 0; i < now.size(); ++i) {
         v2_batch_ordinal_[i] = ordinal;
         if (now[i].setup.through) continue;
         for (const RawTriangle &tri : now[i].raw) {
             if (tri.draw < newer.size() && v2_new_count_[tri.draw]++ == 0) v2_new_first_[tri.draw] = ordinal;
+            v2_new_tris_.push_back(&tri);
             ++ordinal;
         }
     }
@@ -5421,6 +5425,34 @@ void GlBackend::prepare_v2(const std::vector<TapeEntry> &now, const std::vector<
     });
 }
 
+// Whether a skinned draw and its partner are the same model, point for point: no point moves more than half the
+// model's size in one flip. Freedom draws a herd or a crowd from one mesh; a piece paired with the same piece of
+// another animal or villager would blend each point from one to the other (long thin triangles across the picture).
+// Such a draw is then not blended point by point: it moves as a whole.
+bool GlBackend::same_points(const V2Draw &d, std::size_t count) const {
+    if (d.old_first + count > v2_old_tris_.size() || d.new_first + count > v2_new_tris_.size()) return false;
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    float moved = 0.0f; // the largest move, squared
+    for (std::size_t k = 0; k < count; ++k) {
+        const RawTriangle &now = *v2_new_tris_[d.new_first + k], &then = *v2_old_tris_[d.old_first + k];
+        for (int i = 0; i < 3; ++i) {
+            const float *a = now.v[i].world, *b = then.v[i].world;
+            float dist = 0.0f;
+            for (int row = 0; row < 3; ++row) {
+                const float now_at = d.back[row] * a[0] + d.back[4 + row] * a[1] + d.back[8 + row] * a[2] + d.back[12 + row];
+                const float then_at = d.back_old[row] * b[0] + d.back_old[4 + row] * b[1] + d.back_old[8 + row] * b[2] + d.back_old[12 + row];
+                lo[row] = std::min(lo[row], now_at);
+                hi[row] = std::max(hi[row], now_at);
+                dist += (now_at - then_at) * (now_at - then_at);
+            }
+            moved = std::max(moved, dist);
+        }
+    }
+    float size = 0.0f; // the model's size, squared (the diagonal of its box)
+    for (int row = 0; row < 3; ++row) size += (hi[row] - lo[row]) * (hi[row] - lo[row]);
+    return moved <= std::max(0.25f * size, 1.0f);
+}
+
 void GlBackend::prepare_v2_draw(std::uint32_t n) {
     {
         const interpolation::DrawSummary &d = summaries_before_[n];
@@ -5447,6 +5479,7 @@ void GlBackend::prepare_v2_draw(std::uint32_t n) {
                 out.old_first = v2_old_first_[oi];
                 out.new_first = v2_new_first_[n];
                 out.back_old = interpolation::multiply(older_inverse, from.view);
+                out.deform = same_points(out, v2_new_count_[n]);
             }
             if (out.older_eye == eye) {
                 // Fixed in eye space (interpolation::blend_eye keeps it): at most the projection changes.

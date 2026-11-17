@@ -91,7 +91,7 @@ struct CutThresholds {
     float max_own_motion{120.0f};
     // Instances of one mesh paired by where they are, once the camera's motion is taken out (up to this many).
     bool nearest_instances{true};
-    std::uint32_t max_nearest_instances{128u}; // Freedom draws 87 falling petals as one mesh
+    std::uint32_t max_nearest_instances{256u}; // Freedom draws up to 93 falling petals, and its herds, as one mesh
     // Also count every object's agreement with the candidates (Matching::camera_off_crowd), for the log only.
     bool diagnose{false};
 };
