@@ -117,6 +117,9 @@ DecodedInstruction decode_allegrex(std::uint32_t word) {
     case 0x15: d.kind = OpcodeKind::Bnel; d.mnemonic = "bnel"; break;
     case 0x16: d.kind = OpcodeKind::Blezl; d.mnemonic = "blezl"; break;
     case 0x17: d.kind = OpcodeKind::Bgtzl; d.mnemonic = "bgtzl"; break;
+    // addi traps on signed overflow, which no game relies on: it runs as addiu (as add and sub run as addu and subu).
+    // Compilers never emit it; hand-written patches do (Freedom DX).
+    case 0x08: d.kind = OpcodeKind::Addiu; d.mnemonic = "addi"; break;
     case 0x09: d.kind = OpcodeKind::Addiu; d.mnemonic = "addiu"; break;
     case 0x0A: d.kind = OpcodeKind::Slti; d.mnemonic = "slti"; break;
     case 0x0B: d.kind = OpcodeKind::Sltiu; d.mnemonic = "sltiu"; break;
