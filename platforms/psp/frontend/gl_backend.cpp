@@ -1391,6 +1391,7 @@ private:
     // Each needed draw's motion in eye space (newer times older's inverse), as a key, and how many objects moved alike:
     // scenery that stood still all moved as the camera did, a monster or a hunter moved its own way.
     std::vector<std::uint64_t> v2_motion_key_;
+    std::unordered_map<std::uint64_t, std::uint32_t> v2_key_draws_; // how many eligible draws of each key, both flips
     std::unordered_map<std::uint64_t, std::uint32_t> v2_motion_count_;
     std::vector<V2Chunk> v2_chunks_;
     std::vector<std::size_t> v2_first_chunk_; // per batch
@@ -5387,6 +5388,15 @@ void GlBackend::prepare_v2(const std::vector<TapeEntry> &now, const std::vector<
     // Which draws moved as many others did (the scenery, which moved only with the camera): those, and only those,
     // follow their own motion's arc (V2Draw::rigid). A monster or a hunter moved its own way and keeps its own motion
     // blended under the camera's, so it does not swing off its path while the camera turns.
+    // Meshes drawn more than once in a flip (instances): only their skinned draws can be paired with another model.
+    v2_key_draws_.clear();
+    for (const std::vector<interpolation::DrawSummary> *flip : {&newer, static_cast<const std::vector<interpolation::DrawSummary> *>(&v2_older_)}) {
+        std::unordered_map<std::uint64_t, std::uint32_t> here;
+        for (const interpolation::DrawSummary &d : *flip) {
+            if (d.eligible) ++here[d.key_hash];
+        }
+        for (const auto &[key, count] : here) v2_key_draws_[key] = std::max(v2_key_draws_[key], count);
+    }
     v2_motion_key_.assign(newer.size(), 0);
     v2_motion_count_.clear();
     {
@@ -5425,8 +5435,8 @@ void GlBackend::prepare_v2(const std::vector<TapeEntry> &now, const std::vector<
     });
 }
 
-// Whether a skinned draw and its partner are the same model, point for point: no point moves more than half the
-// model's size in one flip. Freedom draws a herd or a crowd from one mesh; a piece paired with the same piece of
+// Whether a skinned draw of a mesh drawn more than once and its partner are the same model, point for point: no point
+// moves more than half the piece's size in one flip. Freedom draws a herd or a crowd from one mesh; a piece paired with the same piece of
 // another animal or villager would blend each point from one to the other (long thin triangles across the picture).
 // Such a draw is then not blended point by point: it moves as a whole.
 bool GlBackend::same_points(const V2Draw &d, std::size_t count) const {
@@ -5479,7 +5489,10 @@ void GlBackend::prepare_v2_draw(std::uint32_t n) {
                 out.old_first = v2_old_first_[oi];
                 out.new_first = v2_new_first_[n];
                 out.back_old = interpolation::multiply(older_inverse, from.view);
-                out.deform = same_points(out, v2_new_count_[n]);
+                // A mesh drawn once in both flips has its partner for certain (the hunter's pieces); instances of one
+                // mesh (a herd) are checked point for point.
+                if (const auto shared = v2_key_draws_.find(d.key_hash); shared != v2_key_draws_.end() && shared->second > 1u)
+                    out.deform = same_points(out, v2_new_count_[n]);
             }
             if (out.older_eye == eye) {
                 // Fixed in eye space (interpolation::blend_eye keeps it): at most the projection changes.
