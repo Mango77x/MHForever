@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
 import { api, regionTag, selectedGame, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
 import { CopyIcon } from './icons';
+import { FdxOptions } from './FdxOptions';
 import { FucOptions } from './FucOptions';
 import { OnlineSettings } from './OnlineSettings';
 import { TexturePackSection } from './TexturePack';
@@ -660,6 +661,23 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           </>
         )}
       </motion.div>
+      {game?.discId.endsWith('-FDX') && <motion.div className="glass section" {...rise(0.07)}>
+        <h3>Freedom DX</h3>
+        <div className="srow">
+          <div className="slabel">
+            <b>FDXDAT folder</b>
+            <span>{state.fdxData
+              ? 'In place: its event quests are available.'
+              : 'Needed for the event quests. Choose the FDXDAT folder from your Freedom DX download.'}</span>
+          </div>
+          <button className="ghost mid" onClick={() => api.mhf_fdxData().then((r) => {
+            onState(r.state);
+            if (r.error) say(r.error);
+            else if (r.picked) say('FDXDAT folder copied');
+          })}>{state.fdxData ? 'Replace…' : 'Choose…'}</button>
+        </div>
+        <FdxOptions s={s} onChange={onChange} toggle={(p) => <Toggle {...p} />} />
+      </motion.div>}
       {fucomplete && <motion.div className="glass section" {...rise(0.07)}>
         <h3>FUComplete</h3>
         <FucOptions s={s} onChange={onChange} toggle={(p) => <Toggle {...p} />} />

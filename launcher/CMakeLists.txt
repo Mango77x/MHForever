@@ -141,7 +141,7 @@ add_executable(mhf_launcher
     native/install/data_dir.cpp
     native/install/executable_preparation.cpp
     native/install/installer.cpp
-    native/fuc_config.cpp
+    native/fuc_config.cpp native/fdx_config.cpp
     native/install/prx_decryptor.cpp
     ${_ui_cpp}
     ${_icon_cpp}
@@ -175,7 +175,7 @@ add_executable(mhf_launcher_cli
     native/install/data_dir.cpp
     native/install/executable_preparation.cpp
     native/install/installer.cpp
-    native/fuc_config.cpp
+    native/fuc_config.cpp native/fdx_config.cpp
     native/install/prx_decryptor.cpp
 )
 target_include_directories(mhf_launcher_cli PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
@@ -244,7 +244,7 @@ if(MHF_BUILD_TESTS)
     add_executable(test_launcher tests/test_launcher.cpp native/launcher.cpp native/json.cpp native/hash.cpp
                                  native/platform.cpp native/updater.cpp native/install/data_dir.cpp
                                  native/install/executable_preparation.cpp native/install/installer.cpp
-                                 native/install/prx_decryptor.cpp native/fuc_config.cpp ${_icon_cpp})
+                                 native/install/prx_decryptor.cpp native/fuc_config.cpp native/fdx_config.cpp ${_icon_cpp})
     target_include_directories(test_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(test_launcher PRIVATE mhf_core mhf_psp_tools mhf_webview mhf_prx mhf_texture_pack)
     if(WIN32)

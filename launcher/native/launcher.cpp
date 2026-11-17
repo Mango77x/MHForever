@@ -1,5 +1,6 @@
 #include "launcher.hpp"
 
+#include "fdx_config.hpp"
 #include "fuc_config.hpp"
 #include "hash.hpp"
 #include "host/keymap.hpp"
@@ -170,6 +171,13 @@ Json default_settings() {
     s["fucLaoEarlyKill"] = false;
     s["fucFullChest"] = false;
     s["fucDrinkBuff"] = false;
+    // Freedom DX's own options, for Freedom DX copies only (fdx_config.hpp); its minimap scale is never offered either.
+    for (const char *key : {"fdxHoldToGather", "fdxTrueRaw", "fdxLaoEarlyKill", "fdxSnsDebuff", "fdxFileReplacer", "fdxFelyneSkills",
+                            "fdxDrinkBuff", "fdxInstantSupply", "fdxOfflineTreasure"})
+        s[key] = false;
+    s["fdxDosBonus"] = 0; // 0 off, 1 with the blue Poogie outfit, 2 the pink one
+    s["fdxFov"] = 95;     // the game's field of view
+    s["fdxCamera"] = 4;   // starting vertical camera position in quests, 1 (lowest) to 5 (highest)
     // Keyboard bindings (docs/07-launcher-ux.md section 5). Values are UI Events codes, so they name the key's
     // position rather than the character printed on it, and they are the same on every keyboard layout.
     const host::KeyBindings defaults;
@@ -422,6 +430,43 @@ bool looks_like_font(const fs::path &file) {
 
 } // namespace
 
+bool Launcher::has_fdx_data(const std::string &disc_id) const {
+    std::error_code ec;
+    const fs::path folder = install::game_saves_dir(saves_dir_, disc_id) / "PSP" / "SAVEDATA" / "FDXDAT";
+    return fs::is_regular_file(folder / "EVENT.BIN", ec); // the launcher makes CONFIG.BIN itself; the event quests are the player's
+}
+
+std::string Launcher::set_fdx_data(const std::string &disc_id, const fs::path &folder) {
+    if (disc_id.empty()) return "Add your copy of the game first.";
+    std::error_code ec;
+    // The folder chosen, or an FDXDAT inside it (the unzipped download).
+    fs::path source;
+    for (const fs::path &candidate : {folder, folder / "FDXDAT"}) {
+        if (fs::is_regular_file(candidate / "EVENT.BIN", ec) || fs::is_regular_file(candidate / "CONFIG.BIN", ec)) {
+            source = candidate;
+            break;
+        }
+    }
+    if (source.empty()) return "No FDXDAT folder there. Choose the FDXDAT folder from your Freedom DX download.";
+    const fs::path savedata = install::game_saves_dir(saves_dir_, disc_id) / "PSP" / "SAVEDATA";
+    const fs::path target = savedata / "FDXDAT";
+    const fs::path staged = savedata / ".FDXDAT-incoming";
+    fs::remove_all(staged, ec);
+    fs::create_directories(staged, ec);
+    fs::copy(source, staged, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        fs::remove_all(staged, ec);
+        return "Could not copy the FDXDAT folder: " + ec.message();
+    }
+    fs::remove_all(target, ec);
+    fs::rename(staged, target, ec);
+    if (ec) {
+        fs::remove_all(staged, ec);
+        return "Could not put the FDXDAT folder in place: " + ec.message();
+    }
+    return {};
+}
+
 std::string Launcher::set_text_font(const std::string &disc_id, const fs::path &file) {
     if (disc_id.empty()) return "Add your copy of the game first.";
     std::error_code ec;
@@ -597,6 +642,8 @@ Launcher::SaveScan Launcher::scan_saves(const std::string &disc_id, const fs::pa
     // picks (its folders carry that release's id), and decrypts them with that release's key.
     std::string wanted = upper_ascii(disc_id);
     const CatalogEntry *entry = entry_for(disc_id);
+    // A patched edition reads the saves of the disc it was made from (Freedom DX: the European release's).
+    if (entry != nullptr && *entry->sfo_disc_id != '\0') wanted = upper_ascii(entry->sfo_disc_id);
     const bool fucomplete = entry != nullptr && std::string_view(entry->edition) == "fuc";
     if (fucomplete) {
         std::lock_guard lock(mutex_);
@@ -849,7 +896,11 @@ const CatalogEntry *identify(const psp::IsoImage &image, const std::string &sfo_
         if (id != sfo_disc_id) continue;
         if (*e.marker_file == '\0') {
             if (plain == nullptr) plain = &e;
-        } else if (image.find(e.marker_file)) {
+        } else if (const auto marker = image.find(e.marker_file)) {
+            // An edition that adds no file of its own (Freedom DX) names the executable, which every disc has: it is
+            // that edition's only when it has the edition's size (the release's is encrypted, and larger).
+            if (std::string_view(e.marker_file) == "/PSP_GAME/SYSDIR/EBOOT.BIN" && marker->size != e.encrypted_executable_size)
+                continue;
             return &e;
         }
     }
@@ -906,6 +957,7 @@ Json Launcher::state() {
     // The shown copy's texture pack is in its settings; whether it is MHForever's copy of it (removing deletes that).
     const std::string pack = s["settings"]["texturePack"].is_string() ? s["settings"]["texturePack"].as_string() : std::string();
     s["texturePackInstalled"] = shown != nullptr && !pack.empty() && platform::from_utf8(pack) == installed_texture_pack(shown->disc_id);
+    s["fdxData"] = shown != nullptr && has_fdx_data(shown->disc_id); // Freedom DX's folder in the shown copy's saves
     Json games(Json::Array{});
     const CatalogEntry *playable = nullptr;
     for (const auto &g : data_["games"].as_array()) {
@@ -1073,10 +1125,14 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
     }
     for (const char *key : {"fullscreen", "smoothTextures", "packMipmaps", "projectedShadows", "wholeMapShadows", "widescreen", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
                             "analogCamera", "mouseCamera", "hornSongs", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest",
-                            "fucDrinkBuff"}) {
+                            "fucDrinkBuff", "fdxHoldToGather", "fdxTrueRaw", "fdxLaoEarlyKill", "fdxSnsDebuff", "fdxFileReplacer",
+                            "fdxFelyneSkills", "fdxDrinkBuff", "fdxInstantSupply", "fdxOfflineTreasure"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
     }
     num("fucCamera", 1, 5);
+    num("fdxDosBonus", 0, 2);
+    num("fdxFov", 0, 255);
+    num("fdxCamera", 1, 5);
     for (const auto &[key, names] : {std::pair{"fucSaveRegion", std::vector<const char *>(fuc::kSaveRegions.begin(), fuc::kSaveRegions.end())},
                                      std::pair{"fucFov", std::vector<const char *>(fuc::kFieldsOfView.begin(), fuc::kFieldsOfView.end())}}) {
         if (!partial[key].is_string()) continue;
@@ -1442,6 +1498,25 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         options.full_chest = s["fucFullChest"].as_bool();
         options.drink_buff = s["fucDrinkBuff"].as_bool();
         if (const std::string problem = fuc::prepare(iso, stick, options); !problem.empty()) {
+            plan.error = problem;
+            return plan;
+        }
+    } else if (std::string_view(entry->edition) == "fdx") {
+        // Freedom DX reads its options from FDXDAT on the memory stick at every start: they are written there now.
+        fdx::Options options;
+        options.hold_to_gather = s["fdxHoldToGather"].as_bool();
+        options.true_raw = s["fdxTrueRaw"].as_bool();
+        options.lao_early_kill = s["fdxLaoEarlyKill"].as_bool();
+        options.sns_debuff = s["fdxSnsDebuff"].as_bool();
+        options.file_replacer = s["fdxFileReplacer"].as_bool();
+        options.felyne_skills = s["fdxFelyneSkills"].as_bool();
+        options.drink_buff = s["fdxDrinkBuff"].as_bool();
+        options.dos_bonus = s["fdxDosBonus"].is_number() ? static_cast<int>(s["fdxDosBonus"].as_number()) : 0;
+        options.instant_supply = s["fdxInstantSupply"].as_bool();
+        options.fov = s["fdxFov"].is_number() ? static_cast<int>(s["fdxFov"].as_number()) : 95;
+        options.camera = s["fdxCamera"].is_number() ? static_cast<int>(s["fdxCamera"].as_number()) - 1 : 3;
+        options.offline_treasure = s["fdxOfflineTreasure"].as_bool();
+        if (const std::string problem = fdx::prepare(stick, options); !problem.empty()) {
             plan.error = problem;
             return plan;
         }

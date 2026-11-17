@@ -136,6 +136,12 @@ public:
     // (fonts/<disc_id>) and passed to the game as --font. Empty `file` goes back to the default (Liberation Sans with the
     // HD text). An error message when the file is not a font (nothing changed), else empty.
     std::string set_text_font(const std::string &disc_id, const std::filesystem::path &file);
+    // Freedom DX reads its options and event quests from PSP/SAVEDATA/FDXDAT on the memory stick; the folder comes with
+    // the player's Freedom DX download, not on the disc. Copies the chosen folder (FDXDAT itself, or a folder holding
+    // it) into the copy's saves. An error message when there is none there, else empty.
+    std::string set_fdx_data(const std::string &disc_id, const std::filesystem::path &folder);
+    // Whether the copy's saves hold Freedom DX's folder.
+    [[nodiscard]] bool has_fdx_data(const std::string &disc_id) const;
     // Copies the pack in `folder` into the data folder (textures/<disc_id>) and uses it from there. The copy goes to a
     // hidden folder first: the pack in use stays until the copy is complete, and the copy before is kept in
     // textures/.backup/<time>. `progress` gets the share done and the file being copied, and stops the copy by returning false.

@@ -38,6 +38,21 @@ The disc has the layout Freedom Unite's has: one `DATA.BIN` holding the data and
 
 Measured on the European release: the recompiler covers 95.0 % of the executable's code and 82.8 % of the overlays'.
 
+## 3.1 Freedom DX
+
+A European image patched with Freedom DX v1.8.6 (SilverJolteon's patch, an xdelta) is its own copy, `ULES00318-FDX`
+(program `mhf1-fdx`, `regions/ULES00318-FDX`). The image keeps the European disc id and adds no file, so the launcher
+tells it by its executable: Freedom DX ships it plain (1193440 bytes), the release encrypted (1193776); the region's
+marker is the executable, and identify() also checks its size. Freedom DX patches the executable in place (22 places,
+its own code at 0x088C2140..0x088C338C) and leaves the mapped addresses unchanged, so the symbols are the release's.
+Its hand-written code uses `addi`, which the decoder now runs as `addiu` (the overflow trap is not modelled). Coverage:
+95.0 % of the executable, 82.8 % of the overlays.
+
+The game reads its options and event quests from `PSP/SAVEDATA/FDXDAT` (CONFIG.BIN, EVENT.BIN), which comes with the
+player's download, not on the disc: Game settings > Freedom DX copies the folder the player chooses into the copy's
+saves. Its saves are the European release's (`ULES00318...` folders), which the save import looks for. Measured: the
+title (Freedom DX v1.8.6), a save loaded and the village, at 30 fps.
+
 ## 4. Freedom and Freedom Unite
 
 Freedom runs an earlier version of Freedom Unite's engine: 39 % of its functions are the same, instruction for

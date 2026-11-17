@@ -301,6 +301,18 @@ void on_pick_executable(const char *id, const Json &) {
     reply(id, g_app.launcher->state());
 }
 
+// The chosen copy's Freedom DX folder: asks for it and copies it into the copy's saves.
+void on_fdx_data(const char *id, const Json &) {
+    Json r(Json::Object{});
+    const std::string disc_id = g_app.launcher->disc_id_for("");
+    if (const auto folder = platform::open_folder(native_window(), "Choose the FDXDAT folder from your Freedom DX download")) {
+        r["picked"] = true;
+        if (const std::string error = g_app.launcher->set_fdx_data(disc_id, *folder); !error.empty()) r["error"] = error;
+    }
+    r["state"] = g_app.launcher->state();
+    reply(id, r);
+}
+
 // The chosen copy's text font: 'choose' asks for a font file, 'default' goes back to Liberation Sans with the HD text.
 void on_text_font(const char *id, const Json &args) {
     const std::string mode = args.as_array().empty() ? std::string() : args.as_array()[0].as_string();
@@ -624,6 +636,7 @@ int main(int argc, char **argv) {
     bind("mhf_play", on_play);
     bind("mhf_copyText", on_copy_text);
     bind("mhf_textFont", on_text_font);
+    bind("mhf_fdxData", on_fdx_data);
     bind("mhf_exportIdentity", on_export_identity);
     bind("mhf_setFriends", on_set_friends);
     bind("mhf_setGameFriends", on_set_game_friends);
