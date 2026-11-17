@@ -4392,8 +4392,15 @@ template <typename Box> bool hud_in_clock_corner(const Box &b) { return b.x1 < 1
 // minimap mark that reaches past the square (a monster's icon at its edge) stays with the minimap, and a longer panel
 // stays one panel. Checked against every recorded quest (EU and FUComplete, every weapon, menus): the minimap always
 // comes first and the item panel always starts with that corner.
+// Freedom's square is a few pixels further down and right (measured: 324,36 to 476,188); the bounds take both.
 template <typename Box> bool hud_in_map_square(const Box &b) {
-    return b.x1 >= 314.0f && b.y1 >= 30.0f && b.x2 <= 470.0f && b.y2 <= 186.0f;
+    return b.x1 >= 314.0f && b.y1 >= 30.0f && b.x2 <= 478.0f && b.y2 <= 190.0f;
+}
+// A small piece in the left half below the clock, as Freedom draws first in the layer after the clock's (measured:
+// 16,80 to 67,131). Freedom Unite's layer starts with the minimap or the item panel, and its start menu with a corner
+// at x 232 or more.
+template <typename Box> bool hud_left_piece(const Box &b) {
+    return b.x2 < 200.0f && b.y1 >= 60.0f && b.y2 <= 160.0f && b.x2 - b.x1 <= 64.0f && b.y2 - b.y1 <= 64.0f;
 }
 template <typename Box> bool hud_menu_frame(const Box &b) { return std::fabs(b.y1 - 40.0f) < 2.0f && b.y2 - b.y1 < 10.0f; }
 template <typename Box> bool hud_on_map(const Box &b) { return hud_in_map_square(b) && !hud_menu_frame(b); }
@@ -4550,8 +4557,18 @@ void GlBackend::size_hud() {
             sized = true;
             ax = 0.0f;
             ay = 0.0f;
+        } else if (hud_layer_ != kNoLayer && batch_layer_ == hud_layer_ + 1u && (first || hud_right_ == HudRight::unknown) &&
+                   hud_left_piece(box)) {
+            // Freedom starts the layer with a piece under the health bar, on the left, before the minimap: it shrinks
+            // with the health bar, and the next piece tells what the layer is.
+            hud_right_ = HudRight::unknown;
+            what = "health (left)";
+            sized = true;
+            ax = 0.0f;
+            ay = 0.0f;
         } else if (hud_layer_ != kNoLayer && batch_layer_ == hud_layer_ + 1u) {
-            if (first) hud_right_ = hud_item_panel_start(box) ? HudRight::items : hud_on_map(box) ? HudRight::map : HudRight::menu;
+            if (first || hud_right_ == HudRight::unknown)
+                hud_right_ = hud_item_panel_start(box) ? HudRight::items : hud_on_map(box) ? HudRight::map : HudRight::menu;
             if (hud_right_ == HudRight::map && hud_item_panel_start(box)) hud_right_ = HudRight::items; // the minimap is over
             if (hud_right_ == HudRight::menu || box.x1 < 240.0f) {
                 what = hud_right_ == HudRight::menu ? "kept (menu)" : "kept";
