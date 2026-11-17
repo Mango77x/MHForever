@@ -50,6 +50,19 @@ export interface Settings {
   fucLaoEarlyKill?: boolean;
   fucFullChest?: boolean;
   fucDrinkBuff?: boolean;
+  // Freedom DX's own options, for Freedom DX copies (launcher/native/fdx_config.hpp).
+  fdxHoldToGather?: boolean;
+  fdxTrueRaw?: boolean;
+  fdxLaoEarlyKill?: boolean;
+  fdxSnsDebuff?: boolean;
+  fdxFileReplacer?: boolean;
+  fdxFelyneSkills?: boolean;
+  fdxDrinkBuff?: boolean;
+  fdxInstantSupply?: boolean;
+  fdxOfflineTreasure?: boolean;
+  fdxDosBonus?: number; // 0 off, 1 blue Poogie outfit, 2 pink
+  fdxFov?: number; // 0..255, 95 is the game's own
+  fdxCamera?: number; // 1..5, 4 is the game's own
   copyImage: boolean; // keep a copy of the disc image in MHForever's own folder
   musicVolume: number; // 0..100
   sfxVolume: number; // 0..100
