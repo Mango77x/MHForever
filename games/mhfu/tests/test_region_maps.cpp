@@ -51,6 +51,13 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
     for (const auto &name : all) MHF_CHECK(entries.contains(name));
     MHF_CHECK(entries.contains("mh_overlay_region_bases") && entries.at("mh_overlay_region_bases").has_value());
 
+    // Gathering shares host logic across the stock releases; FUComplete remains unmapped.
+    for (const char *name : {"mh_gathering_probe", "mh_gathering_interact", "mh_inventory_slot",
+                             "mh_gathering_dynamic_nodes", "mh_stage_manager", "mh_stage_gathering_nodes"}) {
+        MHF_CHECK(entries.contains(name));
+        if (entries.contains(name)) MHF_CHECK(entries.at(name).has_value() == (disc_id != "ULJM05500-FUC"));
+    }
+
     const fs::path map_path = fs::path(MHF_MHFU_REGIONS_DIR) / disc_id / "symbols.toml";
     const auto map = mhf::psp::recomp::toml::parse_file(map_path);
     const auto functions = map.tables.find("functions");
@@ -79,7 +86,7 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
             (p.patch.name.starts_with("mh_camera_aspect_") ? aspect_patches : camera_patches).insert(p.patch.name);
         }
     }
-    MHF_CHECK(gathering_patches == (disc_id == "ULES01213" ?
+    MHF_CHECK(gathering_patches == (disc_id != "ULJM05500-FUC" ?
               std::set<std::string>{"mh_gathering_prompt_update"} : std::set<std::string>{}));
     MHF_CHECK(smithy_patches.size() == 9);
     MHF_CHECK(camera_patches == (camera_mapped ? std::set<std::string>({"mh_camera_buttons_copied",

@@ -6,7 +6,7 @@
 #include <string>
 
 namespace mhf::mhfu {
-// Opt-in EU gathering assistance. Inspired by Lunng's Gathering Nodes mod.
+// Opt-in gathering assistance for mapped releases. Inspired by Lunng's Gathering Nodes mod.
 // Uses the game's own interaction routine; no injected MIPS or fixed scratch
 // RAM.
 class Gathering {

@@ -5,6 +5,7 @@
 #include "mhf/psp/dialog.hpp"
 #include "mhf/psp/host.hpp"
 #include "mhfu_region_data.hpp"
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <fstream>
@@ -59,7 +60,9 @@ int main() {
         {{*region::mh_inventory_slot, inventory}, {*region::mh_stage_gathering_nodes, stage_nodes}}};
     const Program main_program{"synthetic", 0, 0, main_functions, {}, 0x08804000, 0x08910000, -1, {}};
     rt.add_program(main_program);
-    const Program overlay{"synthetic_ovl_game_task", 0, 0, f, {}, 0x09a5f200, 0x09c19000, 71, {}};
+    const auto overlay_begin = std::min(*region::mh_gathering_probe, *region::mh_gathering_interact) & ~0xfffu;
+    const auto overlay_end = std::max(*region::mh_gathering_probe, *region::mh_gathering_interact) + 0x1000u;
+    const Program overlay{"synthetic_ovl_game_task", 0, 0, f, {}, overlay_begin, overlay_end, 71, {}};
     rt.add_overlay(overlay);
     MHF_CHECK(rt.activate_overlay(71));
     auto &m = rt.memory();

@@ -21,6 +21,25 @@ add_library(mhf_game_mhfu INTERFACE)
 target_link_libraries(mhf_game_mhfu INTERFACE mhf_psp mhf_mhfu_data)
 
 if(MHF_BUILD_TESTS)
+    # The runtime scenarios need region metadata, not a recompiled executable or an ISO.
+    add_executable(mhfu_test_region_data tests/prepare_region_data.cpp)
+    target_link_libraries(mhfu_test_region_data PRIVATE mhf_psp_recomp)
+    mhf_target_warnings(mhfu_test_region_data)
+    file(GLOB gathering_region_maps CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/regions/*/symbols.toml)
+    foreach(disc ULES01213 ULUS10391 ULJM05500 ULJM05500-FUC)
+        set(test_data ${CMAKE_CURRENT_BINARY_DIR}/test-regions/${disc})
+        set(test_header ${test_data}/mhfu_region_data.hpp)
+        add_custom_command(OUTPUT ${test_header}
+            COMMAND mhfu_test_region_data ${CMAKE_CURRENT_SOURCE_DIR}/regions/${disc}/symbols.toml ${test_data}
+            DEPENDS mhfu_test_region_data ${gathering_region_maps})
+        set(test_name test_mhfu_gathering_runtime_${disc})
+        add_executable(${test_name} tests/test_gathering_runtime.cpp host/gathering.cpp host/gathering_logic.cpp
+            host/gathering_art.cpp ${test_header})
+        target_include_directories(${test_name} PRIVATE host ${test_data} ${PROJECT_SOURCE_DIR}/tests/support)
+        target_link_libraries(${test_name} PRIVATE mhf_psp_runtime mhf_core)
+        mhf_target_warnings(${test_name})
+        add_test(NAME mhfu_gathering_runtime_${disc} COMMAND ${test_name})
+    endforeach()
     if(TARGET mhfu_prepare_gathering_icons)
         find_package(Python3 COMPONENTS Interpreter QUIET)
         if(Python3_Interpreter_FOUND)
@@ -97,11 +116,6 @@ if(MHF_MHFU_GENERATED)
     mhf_target_warnings(mhfu)
 
     if(MHF_BUILD_TESTS)
-        add_executable(test_mhfu_gathering_runtime tests/test_gathering_runtime.cpp host/gathering.cpp host/gathering_logic.cpp host/gathering_art.cpp)
-        target_include_directories(test_mhfu_gathering_runtime PRIVATE host ${MHF_MHFU_GENERATED} ${PROJECT_SOURCE_DIR}/tests/support)
-        target_link_libraries(test_mhfu_gathering_runtime PRIVATE mhf_psp_runtime mhf_core)
-        mhf_target_warnings(test_mhfu_gathering_runtime)
-        add_test(NAME mhfu_gathering_runtime COMMAND test_mhfu_gathering_runtime)
         # The song matching of host/horn_songs.cpp, which reads this release's region data (hence the generated folder).
         add_executable(test_mhfu_horn_songs tests/test_horn_songs.cpp host/horn_songs.cpp)
         target_include_directories(test_mhfu_horn_songs PRIVATE host ${MHF_MHFU_GENERATED} ${PROJECT_SOURCE_DIR}/tests/support)
