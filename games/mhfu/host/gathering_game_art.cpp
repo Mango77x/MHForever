@@ -1,6 +1,8 @@
 #include "gathering_game_art.hpp"
 #include "data_bin.hpp"
 #include "iso9660.hpp"
+#include "texture_images.hpp"
+#include "texture_pack.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -40,6 +42,55 @@ std::optional<Atlas> atlas(Bytes bytes, unsigned index) {
     }
     return {};
 }
+// Match the original atlas using the selected pack's own hash rules and palette, never a pack-specific filename.
+// No live guest address is needed for content/palette keys. Address-only mappings keep the original atlas.
+std::optional<psp::textures::Image> replacement(const Atlas &image, const psp::textures::Pack *pack) {
+    if (!pack) return {};
+    psp::textures::TextureFacts facts;
+    facts.width = facts.height = facts.buffer_width = 256;
+    facts.format = 5;
+    facts.dimension = 0x0808;
+    facts.clut_format_word = 0xc500ff03;
+    facts.clut = image.palette.data();
+    facts.clut_last_bytes = facts.clut_max_bytes = 1024;
+    psp::textures::Key key;
+    std::uint32_t width, height;
+    if (!pack->key_of(
+            facts,
+            [&](std::uint32_t address, std::uint32_t size) {
+                return address == 0 && size <= image.pixels.size() ? image.pixels.data() : nullptr;
+            },
+            key, width, height) ||
+        width != 256 || height != 256)
+        return {};
+    const auto match = pack->find(key);
+    if (!match.entry || match.entry->keeps_original()) return {};
+    const auto level = match.entry->levels.find(0);
+    if (level == match.entry->levels.end() || level->second.empty()) return {};
+    psp::textures::Image decoded;
+    std::string error;
+    if (!psp::textures::decode_image(pack->path_of(level->second), decoded, error) || decoded.width < 256 ||
+        decoded.width > 8192 || decoded.width != decoded.height || decoded.width % 256 != 0 || decoded.levels.empty() ||
+        decoded.levels.front().size() != std::size_t(decoded.width) * decoded.height * 4)
+        return {};
+    return decoded;
+}
+GatheringImage crop(const psp::textures::Image &image, unsigned x, unsigned y, unsigned size) {
+    const unsigned scale = image.width / 256, side = size * scale;
+    auto pixels = std::make_shared<std::vector<std::uint32_t>>(side * side);
+    const auto &rgba = image.levels.front();
+    for (unsigned row = 0; row < side; ++row) {
+        for (unsigned column = 0; column < side; ++column) {
+            const auto offset = ((y * scale + row) * image.width + x * scale + column) * 4;
+            const unsigned alpha = rgba[offset + 3];
+            std::uint32_t pixel = alpha << 24;
+            for (unsigned channel = 0; channel < 3; ++channel)
+                pixel |= ((rgba[offset + channel] * alpha + 127) / 255) << (channel * 8);
+            (*pixels)[row * side + column] = pixel;
+        }
+    }
+    return {static_cast<int>(side), std::move(pixels)};
+}
 GatheringImage crop(const Atlas &image, unsigned x, unsigned y, unsigned size) {
     auto pixels = std::make_shared<std::vector<std::uint32_t>>(size * size);
     for (unsigned row = 0; row < size; ++row) {
@@ -58,15 +109,27 @@ GatheringImage crop(const Atlas &image, unsigned x, unsigned y, unsigned size) {
 }
 } // namespace
 
-std::optional<GatheringArt> decode_game_gathering_art(Bytes hud, Bytes items) {
+std::optional<GatheringArt> decode_game_gathering_art(Bytes hud, Bytes items, const psp::textures::Pack *pack,
+                                                      unsigned *replaced) {
+    if (replaced) *replaced = 0;
     const auto background = atlas(hud, 1), actions = atlas(items, 0);
     if (!background || !actions) return {};
-    return GatheringArt{crop(*background, 220, 224, 32), crop(*background, 0, 0, 16), crop(*actions, 24, 48, 24),
-                        crop(*actions, 144, 24, 24), crop(*actions, 48, 96, 24)};
+    const auto hud_image = replacement(*background, pack), item_image = replacement(*actions, pack);
+    if (replaced) *replaced = unsigned(hud_image.has_value()) + unsigned(item_image.has_value());
+    const auto hud_crop = [&](unsigned x, unsigned y, unsigned size) {
+        return hud_image ? crop(*hud_image, x, y, size) : crop(*background, x, y, size);
+    };
+    const auto item_crop = [&](unsigned x, unsigned y) {
+        return item_image ? crop(*item_image, x, y, 24) : crop(*actions, x, y, 24);
+    };
+    return GatheringArt{hud_crop(220, 224, 32), hud_crop(0, 0, 16), item_crop(24, 48), item_crop(144, 24),
+                        item_crop(48, 96)};
 }
 std::optional<GatheringArt> load_game_gathering_art(const std::filesystem::path &iso_path,
                                                     const std::filesystem::path &executable, std::uint32_t hud_file,
-                                                    std::uint32_t items_file) {
+                                                    std::uint32_t items_file, const psp::textures::Pack *pack,
+                                                    unsigned *replaced) {
+    if (replaced) *replaced = 0;
     try {
         // Use the existing game-specific DATA.BIN reader, with the player's own prepared executable and ISO.
         std::ifstream file(executable, std::ios::binary | std::ios::ate);
@@ -87,7 +150,7 @@ std::optional<GatheringArt> load_game_gathering_art(const std::filesystem::path 
         for (const auto id : {hud_file, items_file}) {
             if (id >= data->files().size() || data->files()[id].size > 1024 * 1024) return {};
         }
-        return decode_game_gathering_art(data->read(hud_file), data->read(items_file));
+        return decode_game_gathering_art(data->read(hud_file), data->read(items_file), pack, replaced);
     } catch (const std::exception &) {
         return {}; // Unsupported/missing input keeps the text fallback.
     }

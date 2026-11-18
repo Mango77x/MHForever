@@ -20,6 +20,7 @@
 
 #include "gathering.hpp"
 #include "gathering_game_art.hpp"
+#include "texture_pack.hpp"
 #include "mhf/psp/abi.hpp"
 #include "mhf/psp/frame_dump.hpp"
 #include "mhf/psp/generated.hpp"
@@ -1070,17 +1071,24 @@ int main(int argc, char **argv) {
         runtime.register_hook("mh_supply_box_update", &on_supply_box_update);
         g_gathering.spanish = options.system_language == 3;
         const char *gathering_icons = "unavailable (text fallback)";
-        if (!texture_pack.empty() && g_gathering.load_icons("gathering-icons")) {
-            gathering_icons = "local replacement";
-        } else if (region::mh_gathering_hud_file && region::mh_gathering_items_file) {
+        unsigned gathering_pack_atlases = 0;
+        if (region::mh_gathering_hud_file && region::mh_gathering_items_file) {
+            std::unique_ptr<mhf::psp::textures::Pack> pack;
+            if (!texture_pack.empty()) {
+                const auto game_id = disc_product_code(options.disc_image);
+                const auto folder = mhf::psp::textures::Pack::locate(texture_pack, game_id);
+                std::string error;
+                if (!folder.empty()) pack = mhf::psp::textures::Pack::open(folder, game_id, error);
+            }
             if (auto art = mhf::mhfu::load_game_gathering_art(options.disc_image, exe,
-                    *region::mh_gathering_hud_file, *region::mh_gathering_items_file)) {
+                    *region::mh_gathering_hud_file, *region::mh_gathering_items_file, pack.get(), &gathering_pack_atlases)) {
                 g_gathering.set_icons(std::move(*art));
-                gathering_icons = "original game textures";
+                gathering_icons = gathering_pack_atlases ? "selected texture pack" : "original game textures";
             }
         }
         if (g_gathering.indicators || g_gathering.automatic_tools)
-            std::fprintf(stderr, "[gathering] icons: %s\n", gathering_icons);
+            std::fprintf(stderr, "[gathering] icons: %s (%u/2 pack atlases, originals for the rest)\n",
+                         gathering_icons, gathering_pack_atlases);
         if (g_gathering.indicators || g_gathering.automatic_tools) {
             std::fprintf(stderr, "[gathering] indicators=%d automatic-tools=%d\n",
                          g_gathering.indicators, g_gathering.automatic_tools);
