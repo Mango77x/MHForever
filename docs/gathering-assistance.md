@@ -35,28 +35,20 @@ Nothing is extracted to disk or distributed. The existing read-only ISO/DATA.BIN
 using file IDs from the active region map. The native decoder accepts only the expected 256x256 CLUT8/RGBA8888 images.
 If they cannot be read, the indicator falls back to English or Spanish text.
 
-With a texture pack enabled, compatible local icons in `gathering-icons/` take priority; absent or invalid local files
-fall back to the original game icons. To prepare replacement icons, use HUD and item atlases from your own texture installation.
-The preparation tool accepts KTX2 or PNG directly; no separate decoder or Python image library is required:
+With a texture pack enabled, the program reads icons directly from that selected folder. The existing pack reader
+chooses the release's ini, hashes the original atlases with the pack's configured rules, and resolves their replacement
+images through the mapping. PNG and KTX2 atlases are cropped in memory at the original coordinates, scaled to the
+replacement's resolution. No extraction step or `gathering-icons/` folder is used by the game.
 
-```sh
-cmake --build build/linux-clang --target mhfu_prepare_gathering_icons
-build/linux-clang/games/mhfu/mhfu_prepare_gathering_icons \
-    /path/to/your/hud.ktx2 /path/to/your/items.ktx2 /path/to/game-folder/gathering-icons
-```
+Switching the pack in the launcher takes effect on the next game launch, as it does for the game's other textures.
+Each atlas falls back independently to the original: a pack may replace the HUD but keep the original item icons.
+Missing, corrupt or incompatible images, an explicit keep-original mapping, and unsupported address-only mappings
+also use the originals. Content/palette mappings and the original square atlas layout are required; an arbitrary
+redesign of the atlas cannot be identified from its dimensions alone.
 
-Run the corresponding native program with that game folder as its working directory. It reads five files from `gathering-icons/`:
-`background.rgba`, `circle.rgba`, `mining.rgba`, `bugs.rgba`, and `gather.rgba`. Each contains an eight-byte `MHFICON1`
-header, a little-endian u32 square dimension, and premultiplied RGBA8 pixels. Missing or invalid files use the original game icons instead.
-The tool uses the original 256-unit atlas coordinates and supports higher-resolution replacements.
-
-With a KHD 1.3 installation, the compatible atlases are `ui/hud/ddeab148_fu.ktx2` and
-`ui/icons/items/fc6e32c0.ktx2`. These names identify local inputs; the files must not be attached to the contribution.
-Other packs must retain the game's original HUD/items atlas layout. Find the pack's texture mapping first and inspect
-its candidate HUD/items atlas locally; matching dimensions alone do not establish compatibility. The HUD atlas must
-contain Circle at grid (0,0) and the hexagon at (220,224); the items atlas must contain pickaxe (24,48), net (144,24),
-and question mark (48,96). There is no automatic atlas discovery for arbitrary packs.
-The original mapping uses a pickaxe, bug net, and generic question mark; carving uses the generic indicator.
+The HUD atlas contains Circle at grid (0,0) and the hexagon at (220,224); the items atlas contains pickaxe (24,48), net
+(144,24), and question mark (48,96), on a 256-unit grid. Carving uses the generic question-mark indicator.
+No game artwork is distributed. The older icon-preparation tool remains a developer exporter, not a runtime input.
 
 ## Building and verification
 
@@ -73,7 +65,7 @@ cmake --build build/linux-clang
 ctest --test-dir build/linux-clang --output-on-failure
 ```
 
-Tests cover native swizzled atlas decoding, premultiplied alpha, truncated/unsupported image rejection, tool selection, depleted nodes, dynamic carving targets, region/position filters, guest-context preservation,
+Tests cover selected-pack switching, replacement scaling/alpha, per-atlas original fallback, native swizzled atlas decoding, premultiplied alpha, truncated/unsupported image rejection, tool selection, depleted nodes, dynamic carving targets, region/position filters, guest-context preservation,
 failed-interaction rollback, menu input latching, system dialogs, icon mapping, red X rendering and idle hiding.
 Carving targets are read without calling reward or consumption functions. All addresses come from the region map.
 
