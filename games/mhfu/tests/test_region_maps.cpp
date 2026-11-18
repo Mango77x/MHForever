@@ -66,16 +66,21 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
     // the layout tables. --analog-camera: its four call patches, in the camera's d-pad code in the executable (not
     // mapped for every release: then none). Widescreen: its three call patches where a camera is set up and where it
     // makes its culling planes, in every release.
-    std::set<std::string> smithy_patches, camera_patches, aspect_patches;
+    std::set<std::string> smithy_patches, camera_patches, aspect_patches, gathering_patches;
     for (const auto &p : mhf::psp::recomp::region_patches(map_path)) {
         if (p.patch.name.starts_with("mh_smithy_")) {
             MHF_CHECK(p.module == "lobby_task.ovl");
             smithy_patches.insert(p.patch.name);
+        } else if (p.patch.name.starts_with("mh_gathering_")) {
+            MHF_CHECK(p.module == "executable" && p.patch.kind == mhf::psp::recomp::InstructionPatch::Kind::Call);
+            gathering_patches.insert(p.patch.name);
         } else {
             MHF_CHECK(p.module == "executable" && p.patch.kind == mhf::psp::recomp::InstructionPatch::Kind::Call);
             (p.patch.name.starts_with("mh_camera_aspect_") ? aspect_patches : camera_patches).insert(p.patch.name);
         }
     }
+    MHF_CHECK(gathering_patches == (disc_id == "ULES01213" ?
+              std::set<std::string>{"mh_gathering_prompt_update"} : std::set<std::string>{}));
     MHF_CHECK(smithy_patches.size() == 9);
     MHF_CHECK(camera_patches == (camera_mapped ? std::set<std::string>({"mh_camera_buttons_copied",
                                                                         "mh_camera_tilt_preset_chosen",

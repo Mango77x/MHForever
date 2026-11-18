@@ -7,6 +7,7 @@
 //             [--smithy-browse [--smithy-layout]]
 //             [--analog-camera [--analog-camera-turn-speed 50-200] [--analog-camera-tilt-speed 50-200]]
 //             [--mouse-camera [--mouse-camera-speed 25-300]]
+//             [--gathering-indicators] [--auto-gathering-tools]
 //             [--horn-songs [--horn-songs-place next-to-sheet|top-middle|under-names|bottom-left|custom:X,Y]]
 //             [--projected-shadows [--no-whole-map-shadows] [--shadow-quality 0-2] [--shadow-darkness 0-100]]
 //             [--music-volume 0-100] [--sfx-volume 0-100] [--font <font file>]
@@ -17,6 +18,7 @@
 // The executable supplies the initial data sections. The launcher's installer prepares it from the player's own disc image
 // (launcher/native/install/); developer builds can also point --exe at a file that matches region.toml's dev_executable.
 
+#include "gathering.hpp"
 #include "mhf/psp/abi.hpp"
 #include "mhf/psp/frame_dump.hpp"
 #include "mhf/psp/generated.hpp"
@@ -78,6 +80,8 @@ namespace {
 using mhf::psp::Context;
 using mhf::psp::Runtime;
 namespace region = mhf::psp::generated::mhfu_region_data;
+mhf::mhfu::Gathering g_gathering;
+void on_gathering_update(Runtime &rt, Context &ctx) { g_gathering.update(rt, ctx); }
 
 bool g_log_overlays = true;
 
@@ -984,6 +988,8 @@ int main(int argc, char **argv) {
         else if (a == "--mouse-camera") g_mouse_camera = true; // enhancement, off by default; works with --analog-camera
         else if (a == "--mouse-camera-speed" && i + 1 < argc)
             g_mouse_speed = static_cast<float>(std::clamp(std::stoi(argv[++i]), 25, 300)) / 100.0f; // in percent
+        else if (a == "--gathering-indicators") g_gathering.indicators = true;
+        else if (a == "--auto-gathering-tools") g_gathering.automatic_tools = true;
         else if (a == "--horn-songs") horn_songs = true; // enhancement
         else if (a == "--horn-songs-place" && i + 1 < argc) horn_songs_place = argv[++i];
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
@@ -1061,6 +1067,16 @@ int main(int argc, char **argv) {
         // Hooks that read a switch every time, so the in-game menu can turn their enhancement on and off.
         g_fast_supply_box = fast_supply_box;
         runtime.register_hook("mh_supply_box_update", &on_supply_box_update);
+        g_gathering.spanish = options.system_language == 3;
+        const bool gathering_icons_loaded = g_gathering.load_icons("gathering-icons");
+        if (g_gathering.indicators || g_gathering.automatic_tools)
+            std::fprintf(stderr, "[gathering] original-style icons: %s\n",
+                         gathering_icons_loaded ? "loaded" : "unavailable (text fallback)");
+        if (g_gathering.indicators || g_gathering.automatic_tools) {
+            std::fprintf(stderr, "[gathering] indicators=%d automatic-tools=%d\n",
+                         g_gathering.indicators, g_gathering.automatic_tools);
+        }
+        runtime.register_hook("mh_gathering_prompt_update", &on_gathering_update);
         runtime.register_hook("mh_draw_wait", &on_draw_wait); // sleeps through the game's wait for its drawing
         if (smithy_layout) smithy_browse = true; // the layout scrolls the list with Info open
         if (smithy_browse && kSmithyBrowseMapped) {
@@ -1185,15 +1201,25 @@ int main(int argc, char **argv) {
                                  shadow_darkness);
             // The horn's songs over the quest HUD, read from the game a few times a second (horn_songs.hpp). The
             // in-game menu turns them on and off, so they are read even while off.
+            g_gathering.input_blocked = [&frontend] { return frontend.game_input_blocked(); };
             frontend.offer_songs(horn_songs, mhf::overlay::parse_song_spot(horn_songs_place).value_or(mhf::overlay::SongSpot{}));
             extra = [&frontend, rt = &runtime, songs = mhf::mhfu::HornSongs{}, read_at = std::uint64_t{0},
                      previous = std::move(extra)]() mutable {
                 if (const std::uint64_t now = rt->now_us(); now - read_at >= 50'000) {
                     read_at = now;
                     frontend.set_song_panel(songs.read(*rt));
+                    auto sprites = g_gathering.sprites(*rt);
+                    auto text = sprites.empty() ? g_gathering.hint(*rt) : std::string{};
+                    frontend.set_game_hint(std::move(text), std::move(sprites));
                 }
                 if (previous) previous();
             };
+            if (region::mh_gathering_probe && region::mh_gathering_interact) {
+                frontend.add_game_option({"gatheringIndicators", "Gathering indicators", "Shows nearby gathering spots.",
+                    false, g_gathering.indicators ? 1 : 0, 0, 1, 1, "", [](int v) { g_gathering.indicators = v != 0; }});
+                frontend.add_game_option({"autoGatheringTools", "Automatic gathering tools", "Circle selects a usable pickaxe or bug net and gathers.",
+                    false, g_gathering.automatic_tools ? 1 : 0, 0, 1, 1, "", [](int v) { g_gathering.automatic_tools = v != 0; }});
+            }
             // The enhancements the in-game menu changes while playing; the launcher keeps what is chosen there.
             const auto percent = [](float speed) { return static_cast<int>(std::lround(speed * 100.0f)); };
             if (kTrueWeaponValuesMapped && !kFucomplete) {
