@@ -4,7 +4,7 @@
 using namespace mhf::mhfu;
 int main() {
     std::array<GatheringItem, 5> bag{{{0, 0}, {0x90, 0}, {0x91, 2}, {0x94, 1}, {0x123, 4}}};
-    GatheringInput in{true, false, true, 0, 3, bag};
+    GatheringInput in{0, 3, bag};
     auto out = decide_gathering(in);
     MHF_CHECK(out.kind == GatheringKind::mining);
     MHF_CHECK(out.tool_slot == 2);
@@ -20,15 +20,6 @@ int main() {
     in.node_index = 0xffff;
     MHF_CHECK(decide_gathering(in).kind == GatheringKind::none);
     in.node_index = 0;
-    in.menu_open = true;
-    MHF_CHECK(decide_gathering(in).kind == GatheringKind::none);
-    in.menu_open = false;
-    in.quest_active = false;
-    MHF_CHECK(decide_gathering(in).kind == GatheringKind::none);
-    in.quest_active = true;
-    in.ready = false;
-    MHF_CHECK(decide_gathering(in).kind == GatheringKind::none);
-    in.ready = true;
     in.node_index = 0x10000;
     MHF_CHECK(decide_gathering(in).kind == GatheringKind::none);
     in.node_index = 0;

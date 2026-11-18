@@ -153,7 +153,7 @@ void Gathering::update(psp::Runtime &rt, psp::Context &ctx) {
         std::array<GatheringItem, kInventorySlots> items{};
         for (std::size_t i = 0; i < items.size(); ++i)
             items[i] = {m.load16(bag + 4u * i), m.load16(bag + 4u * i + 2)};
-        const auto decision = decide_gathering({true, false, true, index, type, items, remaining == 0, carving});
+        const auto decision = decide_gathering({index, type, items, remaining == 0, carving});
         visual_active_ = decision.kind != GatheringKind::none;
         kind_ = decision.kind;
         unavailable_ = !decision.available;

@@ -10,7 +10,6 @@ struct GatheringItem {
     std::uint16_t id{}, count{};
 };
 struct GatheringInput {
-    bool quest_active{}, menu_open{}, ready{};
     std::uint32_t node_index = 0xffff;
     std::uint16_t node_type{};
     std::span<const GatheringItem> inventory;

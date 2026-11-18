@@ -3,7 +3,7 @@
 namespace mhf::mhfu {
 GatheringDecision decide_gathering(const GatheringInput &in) {
     GatheringDecision out;
-    if (!in.quest_active || in.menu_open || !in.ready || in.node_index >= 0xffff) return out;
+    if (in.node_index >= 0xffff) return out;
     out.kind = in.carving          ? GatheringKind::carve
                : in.node_type == 3 ? GatheringKind::mining
                : in.node_type == 4 ? GatheringKind::bugs
