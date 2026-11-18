@@ -26,11 +26,15 @@ if(MHF_BUILD_TESTS)
     target_link_libraries(mhfu_test_region_data PRIVATE mhf_psp_recomp)
     mhf_target_warnings(mhfu_test_region_data)
     file(GLOB gathering_region_maps CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/regions/*/symbols.toml)
-    foreach(disc ULES01213 ULUS10391 ULJM05500 ULJM05500-FUC)
+    foreach(disc ULES01213 ULUS10391 ULJM05500 ULJM05500-FUC unmapped)
+        set(test_region ${disc})
+        if(disc STREQUAL "unmapped")
+            set(test_region ULES01213)
+        endif()
         set(test_data ${CMAKE_CURRENT_BINARY_DIR}/test-regions/${disc})
         set(test_header ${test_data}/mhfu_region_data.hpp)
         add_custom_command(OUTPUT ${test_header}
-            COMMAND mhfu_test_region_data ${CMAKE_CURRENT_SOURCE_DIR}/regions/${disc}/symbols.toml ${test_data}
+            COMMAND mhfu_test_region_data ${CMAKE_CURRENT_SOURCE_DIR}/regions/${test_region}/symbols.toml ${test_data} ${disc}
             DEPENDS mhfu_test_region_data ${gathering_region_maps})
         set(test_name test_mhfu_gathering_runtime_${disc})
         add_executable(${test_name} tests/test_gathering_runtime.cpp host/gathering.cpp host/gathering_logic.cpp
