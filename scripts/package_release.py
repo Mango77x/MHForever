@@ -169,8 +169,17 @@ def main() -> int:
                          "authors' agreement (docs/06-mhfu-module.md section 2.1)")
     ap.add_argument("--game-mhf1", type=pathlib.Path, default=None,
                     help="the Freedom program (mhf1[.exe]): another game, one program per region as for Freedom Unite")
+    ap.add_argument("--game-mhf1-us", type=pathlib.Path, default=None, help="Freedom's North America program (mhf1-us[.exe])")
+    ap.add_argument("--game-mhf1-jp", type=pathlib.Path, default=None,
+                    help="the Japanese program of Freedom (Monster Hunter Portable, mhf1-jp[.exe])")
     ap.add_argument("--game-mhf1-fdx", type=pathlib.Path, default=None,
                     help="the Freedom DX program (mhf1-fdx[.exe]): a European image patched with Freedom DX")
+    ap.add_argument("--game-mhf1-fdx-us", type=pathlib.Path, default=None,
+                    help="Freedom DX on the North American image (mhf1-fdx-us[.exe])")
+    ap.add_argument("--game-mhf1-fdx-jp", type=pathlib.Path, default=None,
+                    help="Freedom DX on the Japanese image, original Japanese (mhf1-fdx-jp[.exe])")
+    ap.add_argument("--game-mhf1-fdx-en", type=pathlib.Path, default=None,
+                    help="Freedom DX on the Japanese image, English translation (mhf1-fdx-en[.exe])")
     ap.add_argument("--launcher-cli", type=pathlib.Path, default=None,
                     help="the launcher without a window (MHForever-cli[.exe]): installs and starts the game where the "
                          "launcher's window cannot start (no WebKitGTK, as on the Steam Deck's SteamOS)")
@@ -201,19 +210,16 @@ def main() -> int:
         if not program.is_file():
             print(f"error: missing {name}: {program}", file=sys.stderr)
             return 2
-    if args.game_mhf1 is not None:
-        name = game_name.replace("mhfu", "mhf1")
-        if not args.game_mhf1.is_file():
-            print(f"error: missing {name}: {args.game_mhf1}", file=sys.stderr)
+    for variant, program in (("mhf1", args.game_mhf1), ("mhf1-us", args.game_mhf1_us), ("mhf1-jp", args.game_mhf1_jp),
+                             ("mhf1-fdx", args.game_mhf1_fdx), ("mhf1-fdx-us", args.game_mhf1_fdx_us),
+                             ("mhf1-fdx-jp", args.game_mhf1_fdx_jp), ("mhf1-fdx-en", args.game_mhf1_fdx_en)):
+        if program is None:
+            continue
+        name = game_name.replace("mhfu", variant)
+        if not program.is_file():
+            print(f"error: missing {name}: {program}", file=sys.stderr)
             return 2
-        files[name] = args.game_mhf1
-        programs.add(name)
-    if args.game_mhf1_fdx is not None:
-        name = game_name.replace("mhfu", "mhf1-fdx")
-        if not args.game_mhf1_fdx.is_file():
-            print(f"error: missing {name}: {args.game_mhf1_fdx}", file=sys.stderr)
-            return 2
-        files[name] = args.game_mhf1_fdx
+        files[name] = program
         programs.add(name)
 
     if args.launcher_cli is not None:

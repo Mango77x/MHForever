@@ -1,0 +1,27 @@
+# ULJM05066-FDX-EN2 patched with Freedom DX v1.8.6 (SilverJolteon's enhancement patch). Identification data only (hashes identify a
+# file; they contain no game content). The player patches their own image with Freedom DX's own xdelta; MHForever never
+# patches anything. The image keeps the release's disc id and adds no file of its own, so it is told apart by its
+# executable: Freedom DX ships it plain, the release ships it encrypted.
+disc_id = "ULJM05066-FDX-EN"
+sfo_disc_id = "ULJM05066"
+marker_file = "/PSP_GAME/SYSDIR/EBOOT.BIN"
+edition = "fdx-en"
+edition_name = "Freedom DX (Japan, English)"
+disc_version = "1.03"
+market = "JP"
+languages = ["en"]
+status = "in-development"
+
+# No accepted dumps: the patched image depends on the image it came from. The executable below identifies it.
+
+# The executable on the disc (PSP_GAME/SYSDIR/EBOOT.BIN). Freedom DX ships it plain, so it is also the prepared one.
+[encrypted_executable]
+size = 1188048
+sha1 = "a2bd18542496dea2609ebeba4c9fa7d2e634ec07"
+
+# The prepared (plain) executable the recompiled code is generated from. Identification only: never shipped, never committed.
+[dev_executable]
+size = 1188048
+sha1 = "a2bd18542496dea2609ebeba4c9fa7d2e634ec07"
+entry = 0x08899C2C
+text_base = 0x08804000

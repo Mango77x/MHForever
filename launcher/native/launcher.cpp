@@ -888,7 +888,7 @@ const CatalogEntry *Launcher::entry_for(const std::string &disc_id) const {
 namespace {
 
 // The catalog entry of a disc image whose PARAM.SFO says `sfo_disc_id`, or nullptr.
-const CatalogEntry *identify(const psp::IsoImage &image, const std::string &sfo_disc_id) {
+const CatalogEntry *identify(psp::IsoImage &image, const std::string &sfo_disc_id) {
     // A patched edition (its marker file is on the disc) wins over the plain release with the same disc id.
     const CatalogEntry *plain = nullptr;
     for (const auto &e : catalog()) {
@@ -899,8 +899,12 @@ const CatalogEntry *identify(const psp::IsoImage &image, const std::string &sfo_
         } else if (const auto marker = image.find(e.marker_file)) {
             // An edition that adds no file of its own (Freedom DX) names the executable, which every disc has: it is
             // that edition's only when it has the edition's size (the release's is encrypted, and larger).
-            if (std::string_view(e.marker_file) == "/PSP_GAME/SYSDIR/EBOOT.BIN" && marker->size != e.encrypted_executable_size)
-                continue;
+            if (std::string_view(e.marker_file) == "/PSP_GAME/SYSDIR/EBOOT.BIN") {
+                if (marker->size != e.encrypted_executable_size) continue;
+                // Two editions of one release can have executables of the same size (Freedom DX's Japanese and
+                // English-translated patches): the hash tells them apart.
+                if (install::sha1_hex(image.read_file(*marker, 0, marker->size)) != e.encrypted_executable_sha1) continue;
+            }
             return &e;
         }
     }
@@ -1501,7 +1505,7 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
             plan.error = problem;
             return plan;
         }
-    } else if (std::string_view(entry->edition) == "fdx") {
+    } else if (std::string_view(entry->edition).starts_with("fdx")) { // Freedom DX: fdx, fdx-us, fdx-jp, fdx-en
         // Freedom DX reads its options from FDXDAT on the memory stick at every start: they are written there now.
         fdx::Options options;
         options.hold_to_gather = s["fdxHoldToGather"].as_bool();

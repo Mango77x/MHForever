@@ -3,4 +3,4 @@ id = "mhf1"
 platform = "psp"
 display_name = "Freedom (PSP)"   # descriptive only, never used as the product name
 short_title = "Freedom"          # shown in the launcher library (descriptive compatibility statement)
-regions = ["ULES00318", "ULES00318-FDX"]
+regions = ["ULES00318", "ULUS10084", "ULJM05066", "ULES00318-FDX", "ULUS10084-FDX", "ULJM05066-FDX", "ULJM05066-FDX-EN"]

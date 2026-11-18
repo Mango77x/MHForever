@@ -45,7 +45,8 @@ void usage() {
                  "  --version\n\n"
                  "The copy used is the one chosen in the launcher, else the first one that can be played; a disc id such as\n"
                  "ULES01213 (Europe), ULUS10391 (North America), ULJM05500 (Japan) or ULJM05500-FUC (FUComplete) for\n"
-                 "Freedom Unite, or ULES00318 (Europe) for Freedom, picks another.\n");
+                 "Freedom Unite, or ULES00318 (Europe), ULUS10084 (North America), ULJM05066 (Japan) or ULES00318-FDX\n"
+                 "(Freedom DX) for Freedom, picks another.\n");
 }
 
 bool contains(const char *const *list, std::size_t count, const std::string &name) {

@@ -1,7 +1,7 @@
 # Freedom module (`games/mhf1`)
 
 Monster Hunter Freedom (PSP, 2005/2006; Monster Hunter Portable in Japan) as a game module of its own on the PSP
-platform. Status: in development, European release only.
+platform. Status: in development; European, North American and Japanese releases.
 
 ## 1. Where it sits
 
@@ -28,6 +28,19 @@ A game module never includes another game module's code.
 
 The disc has the layout Freedom Unite's has: one `DATA.BIN` holding the data and the code overlays, no PRX modules.
 
+### 2.1 North America and Japan
+
+| | North America | Japan (Monster Hunter Portable) |
+|---|---|---|
+| Disc id | ULUS10084, version 1.00 | ULJM05066, version 1.03 |
+| Executable | 1,190,464 bytes encrypted, entry `0x0889A2E8` | 1,188,384 bytes encrypted, entry `0x08899C2C` |
+| Program | `mhf1-us` | `mhf1-jp` |
+
+Their maps (`regions/ULUS10084`, `regions/ULJM05066`) were found by matching the European one: each address's
+instructions, jump targets and address immediates masked, occur once, and `mh_main` is each ELF's entry. Coverage is the
+European release's (95.0 % of the executable, 82.8 % of the overlays). Measured headless: both reach the title and the
+North American one character creation. The Japanese release confirms with Circle, as Japanese games do.
+
 ## 3. Developer pipeline
 
 1. Prepare the executable from your own disc image (the launcher's installer, or the developer's decrypter).
@@ -47,6 +60,11 @@ marker is the executable, and identify() also checks its size. Freedom DX patche
 its own code at 0x088C2140..0x088C338C) and leaves the mapped addresses unchanged, so the symbols are the release's.
 Its hand-written code uses `addi`, which the decoder now runs as `addiu` (the overflow trap is not modelled). Coverage:
 95.0 % of the executable, 82.8 % of the overlays.
+
+Freedom DX's North American and Japanese patches (the Japanese one in its original Japanese or translated to English)
+are copies of their own too: `ULUS10084-FDX` (`mhf1-fdx-us`), `ULJM05066-FDX` (`mhf1-fdx-jp`) and `ULJM05066-FDX-EN`
+(`mhf1-fdx-en`). They leave the mapped addresses unchanged as well, so their maps are their release's. Both Japanese
+patches make executables of the same size, so identify() also compares the executable's SHA-1.
 
 The game reads its options and event quests from `PSP/SAVEDATA/FDXDAT` (CONFIG.BIN, EVENT.BIN), which comes with the
 player's download, not on the disc: Game settings > Freedom DX copies the folder the player chooses into the copy's

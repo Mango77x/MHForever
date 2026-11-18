@@ -1,0 +1,14 @@
+# Freedom DX on ULJM05066: Freedom DX patches the executable in place and leaves these addresses as they are, so the
+# map is the release's (regions/ULJM05066).
+# Found 2026-11-17 by matching the European map (regions/ULES00318) against this executable: the instructions at each
+# European address, with jump targets and address-like immediates masked, occur once here, and mh_main is the ELF's own
+# entry. mh_draw_done is read from mh_draw_wait's own code.
+
+[functions]
+mh_main             = 0x08899C2C # entry point (the ELF's)
+mh_overlay_prepare  = 0x088AF6F4 # (image, size): an overlay is in memory, its static initializers about to run
+mh_static_init_run  = 0x088ADC88 # runs a module's static initializers
+mh_draw_wait        = 0x088496CC # (): returns once mh_draw_done is set
+
+[data]
+mh_draw_done        = 0x08979AB5 # u8: set when the game's drawing for the frame is done (mh_draw_wait waits for it)
