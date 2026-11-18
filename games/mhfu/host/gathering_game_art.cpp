@@ -15,6 +15,13 @@ std::uint32_t word(Bytes bytes, std::size_t offset) {
     return std::uint32_t(bytes[offset]) | (std::uint32_t(bytes[offset + 1]) << 8) |
            (std::uint32_t(bytes[offset + 2]) << 16) | (std::uint32_t(bytes[offset + 3]) << 24);
 }
+std::uint32_t premultiply(std::uint32_t color) {
+    const unsigned alpha = color >> 24;
+    std::uint32_t pixel = alpha << 24;
+    for (unsigned channel = 0; channel < 3; ++channel)
+        pixel |= ((((color >> (channel * 8)) & 255u) * alpha + 127) / 255) << (channel * 8);
+    return pixel;
+}
 struct Atlas {
     Bytes pixels, palette;
 };
@@ -82,11 +89,7 @@ GatheringImage crop(const psp::textures::Image &image, unsigned x, unsigned y, u
     for (unsigned row = 0; row < side; ++row) {
         for (unsigned column = 0; column < side; ++column) {
             const auto offset = ((y * scale + row) * image.width + x * scale + column) * 4;
-            const unsigned alpha = rgba[offset + 3];
-            std::uint32_t pixel = alpha << 24;
-            for (unsigned channel = 0; channel < 3; ++channel)
-                pixel |= ((rgba[offset + channel] * alpha + 127) / 255) << (channel * 8);
-            (*pixels)[row * side + column] = pixel;
+            (*pixels)[row * side + column] = premultiply(word(rgba, offset));
         }
     }
     return {static_cast<int>(side), std::move(pixels)};
@@ -97,12 +100,7 @@ GatheringImage crop(const Atlas &image, unsigned x, unsigned y, unsigned size) {
         for (unsigned column = 0; column < size; ++column) {
             const unsigned u = x + column, v = y + row;
             const unsigned swizzled = (v / 8) * 2048 + (u / 16) * 128 + (v % 8) * 16 + u % 16;
-            const auto color = word(image.palette, 4 * image.pixels[swizzled]);
-            const unsigned alpha = color >> 24;
-            std::uint32_t pixel = alpha << 24;
-            for (unsigned channel = 0; channel < 3; ++channel)
-                pixel |= ((((color >> (channel * 8)) & 255u) * alpha + 127) / 255) << (channel * 8);
-            (*pixels)[row * size + column] = pixel;
+            (*pixels)[row * size + column] = premultiply(word(image.palette, 4 * image.pixels[swizzled]));
         }
     }
     return {static_cast<int>(size), std::move(pixels)};

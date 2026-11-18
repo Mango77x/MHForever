@@ -1,8 +1,8 @@
 #pragma once
 
 #include "gathering_art.hpp"
-#include <span>
 #include <filesystem>
+#include <span>
 
 namespace mhf::psp::textures {
 class Pack;
