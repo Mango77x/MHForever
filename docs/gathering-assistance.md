@@ -5,17 +5,23 @@ Two independent, opt-in enhancements are available in the native game programs:
 - `--gathering-indicators`: show nearby gathering, mining, bug-catching and carving targets.
 - `--auto-gathering-tools`: Circle selects a suitable pickaxe or bug net and requests the game's normal interaction.
 
-Both are off by default. The Game tab can toggle them for the current session. Supported stock releases are:
+Both are off by default. The Game tab can toggle them for the current session. Supported releases are:
 
 | Release | Disc ID | Native program |
 | --- | --- | --- |
 | Europe | `ULES01213` | `mhfu` |
 | North America | `ULUS10391` | `mhfu-us` |
 | Japan (Portable 2nd G) | `ULJM05500` | `mhfu-jp` |
+| Japan + FUComplete v1.4.0 | `ULJM05500-FUC` | `mhfu-fuc` |
 
 The target layouts, tool IDs and action codes are shared; each release resolves addresses through its own region map.
-Unmapped releases, including FUComplete, do nothing. Launcher settings and persistent launcher integration are outside
-this change. The Japanese game retains its original language; the optional text fallback is English or Spanish.
+Unmapped releases do nothing. Launcher settings and persistent launcher integration are outside
+this change. Stock 2nd G retains its Japanese text; FUComplete uses its English translation. The optional indicator
+text fallback is English or Spanish.
+
+FUComplete is prepared separately with its [official patcher](https://fucomplete.github.io/docs/setup.html) from a copy
+of the player's Japanese image. MHForever does not patch it. Its gathering functions, data layout and frame-hook
+boundary match stock 2nd G; its hold-to-gather changes run through the game's own interaction routines.
 
 The indicator appears near the upper centre and disappears when there is no nearby target. Nearby exhausted targets
 and targets missing a required tool keep the action icon with a red X instead of Circle. Menus and system dialogs
@@ -50,11 +56,11 @@ The original mapping uses a pickaxe, bug net, and generic question mark; carving
 ## Building and verification
 
 Follow the normal developer preparation in `docs/04-recompiler.md`: regenerate each desired program with its updated
-region map before building the game (`prepare.py --region ULES01213`, `ULUS10391`, or `ULJM05500`). Existing generated output from before this change lacks the gathering hook.
+region map before building the game (`prepare.py --region ULES01213`, `ULUS10391`, `ULJM05500`, or `ULJM05500-FUC`). Existing generated output from before this change lacks the gathering hook.
 The developer's own executable/ISO and generated files stay in ignored `user_data/` directories.
 
-The runtime tests generate headers directly from the region maps and run the same synthetic scenario for all three
-stock releases, plus the unmapped FUComplete case. They do not require `MHF_MHFU_GENERATED` or game data. The remaining
+The runtime tests generate headers directly from the region maps and run the same synthetic scenario for all four
+editions, plus a separate unmapped case. They do not require `MHF_MHFU_GENERATED` or game data. The remaining
 tests also use synthetic memory, guest functions and pixels:
 
 ```sh
