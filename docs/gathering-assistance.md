@@ -28,10 +28,15 @@ and targets missing a required tool keep the action icon with a red X instead of
 suppress interaction; closing the host menu with Circle does not trigger gathering. Item consumption and animations
 remain the game's responsibility. Gathering/carving itself uses the game's normal Circle input.
 
-## Optional icons
+## Icons
 
-Without local icons, the indicator falls back to English or Spanish text. No game artwork is distributed.
-To reproduce the original-style appearance, use compatible HUD and item atlases from your own texture installation.
+Without a texture pack, icons are decoded at startup from the original HUD and item atlases in the player's own ISO.
+Nothing is extracted to disk or distributed. The existing read-only ISO/DATA.BIN helpers locate the native TMH images,
+using file IDs from the active region map. The native decoder accepts only the expected 256x256 CLUT8/RGBA8888 images.
+If they cannot be read, the indicator falls back to English or Spanish text.
+
+With a texture pack enabled, compatible local icons in `gathering-icons/` take priority; absent or invalid local files
+fall back to the original game icons. To prepare replacement icons, use HUD and item atlases from your own texture installation.
 The preparation tool accepts KTX2 or PNG directly; no separate decoder or Python image library is required:
 
 ```sh
@@ -42,7 +47,7 @@ build/linux-clang/games/mhfu/mhfu_prepare_gathering_icons \
 
 Run the corresponding native program with that game folder as its working directory. It reads five files from `gathering-icons/`:
 `background.rgba`, `circle.rgba`, `mining.rgba`, `bugs.rgba`, and `gather.rgba`. Each contains an eight-byte `MHFICON1`
-header, a little-endian u32 square dimension, and premultiplied RGBA8 pixels. Missing or invalid files use text instead.
+header, a little-endian u32 square dimension, and premultiplied RGBA8 pixels. Missing or invalid files use the original game icons instead.
 The tool uses the original 256-unit atlas coordinates and supports higher-resolution replacements.
 
 With a KHD 1.3 installation, the compatible atlases are `ui/hud/ddeab148_fu.ktx2` and
@@ -68,7 +73,7 @@ cmake --build build/linux-clang
 ctest --test-dir build/linux-clang --output-on-failure
 ```
 
-Tests cover tool selection, depleted nodes, dynamic carving targets, region/position filters, guest-context preservation,
+Tests cover native swizzled atlas decoding, premultiplied alpha, truncated/unsupported image rejection, tool selection, depleted nodes, dynamic carving targets, region/position filters, guest-context preservation,
 failed-interaction rollback, menu input latching, system dialogs, icon mapping, red X rendering and idle hiding.
 Carving targets are read without calling reward or consumption functions. All addresses come from the region map.
 
