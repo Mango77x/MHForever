@@ -1,0 +1,25 @@
+# Japan (Monster Hunter Portable). Identification data only (hashes identify a dump; they contain no game content).
+disc_id = "ULJM05066"
+disc_version = "1.03"
+market = "JP"
+languages = ["ja"]
+status = "in-development"
+
+[[accepted_dumps]]
+kind = "iso"
+size = 745799680
+sha1 = "c1371e6562fae925194c28823c9a785879c5578f"
+md5 = "64de03b9101204955771335c5bb618f3"
+
+# The encrypted executable on the disc (PSP_GAME/SYSDIR/EBOOT.BIN). The installer accepts only this file.
+[encrypted_executable]
+size = 1188384
+sha1 = "71c4b5661164bc6554cdf7504e4566a31a9dd54f"
+
+# The prepared (plain) executable the recompiled code was generated from: the plain ELF followed by the signing
+# trailer, as the installer builds it. Identification only: never shipped, never committed.
+[dev_executable]
+size = 1188384
+sha1 = "a5d22d764c493bd5a4beddc832d6591662a50b7c"
+entry = 0x08899C2C
+text_base = 0x08804000

@@ -12,7 +12,7 @@
 MHForever turns the PSP version of *Monster Hunter Freedom Unite* (*Monster Hunter Portable 2nd G* in Japan, MHFU) into a
 native PC program: no emulator, any controller, and a launcher that sets everything up from your own disc image.
 
-**Supported today: *Monster Hunter Freedom Unite* (European, North American and Japanese releases), complete, and *Monster Hunter Freedom* (European release), new in 0.11.0. More games are planned**: MHForever is
+**Supported today: *Monster Hunter Freedom Unite* (European, North American and Japanese releases), complete, and *Monster Hunter Freedom* (European, North American and Japanese releases). More games are planned**: MHForever is
 the first step of a wider Monster Hunter recompilation project, and each game is a module of its own.
 
 > Not affiliated with, endorsed by or sponsored by Capcom or Sony. Requires your own legitimate copy of the game.
@@ -40,8 +40,10 @@ no piracy talk there. Bugs can also be reported as [issues](https://github.com/M
 | **Monster Hunter Freedom Unite** | PSP | North America (`ULUS10391`, v1.01) | **Playable** |
 | Monster Hunter Portable 2nd G | PSP | Japan (`ULJM05500`, v1.01) | **Playable** |
 | Monster Hunter Portable 2nd G + FUComplete | PSP | Japan, patched with FUComplete v1.4.0 | **Playable** |
-| **Monster Hunter Freedom** | PSP | Europe (`ULES00318`, v1.01) | **Playable** at 30 fps, new |
-| Monster Hunter Freedom + Freedom DX | PSP | Europe, patched with Freedom DX v1.8.6 | **Playable**, new |
+| **Monster Hunter Freedom** | PSP | Europe (`ULES00318`, v1.01) | **Playable** |
+| **Monster Hunter Freedom** | PSP | North America (`ULUS10084`, v1.00) | **Playable**, new |
+| Monster Hunter Portable | PSP | Japan (`ULJM05066`, v1.03) | **Playable**, new |
+| Monster Hunter Freedom + Freedom DX | PSP | Europe, North America and Japan (original or English translation), patched with Freedom DX v1.8.6 | **Playable**, new |
 | Other Monster Hunter games | PSP, later PS2 | | Planned, see the [roadmap](docs/10-roadmap.md) |
 
 The first five rows work today (online play is experimental). The others are plans, not promises: they are listed so you know where the project is going.
@@ -62,7 +64,7 @@ The first five rows work today (online play is experimental). The others are pla
 | **Text font** | The game's text in HD by default. Any font of your own (`.ttf` or `.otf`) can replace it, per copy of the game: Game settings → Video → Text font. |
 | **Widescreen** | On a wide window or screen (21:9, 32:9) the 3D fills it with a wider view while the HUD and menus keep their shape, the quest HUD at the screen's edges: Game settings → Video → Widescreen, or the in-game menu. |
 | **Projected shadows** | The hunter, monsters and scenery cast shadows from the game's own light, with a quality and a darkness setting: in the in-game menu's Video tab. Optional, off by default. |
-| **Other games and regions** | The Japanese release (Portable 2nd G, `ULJM05500`) is playable too, with its Japanese text. **Monster Hunter Freedom** (European release, `ULES00318`) is playable at its original 30 fps, with the launcher's video, audio, language, controls and texture pack settings; Freedom Unite's enhancements (frame interpolation, widescreen, HUD scale and the rest) are not available for it yet. Other games of the series are planned. |
+| **Other games and regions** | The Japanese release (Portable 2nd G, `ULJM05500`) is playable too, with its Japanese text. **Monster Hunter Freedom** (European `ULES00318`, North American `ULUS10084`, and Japanese `ULJM05066` as Monster Hunter Portable) is playable with frame interpolation up to 180 fps and the HUD scale, plus the launcher's video, audio, language, controls and texture pack settings. Other games of the series are planned. |
 | **Latest release** | [![Latest release](https://img.shields.io/github/v/release/Mango77x/MHForever?label=version)](https://github.com/Mango77x/MHForever/releases/latest) [![Release date](https://img.shields.io/github/release-date/Mango77x/MHForever?label=published)](https://github.com/Mango77x/MHForever/releases/latest) See the [Releases](../../releases) page. |
 
 It is early software: according to the maintainer's testing, single player can be played from start to finish, but expect rough edges and bugs. Reports are welcome.
@@ -121,7 +123,7 @@ Build instructions are in [BUILDING.md](BUILDING.md). Pull requests and bug repo
   panels open (#60, with the recompiler's instruction patches) and its improved layout (#62), and the analog camera (#68,
   with the recompiler's call patches), and for the generated region data the game's host reads the region maps through.
 - **[SilverJolteon](https://github.com/SilverJolteon/FreedomDX)**, whose Freedom DX patch for Freedom (options, event quests, fixes) MHForever
-  runs as its own copy of the game: the player patches their own European image with Freedom DX's xdelta and chooses its
+  runs as its own copy of the game: the player patches their own European, North American or Japanese image with Freedom DX's xdelta and chooses its
   FDXDAT folder in Game settings. Nothing of Freedom DX is included.
 - **[The FUComplete team](https://fucomplete.github.io)** ([FUComplete/Patch](https://github.com/FUComplete/Patch)), whose fan patch for the Japanese release (its English translation, events and options) MHForever
   runs as its own copy of the game: the player patches their own image with FUComplete's tool, and the launcher sets its

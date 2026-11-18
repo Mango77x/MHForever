@@ -661,7 +661,7 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           </>
         )}
       </motion.div>
-      {game?.discId.endsWith('-FDX') && <motion.div className="glass section" {...rise(0.07)}>
+      {game?.discId.includes('-FDX') && <motion.div className="glass section" {...rise(0.07)}>
         <h3>Freedom DX</h3>
         <div className="srow">
           <div className="slabel">

@@ -1,0 +1,25 @@
+# North America. Identification data only (hashes identify a dump; they contain no game content).
+disc_id = "ULUS10084"
+disc_version = "1.00"
+market = "US"
+languages = ["en"]
+status = "in-development"
+
+[[accepted_dumps]]
+kind = "iso"
+size = 741277696
+sha1 = "5fcea1da9475f590472294bf97df2efb311b6e15"
+md5 = "7c29d81c4fc05002527ffe7dc95b2ba0"
+
+# The encrypted executable on the disc (PSP_GAME/SYSDIR/EBOOT.BIN). The installer accepts only this file.
+[encrypted_executable]
+size = 1190464
+sha1 = "164d7606ae8b52ae0c4fdb1f78280da664d21496"
+
+# The prepared (plain) executable the recompiled code was generated from: the plain ELF followed by the signing
+# trailer, as the installer builds it. Identification only: never shipped, never committed.
+[dev_executable]
+size = 1190464
+sha1 = "64100b538acdf379e42835013394158c5ee1ab4c"
+entry = 0x0889A2E8
+text_base = 0x08804000
