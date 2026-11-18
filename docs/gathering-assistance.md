@@ -1,12 +1,21 @@
-# Gathering assistance (Freedom Unite, European release)
+# Gathering assistance (Freedom Unite / Portable 2nd G)
 
-Two independent, opt-in enhancements are available in the native `mhfu` program:
+Two independent, opt-in enhancements are available in the native game programs:
 
 - `--gathering-indicators`: show nearby gathering, mining, bug-catching and carving targets.
 - `--auto-gathering-tools`: Circle selects a suitable pickaxe or bug net and requests the game's normal interaction.
 
-Both are off by default. The Game tab can toggle them for the current session. They are mapped for `ULES01213` only;
-unmapped releases do nothing. Launcher settings and persistent launcher integration are outside this change.
+Both are off by default. The Game tab can toggle them for the current session. Supported stock releases are:
+
+| Release | Disc ID | Native program |
+| --- | --- | --- |
+| Europe | `ULES01213` | `mhfu` |
+| North America | `ULUS10391` | `mhfu-us` |
+| Japan (Portable 2nd G) | `ULJM05500` | `mhfu-jp` |
+
+The target layouts, tool IDs and action codes are shared; each release resolves addresses through its own region map.
+Unmapped releases, including FUComplete, do nothing. Launcher settings and persistent launcher integration are outside
+this change. The Japanese game retains its original language; the optional text fallback is English or Spanish.
 
 The indicator appears near the upper centre and disappears when there is no nearby target. Nearby exhausted targets
 and targets missing a required tool keep the action icon with a red X instead of Circle. Menus and system dialogs
@@ -25,7 +34,7 @@ build/linux-clang/games/mhfu/mhfu_prepare_gathering_icons \
     /path/to/your/hud.ktx2 /path/to/your/items.ktx2 /path/to/game-folder/gathering-icons
 ```
 
-Run `mhfu` with that game folder as its working directory. It reads five files from `gathering-icons/`:
+Run the corresponding native program with that game folder as its working directory. It reads five files from `gathering-icons/`:
 `background.rgba`, `circle.rgba`, `mining.rgba`, `bugs.rgba`, and `gather.rgba`. Each contains an eight-byte `MHFICON1`
 header, a little-endian u32 square dimension, and premultiplied RGBA8 pixels. Missing or invalid files use text instead.
 The tool uses the original 256-unit atlas coordinates and supports higher-resolution replacements.
@@ -40,11 +49,13 @@ The original mapping uses a pickaxe, bug net, and generic question mark; carving
 
 ## Building and verification
 
-Follow the normal developer preparation in `docs/04-recompiler.md`: regenerate the European program with the updated
-region map before building the game. Existing generated output from before this change lacks the gathering hook.
+Follow the normal developer preparation in `docs/04-recompiler.md`: regenerate each desired program with its updated
+region map before building the game (`prepare.py --region ULES01213`, `ULUS10391`, or `ULJM05500`). Existing generated output from before this change lacks the gathering hook.
 The developer's own executable/ISO and generated files stay in ignored `user_data/` directories.
 
-The tests use synthetic memory, guest functions and pixels, without game data:
+The runtime tests generate headers directly from the region maps and run the same synthetic scenario for all three
+stock releases, plus the unmapped FUComplete case. They do not require `MHF_MHFU_GENERATED` or game data. The remaining
+tests also use synthetic memory, guest functions and pixels:
 
 ```sh
 cmake --build build/linux-clang
