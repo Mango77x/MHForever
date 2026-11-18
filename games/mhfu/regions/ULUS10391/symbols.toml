@@ -35,6 +35,10 @@ mh_smithy_panel_draw          = 0x09A83CD8 # (List*): the panel the list shows (
 mh_smithy_model_update        = 0x09AB71C8 # (Model*): the smithy's weapon model; the left stick turns it
 
 [data]
+# Original icon atlases in DATA.BIN: first Western language has the same icon layout as the other languages.
+mh_gathering_hud_file = 30 # HUD atlas is image 1
+mh_gathering_items_file = 5355 # item atlas is image 0
+
 # Gathering assistance: matched against EU functions in this release's executable and game_task overlay.
 # Only relocated address operands differ; target layout, tool IDs and action codes are unchanged.
 mh_gathering_probe = 0x09A6F490 # (Player*, u16* type, float* position) -> static node index

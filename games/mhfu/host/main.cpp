@@ -19,6 +19,7 @@
 // (launcher/native/install/); developer builds can also point --exe at a file that matches region.toml's dev_executable.
 
 #include "gathering.hpp"
+#include "gathering_game_art.hpp"
 #include "mhf/psp/abi.hpp"
 #include "mhf/psp/frame_dump.hpp"
 #include "mhf/psp/generated.hpp"
@@ -1068,10 +1069,18 @@ int main(int argc, char **argv) {
         g_fast_supply_box = fast_supply_box;
         runtime.register_hook("mh_supply_box_update", &on_supply_box_update);
         g_gathering.spanish = options.system_language == 3;
-        const bool gathering_icons_loaded = g_gathering.load_icons("gathering-icons");
+        const char *gathering_icons = "unavailable (text fallback)";
+        if (!texture_pack.empty() && g_gathering.load_icons("gathering-icons")) {
+            gathering_icons = "local replacement";
+        } else if (region::mh_gathering_hud_file && region::mh_gathering_items_file) {
+            if (auto art = mhf::mhfu::load_game_gathering_art(options.disc_image, exe,
+                    *region::mh_gathering_hud_file, *region::mh_gathering_items_file)) {
+                g_gathering.set_icons(std::move(*art));
+                gathering_icons = "original game textures";
+            }
+        }
         if (g_gathering.indicators || g_gathering.automatic_tools)
-            std::fprintf(stderr, "[gathering] original-style icons: %s\n",
-                         gathering_icons_loaded ? "loaded" : "unavailable (text fallback)");
+            std::fprintf(stderr, "[gathering] icons: %s\n", gathering_icons);
         if (g_gathering.indicators || g_gathering.automatic_tools) {
             std::fprintf(stderr, "[gathering] indicators=%d automatic-tools=%d\n",
                          g_gathering.indicators, g_gathering.automatic_tools);

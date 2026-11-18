@@ -53,7 +53,8 @@ void check_release(const std::string &disc_id, const std::vector<std::string> &o
 
     // Gathering shares host logic across the stock releases and FUComplete.
     for (const char *name : {"mh_gathering_probe", "mh_gathering_interact", "mh_inventory_slot",
-                             "mh_gathering_dynamic_nodes", "mh_stage_manager", "mh_stage_gathering_nodes"}) {
+                             "mh_gathering_dynamic_nodes", "mh_stage_manager", "mh_stage_gathering_nodes",
+                             "mh_gathering_hud_file", "mh_gathering_items_file"}) {
         MHF_CHECK(entries.contains(name));
         if (entries.contains(name)) MHF_CHECK(entries.at(name).has_value());
     }

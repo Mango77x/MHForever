@@ -8,7 +8,7 @@
 // block. This is the game's data obfuscation, not Sony DRM; the game's own code undoes it at runtime.
 //
 // This module never embeds any data from the game. The 256-byte substitution table is located inside the user's own
-// executable and validated against the user's own DATA.BIN. Developer-only tooling (CONTRIBUTING.md).
+// executable and validated against the user's own DATA.BIN. Used by developer tools and the original gathering-icon loader.
 
 #include <array>
 #include <cstdint>

@@ -15,6 +15,7 @@ public:
     std::function<bool()> input_blocked; // frontend menu/dialog input and its release latch
     void update(psp::Runtime &rt, psp::Context &ctx);
     std::string hint(psp::Runtime &rt) const;
+    void set_icons(GatheringArt art) { art_ = std::move(art); }
     bool load_icons(const std::filesystem::path &folder);
     std::vector<overlay::HintSprite> sprites(psp::Runtime &rt) const;
 
