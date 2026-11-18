@@ -913,64 +913,79 @@ bool MenuRenderer::render_song_panel(const SongPanel &panel, float at_x, float a
     d.begin(pixels, width, height, static_cast<float>(height) / Impl::kH);
     // As wide as the picture, in logical units: 480 at the PSP's shape, more over a widescreen picture.
     const float canvas_w = static_cast<float>(width) * Impl::kH / static_cast<float>(std::max(height, 1));
-    const std::string eighth = kEighth, arrow = kArrowRight;
-    const SongMetrics m = song_metrics(d, panel);
-    const float note_w = m.note_w, name_w = m.name_w, w = m.w, h = m.h;
-    // Text and notes over a dark shadow, so that they read on the bright parts of the game too.
-    const auto label = [&d](float x, float baseline, const std::string &s, float size, Color c, float alpha, float track) {
-        d.text(x + 0.45f, baseline + 0.45f, s, size, kBlack, 0.8f * alpha, false, track);
-        return d.text(x, baseline, s, size, c, alpha, false, track);
-    };
-    // Placed by its anchor, and kept on the canvas (its frame's studs stick out by a unit).
-    const float x = std::clamp(at_x - w * align_x, 1.0f, canvas_w - w - 1.0f);
-    const float top = std::clamp(at_y - h * align_y, 1.0f, Impl::kH - h - 1.0f);
-    const float notes_x = x + kSongPad + name_w + kSongGap;
-    if (placing) { // being moved: a bright outline, and how to move it under (or over) the card
-        d.rect(x - 2.5f, top - 2.5f, w + 5.0f, h + 5.0f, kSongPlaying, 0.18f);
-        const std::string hint = "Drag it, or use the arrows / D-pad.  Enter / A keeps it, Esc / B cancels.";
-        const float hw = d.measure(hint, 4.4f);
-        const float hx = std::clamp(x + (w - hw) * 0.5f, 3.0f, canvas_w - hw - 3.0f);
-        const float hy = top + h + 12.0f < Impl::kH ? top + h + 10.0f : top - 6.0f;
-        d.rrect(hx - 4.0f, hy - 6.5f, hw + 8.0f, 9.0f, 3.0f, kBlack, 0.7f);
-        d.text(hx, hy, hint, 4.4f, kText, 1.0f);
-    }
-    const bool playing = std::any_of(panel.songs.begin(), panel.songs.end(), [](const auto &s) { return s.played > 0; });
+    if (!panel.songs.empty()) {
+        const std::string eighth = kEighth, arrow = kArrowRight;
+        const SongMetrics m = song_metrics(d, panel);
+        const float note_w = m.note_w, name_w = m.name_w, w = m.w, h = m.h;
+        // Text and notes over a dark shadow, so that they read on the bright parts of the game too.
+        const auto label = [&d](float x, float baseline, const std::string &s, float size, Color c, float alpha, float track) {
+            d.text(x + 0.45f, baseline + 0.45f, s, size, kBlack, 0.8f * alpha, false, track);
+            return d.text(x, baseline, s, size, c, alpha, false, track);
+        };
+        // Placed by its anchor, and kept on the canvas (its frame's studs stick out by a unit).
+        const float x = std::clamp(at_x - w * align_x, 1.0f, canvas_w - w - 1.0f);
+        const float top = std::clamp(at_y - h * align_y, 1.0f, Impl::kH - h - 1.0f);
+        const float notes_x = x + kSongPad + name_w + kSongGap;
+        if (placing) { // being moved: a bright outline, and how to move it under (or over) the card
+            d.rect(x - 2.5f, top - 2.5f, w + 5.0f, h + 5.0f, kSongPlaying, 0.18f);
+            const std::string hint = "Drag it, or use the arrows / D-pad.  Enter / A keeps it, Esc / B cancels.";
+            const float hw = d.measure(hint, 4.4f);
+            const float hx = std::clamp(x + (w - hw) * 0.5f, 3.0f, canvas_w - hw - 3.0f);
+            const float hy = top + h + 12.0f < Impl::kH ? top + h + 10.0f : top - 6.0f;
+            d.rrect(hx - 4.0f, hy - 6.5f, hw + 8.0f, 9.0f, 3.0f, kBlack, 0.7f);
+            d.text(hx, hy, hint, 4.4f, kText, 1.0f);
+        }
+        const bool playing = std::any_of(panel.songs.begin(), panel.songs.end(), [](const auto &s) { return s.played > 0; });
 
-    // The page and its frame: a line with notches all along, and a stud at each corner.
-    d.rect(x, top, w, h, kBlack, 0.42f);
-    for (const float fy : {top, top + h - 1.0f}) d.rect(x, fy, w, 1.0f, kSongFrame, 0.95f);
-    for (const float fx : {x, x + w - 1.0f}) d.rect(fx, top, 1.0f, h, kSongFrame, 0.95f);
-    for (float nx = x + 4.0f; nx < x + w - 4.0f; nx += 3.0f) {
-        d.rect(nx, top + 0.25f, 1.0f, 0.5f, kBlack, 0.7f);
-        d.rect(nx, top + h - 0.75f, 1.0f, 0.5f, kBlack, 0.7f);
-    }
-    for (const float cx : {x - 1.0f, x + w - 2.0f}) {
-        for (const float cy : {top - 1.0f, top + h - 2.0f}) {
-            d.rect(cx, cy, 3.0f, 3.0f, kSongFrame, 1.0f);
-            d.rect(cx + 0.9f, cy + 0.9f, 1.2f, 1.2f, kBlack, 0.8f);
+        // The page and its frame: a line with notches all along, and a stud at each corner.
+        d.rect(x, top, w, h, kBlack, 0.42f);
+        for (const float fy : {top, top + h - 1.0f}) d.rect(x, fy, w, 1.0f, kSongFrame, 0.95f);
+        for (const float fx : {x, x + w - 1.0f}) d.rect(fx, top, 1.0f, h, kSongFrame, 0.95f);
+        for (float nx = x + 4.0f; nx < x + w - 4.0f; nx += 3.0f) {
+            d.rect(nx, top + 0.25f, 1.0f, 0.5f, kBlack, 0.7f);
+            d.rect(nx, top + h - 0.75f, 1.0f, 0.5f, kBlack, 0.7f);
+        }
+        for (const float cx : {x - 1.0f, x + w - 2.0f}) {
+            for (const float cy : {top - 1.0f, top + h - 2.0f}) {
+                d.rect(cx, cy, 3.0f, 3.0f, kSongFrame, 1.0f);
+                d.rect(cx + 0.9f, cy + 0.9f, 1.2f, 1.2f, kBlack, 0.8f);
+            }
+        }
+        float y = top + 3.0f + 5.4f;
+        for (const auto &s : panel.songs) {
+            const bool lit = s.ready || s.played > 0;
+            if (s.ready) d.rect(x + 2.0f, y - 5.4f, w - 4.0f, kSongRow - 0.2f, kSongPlaying, 0.22f);
+            // Green while its effect is on (also while it is played again: the notes show how far), yellow while being played,
+            // white otherwise; the others fade while a song is played, except those that are on.
+            const float fade = playing && !lit && !s.active ? 0.6f : 1.0f;
+            constexpr Color kActive{0.45f, 0.95f, 0.40f};
+            label(x + kSongPad, y, d.fit(s.name, kSongName, name_w), kSongName, s.active ? kActive : lit ? kSongPlaying : kText, fade, kSongTrack);
+            float nx = notes_x;
+            for (std::size_t i = 0; i < s.notes.size(); ++i) {
+                const bool done = s.ready || static_cast<int>(i) < s.played;
+                // While a song is played: its notes played so far in full, a mark under the next one, the rest faint.
+                const float alpha = !lit ? fade : done ? 1.0f : 0.65f;
+                if (i > 0) nx += label(nx + 0.3f, y - 0.6f, arrow, kSongArrow, kText, alpha, 0.0f) + 1.0f;
+                const Color c{s.notes[i].r, s.notes[i].g, s.notes[i].b};
+                label(nx, y + 0.8f, eighth, kSongNote, c, alpha, 0.0f);
+                if (!s.ready && s.played > 0 && static_cast<int>(i) == s.played) d.rect(nx, y + 1.6f, note_w, 0.6f, kText, 0.9f);
+                nx += note_w;
+            }
+            y += kSongRow;
         }
     }
-    float y = top + 3.0f + 5.4f;
-    for (const auto &s : panel.songs) {
-        const bool lit = s.ready || s.played > 0;
-        if (s.ready) d.rect(x + 2.0f, y - 5.4f, w - 4.0f, kSongRow - 0.2f, kSongPlaying, 0.22f);
-        // Green while its effect is on (also while it is played again: the notes show how far), yellow while being played,
-        // white otherwise; the others fade while a song is played, except those that are on.
-        const float fade = playing && !lit && !s.active ? 0.6f : 1.0f;
-        constexpr Color kActive{0.45f, 0.95f, 0.40f};
-        label(x + kSongPad, y, d.fit(s.name, kSongName, name_w), kSongName, s.active ? kActive : lit ? kSongPlaying : kText, fade, kSongTrack);
-        float nx = notes_x;
-        for (std::size_t i = 0; i < s.notes.size(); ++i) {
-            const bool done = s.ready || static_cast<int>(i) < s.played;
-            // While a song is played: its notes played so far in full, a mark under the next one, the rest faint.
-            const float alpha = !lit ? fade : done ? 1.0f : 0.65f;
-            if (i > 0) nx += label(nx + 0.3f, y - 0.6f, arrow, kSongArrow, kText, alpha, 0.0f) + 1.0f;
-            const Color c{s.notes[i].r, s.notes[i].g, s.notes[i].b};
-            label(nx, y + 0.8f, eighth, kSongNote, c, alpha, 0.0f);
-            if (!s.ready && s.played > 0 && static_cast<int>(i) == s.played) d.rect(nx, y + 1.6f, note_w, 0.6f, kText, 0.9f);
-            nx += note_w;
-        }
-        y += kSongRow;
+    for (const auto &sprite : panel.hint_sprites) {
+        if (sprite.source_size <= 0 || sprite.source_size > 1024 || !sprite.pixels ||
+            sprite.pixels->size() != static_cast<std::size_t>(sprite.source_size) * sprite.source_size) continue;
+        d.image(sprite.x + (canvas_w - 480.0f) * 0.5f, sprite.y, sprite.size,
+                sprite.pixels->data(), sprite.source_size, sprite.alpha);
+    }
+    if (!panel.hint.empty()) {
+        const float size = 6.0f;
+        const float w = std::min(canvas_w - 24.0f, d.measure(panel.hint, size, true) + 18.0f);
+        const float x = (canvas_w - w) * 0.5f, y = 204.0f;
+        d.rrect(x, y, w, 18.0f, 5.0f, kPanel, 0.86f);
+        d.text(x + 9.0f, y + 12.0f, d.fit(panel.hint, size, w - 18.0f), size, kText, 1.0f, true);
     }
     d.end();
     return d.font_ok();

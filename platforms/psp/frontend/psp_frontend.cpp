@@ -172,6 +172,9 @@ struct Frontend::Impl {
     // The game supports them (it called set_widescreen / set_shadows: camera hooks, zones): only then does the Video tab
     // offer them. A game without them (Freedom) would get a stretched picture, or shadows that cost and show nothing.
     bool widescreen_offered{}, shadows_offered{};
+    bool game_hint_input_latched = false;
+    std::string game_hint;
+    std::vector<overlay::HintSprite> game_hint_sprites;
     std::optional<overlay::SongPanel> songs;
     std::optional<overlay::SongPanel> songs_seen; // the last songs the host gave, for moving them from the menu
     // Moving the songs (the Game tab's "Move them anywhere"): where the card's top left corner is now, and the mouse's
@@ -404,6 +407,15 @@ void Frontend::add_game_option(GameOption option) { impl_->game_options.push_bac
 
 void Frontend::set_mouse_look(std::function<bool()> wanted) { impl_->mouse_look = std::move(wanted); }
 
+bool Frontend::game_input_blocked() const {
+    return impl_->menu_open || impl_->song_placing || impl_->dialog_visible || impl_->game_hint_input_latched;
+}
+
+void Frontend::set_game_hint(std::string hint, std::vector<overlay::HintSprite> sprites) {
+    impl_->game_hint = std::move(hint);
+    impl_->game_hint_sprites = std::move(sprites);
+}
+
 void Frontend::set_song_panel(std::optional<overlay::SongPanel> panel) {
     if (panel) impl_->songs_seen = panel;
     impl_->songs = std::move(panel);
@@ -577,6 +589,14 @@ void show_songs(Frontend::Impl &impl, Runtime &rt) {
     } else if (impl.songs && impl.song_spot && impl.songs_on && hud &&impl.gpu_state == 1 && !impl.dialog_visible && !impl.notice_shown) {
         panel = &*impl.songs;
         spot = *impl.song_spot;
+    }
+    std::optional<overlay::SongPanel> combined;
+    if ((!impl.game_hint.empty() || !impl.game_hint_sprites.empty()) && hud && impl.gpu_state == 1 && !impl.dialog_visible &&
+        !impl.notice_shown && !impl.song_placing) {
+        combined = panel ? *panel : overlay::SongPanel{};
+        combined->hint = impl.game_hint;
+        combined->hint_sprites = impl.game_hint_sprites;
+        panel = &*combined;
     }
     int width = 0, height = 0;
     // Widescreen: over the stretched picture, so that they stay by the quest HUD at the window's edge.
@@ -1604,6 +1624,7 @@ void close_menu(Frontend::Impl &impl) {
     impl.code_keyboard = false;
     impl.capture_id = 0;
     impl.host.set_capture(false);
+    impl.game_hint_input_latched = impl.host.input().east;
     impl.menu_open = false;
     {
         std::lock_guard lock(impl.overlay.mutex);
@@ -1941,6 +1962,7 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
                 impl->live.wide_aspect.store(aspect, std::memory_order_relaxed);
             }
             const host::GamepadState pad = impl->host.input();
+            if (!pad.east) impl->game_hint_input_latched = false;
             // Mouse look holds the mouse only while the game has the input: a menu, a system dialog or moving the
             // songs lets it go (the in-game menu is used with the mouse).
             impl->host.set_relative_mouse(!impl->menu_open && !impl->song_placing && impl->mouse_look && impl->mouse_look() &&
