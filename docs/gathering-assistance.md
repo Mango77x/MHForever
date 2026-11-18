@@ -48,7 +48,7 @@ redesign of the atlas cannot be identified from its dimensions alone.
 
 The HUD atlas contains Circle at grid (0,0) and the hexagon at (220,224); the items atlas contains pickaxe (24,48), net
 (144,24), and question mark (48,96), on a 256-unit grid. Carving uses the generic question-mark indicator.
-No game artwork is distributed. The older icon-preparation tool remains a developer exporter, not a runtime input.
+No game artwork is distributed.
 
 ## Building and verification
 

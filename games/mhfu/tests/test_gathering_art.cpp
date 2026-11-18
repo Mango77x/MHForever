@@ -1,7 +1,5 @@
 #include "check.hpp"
 #include "gathering_art.hpp"
-#include <fstream>
-#include <random>
 using namespace mhf::mhfu;
 int main() {
     GatheringArt art;
@@ -45,24 +43,5 @@ int main() {
     MHF_CHECK(gathering_alpha(207, true) == 255);
     MHF_CHECK(gathering_alpha(255, false) == 191);
     MHF_CHECK(gathering_alpha(63, false) == 15);
-    const auto dir =
-        std::filesystem::temp_directory_path() / ("gathering-art-" + std::to_string(std::random_device{}()));
-    std::filesystem::create_directory(dir);
-    MHF_CHECK(!load_gathering_art(dir));
-    for (const char *name : {"background", "circle", "mining", "bugs", "gather"}) {
-        std::ofstream f(dir / (std::string(name) + ".rgba"), std::ios::binary);
-        f.write("MHFICON1", 8);
-        const char size[4] = {2, 0, 0, 0};
-        f.write(size, 4);
-        const std::array<char, 16> rgba{};
-        f.write(rgba.data(), rgba.size());
-    }
-    MHF_CHECK(load_gathering_art(dir).has_value());
-    {
-        std::ofstream f(dir / "gather.rgba", std::ios::binary);
-        f.write("bad", 3);
-    }
-    MHF_CHECK(!load_gathering_art(dir));
-    std::filesystem::remove_all(dir);
     return mhf::test::finish("test_gathering_art");
 }

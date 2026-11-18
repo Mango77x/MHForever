@@ -199,10 +199,6 @@ void Gathering::update(psp::Runtime &rt, psp::Context &ctx) {
 std::string Gathering::hint(psp::Runtime &rt) const {
     return indicators && rt.now_us() - updated_ < kHintLifetimeUs ? hint_ : std::string{};
 }
-bool Gathering::load_icons(const std::filesystem::path &folder) {
-    art_ = load_gathering_art(folder);
-    return art_.has_value();
-}
 std::vector<overlay::HintSprite> Gathering::sprites(psp::Runtime &rt) const {
     if (!indicators || !visual_active_ || !art_ || rt.now_us() - updated_ >= kHintLifetimeUs)
         return {};

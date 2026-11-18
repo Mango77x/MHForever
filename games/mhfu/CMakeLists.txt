@@ -1,6 +1,6 @@
 # Freedom Unite module (docs/06-mhfu-module.md).
 
-# Game file-system helpers used by developer tools (DATA.BIN container, overlay headers).
+# Game file-system helpers for local assets and developer tools (DATA.BIN container, overlay headers).
 add_library(mhf_mhfu_data STATIC tools/data_bin.cpp)
 target_include_directories(mhf_mhfu_data PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 mhf_target_warnings(mhf_mhfu_data)
@@ -9,13 +9,6 @@ mhf_target_warnings(mhf_mhfu_data)
 add_executable(mhfu_extract_overlays tools/extract_overlays.cpp)
 target_link_libraries(mhfu_extract_overlays PRIVATE mhf_mhfu_data mhf_psp_tools psprecomp_core)
 mhf_target_warnings(mhfu_extract_overlays)
-
-# Optional sprites are prepared locally from the player's texture atlases.
-if(TARGET mhf_texture_images)
-    add_executable(mhfu_prepare_gathering_icons tools/prepare_gathering_icons.cpp)
-    target_link_libraries(mhfu_prepare_gathering_icons PRIVATE mhf_texture_images mhf_texture_pack)
-    mhf_target_warnings(mhfu_prepare_gathering_icons)
-endif()
 
 add_library(mhf_game_mhfu INTERFACE)
 target_link_libraries(mhf_game_mhfu INTERFACE mhf_psp mhf_mhfu_data)
@@ -44,13 +37,6 @@ if(MHF_BUILD_TESTS)
         mhf_target_warnings(${test_name})
         add_test(NAME mhfu_gathering_runtime_${disc} COMMAND ${test_name})
     endforeach()
-    if(TARGET mhfu_prepare_gathering_icons)
-        find_package(Python3 COMPONENTS Interpreter QUIET)
-        if(Python3_Interpreter_FOUND)
-            add_test(NAME mhfu_gathering_icons COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gathering_icons.py $<TARGET_FILE:mhfu_prepare_gathering_icons>)
-        endif()
-    endif()
     add_executable(test_mhfu_gathering_game_art tests/test_gathering_game_art.cpp host/gathering_game_art.cpp)
     target_include_directories(test_mhfu_gathering_game_art PRIVATE host ${PROJECT_SOURCE_DIR}/tests/support)
     target_link_libraries(test_mhfu_gathering_game_art PRIVATE mhf_mhfu_data mhf_psp_tools mhf_core mhf_texture_pack mhf_texture_images)

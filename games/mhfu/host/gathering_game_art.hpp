@@ -2,6 +2,7 @@
 
 #include "gathering_art.hpp"
 #include <span>
+#include <filesystem>
 
 namespace mhf::psp::textures {
 class Pack;

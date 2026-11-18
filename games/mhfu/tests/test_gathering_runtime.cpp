@@ -8,8 +8,6 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
-#include <fstream>
-#include <random>
 using namespace mhf::psp;
 namespace region = mhf::psp::generated::mhfu_region_data;
 namespace {
@@ -89,17 +87,12 @@ int main() {
     g.indicators = true;
     g.automatic_tools = true;
     g.spanish = true;
-    const auto art_dir =
-        std::filesystem::temp_directory_path() / ("carving-runtime-art-" + std::to_string(std::random_device{}()));
-    std::filesystem::create_directory(art_dir);
-    for (const char *name : {"background", "circle", "mining", "bugs", "gather"}) {
-        std::ofstream file(art_dir / (std::string(name) + ".rgba"), std::ios::binary);
-        file.write("MHFICON1", 8);
-        const char bytes[8] = {1, 0, 0, 0, 0, 0, 0, 0};
-        file.write(bytes, 8);
+    mhf::mhfu::GatheringArt art;
+    for (auto &image : art) {
+        image.size = 1;
+        image.pixels = std::make_shared<const std::vector<std::uint32_t>>(1, 0);
     }
-    MHF_CHECK(g.load_icons(art_dir));
-    std::filesystem::remove_all(art_dir);
+    g.set_icons(std::move(art));
     set_controller_state(rt, {});
     g.update(rt, ctx);
     MHF_CHECK(probes == 0 && actions == 0 && g.hint(rt).empty()); // invalid cockpit must fail closed
