@@ -1007,13 +1007,15 @@ private:
         std::int32_t func{1}, ref{}, mask{255}, clamp_s{}, clamp_t{};
         bool scenery{}, player{};
         bool fixed{}; // part of the scenery: it can be kept from one picture to the next
-        mutable bool paired{};
     };
     struct ShadowKept {
         std::uint64_t generation{};
         std::vector<float> vertices; // eye x, y, z and u, v, as in shadow_vertices_
         std::vector<KeptRange> ranges;
     };
+    // Gives each of `kept`'s player pieces its partner in `older` (shadow_pairs_): the same model, the nearest once `motion`
+    // brings it into `kept`'s eye space, no farther than `reach`.
+    void pair_player_pieces(const ShadowKept &kept, const ShadowKept &older, const interpolation::Matrix &motion, float reach);
     // `fbo`: where to, when not the map's own. `moving_only`: over what the map already holds, without what is kept.
     void draw_shadow_map(const ShadowPass &p, const ShadowKept &kept, const std::vector<float> &vertices, bool player, GLuint fbo = 0,
                          bool moving_only = false);
@@ -1541,6 +1543,12 @@ private:
     ShadowKept shadow_kept_[3];        // by generation: the flip shown, the one before it, and the one being drawn
     std::vector<float> shadow_between_;  // an in-between picture's player pieces (their vertices, moved to this moment)
     ShadowKept shadow_between_kept_;     // and their ranges in it
+    // Each kept piece's partner in the flip before (an index into its ranges, or -1), for the flip of generation shadow_pairs_generation_.
+    std::vector<std::int32_t> shadow_pairs_;
+    std::uint64_t shadow_pairs_generation_{~0ull};
+    std::unordered_multimap<std::uint64_t, std::uint32_t> shadow_pair_index_; // the flip before's pieces by model
+    std::vector<std::array<float, 3>> shadow_pair_centres_;                   // and where each is, in the newer eye space
+    std::vector<std::uint8_t> shadow_pair_state_;                             // 0 not worked out, 1 free, 2 taken
     // The scenery seen so far in this zone, in the frame of one of its pieces (the game only draws what the camera sees, and
     // keeps the camera in every matrix), and its map, drawn again only when it has to be.
     std::vector<float> shadow_seen_vertices_;              // x, y, z and u, v in that frame
@@ -3919,6 +3927,62 @@ void GlBackend::draw_shadow_map(const ShadowPass &p, const ShadowKept &kept, con
     gl_.BindTexture(GL_TEXTURE_2D, 0);
 }
 
+void GlBackend::pair_player_pieces(const ShadowKept &kept, const ShadowKept &older, const interpolation::Matrix &motion, float reach) {
+    // Pieces of one model are drawn many times (Freedom's scenery and villagers, which all fall on the player's map there), and
+    // they come and go from what is drawn: the first piece of the model in drawing order is often another one, whose shadow
+    // then slid across the ground between the two places at every in-between picture. And looking each one up from the start
+    // cost as much as the pieces squared.
+    shadow_pairs_generation_ = kept.generation;
+    shadow_pairs_.assign(kept.ranges.size(), -1);
+    const auto key = [](const KeptRange &r) { return static_cast<std::uint64_t>(r.vertices) << 32u | r.count; };
+    const auto centre = [](const std::vector<float> &v, const KeptRange &r, float *out) {
+        out[0] = out[1] = out[2] = 0.0f;
+        const float *x = v.data() + static_cast<std::size_t>(r.first) * 5u;
+        for (std::uint32_t i = 0; i < r.count; ++i, x += 5) {
+            out[0] += x[0];
+            out[1] += x[1];
+            out[2] += x[2];
+        }
+        for (int k = 0; k < 3; ++k) out[k] /= static_cast<float>(std::max<std::uint32_t>(r.count, 1u));
+    };
+    shadow_pair_index_.clear();
+    shadow_pair_index_.reserve(older.ranges.size());
+    for (std::uint32_t i = 0; i < older.ranges.size(); ++i) {
+        if (older.ranges[i].count != 0) shadow_pair_index_.emplace(key(older.ranges[i]), i);
+    }
+    shadow_pair_centres_.resize(older.ranges.size());
+    shadow_pair_state_.assign(older.ranges.size(), 0);
+    for (std::size_t i = 0; i < kept.ranges.size(); ++i) {
+        const KeptRange &r = kept.ranges[i];
+        if (!r.player || r.count == 0) continue;
+        const auto [lo, hi] = shadow_pair_index_.equal_range(key(r));
+        if (lo == hi) continue;
+        float here[3];
+        centre(kept.vertices, r, here);
+        std::int32_t best = -1;
+        float best_d2 = reach * reach;
+        for (auto it = lo; it != hi; ++it) {
+            const std::uint32_t o = it->second;
+            if (shadow_pair_state_[o] == 0) {
+                float c[3];
+                centre(older.vertices, older.ranges[o], c);
+                for (std::size_t k = 0; k < 3; ++k) shadow_pair_centres_[o][k] = motion[k] * c[0] + motion[4 + k] * c[1] + motion[8 + k] * c[2] + motion[12 + k];
+                shadow_pair_state_[o] = 1;
+            }
+            if (shadow_pair_state_[o] == 2) continue;
+            const float dx = shadow_pair_centres_[o][0] - here[0], dy = shadow_pair_centres_[o][1] - here[1], dz = shadow_pair_centres_[o][2] - here[2];
+            const float d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < best_d2) {
+                best_d2 = d2;
+                best = static_cast<std::int32_t>(o);
+            }
+        }
+        if (best < 0) continue;
+        shadow_pair_state_[static_cast<std::size_t>(best)] = 2;
+        shadow_pairs_[i] = best;
+    }
+}
+
 // The shadows into a texture of the picture's size first (the depth cannot be read while it is attached to the target being
 // drawn), then multiplied into the picture. `eye_to_map` takes this picture's eye space to the map's: x' = R * (x - t), with
 // R's rows in its first nine numbers and t in the last three.
@@ -5925,26 +5989,21 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                     const bool blend = older.generation + 1u == kept.generation;
                     // By the same motion as the rest of the shadows, or the hunter's would jump between its two places.
                     const interpolation::Matrix motion = !blend ? interpolation::Matrix{} : scene_moved ? scene_whole : interpolation::rigid_at(v2_camera_, 1.0f);
-                    if (blend) {
-                        for (const KeptRange &o : older.ranges) o.paired = false;
-                    }
-                    for (const KeptRange &r : kept.ranges) {
+                    // Each piece's partner in the flip before, worked out once for all the in-between pictures of this flip.
+                    if (blend && shadow_pairs_generation_ != kept.generation) pair_player_pieces(kept, older, motion, 0.25f * flip_.shadow.player_half);
+                    for (std::size_t i = 0; i < kept.ranges.size(); ++i) {
+                        const KeptRange &r = kept.ranges[i];
                         if (!r.player) continue;
                         KeptRange piece = r;
                         piece.first = static_cast<std::uint32_t>(shadow_between_.size() / 5u);
                         const float *source = kept.vertices.data() + static_cast<std::size_t>(r.first) * 5u;
                         shadow_between_.insert(shadow_between_.end(), source, source + static_cast<std::size_t>(r.count) * 5u);
                         shadow_between_kept_.ranges.push_back(piece);
-                        if (!blend) continue;
-                        // The same model: characters come and go from what is drawn, so the order says nothing.
-                        const auto from = std::find_if(older.ranges.begin(), older.ranges.end(), [&r](const KeptRange &o) {
-                            return !o.paired && o.vertices == r.vertices && o.count == r.count;
-                        });
-                        if (from == older.ranges.end()) continue;
-                        from->paired = true;
+                        if (!blend || shadow_pairs_[i] < 0) continue;
+                        const KeptRange &from = older.ranges[static_cast<std::size_t>(shadow_pairs_[i])];
                         for (std::uint32_t v = 0; v < r.count; ++v) {
                             float *out = shadow_between_.data() + (static_cast<std::size_t>(piece.first) + v) * 5u;
-                            const float *in = older.vertices.data() + (static_cast<std::size_t>(from->first) + v) * 5u;
+                            const float *in = older.vertices.data() + (static_cast<std::size_t>(from.first) + v) * 5u;
                             for (int k = 0; k < 3; ++k) {
                                 const float old_here = motion[static_cast<std::size_t>(k)] * in[0] + motion[static_cast<std::size_t>(4 + k)] * in[1] +
                                                        motion[static_cast<std::size_t>(8 + k)] * in[2] + motion[static_cast<std::size_t>(12 + k)];
