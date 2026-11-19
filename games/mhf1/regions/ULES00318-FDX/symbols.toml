@@ -12,3 +12,14 @@ mh_draw_wait        = 0x0884A1DC # (): returns once mh_draw_done is set
 
 [data]
 mh_draw_done        = 0x0897AFC5 # u8: set when the game's drawing for the frame is done (mh_draw_wait waits for it)
+
+# Words Freedom DX rewrites at run time (docs/04-recompiler.md section 6, guarded words). At every start it reads its
+# options from FDXDAT/CONFIG.BIN and stores them into the code: the field of view (five instructions), the starting
+# camera height, the supply box delay, the minimap's scale and position, and the Dos bonuses' hook in the executable;
+# at each quest, hold to gather, Lao-Shan Lung's early kill and the Sword and Shield change in game_task.ovl; and the
+# event quests' page count and the offline treasure quests in lobby_task.ovl. A function holding one of these words
+# runs in the interpreter once the word has changed, so the options take effect as on the PSP.
+[guards]
+fdx_executable = "executable 0x08816038 0x088161D4 0x08816218 0x088162E8 0x0881D7D0 0x0881D7DC 0x0881D7E4 0x0882D2B0 0x08849594 0x08849598 0x0886B50C 0x0886DA9C"
+fdx_game_task  = "game_task.ovl 0x098D9B70 0x098FB068 0x0990E3A4 0x0990E3A8 0x0990E3AC 0x0990E3B0"
+fdx_lobby_task = "lobby_task.ovl 0x098EEFF4 0x098F01AC 0x09909E6C"

@@ -71,6 +71,16 @@ player's download, not on the disc: Game settings > Freedom DX copies the folder
 saves. Its saves are the European release's (`ULES00318...` folders), which the save import looks for. Measured: the
 title (Freedom DX v1.8.6), a save loaded and the village, at 30 fps.
 
+Most of those options take effect by Freedom DX's code storing into the game's code at run time (`source/<release>/
+Init.asm`, `main.asm`, `DosBonuses.asm`, `EventLoader.asm`): at every start, the field of view (five instructions), the
+starting camera height, the supply box delay, the minimap and the Dos bonuses' hook in the executable; at each quest,
+hold to gather, Lao-Shan Lung's early kill and the Sword and Shield change in `game_task.ovl`; and the event quests' page
+count and offline treasure quests in `lobby_task.ovl`. Recompiled code never reads those words again, so until 0.12.1
+only the options kept in data (true raw, the drink buff, the Felyne skills) worked (issue #121). Each Freedom DX map
+lists the words in `[guards]` (docs/04-recompiler.md section 6): a function holding one runs in the interpreter once
+the word has changed. Measured with the field of view and camera changed: the camera's two functions switch to the
+interpreter at the title, in all four copies.
+
 ## 4. Freedom and Freedom Unite
 
 Freedom runs an earlier version of Freedom Unite's engine: 39 % of its functions are the same, instruction for
