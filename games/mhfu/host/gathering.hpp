@@ -19,6 +19,12 @@ public:
     std::vector<overlay::HintSprite> sprites(psp::Runtime &rt) const;
 
 private:
+    struct Selection {
+        std::uint32_t player;
+        std::uint16_t previous, tool;
+        std::uint8_t action;
+    };
+    std::optional<Selection> selection_;
     bool held_ = false, busy_ = false;
     std::uint32_t scratch_ = 0;
     std::uint64_t updated_ = 0;

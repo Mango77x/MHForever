@@ -8,18 +8,21 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <stdexcept>
 using namespace mhf::psp;
 namespace region = mhf::psp::generated::mhfu_region_data;
 namespace {
 constexpr std::uint32_t sys = 0x08810000, manager = 0x08890000, player = 0x08891000, bag = 0x08893000;
 int probes = 0, actions = 0;
 bool static_target = true;
+std::uint16_t probed_type = 3;
 constexpr std::uint32_t nodes = 0x08897000, dynamic_nodes = 0x08898000;
-bool reject_action = false;
+bool reject_action = false, throw_action = false;
+std::uint8_t started_action = 0x51;
 void probe(Runtime &rt, Context &c) {
     ++probes;
     MHF_CHECK(c.gpr[4] == player);
-    rt.memory().store16(c.gpr[5], std::uint16_t{3});
+    rt.memory().store16(c.gpr[5], probed_type);
     c.gpr[2] = static_target ? 0 : 0xffff;
     c.gpr[16] = 0xdeadbeef;
 }
@@ -30,11 +33,12 @@ void inventory(Runtime &, Context &c) {
     c.gpr[6] = 0xbad;
 }
 void interact(Runtime &rt, Context &c) {
+    if (throw_action) throw std::runtime_error("synthetic interaction failure");
     if (reject_action) return;
     ++actions;
     MHF_CHECK(c.gpr[4] == player && c.gpr[5] == 2);
     MHF_CHECK(rt.memory().load16(player + 0x648) == 2);
-    rt.memory().store8(player + 0x299, std::uint8_t{0x51});
+    rt.memory().store8(player + 0x299, started_action);
     c.gpr[16] = 123;
 }
 } // namespace
@@ -111,6 +115,7 @@ int main() {
     set_controller_state(rt, {});
     m.store8(player + 0x299, std::uint8_t{0});
     g.update(rt, ctx);
+    MHF_CHECK(m.load16(player + 0x648) == 0); // previous selection restored after the action
     m.store16(bag + 10, std::uint16_t{0});
     set_controller_state(rt, pad);
     g.update(rt, ctx);
@@ -196,6 +201,60 @@ int main() {
     g.update(rt, ctx);
     MHF_CHECK(actions == 2 && g.hint(rt) == "Minar - Agotado");
     m.store16(nodes + 18, std::uint16_t{255});
+    // Consumption can happen after the start call. Keep the tool until the action ends, including when it breaks.
+    g.input_blocked = {};
+    for (std::uint16_t type : {std::uint16_t{3}, std::uint16_t{4}}) {
+        started_action = type == 3 ? std::uint8_t{0x51} : std::uint8_t{0x52};
+        probed_type = type;
+        m.store16(nodes + 20, type);
+        for (int scenario = 0; scenario < 6; ++scenario) {
+            mhf::mhfu::Gathering restore;
+            restore.indicators = restore.automatic_tools = true;
+            m.store32(manager + 0x0c, player);
+            m.store8(player + 0x299, std::uint8_t{0});
+            m.store16(player + 0x648, std::uint16_t{4});
+            m.store16(bag + 8, type == 3 ? std::uint16_t{0x91} : std::uint16_t{0x95});
+            m.store16(bag + 10, std::uint16_t{2});
+            set_controller_state(rt, {});
+            restore.update(rt, ctx);
+            set_controller_state(rt, pad);
+            const auto before_action = actions;
+            throw_action = scenario == 5;
+            try {
+                restore.update(rt, ctx);
+                MHF_CHECK(!throw_action);
+            } catch (const std::runtime_error &) {
+                MHF_CHECK(throw_action);
+            }
+            throw_action = false;
+            if (scenario == 5) {
+                MHF_CHECK(actions == before_action && m.load16(player + 0x648) == 4);
+                continue;
+            }
+            MHF_CHECK(actions == before_action + 1 && m.load16(player + 0x648) == 2);
+            restore.update(rt, ctx);
+            MHF_CHECK(actions == before_action + 1 && m.load16(player + 0x648) == 2);
+            m.store16(bag + 10, std::uint16_t{0}); // the last tool breaks during the animation
+            if (scenario == 1) m.store16(player + 0x648, std::uint16_t{6}); // another selection wins
+            if (scenario == 2) restore.indicators = restore.automatic_tools = false;
+            if (scenario == 3) restore.input_blocked = [] { return true; };
+            if (scenario == 4) {
+                m.store32(manager + 0x0c, std::uint32_t{0});
+                restore.update(rt, ctx); // leaving the player discards the pending write
+                m.store32(manager + 0x0c, player);
+            }
+            m.store8(player + 0x299, std::uint8_t{0});
+            set_controller_state(rt, {});
+            restore.update(rt, ctx);
+            MHF_CHECK(m.load16(player + 0x648) == (scenario == 1 ? 6 : scenario == 4 ? 2 : 4));
+            MHF_CHECK(std::memcmp(&ctx, &saved, sizeof ctx) == 0);
+        }
+    }
+    started_action = 0x51;
+    probed_type = 3;
+    m.store16(nodes + 20, std::uint16_t{3});
+    m.store16(bag + 8, std::uint16_t{0x91});
+    const auto actions_before_dialog = actions;
     // Raw controller input must not leak into gameplay during a system dialog.
     m.store32(manager + 0x0c, player);
     set_controller_state(rt, {});
@@ -209,6 +268,6 @@ int main() {
     const auto probes_before = probes;
     set_controller_state(rt, pad);
     g.update(rt, ctx);
-    MHF_CHECK(probes == probes_before && actions == 2 && g.hint(rt).empty());
+    MHF_CHECK(probes == probes_before && actions == actions_before_dialog && g.hint(rt).empty());
     return mhf::test::finish("test_gathering_runtime");
 }

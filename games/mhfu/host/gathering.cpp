@@ -110,20 +110,43 @@ void Gathering::update(psp::Runtime &rt, psp::Context &ctx) {
     held_ = circle;
     hint_.clear();
     updated_ = rt.now_us();
-    if (!indicators && !automatic_tools) return;
-    if ((input_blocked && input_blocked()) || psp::current_dialog(rt).kind != psp::DialogView::Kind::None) return;
     if constexpr (region::mh_gathering_probe && region::mh_gathering_interact && region::mh_inventory_slot &&
                   region::mh_game_sys && region::mh_player_manager && region::mh_cockpit &&
                   region::mh_gathering_dynamic_nodes && region::mh_stage_manager && region::mh_stage_gathering_nodes) {
         const auto *overlay = rt.active_overlay_at(*region::mh_gathering_probe);
-        if (!overlay || !std::string_view(overlay->name).ends_with("_ovl_game_task")) return;
+        if (!overlay || !std::string_view(overlay->name).ends_with("_ovl_game_task")) {
+            selection_.reset();
+            return;
+        }
         auto &m = rt.memory();
         const auto sys = m.load32(*region::mh_game_sys), manager = m.load32(*region::mh_player_manager);
-        if (!m.contains(sys, 0x29) || !m.contains(manager, 0x24)) return;
+        if (!m.contains(sys, 0x29) || !m.contains(manager, 0x24)) {
+            selection_.reset();
+            return;
+        }
         const auto slot = m.load8(sys + kGameSysPlayerSlot);
-        if (slot >= kPlayerSlots) return;
+        if (slot >= kPlayerSlots) {
+            selection_.reset();
+            return;
+        }
         const auto player = m.load32(manager + kPlayerManagerPlayers + slot * 4u);
-        if (!m.contains(player, 0x696)) return;
+        if (!m.contains(player, 0x696)) {
+            selection_.reset();
+            return;
+        }
+        // Keep the tool selected until the game has finished consuming it. Never undo a later selection or write
+        // to a player that has left. This also runs after assistance is turned off or a menu is opened.
+        if (selection_) {
+            if (selection_->player != player || m.load8(player + kPlayerReady) > 1) {
+                selection_.reset();
+            } else if (m.load8(player + kPlayerAction) != selection_->action) {
+                if (m.load16(player + kPlayerSelectedItem) == selection_->tool)
+                    m.store16(player + kPlayerSelectedItem, selection_->previous);
+                selection_.reset();
+            }
+        }
+        if (!indicators && !automatic_tools) return;
+        if ((input_blocked && input_blocked()) || psp::current_dialog(rt).kind != psp::DialogView::Kind::None) return;
         const auto cockpit = m.load32(*region::mh_cockpit);
         if (!m.contains(cockpit, 0x605) || m.load8(sys + kGameSysMenu) != 0 || m.load8(cockpit + kCockpitMenu) != 0 ||
             m.load8(cockpit + kCockpitWindow) != 0)
@@ -151,7 +174,7 @@ void Gathering::update(psp::Runtime &rt, psp::Context &ctx) {
         const auto bag = bag_call.gpr[2];
         if (!m.contains(bag, kInventorySlots * 4)) return;
         std::array<GatheringItem, kInventorySlots> items{};
-        for (std::size_t i = 0; i < items.size(); ++i)
+        for (std::uint32_t i = 0; i < kInventorySlots; ++i)
             items[i] = {m.load16(bag + 4u * i), m.load16(bag + 4u * i + 2)};
         const auto decision = decide_gathering({index, type, items, remaining == 0, carving});
         visual_active_ = decision.kind != GatheringKind::none;
@@ -193,7 +216,10 @@ void Gathering::update(psp::Runtime &rt, psp::Context &ctx) {
             throw;
         }
         const auto expected_action = decision.kind == GatheringKind::mining ? kMiningAction : kBugAction;
-        if (m.load8(player + kPlayerAction) != expected_action) m.store16(player + kPlayerSelectedItem, previous_slot);
+        if (m.load8(player + kPlayerAction) != expected_action)
+            m.store16(player + kPlayerSelectedItem, previous_slot);
+        else
+            selection_ = Selection{player, previous_slot, *decision.tool_slot, expected_action};
     }
 }
 std::string Gathering::hint(psp::Runtime &rt) const {
