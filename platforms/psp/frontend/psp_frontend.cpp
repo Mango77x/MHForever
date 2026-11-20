@@ -1981,6 +1981,8 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
                 show_songs(*impl, *runtime);
             } else {
                 ControllerState state = map_input(pad);
+                // A held Circle that closed the menu belongs to the menu until released.
+                if (impl->game_hint_input_latched) state.buttons &= ~buttons::kCircle;
                 impl->host.mouse_motion(state.mouse_x, state.mouse_y);
                 set_controller_state(*runtime, state);
                 update_dialogs(*impl, *runtime);
