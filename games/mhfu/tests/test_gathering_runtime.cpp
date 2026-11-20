@@ -90,7 +90,7 @@ int main() {
     mhf::mhfu::Gathering g;
     g.indicators = true;
     g.automatic_tools = true;
-    g.spanish = true;
+    g.language = 3;
     mhf::mhfu::GatheringArt art;
     for (auto &image : art) {
         image.size = 1;
@@ -255,6 +255,63 @@ int main() {
     m.store16(nodes + 20, std::uint16_t{3});
     m.store16(bag + 8, std::uint16_t{0x91});
     const auto actions_before_dialog = actions;
+    // Text-only fallback for every supported system language, including the non-ASCII glyphs.
+    const std::array<std::array<const char *, 6>, 6> labels{{
+        {"採掘", "虫捕り", "採集", "剥ぎ取り", "採集済み", "道具なし"},
+        {"Mine", "Catch bugs", "Gather", "Carve", "Depleted", "No tool"},
+        {"Miner", "Attraper des insectes", "Ramasser", "Dépecer", "Épuisé", "Sans outil"},
+        {"Minar", "Atrapar insectos", "Recoger", "Tallar", "Agotado", "Sin herramienta"},
+        {"Abbauen", "Käfer fangen", "Sammeln", "Ausweiden", "Erschöpft", "Kein Werkzeug"},
+        {"Estrai", "Cattura insetti", "Raccogli", "Scuoia", "Esaurito", "Nessun attrezzo"},
+    }};
+    for (int language = 0; language < 6; ++language) {
+        mhf::mhfu::Gathering localized;
+        localized.indicators = localized.automatic_tools = true;
+        localized.language = language;
+        const auto &text = labels[static_cast<std::size_t>(language)];
+        static_target = true;
+        probed_type = 3;
+        m.store16(nodes + 20, std::uint16_t{3});
+        m.store16(nodes + 18, std::uint16_t{255});
+        m.store16(bag + 8, std::uint16_t{0x91});
+        m.store16(bag + 10, std::uint16_t{2});
+        set_controller_state(rt, {});
+        localized.update(rt, ctx);
+        MHF_CHECK(localized.hint(rt) == std::string("○  ") + text[0]);
+        m.store16(nodes + 18, std::uint16_t{0});
+        localized.update(rt, ctx);
+        MHF_CHECK(localized.hint(rt) == std::string(text[0]) + " - " + text[4]);
+        m.store16(nodes + 18, std::uint16_t{255});
+        m.store16(bag + 10, std::uint16_t{0});
+        localized.update(rt, ctx);
+        MHF_CHECK(localized.hint(rt) == std::string(text[0]) + " - " + text[5]);
+        probed_type = 4;
+        m.store16(nodes + 20, std::uint16_t{4});
+        m.store16(bag + 8, std::uint16_t{0x95});
+        m.store16(bag + 10, std::uint16_t{2});
+        localized.update(rt, ctx);
+        MHF_CHECK(localized.hint(rt) == std::string("○  ") + text[1]);
+        probed_type = 0;
+        m.store16(nodes + 20, std::uint16_t{0});
+        localized.update(rt, ctx);
+        MHF_CHECK(localized.hint(rt) == std::string("○  ") + text[2]);
+        static_target = false;
+        m.store16(corpse + 16, std::uint16_t{1});
+        m.store16(corpse + 18, std::uint16_t{2});
+        localized.update(rt, ctx);
+        MHF_CHECK(localized.hint(rt) == std::string("○  ") + text[3]);
+        MHF_CHECK(localized.sprites(rt).empty());
+    }
+    static_target = true;
+    probed_type = 0;
+    m.store16(nodes + 20, std::uint16_t{0});
+    for (int language : {-1, 6, 100}) {
+        mhf::mhfu::Gathering localized;
+        localized.indicators = true;
+        localized.language = language;
+        localized.update(rt, ctx);
+        MHF_CHECK(localized.hint(rt) == "○  Gather");
+    }
     // Raw controller input must not leak into gameplay during a system dialog.
     m.store32(manager + 0x0c, player);
     set_controller_state(rt, {});

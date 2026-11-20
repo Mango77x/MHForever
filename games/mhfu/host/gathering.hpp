@@ -11,7 +11,8 @@ namespace mhf::mhfu {
 // RAM.
 class Gathering {
 public:
-    bool indicators = false, automatic_tools = false, spanish = false;
+    bool indicators = false, automatic_tools = false;
+    int language = 1; // PSP system language: Japanese, English, French, Spanish, German, Italian
     std::function<bool()> input_blocked; // frontend menu/dialog input and its release latch
     void update(psp::Runtime &rt, psp::Context &ctx);
     std::string hint(psp::Runtime &rt) const;

@@ -1069,30 +1069,32 @@ int main(int argc, char **argv) {
         // Hooks that read a switch every time, so the in-game menu can turn their enhancement on and off.
         g_fast_supply_box = fast_supply_box;
         runtime.register_hook("mh_supply_box_update", &on_supply_box_update);
-        g_gathering.spanish = options.system_language == 3;
-        const char *gathering_icons = "unavailable (text fallback)";
-        unsigned gathering_pack_atlases = 0;
-        if (region::mh_gathering_hud_file && region::mh_gathering_items_file) {
-            std::unique_ptr<mhf::psp::textures::Pack> pack;
-            if (!texture_pack.empty()) {
-                const auto game_id = disc_product_code(options.disc_image);
-                const auto folder = mhf::psp::textures::Pack::locate(texture_pack, game_id);
-                std::string error;
-                if (!folder.empty()) pack = mhf::psp::textures::Pack::open(folder, game_id, error);
+        g_gathering.language = language_pick ? options.system_language
+                               : kFucomplete ? 1 : disc_product_code(options.disc_image) == "ULJM05500" ? 0 : options.system_language;
+        bool gathering_icons_loaded = false;
+        const auto load_gathering_icons = [&] {
+            if (gathering_icons_loaded) return;
+            gathering_icons_loaded = true; // failed loads keep the text fallback; do not retry every frame
+            const char *gathering_icons = "unavailable (text fallback)";
+            unsigned gathering_pack_atlases = 0;
+            if (region::mh_gathering_hud_file && region::mh_gathering_items_file) {
+                std::unique_ptr<mhf::psp::textures::Pack> pack;
+                if (!texture_pack.empty()) {
+                    const auto game_id = disc_product_code(options.disc_image);
+                    const auto folder = mhf::psp::textures::Pack::locate(texture_pack, game_id);
+                    std::string error;
+                    if (!folder.empty()) pack = mhf::psp::textures::Pack::open(folder, game_id, error);
+                }
+                if (auto art = mhf::mhfu::load_game_gathering_art(options.disc_image, exe,
+                        *region::mh_gathering_hud_file, *region::mh_gathering_items_file, pack.get(), &gathering_pack_atlases)) {
+                    g_gathering.set_icons(std::move(*art));
+                    gathering_icons = gathering_pack_atlases ? "selected texture pack" : "original game textures";
+                }
             }
-            if (auto art = mhf::mhfu::load_game_gathering_art(options.disc_image, exe,
-                    *region::mh_gathering_hud_file, *region::mh_gathering_items_file, pack.get(), &gathering_pack_atlases)) {
-                g_gathering.set_icons(std::move(*art));
-                gathering_icons = gathering_pack_atlases ? "selected texture pack" : "original game textures";
-            }
-        }
-        if (g_gathering.indicators || g_gathering.automatic_tools)
             std::fprintf(stderr, "[gathering] icons: %s (%u/2 pack atlases, originals for the rest)\n",
                          gathering_icons, gathering_pack_atlases);
-        if (g_gathering.indicators || g_gathering.automatic_tools) {
-            std::fprintf(stderr, "[gathering] indicators=%d automatic-tools=%d\n",
-                         g_gathering.indicators, g_gathering.automatic_tools);
-        }
+        };
+        if (g_gathering.indicators || g_gathering.automatic_tools) load_gathering_icons();
         runtime.register_hook("mh_gathering_prompt_update", &on_gathering_update);
         runtime.register_hook("mh_draw_wait", &on_draw_wait); // sleeps through the game's wait for its drawing
         if (smithy_layout) smithy_browse = true; // the layout scrolls the list with Info open
@@ -1235,7 +1237,10 @@ int main(int argc, char **argv) {
                 frontend.add_game_option({"gatheringAssistance", "Gathering assistance",
                     "Shows nearby targets; Circle selects a usable pickaxe or bug net.",
                     false, g_gathering.indicators && g_gathering.automatic_tools ? 1 : 0, 0, 1, 1, "",
-                    [](int v) { g_gathering.indicators = g_gathering.automatic_tools = v != 0; }});
+                    [&load_gathering_icons](int v) {
+                        if (v != 0) load_gathering_icons();
+                        g_gathering.indicators = g_gathering.automatic_tools = v != 0;
+                    }});
             }
             // The enhancements the in-game menu changes while playing; the launcher keeps what is chosen there.
             const auto percent = [](float speed) { return static_cast<int>(std::lround(speed * 100.0f)); };

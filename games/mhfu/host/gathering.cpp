@@ -23,6 +23,18 @@ constexpr std::uint32_t kInventorySlots = 25, kCircle = 0x2000;
 constexpr std::uint8_t kMiningAction = 0x51, kBugAction = 0x52;
 constexpr std::uint64_t kHintLifetimeUs = 150'000;
 
+struct HintText {
+    const char *mine, *bugs, *gather, *carve, *depleted, *no_tool;
+};
+constexpr std::array<HintText, 6> kHints{{
+    {"採掘", "虫捕り", "採集", "剥ぎ取り", "採集済み", "道具なし"},
+    {"Mine", "Catch bugs", "Gather", "Carve", "Depleted", "No tool"},
+    {"Miner", "Attraper des insectes", "Ramasser", "Dépecer", "Épuisé", "Sans outil"},
+    {"Minar", "Atrapar insectos", "Recoger", "Tallar", "Agotado", "Sin herramienta"},
+    {"Abbauen", "Käfer fangen", "Sammeln", "Ausweiden", "Erschöpft", "Kein Werkzeug"},
+    {"Estrai", "Cattura insetti", "Raccogli", "Scuoia", "Esaurito", "Nessun attrezzo"},
+}};
+
 struct Target {
     std::uint32_t index;
     std::uint16_t type, remaining;
@@ -183,19 +195,21 @@ void Gathering::update(psp::Runtime &rt, psp::Context &ctx) {
         button_ = decision.available && (kind_ == GatheringKind::gather || kind_ == GatheringKind::carve ||
                                          (automatic_tools && decision.tool_slot.has_value()));
         if (indicators) {
+            const auto &text = kHints[language >= 0 && static_cast<std::size_t>(language) < kHints.size()
+                                         ? static_cast<std::size_t>(language) : 1u];
             if (decision.kind == GatheringKind::mining)
-                hint_ = spanish ? "Minar" : "Mine";
+                hint_ = text.mine;
             else if (decision.kind == GatheringKind::bugs)
-                hint_ = spanish ? "Atrapar insectos" : "Catch bugs";
+                hint_ = text.bugs;
             else if (decision.kind == GatheringKind::gather)
-                hint_ = spanish ? "Recoger" : "Gather";
+                hint_ = text.gather;
             else if (decision.kind == GatheringKind::carve)
-                hint_ = spanish ? "Tallar" : "Carve";
+                hint_ = text.carve;
             if (remaining == 0) {
-                hint_ += spanish ? " - Agotado" : " - Depleted";
+                hint_.append(" - ").append(text.depleted);
             } else if (decision.kind == GatheringKind::mining || decision.kind == GatheringKind::bugs) {
                 if (!decision.tool_slot)
-                    hint_ += spanish ? " - Sin herramienta" : " - No tool";
+                    hint_.append(" - ").append(text.no_tool);
                 else if (automatic_tools)
                     hint_ = "○  " + hint_;
             } else if (!hint_.empty())
