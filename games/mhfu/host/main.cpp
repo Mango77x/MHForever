@@ -1232,10 +1232,10 @@ int main(int argc, char **argv) {
                 if (previous) previous();
             };
             if (region::mh_gathering_probe && region::mh_gathering_interact) {
-                frontend.add_game_option({"gatheringIndicators", "Gathering indicators", "Shows nearby gathering spots.",
-                    false, g_gathering.indicators ? 1 : 0, 0, 1, 1, "", [](int v) { g_gathering.indicators = v != 0; }});
-                frontend.add_game_option({"autoGatheringTools", "Automatic gathering tools", "Circle selects a usable pickaxe or bug net and gathers.",
-                    false, g_gathering.automatic_tools ? 1 : 0, 0, 1, 1, "", [](int v) { g_gathering.automatic_tools = v != 0; }});
+                frontend.add_game_option({"gatheringAssistance", "Gathering assistance",
+                    "Shows nearby targets; Circle selects a usable pickaxe or bug net.",
+                    false, g_gathering.indicators && g_gathering.automatic_tools ? 1 : 0, 0, 1, 1, "",
+                    [](int v) { g_gathering.indicators = g_gathering.automatic_tools = v != 0; }});
             }
             // The enhancements the in-game menu changes while playing; the launcher keeps what is chosen there.
             const auto percent = [](float speed) { return static_cast<int>(std::lround(speed * 100.0f)); };
