@@ -149,11 +149,11 @@ void Gathering::update(psp::Runtime &rt, psp::Context &ctx) {
         // Keep the tool selected until the game has finished consuming it. Never undo a later selection or write
         // to a player that has left. This also runs after assistance is turned off or a menu is opened.
         if (selection_) {
-            if (selection_->player != player || m.load8(player + kPlayerReady) > 1) {
+            if (selection_->player != player || m.load8(player + kPlayerReady) > 1 ||
+                m.load16(player + kPlayerSelectedItem) != selection_->tool) {
                 selection_.reset();
             } else if (m.load8(player + kPlayerAction) != selection_->action) {
-                if (m.load16(player + kPlayerSelectedItem) == selection_->tool)
-                    m.store16(player + kPlayerSelectedItem, selection_->previous);
+                m.store16(player + kPlayerSelectedItem, selection_->previous);
                 selection_.reset();
             }
         }

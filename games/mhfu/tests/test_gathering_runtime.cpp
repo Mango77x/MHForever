@@ -207,7 +207,7 @@ int main() {
         started_action = type == 3 ? std::uint8_t{0x51} : std::uint8_t{0x52};
         probed_type = type;
         m.store16(nodes + 20, type);
-        for (int scenario = 0; scenario < 6; ++scenario) {
+        for (int scenario = 0; scenario < 7; ++scenario) {
             mhf::mhfu::Gathering restore;
             restore.indicators = restore.automatic_tools = true;
             m.store32(manager + 0x0c, player);
@@ -234,7 +234,15 @@ int main() {
             MHF_CHECK(actions == before_action + 1 && m.load16(player + 0x648) == 2);
             restore.update(rt, ctx);
             MHF_CHECK(actions == before_action + 1 && m.load16(player + 0x648) == 2);
-            m.store16(bag + 10, std::uint16_t{0}); // the last tool breaks during the animation
+            if (scenario == 6) {
+                // Selecting another item and then the tool again is still a deliberate selection.
+                m.store16(player + 0x648, std::uint16_t{6});
+                restore.update(rt, ctx);
+                m.store16(player + 0x648, std::uint16_t{2});
+                restore.update(rt, ctx);
+            } else {
+                m.store16(bag + 10, std::uint16_t{0}); // the last tool breaks during the animation
+            }
             if (scenario == 1) m.store16(player + 0x648, std::uint16_t{6}); // another selection wins
             if (scenario == 2) restore.indicators = restore.automatic_tools = false;
             if (scenario == 3) restore.input_blocked = [] { return true; };
@@ -246,7 +254,7 @@ int main() {
             m.store8(player + 0x299, std::uint8_t{0});
             set_controller_state(rt, {});
             restore.update(rt, ctx);
-            MHF_CHECK(m.load16(player + 0x648) == (scenario == 1 ? 6 : scenario == 4 ? 2 : 4));
+            MHF_CHECK(m.load16(player + 0x648) == (scenario == 1 ? 6 : (scenario == 4 || scenario == 6) ? 2 : 4));
             MHF_CHECK(std::memcmp(&ctx, &saved, sizeof ctx) == 0);
         }
     }
