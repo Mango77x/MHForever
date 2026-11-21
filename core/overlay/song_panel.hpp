@@ -6,6 +6,8 @@
 
 #include <array>
 #include <charconv>
+#include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -49,6 +51,14 @@ inline std::optional<SongSpot> parse_song_spot(std::string_view text) {
     return spot;
 }
 
+// A game-provided square sprite. Pixels are premultiplied RGBA8; coordinates use the 480x272 canvas.
+struct HintSprite {
+    float x{}, y{}, size{}, alpha = 1.0f;
+    int source_size{};
+    std::shared_ptr<const std::vector<std::uint32_t>> pixels;
+    bool operator==(const HintSprite &) const = default;
+};
+
 struct SongPanel {
     struct Note {
         float r = 1.0f, g = 1.0f, b = 1.0f;
@@ -62,6 +72,8 @@ struct SongPanel {
         bool active = false;     // its effect is on the hunter now
         bool operator==(const Song &) const = default;
     };
+    std::vector<HintSprite> hint_sprites;
+    std::string hint; // optional game-provided action prompt, independent of the songs
     std::vector<Song> songs;
     bool operator==(const SongPanel &) const = default;
 };

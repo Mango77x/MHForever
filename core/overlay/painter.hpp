@@ -61,7 +61,7 @@ public:
                float tracking = 0.0f);
     // A square image (premultiplied RGBA, `source_size` pixels a side) drawn `size` logical units wide at (x, y). Shrinking
     // averages the source pixels each destination pixel covers, so it stays smooth at any scale.
-    void image(float x, float y, float size, const std::uint32_t *source, int source_size);
+    void image(float x, float y, float size, const std::uint32_t *source, int source_size, float opacity = 1.0f);
     // A line of `thickness` logical units: an axis-aligned filled rectangle without rounding.
     void rect(float x, float y, float w, float h, Color c, float alpha);
     // Shortens `str` with an ellipsis to fit `max_width`.

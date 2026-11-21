@@ -625,6 +625,10 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           </>
         )}
         <div className="srow">
+          <div className="slabel"><b>Gathering assistance</b><span>Shows nearby gathering and carving targets; Circle selects a usable pickaxe or bug net.</span></div>
+          <Toggle on={s.gatheringAssistance ?? false} onToggle={() => onChange({ gatheringAssistance: !(s.gatheringAssistance ?? false) })} label="Gathering assistance" />
+        </div>
+        <div className="srow">
           <div className="slabel"><b>Show hunting horn songs</b><span>Displays the hunting horn's songs, the song being played and active effects during quests.</span></div>
           <Toggle on={s.hornSongs ?? false} onToggle={() => onChange({ hornSongs: !(s.hornSongs ?? false) })} label="Show hunting horn songs" />
         </div>

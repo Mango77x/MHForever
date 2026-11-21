@@ -185,7 +185,9 @@ float Painter::measure(const std::string &text, float size, bool bold, float tra
     return w / scale_ + (bold ? 0.4f : 0.0f) + tracking * static_cast<float>(glyphs);
 }
 
-void Painter::image(float x, float y, float size, const std::uint32_t *source, int source_size) {
+void Painter::image(float x, float y, float size, const std::uint32_t *source, int source_size, float opacity) {
+    const auto fade = byte(opacity);
+    if (!source || source_size <= 0 || fade == 0) return;
     const int dest = std::max(1, static_cast<int>(std::lround(size * scale_)));
     const int x0 = static_cast<int>(std::lround(x * scale_)), y0 = static_cast<int>(std::lround(y * scale_));
     const float ratio = static_cast<float>(source_size) / static_cast<float>(dest);
@@ -209,14 +211,15 @@ void Painter::image(float x, float y, float size, const std::uint32_t *source, i
                 }
             }
             if (count == 0) continue;
-            const std::uint32_t a = sum[3] / static_cast<std::uint32_t>(count);
+            const std::uint32_t a = ((sum[3] / static_cast<std::uint32_t>(count)) * fade + 127u) / 255u;
             if (a == 0) continue;
             // Premultiplied source: dst = src + dst * (1 - a).
             std::uint32_t &d = (*px_)[static_cast<std::size_t>(py) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(pxx)];
             const std::uint32_t inv = 255u - a;
             std::uint32_t out = 0;
             for (int c = 0; c < 4; ++c) {
-                const std::uint32_t v = sum[c] / static_cast<std::uint32_t>(count) + (((d >> (8 * c)) & 0xFFu) * inv + 127u) / 255u;
+                const std::uint32_t v = ((sum[c] / static_cast<std::uint32_t>(count)) * fade + 127u) / 255u +
+                                        (((d >> (8 * c)) & 0xFFu) * inv + 127u) / 255u;
                 out |= std::min(v, 255u) << (8 * c);
             }
             d = out;

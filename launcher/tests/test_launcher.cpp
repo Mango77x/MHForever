@@ -330,6 +330,14 @@ int main(int argc, char **argv) {
         CHECK(l.state()["settings"]["widescreen"].as_bool()); // not a bool: unchanged
         wide["widescreen"] = false;
         l.set_settings(wide);
+        CHECK(!l.state()["settings"]["gatheringAssistance"].as_bool(true));
+        Json gathering;
+        gathering["gatheringAssistance"] = true;
+        l.set_settings(gathering);
+        CHECK(l.state()["settings"]["gatheringAssistance"].as_bool());
+        gathering["gatheringAssistance"] = "no";
+        l.set_settings(gathering);
+        CHECK(l.state()["settings"]["gatheringAssistance"].as_bool());
         // Hunting horn songs: off by default, a bool turns them on, anything else is ignored.
         CHECK(!l.state()["settings"]["hornSongs"].as_bool(true));
         Json horn;
@@ -483,7 +491,7 @@ int main(int argc, char **argv) {
                                              << "option.packMipmaps=true\noption.anisotropy=8\n"
                                              << "option.projectedShadows=true\noption.wholeMapShadows=false\n"
                                              << "option.shadowQuality=1\noption.shadowDarkness=70\n"
-                                             << "option.widescreen=true\n";
+                                             << "option.widescreen=true\noption.gatheringAssistance=false\n";
         }
         l.import_game_controls();
         CHECK(l.state()["settings"]["packMipmaps"].as_bool()); // the texture pack filtering from the Video tab
@@ -502,6 +510,10 @@ int main(int argc, char **argv) {
         CHECK(l.state()["settings"]["trueWeaponValues"].as_bool() == true_values_before); // not a switch: unchanged
         CHECK(!l.state()["settings"]["copyImage"].as_bool(true));                // not one the game changes
 
+        CHECK(!l.state()["settings"]["gatheringAssistance"].as_bool(true));
+        std::ofstream(l.controls_file()) << "option.gatheringAssistance=true\n";
+        l.import_game_controls();
+        CHECK(l.state()["settings"]["gatheringAssistance"].as_bool());
         auto plan = l.plan_launch("mhfu");
         CHECK(!plan.error.empty()); // no game files here
     }
@@ -511,6 +523,7 @@ int main(int argc, char **argv) {
         CHECK(again.state()["friends"].as_array().size() == 1);
         CHECK(again.state()["settings"]["fullscreen"].as_bool());
         CHECK(again.state()["settings"]["fps"].as_number() == 90);
+        CHECK(again.state()["settings"]["gatheringAssistance"].as_bool());
         CHECK(again.state()["settings"]["sfxVolume"].as_number() == 35); // the game's volume survives a restart
         CHECK(again.state()["settings"]["language"].as_string() == "es");
         CHECK(again.state()["settings"]["keys"]["south"].as_string() == "KeyZ");
@@ -990,6 +1003,43 @@ int main(int argc, char **argv) {
         }
     }
 
+    // Launch arguments and saved choices for every Unite edition, using synthetic files only.
+    for (const auto &edition : catalog()) {
+        if (std::string_view(edition.game) != "mhfu") continue;
+        const fs::path base = dir / (std::string("gathering_") + edition.disc_id), data = base / "data";
+        fs::create_directories(data);
+        const fs::path image = base / "disc.iso";
+        std::ofstream(image) << "synthetic image";
+        std::ofstream(base / (std::string(edition.disc_id) + "_EBOOT.BIN"), std::ios::binary)
+            << std::string(edition.dev_executable_size, '\0');
+        const std::string_view disc = edition.disc_id;
+        std::string program = disc == "ULUS10391" ? "mhfu-us" : disc == "ULJM05500" ? "mhfu-jp"
+                              : disc == "ULJM05500-FUC" ? "mhfu-fuc" : "mhfu";
+#if defined(_WIN32)
+        program += ".exe";
+#endif
+        std::ofstream(base / program) << "synthetic program";
+        std::ofstream(data / "launcher.json") << "{\"games\":[{\"discId\":\"" << edition.disc_id
+            << "\",\"isoPath\":\"" << image.generic_string() << "\"}]}";
+        if (std::string_view(edition.edition) == "fuc") {
+            const fs::path stick = data / "saves" / edition.disc_id;
+            fs::create_directories(fuc::save_folder(stick));
+            std::ofstream(fuc::save_folder(stick) / "CONFIG.BIN", std::ios::binary) << std::string(64, '\0');
+        }
+        Launcher l(base, data);
+        for (bool enabled : {false, true, false}) {
+            Json gathering;
+            gathering["gatheringAssistance"] = enabled;
+            l.set_settings(gathering);
+            const auto plan = l.plan_launch("mhfu");
+            CHECK(plan.error.empty());
+            CHECK((std::find(plan.args.begin(), plan.args.end(), "--gathering-indicators") != plan.args.end()) == enabled);
+            CHECK((std::find(plan.args.begin(), plan.args.end(), "--auto-gathering-tools") != plan.args.end()) == enabled);
+            Launcher again(base, data);
+            CHECK(again.state()["settings"]["gatheringAssistance"].as_bool() == enabled);
+        }
+    }
+
     // FUComplete's options go into its CONFIG.BIN, byte by byte, and its minimap size always stays at its default.
     {
         std::vector<std::uint8_t> config(64, 0);
@@ -1126,6 +1176,15 @@ int main(int argc, char **argv) {
             l.set_settings(shadows);
             const auto off_but_kept = l.plan_launch("mhfu");
             CHECK(!has(off_but_kept.args, "--projected-shadows") && value_of(off_but_kept.args, "--shadow-quality") == "2");
+
+            Json gathering;
+            for (bool enabled : {false, true, false}) {
+                gathering["gatheringAssistance"] = enabled;
+                l.set_settings(gathering);
+                const auto gathered = l.plan_launch("mhfu");
+                CHECK(has(gathered.args, "--gathering-indicators") == enabled);
+                CHECK(has(gathered.args, "--auto-gathering-tools") == enabled);
+            }
 
             // Widescreen reaches the game as a switch, only when on.
             Json wide;

@@ -243,6 +243,21 @@ local `research/` notes (`research/README.md`).
 | Own pause/system menu | Low | |
 | Cloud-synced saves | Low | Configurable folder |
 
+### Gathering assistance
+
+The optional **Gathering assistance** switch enables nearby gathering, mining, bug-catching and monster/tail carving
+indicators together with automatic pickaxe/bug-net selection on Circle. It is off by default; the launcher and in-game
+Game tab keep the same setting for the next launch. EU, US, JP and FUComplete are supported through their region maps.
+Exhausted spots and missing tools show a red X; nothing appears away from targets. Tool consumption stays with the game,
+and the previous item is restored after the action unless the selection changed. The independent native flags remain
+`--gathering-indicators` and `--auto-gathering-tools`.
+
+Icons load when assistance is first enabled, directly from the selected texture pack with per-atlas fallback to the
+player's original ISO. No extraction or distributed artwork is needed. Text fallback supports Japanese, English, French,
+Spanish, German and Italian, following the configured language; stock JP defaults to Japanese, FUComplete to English,
+and “Ask” keeps the host default. Inspired by Lunng's [Gathering Nodes mod](https://www.nexusmods.com/monsterhunterfreedomunite/mods/26)
+and [source](https://github.com/pggkun/mhfu_gathering_nodes).
+
 ## 10. Specific risks
 
 - System fonts: FU imports `sceLibFont` → free replacement fonts with compatible metrics (no PGF).

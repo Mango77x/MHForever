@@ -33,6 +33,19 @@ mh_smithy_panel_draw          = 0x09A7ED60 # (List*): the panel the list shows (
 mh_smithy_model_update        = 0x09AB2060 # (Model*): the smithy's weapon model; the left stick turns it
 
 [data]
+# Original icon atlases in DATA.BIN (same images in stock 2nd G and FUComplete v1.4.0).
+mh_gathering_hud_file = 18 # HUD atlas is image 1
+mh_gathering_items_file = 5323 # item atlas is image 0
+
+# Gathering assistance: matched against EU functions in this release's executable and game_task overlay.
+# Only relocated address operands differ; target layout, tool IDs and action codes are unchanged.
+mh_gathering_probe = 0x09A6A690 # (Player*, u16* type, float* position) -> static node index
+mh_gathering_interact = 0x09AA2040 # stock validated interaction (mode 2 for tools)
+mh_gathering_dynamic_nodes = 0x09A4ADA0 # pointer; 20 nodes at +4, stride32
+mh_stage_manager = 0x08A5DD4C # StageManager*
+mh_stage_gathering_nodes = 0x08869568 # (StageManager*, stage id) -> static nodes, stride24
+mh_inventory_slot = 0x088567AC # (GameSys*, slot) -> {u16 item, u16 count}
+
 mh_overlay_region_bases = 0x089C6B40 # u32[6], region base address per group
 
 # Menu display of weapon values (--true-weapon-values; verified 2026-11-02). Damage never reads these.
@@ -75,6 +88,8 @@ system_active_overlays  = 0x00F7A3C0 # u16[6] inside System, active DATA.BIN fil
 # move (and paging) while the R panel is open (a test of flag 0x20; immediate 0 never finds it set) and while
 # Info is open (a branch on the Info level, never taken).
 [patches]
+mh_gathering_prompt_update = "executable 0x08845C94 call"
+
 mh_smithy_create_requires_blocks_up_down     = "lobby_task.ovl 0x09A9DED4 immediate 0"
 mh_smithy_create_requires_blocks_paging      = "lobby_task.ovl 0x09A9DF98 immediate 0"
 mh_smithy_create_info_blocks_up_down         = "lobby_task.ovl 0x09A9DEC8 never"

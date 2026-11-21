@@ -94,6 +94,9 @@ public:
     // its quest HUD and no menu, system dialog or notice is up; std::nullopt (no horn, not in a quest) hides them. Only
     // the OpenGL renderer finds the quest HUD, so the software renderer never shows them.
     void set_song_panel(std::optional<overlay::SongPanel> panel);
+    // A short game-provided action prompt; hidden with the quest HUD and while menus are open.
+    void set_game_hint(std::string hint, std::vector<overlay::HintSprite> sprites = {});
+    [[nodiscard]] bool game_input_blocked() const;
     // Mouse look: while `wanted` says so and the game has the input (no menu, system dialog or song placing), the mouse
     // is held in the window and its motion reaches the game's hooks (ControllerState::mouse_x and mouse_y). Asked on the
     // game's thread at every poll.

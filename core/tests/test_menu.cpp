@@ -413,6 +413,34 @@ int main() {
         MHF_CHECK((card[static_cast<std::size_t>(500 * 960 + 30)] >> 24u) != 0); // the card, near the bottom left
         MHF_CHECK(card[static_cast<std::size_t>(40 * 960 + 900)] == 0u);         // the game shows through elsewhere
     }
+    // Game action prompts render independently of the horn songs, and both can coexist.
+    {
+        SongPanel action;
+        action.hint = "○  Minar";
+        std::vector<std::uint32_t> card;
+        MHF_CHECK(renderer.render_song_panel(action, 10, 262, 0, 1, 960, 544, card));
+        MHF_CHECK((card[420u * 960u + 480u] >> 24u) != 0);
+        MHF_CHECK(card[500u * 960u + 30u] == 0); // no empty horn card
+        action.songs = {{"Song", {{1,1,1}}, 0, false, false}};
+        MHF_CHECK(renderer.render_song_panel(action, 10, 262, 0, 1, 960, 544, card));
+        MHF_CHECK((card[420u * 960u + 480u] >> 24u) != 0);
+        MHF_CHECK((card[515u * 960u + 30u] >> 24u) != 0);
+    }
+    // Context icons use the reference's upper-centre coordinates and premultiplied opacity.
+    {
+        SongPanel icons;
+        auto source = std::make_shared<const std::vector<std::uint32_t>>(16, 0xffffffffu);
+        icons.hint_sprites = {{225, 80, 32, 0.5f, 4, source}};
+        std::vector<std::uint32_t> card;
+        MHF_CHECK(renderer.render_song_panel(icons, 0, 0, 0, 0, 960, 544, card));
+        MHF_CHECK(card[180u * 960u + 470u] == 0x80808080u);
+        MHF_CHECK(card[159u * 960u + 470u] == 0u);
+        MHF_CHECK(card[224u * 960u + 470u] == 0u);
+        MHF_CHECK(card[420u * 960u + 480u] == 0u); // no bottom text card
+        icons.hint_sprites[0].alpha = 0;
+        MHF_CHECK(renderer.render_song_panel(icons, 0, 0, 0, 0, 960, 544, card));
+        MHF_CHECK(card[180u * 960u + 470u] == 0u);
+    }
     // Where the songs go, as the launcher and the controls file write it.
     MHF_CHECK(parse_song_spot("next-to-sheet") == SongSpot{SongPlace::next_to_sheet});
     MHF_CHECK(SongSpot{}.place == SongPlace::next_to_sheet); // the default
