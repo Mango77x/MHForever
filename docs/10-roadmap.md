@@ -159,6 +159,8 @@ Done too: an improved smithy layout, Info on the left with the list and its mate
 (`--smithy-layout`, launcher setting; `06-mhfu-module.md` §9).
 Done too: optional gathering indicators and automatic tools for EU, US, JP and FUComplete, kept by the launcher
 (`gatheringAssistance`, `--gathering-indicators`, `--auto-gathering-tools`; `06-mhfu-module.md` §9).
+Done too: skipping the start-up screens, the boot going from the memory stick check straight to the title screen
+(`skipIntro`, `--skip-intro`, launcher setting; issue #106; `06-mhfu-module.md` §9).
 Done too: the hunting horn's songs over the quest HUD, from the game's own tables, with the song being played and the songs
 in effect marked, named in the game's own language (`--horn-songs`, launcher setting; `06-mhfu-module.md` §9).
 Done too: an analog camera, the right stick turning it as fast as it is pushed and tilting it smoothly from the game's

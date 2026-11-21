@@ -152,6 +152,7 @@ Json default_settings() {
     s["mouseCamera"] = false;     // with the analog camera: the mouse turns and tilts it too
     s["mouseCameraSpeed"] = 100;  // its sensitivity in percent: 25..300 in steps of 25
     s["gatheringAssistance"] = false; // nearby indicators and automatic pickaxe/bug-net selection
+    s["skipIntro"] = false; // start at the title screen, without the start-up logos and the opening movie
     s["hornSongs"] = false; // the hunting horn's songs over the quest HUD
     s["hornSongsPlace"] = "next-to-sheet"; // and where: a place's name, or "custom:X,Y" (overlay/song_panel.hpp)
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
@@ -1129,7 +1130,7 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
         s["anisotropy"] = std::exp2(std::round(std::log2(level)));
     }
     for (const char *key : {"fullscreen", "smoothTextures", "packMipmaps", "projectedShadows", "wholeMapShadows", "widescreen", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
-                            "analogCamera", "mouseCamera", "hornSongs", "gatheringAssistance", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest",
+                            "analogCamera", "mouseCamera", "hornSongs", "gatheringAssistance", "skipIntro", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest",
                             "fucDrinkBuff", "fdxHoldToGather", "fdxTrueRaw", "fdxLaoEarlyKill", "fdxSnsDebuff", "fdxFileReplacer",
                             "fdxFelyneSkills", "fdxDrinkBuff", "fdxInstantSupply", "fdxOfflineTreasure"}) {
         if (partial[key].is_bool()) s[key] = partial[key];
@@ -1547,6 +1548,7 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back("--mouse-camera-speed");
         plan.args.push_back(num("mouseCameraSpeed"));
     }
+    if (std::string_view(entry->game) == "mhfu" && s["skipIntro"].as_bool()) plan.args.push_back("--skip-intro");
     if (std::string_view(entry->game) == "mhfu" && s["gatheringAssistance"].as_bool()) {
         plan.args.push_back("--gathering-indicators");
         plan.args.push_back("--auto-gathering-tools");

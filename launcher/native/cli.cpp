@@ -23,7 +23,7 @@ namespace {
 
 // The settings `--set` changes (the others, such as the controls, are changed in the game's own menu).
 constexpr const char *kBoolSettings[] = {"fullscreen", "smoothTextures", "packMipmaps", "trueWeaponValues", "fastSupplyBox",
-                                         "smithyBrowse", "smithyLayout", "analogCamera", "mouseCamera", "hornSongs", "gatheringAssistance",
+                                         "smithyBrowse", "smithyLayout", "analogCamera", "mouseCamera", "hornSongs", "gatheringAssistance", "skipIntro",
                                          "projectedShadows", "wholeMapShadows", "widescreen"};
 constexpr const char *kNumberSettings[] = {"scale", "fps", "hudSize", "musicVolume", "sfxVolume",
                                            "analogCameraTurnSpeed", "analogCameraTiltSpeed", "mouseCameraSpeed", "anisotropy",

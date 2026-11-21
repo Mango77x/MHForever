@@ -588,6 +588,10 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
       {enhanced && <motion.div className="glass section" {...rise(0.065)}>
         <h3>Game</h3>
         <div className="srow">
+          <div className="slabel"><b>Skip intro</b><span>Starts at the title screen, without the startup logos and the opening movie.</span></div>
+          <Toggle on={s.skipIntro ?? false} onToggle={() => onChange({ skipIntro: !(s.skipIntro ?? false) })} label="Skip intro" />
+        </div>
+        <div className="srow">
           <div className="slabel"><b>Show true weapon values</b><span>{fucomplete
             ? "Uses FUComplete's true raw display for attack, element and status."
             : "Displays attack and element without the game's display multipliers."}</span></div>
