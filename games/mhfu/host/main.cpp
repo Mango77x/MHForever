@@ -516,6 +516,8 @@ int g_tilt_level = 0;          // the level the tilt last saw or set: when the g
 bool g_stick_tilted = false;   // the stick has tilted since that d-pad step: the curve holds the camera, not a level
 float g_tilt_pitch = 0.0f;     // where on the curve, as the angle the camera looks down at
 std::optional<std::uint32_t> g_tilt_preset_block; // where the curve's preset is written
+float g_fov_level0 = kFovLevel0; // the field of view the game last set at level 0, and at levels 1-4
+float g_fov_other = kFovOther;
 
 // The camera has copied this frame's buttons from the pad (into s0, its button copy): a0 is 1 when it took them all.
 // Otherwise a menu or a scene has the pad (the camera keeps only L, or nothing), and the stick leaves the camera alone
@@ -775,13 +777,17 @@ void on_camera_tilt_preset_chosen(Runtime &rt, Context &ctx) {
     // A camera with a fixed preset of its own is not tilted.
     if (level >= kTiltLevels || memory.load32(camera + kCameraPreset) != tilt_preset(table, level)) return;
 
+    // The field of view the game has just set for its level (it sets it every time, right before this): FUComplete's
+    // field of view option rewrites the one of levels 1-4 (issue #105), so the curve takes the game's, not ours.
+    const float game_fov = std::bit_cast<float>(memory.load32(camera + kCameraFov));
+    if (std::isfinite(game_fov) && game_fov > 0.0f) (level == 0 ? g_fov_level0 : g_fov_other) = game_fov;
     std::array<CameraView, kTiltLevels> levels;
     for (int l = 0; l < kTiltLevels; ++l) {
         const std::uint32_t at = tilt_preset(table, l);
         if (!memory.contains(at, kPresetSize)) return;
         for (std::size_t i = 0; i < levels[l].preset.size(); ++i)
             levels[l].preset[i] = std::bit_cast<float>(memory.load32(at + static_cast<std::uint32_t>(i) * 4u));
-        levels[l].fov = l == 0 ? kFovLevel0 : kFovOther;
+        levels[l].fov = l == 0 ? g_fov_level0 : g_fov_other;
     }
     TiltCurve curve;
     for (std::size_t i = 0; i < curve.size(); ++i) {
