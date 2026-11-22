@@ -663,11 +663,16 @@ struct Request {
         mem.store32(info + 20, kFreeClusters);
         mem.store32(info + 24, kFreeKB);
         store_size_text(info + 28, kFreeKB);
-        mem.store32(info + 36, static_cast<std::uint32_t>(needed * kb_per_cluster));
-        store_size_text(info + 40, needed * kb_per_cluster);
+        // neededKB and overwriteKB are the space still missing beyond the free space, to write the files as a new save
+        // and over the one already there: 0 when they fit. Freedom Unite's data install reads any other value as "not
+        // enough free space" (issue reported on Discord, 2026-11-21).
         const std::uint64_t overwrite = needed > current ? needed - current : 0;
-        mem.store32(info + 48, static_cast<std::uint32_t>(overwrite * kb_per_cluster));
-        store_size_text(info + 52, overwrite * kb_per_cluster);
+        const std::uint64_t missing = needed > kFreeClusters ? needed - kFreeClusters : 0;
+        const std::uint64_t missing_overwrite = overwrite > kFreeClusters ? overwrite - kFreeClusters : 0;
+        mem.store32(info + 36, static_cast<std::uint32_t>(missing * kb_per_cluster));
+        store_size_text(info + 40, missing * kb_per_cluster);
+        mem.store32(info + 48, static_cast<std::uint32_t>(missing_overwrite * kb_per_cluster));
+        store_size_text(info + 52, missing_overwrite * kb_per_cluster);
         return 0;
     }
 

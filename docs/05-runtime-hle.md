@@ -236,6 +236,10 @@ provides. Writes go through a temporary file and a rename, so a crash never leav
 means "none" (the folder is the game name alone). Where the system would show a list for the player, the slot is chosen
 from the game's list and focus hint (newest existing save for loads, first empty slot for new saves) and written back to
 `saveName`. Parameter offsets were checked with `offsetof()` against the pspsdk header (structure size 0x600).
+The memory stick reports 1 GiB free (32 KiB clusters). Get size (mode 22) answers, besides the free space, how much space
+is still missing beyond it (`neededKB`, and `overwriteKB` over the save already there): 0 when the files fit. Freedom
+Unite's data install (183 files, about 580 MB) reads anything else as "not enough free space"; until 2026-11-22 the total
+size went there and the install always stopped.
 
 **Save encryption (2026-10-22).** The original system encrypts the data file with a 16-byte key that the game passes in the
 request (offset 0x5DC of `SceUtilitySavedataParam`; one key per version of the game: the European and American releases
