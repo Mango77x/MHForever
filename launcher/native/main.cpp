@@ -91,6 +91,14 @@ void bind(const char *name, Handler handler) {
 
 void *native_window() { return webview_get_window(g_app.view); }
 
+// In Steam's Game Mode the launcher's window steps aside while the game runs, and comes back when it closes.
+void show_launcher(bool shown) {
+    if (!platform::game_mode()) return;
+    webview_dispatch(
+        g_app.view, [](webview_t, void *arg) { platform::show_window(native_window(), arg != nullptr); },
+        shown ? &g_app : nullptr);
+}
+
 void on_get_state(const char *id, const Json &) { reply(id, g_app.launcher->state()); }
 
 void on_set_settings(const char *id, const Json &args) {
@@ -546,9 +554,11 @@ void on_play(const char *id, const Json &args) {
             if (!running && std::chrono::steady_clock::now() - started > std::chrono::milliseconds(1500)) {
                 running = true;
                 phase("running");
+                show_launcher(false);
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
+        if (running) show_launcher(true);
         const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - started).count();
         if (code != 0 && seconds < 10) {
             return fail("The game closed right away (code " + std::to_string(code) + "). Its log is in " +

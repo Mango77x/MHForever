@@ -1,7 +1,9 @@
 #include "platform.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <random>
@@ -23,6 +25,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+extern char **environ;
 #endif
 
 #if !defined(_WIN32)
@@ -197,6 +200,9 @@ void random_bytes(std::uint8_t *out, std::size_t size) {
     BCryptGenRandom(nullptr, out, static_cast<ULONG>(size), BCRYPT_USE_SYSTEM_PREFERRED_RNG);
 }
 
+bool game_mode() { return false; }
+void show_window(void *, bool) {}
+
 void style_window(void *window) {
     HWND hwnd = static_cast<HWND>(window);
     if (hwnd == nullptr) return;
@@ -360,7 +366,24 @@ void random_bytes(std::uint8_t *out, std::size_t size) {
     for (std::size_t i = 0; i < size; ++i) out[i] = static_cast<std::uint8_t>(fallback());
 }
 
+bool game_mode() {
+    // gamescope gives the programs it runs its Wayland display; its session names itself as the desktop.
+    const char *desktop = std::getenv("XDG_CURRENT_DESKTOP");
+    return std::getenv("GAMESCOPE_WAYLAND_DISPLAY") != nullptr ||
+           (desktop != nullptr && std::strstr(desktop, "gamescope") != nullptr);
+}
+
 #if !defined(MHF_NO_GTK)
+void show_window(void *window, bool shown) {
+    if (window == nullptr) return;
+    if (shown) {
+        gtk_widget_show(GTK_WIDGET(window));
+        gtk_window_present(GTK_WINDOW(window));
+    } else {
+        gtk_widget_hide(GTK_WIDGET(window));
+    }
+}
+
 void style_window(void *window) {
     // The name and icon the desktop shows for the window (WM_CLASS, the task bar, alt-tab).
     g_set_prgname("MHForever");
@@ -386,6 +409,7 @@ void show_error(const std::string &title, const std::string &message) {
 }
 #else
 void style_window(void *) {}
+void show_window(void *, bool) {}
 
 void show_error(const std::string &title, const std::string &message) {
     std::fprintf(stderr, "%s: %s\n", title.c_str(), message.c_str());
@@ -403,6 +427,36 @@ std::optional<Process> Process::start(const fs::path &program, const std::vector
     std::vector<char *> argv;
     for (auto &a : argv_store) argv.push_back(a.data());
     argv.push_back(nullptr);
+
+    // The launcher's first program (starter_linux.cpp) may have changed the window's environment (the bundled WebKitGTK's
+    // libraries first in LD_LIBRARY_PATH, Steam's runtime out of it): the programs started from here get it back as it
+    // came. MHF_RESTORE_ENV lists the names changed; MHF_SYSTEM_<name> holds each one's value (absent: it was not set).
+    // Built before fork(), because the child of a program with threads may not allocate.
+    std::vector<std::string> env_store;
+    std::vector<std::string> changed;
+    if (const char *list = std::getenv("MHF_RESTORE_ENV")) {
+        const std::string names = list;
+        for (std::size_t start = 0; start < names.size();) {
+            const auto end = std::min(names.find(':', start), names.size());
+            if (end > start) changed.push_back(names.substr(start, end - start));
+            start = end + 1;
+        }
+    }
+    for (char **e = environ; e != nullptr && *e != nullptr; ++e) {
+        const std::string entry = *e;
+        const std::string name = entry.substr(0, entry.find('='));
+        if (name == "MHF_RESTORE_ENV" || std::find(changed.begin(), changed.end(), name) != changed.end()) continue;
+        const std::string saved = "MHF_SYSTEM_";
+        if (name.rfind(saved, 0) == 0 &&
+            std::find(changed.begin(), changed.end(), name.substr(saved.size())) != changed.end()) {
+            env_store.push_back(entry.substr(saved.size()));
+        } else {
+            env_store.push_back(entry);
+        }
+    }
+    std::vector<char *> envp;
+    for (auto &e : env_store) envp.push_back(e.data());
+    envp.push_back(nullptr);
 
     // A pipe tells us why exec failed: the child can only report it through its exit code otherwise.
     int report[2] = {-1, -1};
@@ -440,7 +494,7 @@ std::optional<Process> Process::start(const fs::path &program, const std::vector
             dup2(fd, 2);
             close(fd);
         }
-        execv(argv[0], argv.data());
+        execve(argv[0], argv.data(), envp.data());
         report_failure(errno);
         _exit(127);
     }

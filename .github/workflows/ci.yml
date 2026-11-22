@@ -39,7 +39,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build clang pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev \
             libasound2-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev \
-            libavcodec-dev libavutil-dev
+            libavcodec-dev libavutil-dev glib-networking
       - name: Install pspdev toolchain for our homebrew tests (Linux)
         if: runner.os == 'Linux'
         env:
@@ -75,13 +75,75 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           cp build/linux-clang/core/mhf /tmp/mhfu
+          # WebKitGTK for systems without it (SteamOS), as the release carries it.
+          python3 scripts/bundle_webkit_linux.py --out /tmp/webkit-bundle
           python3 scripts/package_release.py --platform linux \
-            --launcher build/linux-clang/launcher/MHForever --game /tmp/mhfu \
-            --fonts third_party/fonts/liberation-sans --out /tmp/mhf-release
+            --launcher build/linux-clang/launcher/MHForever \
+            --launcher-window build/linux-clang/launcher/MHForever-window \
+            --launcher-cli build/linux-clang/launcher/MHForever-cli --webkit-bundle /tmp/webkit-bundle \
+            --game /tmp/mhfu --fonts third_party/fonts/liberation-sans --out /tmp/mhf-release
           # The archive, the core program and CMakeLists.txt must agree on the version.
           version=$(build/linux-clang/core/mhf --version)
           test -f "/tmp/mhf-release/MHForever-${version}-linux-x64.tar.gz"
           tar tzf "/tmp/mhf-release/MHForever-${version}-linux-x64.tar.gz"
+      - name: Keep the Linux archive for the SteamOS test
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-release
+          path: /tmp/mhf-release/*.tar.gz
+          retention-days: 3
+
+  # The launcher's window on the Steam Deck's SteamOS, which has no WebKitGTK: the archive's own copy must start, in
+  # the system of Valve's latest recovery image, as the deck user (scripts/steamos_smoke_test.sh).
+  steamos:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-release
+          path: release
+      - name: Install the test's tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y btrfs-progs lbzip2 zstd xvfb x11-apps imagemagick
+      - name: Find Valve's latest recovery image
+        id: image
+        run: |
+          url=$(curl -sSfI https://steamdeck-images.steamos.cloud/recovery/steamdeck-repair-latest.img.bz2 \
+            | awk 'tolower($1) == "location:" {print $2}' | tr -d '\r')
+          echo "name=$(basename "$url")" >> "$GITHUB_OUTPUT"
+      # Its system, kept between runs (the image is 3.4 GB to download).
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: steamos-rootfs.tar.zst
+          key: steamos-rootfs-${{ steps.image.outputs.name }}
+      - name: SteamOS's system
+        run: |
+          sudo mkdir rootfs
+          if [ -f steamos-rootfs.tar.zst ]; then
+            sudo tar --zstd -xpf steamos-rootfs.tar.zst -C rootfs
+          else
+            sudo scripts/steamos_smoke_test.sh rootfs rootfs
+            sudo tar --zstd -cpf steamos-rootfs.tar.zst -C rootfs .
+            sudo chown "$USER" steamos-rootfs.tar.zst
+          fi
+          grep -E '^(PRETTY_NAME|VERSION_ID)=' rootfs/etc/os-release
+      - name: The launcher on SteamOS
+        run: |
+          mkdir unpacked
+          tar xzf release/*.tar.gz -C unpacked
+          sudo scripts/steamos_smoke_test.sh run rootfs unpacked/MHForever-* steamos.png
+      - name: Keep its screen
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: steamos-screen
+          path: steamos.png
+          retention-days: 14
+          if-no-files-found: ignore
 
   # AddressSanitizer + UndefinedBehaviorSanitizer over the whole test suite.
   sanitizers:

@@ -29,6 +29,11 @@ void random_bytes(std::uint8_t *out, std::size_t size);
 void style_window(void *window);
 void show_error(const std::string &title, const std::string &message);
 
+// Steam's Game Mode on the Steam Deck (gamescope), which shows one window at a time: the launcher hides while the game
+// runs (show_window). Never on Windows.
+bool game_mode();
+void show_window(void *window, bool shown);
+
 class Process {
 public:
     // Starts `program` with `args` in `cwd`; stdout and stderr go to `log_file`. No console window on Windows.

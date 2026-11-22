@@ -50,6 +50,14 @@ int main(int argc, char **argv) {
         std::printf("child ran\n");
         return std::atoi(argv[2]);
     }
+    if (argc > 1 && std::string(argv[1]) == "--print-env") {
+        for (const char *name : {"LD_LIBRARY_PATH", "GIO_EXTRA_MODULES", "MHF_RESTORE_ENV", "MHF_SYSTEM_LD_LIBRARY_PATH",
+                                 "MHF_TEST_KEPT"}) {
+            const char *value = std::getenv(name);
+            std::printf("%s=%s\n", name, value != nullptr ? value : "(unset)");
+        }
+        return 0;
+    }
 
     // Hashes: FIPS 180 test vectors.
     CHECK(sha1_of("abc") == "a9993e364706816aba3e25717850c26c9cd0d89d");
@@ -130,6 +138,29 @@ int main(int argc, char **argv) {
         std::string line;
         std::getline(in, line);
         CHECK(line == "child ran");
+
+#if !defined(_WIN32)
+        // The environment the launcher's first program changed for the window (starter_linux.cpp) goes back to what it
+        // was for the programs the window starts: LD_LIBRARY_PATH restored, GIO_EXTRA_MODULES removed (it was not set),
+        // and what it did not change kept.
+        setenv("MHF_RESTORE_ENV", "LD_LIBRARY_PATH:GIO_EXTRA_MODULES", 1);
+        setenv("LD_LIBRARY_PATH", "/tmp/.mhforever-test/lib:/opt/system", 1);
+        setenv("MHF_SYSTEM_LD_LIBRARY_PATH", "/opt/system:/steam/ubuntu12_64", 1);
+        setenv("GIO_EXTRA_MODULES", "/opt/bundle/gio", 1);
+        unsetenv("MHF_SYSTEM_GIO_EXTRA_MODULES");
+        setenv("MHF_TEST_KEPT", "kept", 1);
+        auto env_child = platform::Process::start(program, {"--print-env"}, base, log, error);
+        for (const char *name : {"MHF_RESTORE_ENV", "LD_LIBRARY_PATH", "MHF_SYSTEM_LD_LIBRARY_PATH", "GIO_EXTRA_MODULES",
+                                 "MHF_TEST_KEPT"}) {
+            unsetenv(name);
+        }
+        CHECK(env_child.has_value());
+        if (env_child) CHECK(env_child->wait() == 0);
+        std::ifstream env_in(log);
+        const std::string env_text((std::istreambuf_iterator<char>(env_in)), std::istreambuf_iterator<char>());
+        CHECK(env_text == "LD_LIBRARY_PATH=/opt/system:/steam/ubuntu12_64\nGIO_EXTRA_MODULES=(unset)\n"
+                          "MHF_RESTORE_ENV=(unset)\nMHF_SYSTEM_LD_LIBRARY_PATH=(unset)\nMHF_TEST_KEPT=kept\n");
+#endif
     }
 
     // HKDF-SHA256 with an empty salt: RFC 5869 test case 3 (the first 32 bytes of its output).

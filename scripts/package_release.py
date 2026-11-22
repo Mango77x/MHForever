@@ -3,14 +3,17 @@
 
   package_release.py --launcher <MHForever[.exe]> --game <mhfu[.exe]> --fonts <fonts dir>
                      [--ffmpeg-dlls <dir>] [--platform windows|linux] [--version <version>] [--out <dir>]
+                     [--launcher-window <MHForever-window> --webkit-bundle <dir>]   (Linux)
 
 The version defaults to the one in `project(MHForever VERSION ...)` (CMakeLists.txt), so archives, the launcher and the
 core program never drift apart; pass --version only to override it.
 
 The archive contains our programs, the free fonts, the project and third-party licenses and a player README. On Windows
 it also carries FFmpeg's DLLs (--ffmpeg-dlls, the folder CMake copies them to), because the game loads them from its own
-folder and a clean PC has none. It never contains game data: the script refuses disc images, executables other than the
-two programs and those DLLs, and anything it does not know.
+folder and a clean PC has none. On Linux, MHForever is a small program that starts the window, MHForever-window
+(--launcher-window), and the archive carries WebKitGTK for systems without it (--webkit-bundle, the folder
+scripts/bundle_webkit_linux.py wrote: lib/webkit and its licences). It never contains game data: the script refuses
+disc images, executables other than our programs, those DLLs and WebKit's helpers, and anything it does not know.
 
 Windows produces MHForever-<version>-windows-x64.zip; Linux produces MHForever-<version>-linux-x64.tar.gz.
 """
@@ -183,6 +186,10 @@ def main() -> int:
     ap.add_argument("--launcher-cli", type=pathlib.Path, default=None,
                     help="the launcher without a window (MHForever-cli[.exe]): installs and starts the game where the "
                          "launcher's window cannot start (no WebKitGTK, as on the Steam Deck's SteamOS)")
+    ap.add_argument("--launcher-window", type=pathlib.Path, default=None,
+                    help="Linux: the launcher's window (MHForever-window), which --launcher (MHForever) starts")
+    ap.add_argument("--webkit-bundle", type=pathlib.Path, default=None,
+                    help="Linux: the folder scripts/bundle_webkit_linux.py wrote (WebKitGTK for systems without it)")
     ap.add_argument("--fonts", required=True, type=pathlib.Path)
     ap.add_argument("--ffmpeg-dlls", type=pathlib.Path, default=None,
                     help="Windows: the folder holding FFmpeg's DLLs (CMake copies them to <build>/bin)")
@@ -229,6 +236,33 @@ def main() -> int:
             return 2
         files[name] = args.launcher_cli
         programs.add(name)
+
+    if args.platform == "linux":
+        if args.launcher_window is None:
+            print("error: the Linux archive needs the launcher's window: pass --launcher-window <MHForever-window>",
+                  file=sys.stderr)
+            return 2
+        if not args.launcher_window.is_file():
+            print(f"error: missing MHForever-window: {args.launcher_window}", file=sys.stderr)
+            return 2
+        files["MHForever-window"] = args.launcher_window
+        programs.add("MHForever-window")
+        if args.webkit_bundle is not None:
+            webkit = args.webkit_bundle / "lib/webkit"
+            notices = args.webkit_bundle / "licenses/webkitgtk"
+            if not (webkit / "libwebkit2gtk-4.1.so.0").is_file() or not (notices / "README.txt").is_file():
+                print(f"error: {args.webkit_bundle} is not what scripts/bundle_webkit_linux.py writes", file=sys.stderr)
+                return 2
+            for folder in (webkit, notices):
+                for path in sorted(folder.rglob("*")):
+                    if path.is_file():
+                        name = path.relative_to(args.webkit_bundle).as_posix()
+                        files[name] = path
+                        if path.stat().st_mode & 0o111 and not name.endswith(".so") and ".so." not in name:
+                            programs.add(name)  # the helper programs WebKit starts
+    elif args.launcher_window is not None or args.webkit_bundle is not None:
+        print("error: --launcher-window and --webkit-bundle are for the Linux archive", file=sys.stderr)
+        return 2
 
     readme = (ROOT / readme_name).read_text(encoding="utf-8").replace("@VERSION@", args.version)
     folder = f"MHForever-{args.version}"

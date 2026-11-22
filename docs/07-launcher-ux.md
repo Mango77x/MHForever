@@ -288,17 +288,32 @@ mode, where no second window can be shown.
 - Distribution: the portable `MHForever-<version>-linux-x64.tar.gz` made by `scripts/package_release.py` is the first
   supported form; `cmake --install` adds the desktop entry and the icon. **AppImage** next; Flatpak later (check Flathub
   content policies). The launcher's window needs WebKitGTK 4.1 and GTK 3 at runtime, which most desktops have and
-  **SteamOS does not**: the dynamic loader stops `MHForever` before it can show anything (issue #50, 0.8.2). So the archive also
-  carries **`MHForever-cli`** (`launcher/native/cli.cpp`), the launcher without a window: `--install`, `--list`, `--set`,
-  `--play`, `--update`. It links no web view and, with `MHF_NO_GTK`, no GTK (the file dialogs are stubs), so it needs only
-  libc and libstdc++. `--play` stays running while the game does (what a Game Mode entry needs) and keeps what the
-  player changes in the game's menu, as the window does.
+  **SteamOS does not** have WebKitGTK (issue #50, 0.8.2), and its system cannot be changed (what pacman adds is gone
+  after the next update). So on Linux `MHForever` is a small program (`launcher/native/starter_linux.cpp`, nothing but
+  libc and libstdc++) that starts the window, `MHForever-window`, and the archive carries WebKitGTK in `lib/webkit`
+  (`scripts/bundle_webkit_linux.py`: Ubuntu 24.04's packages, the build machine's). The starter uses the system's
+  WebKitGTK when it has one; otherwise it resolves the window's libraries as the dynamic loader does and links only the
+  bundled ones the system lacks into `/tmp/.mhforever-webkit2gtk-4.1-helpers-1/lib`, first in `LD_LIBRARY_PATH` (on
+  SteamOS 3.8: WebKitGTK, JavaScriptCore, ICU 74, libxml2.so.2 and libxslt with it, libmanette, libhyphen,
+  harfbuzz-icu). Graphics drivers, GTK and the C/C++ runtimes are always the system's. WebKit starts its helper programs
+  from a folder written into it at build time: the bundled copy has that same-length `/tmp` path instead, which the
+  starter links to the helpers (a private folder of the user's; it refuses one owned by someone else). GIO's TLS
+  module comes from the system (SteamOS has glib-networking) or else from `lib/webkit/gio`. The starter also drops
+  Steam's runtime from `LD_LIBRARY_PATH` (non-Steam shortcuts get it), and the window hands the game the environment as
+  it came (`Process::start`, `MHF_RESTORE_ENV`). CI checks the archive in the system of Valve's latest recovery image,
+  as the deck user (`scripts/steamos_smoke_test.sh`, job `steamos`). In Game Mode (gamescope) the window hides while
+  the game runs; the UI already works with a controller (Web Gamepad API, libmanette in WebKitGTK).
+  The archive also carries **`MHForever-cli`** (`launcher/native/cli.cpp`), the launcher without a window: `--install`,
+  `--list`, `--set`, `--play`, `--update`. It links no web view and, with `MHF_NO_GTK`, no GTK (the file dialogs are
+  stubs), so it needs only libc and libstdc++. `--play` stays running while the game does and keeps what the player
+  changes in the game's menu, as the window does. `MHForever <command>` hands these commands to it.
 - Deck resolution 1280×800 (16:10); PSP 480×272 (~16:9). Integer scaling (×2 = 960×544) or fitted with a filter, crop option, and
   widescreen as an enhancement.
 - Test: suspend/resume, Game Mode input, performance and battery.
 - Real testing: maintainers have no Deck. Reports of the game working on a Steam Deck came from players who had installed
   WebKitGTK themselves; a Deck as it ships could not start the launcher until `MHForever-cli` (0.8.3), which a player has since
-  run on a Deck (issue #57). Friends with Decks test builds already validated on a Linux machine. They need their own copy
+  run on a Deck (issue #57). The window on the bundled WebKitGTK is tested on SteamOS's own system, not yet on a Deck
+  (gamescope, Steam Input and the Deck's GPU are what that test cannot cover). Friends with Decks test builds already validated on a Linux machine. They need their own copy
   to test the game; for the rest (input, launcher, scaling) use the test scene built from our own homebrew.
 
 ## 7. User data
