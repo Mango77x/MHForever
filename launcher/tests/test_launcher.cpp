@@ -328,6 +328,21 @@ int main(int argc, char **argv) {
         wide["widescreen"] = "yes";
         l.set_settings(wide);
         CHECK(l.state()["settings"]["widescreen"].as_bool()); // not a bool: unchanged
+        // Button prompts: the game's own by default; only a style the game knows is taken.
+        CHECK(l.state()["settings"]["buttonPrompts"].as_string() == "original");
+        Json prompts;
+        prompts["buttonPrompts"] = "xbox";
+        l.set_settings(prompts);
+        CHECK(l.state()["settings"]["buttonPrompts"].as_string() == "xbox");
+        prompts["buttonPrompts"] = "playstation2";
+        l.set_settings(prompts);
+        CHECK(l.state()["settings"]["buttonPrompts"].as_string() == "xbox");
+        prompts["buttonPrompts"] = true;
+        l.set_settings(prompts);
+        CHECK(l.state()["settings"]["buttonPrompts"].as_string() == "xbox");
+        prompts["buttonPrompts"] = "original";
+        l.set_settings(prompts);
+        CHECK(l.state()["settings"]["buttonPrompts"].as_string() == "original");
         wide["widescreen"] = false;
         l.set_settings(wide);
         CHECK(!l.state()["settings"]["skipIntro"].as_bool(true)); // the intro plays unless asked
@@ -492,7 +507,8 @@ int main(int argc, char **argv) {
                                              << "option.packMipmaps=true\noption.anisotropy=8\n"
                                              << "option.projectedShadows=true\noption.wholeMapShadows=false\n"
                                              << "option.shadowQuality=1\noption.shadowDarkness=70\n"
-                                             << "option.widescreen=true\noption.gatheringAssistance=false\n";
+                                             << "option.widescreen=true\noption.gatheringAssistance=false\n"
+                                             << "button-prompts=xbox\n";
         }
         l.import_game_controls();
         CHECK(l.state()["settings"]["packMipmaps"].as_bool()); // the texture pack filtering from the Video tab
@@ -502,6 +518,7 @@ int main(int argc, char **argv) {
         CHECK(l.state()["settings"]["shadowQuality"].as_number() == 1);
         CHECK(l.state()["settings"]["shadowDarkness"].as_number() == 70);
         CHECK(l.state()["settings"]["widescreen"].as_bool()); // widescreen from the Video tab
+        CHECK(l.state()["settings"]["buttonPrompts"].as_string() == "xbox"); // the prompts' style from the Controls tab
         CHECK(l.state()["settings"]["hornSongs"].as_bool());
         CHECK(l.state()["settings"]["hudSize"].as_number() == 70);
         CHECK(l.state()["settings"]["fastSupplyBox"].as_bool());
@@ -1189,6 +1206,16 @@ int main(int argc, char **argv) {
                 CHECK(has(gathered.args, "--gathering-indicators") == enabled);
                 CHECK(has(gathered.args, "--auto-gathering-tools") == enabled);
             }
+
+            // Button prompts reach the game only when a style other than its own is chosen.
+            Json prompts;
+            CHECK(!has(l.plan_launch("mhfu").args, "--button-prompts"));
+            prompts["buttonPrompts"] = "xbox";
+            l.set_settings(prompts);
+            CHECK(has(l.plan_launch("mhfu").args, "--button-prompts") && has(l.plan_launch("mhfu").args, "xbox"));
+            prompts["buttonPrompts"] = "original";
+            l.set_settings(prompts);
+            CHECK(!has(l.plan_launch("mhfu").args, "--button-prompts"));
 
             // Widescreen reaches the game as a switch, only when on.
             Json wide;

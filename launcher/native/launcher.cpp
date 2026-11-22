@@ -142,6 +142,7 @@ Json default_settings() {
     s["fps"] = 30; // output rate: the game's own 30, or a multiple of it up to 180 (in-between pictures)
     s["hudSize"] = 100; // the quest HUD's size in percent, 50..100 in steps of 10
     s["widescreen"] = false; // the 3D fills a window wider than the PSP's screen (the in-game menu changes it too)
+    s["buttonPrompts"] = "original"; // the buttons the game shows: its own, or "xbox" (the in-game menu changes it too)
     s["trueWeaponValues"] = false; // menus show attack and element without the game's display multipliers
     s["fastSupplyBox"] = false; // the supply box takes the next button soon after a take-out
     s["smithyBrowse"] = false; // the smithy's lists scroll with the R (materials) or Info panel open
@@ -996,7 +997,7 @@ Json Launcher::state() {
 void Launcher::import_game_controls() {
     std::error_code ec;
     if (!fs::is_regular_file(controls_file(), ec)) return;
-    Json keys, pad, room, server, music, sfx, song_place, options;
+    Json keys, pad, room, server, music, sfx, song_place, button_prompts, options;
     {
         std::ifstream in(controls_file());
         for (std::string line; std::getline(in, line);) {
@@ -1033,6 +1034,8 @@ void Launcher::import_game_controls() {
                 else if (error == std::errc{} && end == text.data() + text.size()) options[setting] = value;
             } else if (name == "horn-songs-place") { // where the game's Video tab put the hunting horn's songs (or dragged them)
                 song_place = text;
+            } else if (name == "button-prompts") { // the style the game's Controls tab chose
+                button_prompts = text;
             } else if (name == "padmap") {
                 const host::PadBindings parsed = host::parse_padmap(text);
                 for (const std::string_view action : host::kPadActions) {
@@ -1049,6 +1052,7 @@ void Launcher::import_game_controls() {
     if (music.is_number()) partial["musicVolume"] = music; // apply_settings keeps them within 0..100
     if (sfx.is_number()) partial["sfxVolume"] = sfx;
     if (song_place.is_string()) partial["hornSongsPlace"] = song_place; // apply_settings checks the name
+    if (button_prompts.is_string()) partial["buttonPrompts"] = button_prompts; // and this one
     if (options.is_object()) {
         for (const auto &[setting, value] : options.as_object()) partial[setting] = value;
     }
@@ -1144,6 +1148,9 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
         if (!partial[key].is_string()) continue;
         const std::string value = partial[key].as_string();
         if (std::find(names.begin(), names.end(), value) != names.end()) s[key] = value;
+    }
+    if (partial["buttonPrompts"].is_string()) { // a style the game knows; anything else leaves the setting as it is
+        if (const std::string style = partial["buttonPrompts"].as_string(); style == "original" || style == "xbox") s["buttonPrompts"] = style;
     }
     if (partial["hornSongsPlace"].is_string() && overlay::parse_song_spot(partial["hornSongsPlace"].as_string())) {
         s["hornSongsPlace"] = partial["hornSongsPlace"];
@@ -1549,6 +1556,10 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back(num("mouseCameraSpeed"));
     }
     if (std::string_view(entry->game) == "mhfu" && s["skipIntro"].as_bool()) plan.args.push_back("--skip-intro");
+    if (std::string_view(entry->game) == "mhfu" && s["buttonPrompts"].is_string() && s["buttonPrompts"].as_string() == "xbox") {
+        plan.args.push_back("--button-prompts"); // the game's own prompts unless chosen: then no flag at all
+        plan.args.push_back("xbox");
+    }
     if (std::string_view(entry->game) == "mhfu" && s["gatheringAssistance"].as_bool()) {
         plan.args.push_back("--gathering-indicators");
         plan.args.push_back("--auto-gathering-tools");

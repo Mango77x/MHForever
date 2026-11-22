@@ -157,6 +157,9 @@ Done too: the smithy's lists scroll with the materials (R) or Info panel open, t
 (`--smithy-browse`, launcher setting; the first instruction patches, `04-recompiler.md` §6; `06-mhfu-module.md` §9).
 Done too: an improved smithy layout, Info on the left with the list and its materials on the right while Info is open
 (`--smithy-layout`, launcher setting; `06-mhfu-module.md` §9).
+Done too: Xbox button prompts, A, B, X, Y and Back painted over the game's own in its two prompt textures, with nothing
+shipped as an image or a font (`--button-prompts xbox`, launcher setting, in-game Controls tab; run on the North American
+release only; `06-mhfu-module.md` §9).
 Done too: optional gathering indicators and automatic tools for EU, US, JP and FUComplete, kept by the launcher
 (`gatheringAssistance`, `--gathering-indicators`, `--auto-gathering-tools`; `06-mhfu-module.md` §9).
 Done too: skipping the start-up screens, the boot going from the memory stick check straight to the title screen

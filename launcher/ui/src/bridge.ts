@@ -25,6 +25,7 @@ export interface Settings {
   packMipmaps?: boolean; // texture packs: mip levels made for images that ship none (softer at a distance, no shimmer)
   anisotropy?: number; // texture packs: anisotropic filtering, 1 (off), 2, 4, 8 or 16
   widescreen?: boolean; // the 3D fills a window wider than the PSP's screen, 2D keeps its shape
+  buttonPrompts?: string; // the buttons the game shows: 'original' (its own) or 'xbox'
   fps: number; // 30..180, a multiple of 30
   hudSize?: number; // the quest HUD's size in percent, 50..100 in steps of 10
   trueWeaponValues: boolean; // menus show attack and element without the game's display multipliers

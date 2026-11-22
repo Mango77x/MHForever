@@ -1177,6 +1177,9 @@ private:
     void release_texture(CachedTexture &t);
     void dump_texture(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, const std::uint32_t *pixels);
     void drop_textures();
+    // Button prompts: the atlas of the game's the current texture is (nullptr: none), told by a few of its bytes, and
+    // its pieces painted in the style chosen, in an image `scale` times the texture's size.
+    [[nodiscard]] const prompts::Atlas *prompt_atlas(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info) const;
     void trim_pack_memory();
     // Debugging: MHF_GL_DUMP=<folder> writes every MHF_GL_DUMP_EVERY-th (default 60) presented frame as a PPM image,
     // starting at presented frame MHF_GL_DUMP_FROM (default 0).
@@ -1277,6 +1280,8 @@ private:
     std::vector<std::uint8_t> hd_text_cover_;
     std::unique_ptr<textures::Loader> loader_; // decodes its images
     bool pack_on_ = false;                     // drawing it (the player can turn it off in the menu)
+    int prompts_style_ = 0;                    // button prompts: the style the textures were uploaded with (prompts::Style)
+    int prompts_shoulders_ = 0;                // and the names on the L and R plates (LiveSettings::prompt_shoulders)
     bool pack_mips_ = false;                   // its images get mip levels made here (the player's Mipmaps choice)
     std::size_t pack_bytes_ = 0, pack_budget_ = std::size_t(1024) << 20; // pack images on the GPU, and their limit
     // Pack images on the GPU, one texture (with its mip levels) per image, shared by every cached texture drawn with it:
@@ -1869,6 +1874,15 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
         drop_textures();
         std::fprintf(stderr, "[gl] texture pack mipmaps %s\n", pack_mips_ ? "made" : "the pack's own");
     }
+    // The player chose other button prompts, or the game's own again: the textures are uploaded again, painted or not.
+    const int prompts_want = live_->prompt_atlases.empty() ? 0 : live_->button_prompts.load(std::memory_order_relaxed);
+    const int shoulders_want = prompts_want == 0 ? 0 : live_->prompt_shoulders.load(std::memory_order_relaxed);
+    if (prompts_want != prompts_style_ || shoulders_want != prompts_shoulders_) {
+        if (prompts_want != prompts_style_) std::fprintf(stderr, "[gl] button prompts: %s\n", prompts_want == 0 ? "the game's own" : "Xbox");
+        prompts_style_ = prompts_want;
+        prompts_shoulders_ = shoulders_want;
+        drop_textures();
+    }
     const bool packs_on = pack_on_ || builtin_ != nullptr; // something may replace this texture
     const auto info = ge.texture_info();
     tex_width_ = static_cast<float>(info.width);
@@ -1961,6 +1975,15 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
                 pixels_.resize(static_cast<std::size_t>(info.width) * info.height);
                 ge.decode_texture(pixels_.data());
                 if (!dump_folder_.empty()) dump_texture(ge, info, pixels_.data());
+                if (prompts_style_ != 0) {
+                    if (const prompts::Atlas *atlas = prompt_atlas(ge, info)) {
+                        static constexpr const char *kNames[4] = {nullptr, "LB", "RB", nullptr};
+                        prompts::Labels labels;
+                        labels.left = kNames[prompts_shoulders_ & 3];
+                        labels.right = kNames[(prompts_shoulders_ >> 2) & 3];
+                        prompts::repaint(*atlas, static_cast<prompts::Style>(prompts_style_), pixels_, 1, labels);
+                    }
+                }
                 if (const GLuint hd = draw_hd_text(ge, info); hd != 0) {
                     // A text page: its HD page's texture, which stays with the page (as a pack image's does).
                     if (t.shown != kHdTextImage) release_texture(t);
@@ -2474,6 +2497,15 @@ void GlBackend::dump_texture(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info
     const std::filesystem::path file = dump_folder_ / (name + ".png");
     if (std::filesystem::exists(file, ec)) return; // an image already edited is never written over
     textures::write_png(file, info.width, info.height, pixels);
+}
+
+const prompts::Atlas *GlBackend::prompt_atlas(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info) const {
+    for (const prompts::Atlas &atlas : live_->prompt_atlases) {
+        if (atlas.width != info.width || atlas.height != info.height || atlas.mark_size == 0) continue;
+        const std::uint8_t *bytes = ge.guest_bytes(info.address + atlas.mark_offset, atlas.mark_size);
+        if (bytes != nullptr && prompts::mark_of({bytes, atlas.mark_size}) == atlas.mark) return &atlas;
+    }
+    return nullptr;
 }
 
 // Every cached texture uploaded again at its next use (the pack was turned on or off).

@@ -3,7 +3,7 @@
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
-//             [--smooth-textures] [--texture-pack <folder> [--pack-mipmaps] [--anisotropy 1|2|4|8|16]] [--fps 30..180] [--hud-size 50-100] [--widescreen] [--true-weapon-values] [--fast-supply-box]
+//             [--smooth-textures] [--texture-pack <folder> [--pack-mipmaps] [--anisotropy 1|2|4|8|16]] [--fps 30..180] [--hud-size 50-100] [--widescreen] [--button-prompts original|xbox] [--true-weapon-values] [--fast-supply-box]
 //             [--smithy-browse [--smithy-layout]]
 //             [--analog-camera [--analog-camera-turn-speed 50-200] [--analog-camera-tilt-speed 50-200]]
 //             [--mouse-camera [--mouse-camera-speed 25-300]]
@@ -19,6 +19,7 @@
 // (launcher/native/install/); developer builds can also point --exe at a file that matches region.toml's dev_executable.
 
 #include "gathering.hpp"
+#include "button_prompt_atlases.hpp"
 #include "gathering_game_art.hpp"
 #include "texture_pack.hpp"
 #include "mhf/psp/abi.hpp"
@@ -972,6 +973,7 @@ int main(int argc, char **argv) {
     bool smooth_textures = false;
     int target_fps = 30; // --fps N: 30 (the game's own rate) or a multiple of it up to 180
     int hud_size = 100; // --hud-size N: the quest HUD's size in percent (enhancement)
+    mhf::psp::prompts::Style button_prompts = mhf::psp::prompts::Style::Original; // --button-prompts xbox (enhancement)
     bool widescreen = false; // --widescreen: the 3D fills a window wider than the PSP's screen (enhancement)
     // The projected shadows (enhancement): --projected-shadows turns them on, --no-whole-map-shadows leaves only the hunter and
     // monsters casting, --shadow-quality 0..2 (low by default), --shadow-darkness 0..100 (50: as each zone was tuned).
@@ -1013,6 +1015,9 @@ int main(int argc, char **argv) {
         else if (a == "--fps" && i + 1 < argc) target_fps = std::clamp(std::stoi(argv[++i]), 30, 180); // enhancement
         else if (a == "--hud-size" && i + 1 < argc) hud_size = std::clamp(std::stoi(argv[++i]), 50, 100); // enhancement
         else if (a == "--widescreen") widescreen = true; // enhancement, off by default
+        else if (a == "--button-prompts" && i + 1 < argc) { // enhancement: "original" (the game's own) unless chosen
+            button_prompts = std::string(argv[++i]) == "xbox" ? mhf::psp::prompts::Style::Xbox : mhf::psp::prompts::Style::Original;
+        }
         else if (a == "--projected-shadows") projected_shadows = true; // enhancement, off by default
         else if (a == "--no-whole-map-shadows") whole_map_shadows = false;
         else if (a == "--shadow-quality" && i + 1 < argc) shadow_quality = std::clamp(std::stoi(argv[++i]), 0, 2);
@@ -1254,6 +1259,14 @@ int main(int argc, char **argv) {
             frontend.set_shadow_zone_suns(shadow_zone_suns());
             frontend.set_shadow_zones({std::begin(kShadowZoneNames), std::end(kShadowZoneNames)}, shadow_zone_textures());
             frontend.set_hud(hud_size);
+            // Button prompts: the game's two textures that hold them, told by bytes of the player's own copy. The
+            // in-game menu changes the style while playing, so they are looked up whatever the style is.
+            if (region::mh_gathering_hud_file || region::mh_prompt_menu_file) {
+                auto atlases = mhf::mhfu::load_prompt_atlases(options.disc_image, exe, region::mh_gathering_hud_file, region::mh_prompt_menu_file);
+                std::fprintf(stderr, "[mhfu] button prompts: %zu of the game's textures hold them%s\n", atlases.size(),
+                             atlases.empty() ? " (the game's own prompts stay)" : "");
+                frontend.set_button_prompts(std::move(atlases), button_prompts);
+            }
             frontend.set_widescreen(widescreen);
             const char *shadow_env = std::getenv("MHF_SHADOW"); // MHF_SHADOW=1 turns them on as --projected-shadows does
             frontend.set_shadows(projected_shadows || (shadow_env != nullptr && shadow_env[0] != '0'), whole_map_shadows, shadow_quality,

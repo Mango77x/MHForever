@@ -1,12 +1,9 @@
 #include "gathering_game_art.hpp"
-#include "data_bin.hpp"
-#include "iso9660.hpp"
+#include "game_files.hpp"
 #include "texture_images.hpp"
 #include "texture_pack.hpp"
 
 #include <algorithm>
-#include <fstream>
-#include <stdexcept>
 
 namespace mhf::mhfu {
 namespace {
@@ -128,29 +125,10 @@ std::optional<GatheringArt> load_game_gathering_art(const std::filesystem::path 
                                                     std::uint32_t items_file, const psp::textures::Pack *pack,
                                                     unsigned *replaced) {
     if (replaced) *replaced = 0;
-    try {
-        // Use the existing game-specific DATA.BIN reader, with the player's own prepared executable and ISO.
-        std::ifstream file(executable, std::ios::binary | std::ios::ate);
-        if (!file || file.tellg() <= 0 || file.tellg() > 16 * 1024 * 1024) return {};
-        std::vector<std::uint8_t> exe(static_cast<std::size_t>(file.tellg()));
-        file.seekg(0);
-        if (!file.read(reinterpret_cast<char *>(exe.data()), static_cast<std::streamsize>(exe.size()))) return {};
-        psp::IsoImage iso(iso_path);
-        const auto entry = iso.find("/PSP_GAME/USRDIR/DATA.BIN");
-        if (!entry) return {};
-        const auto data = DataBin::open(
-            [&](std::uint64_t offset, std::size_t size) {
-                if (size > 1024 * 1024) throw std::runtime_error("icon archive read exceeds limit");
-                return iso.read_file(*entry, offset, size);
-            },
-            entry->size, find_substitution_table_candidates(exe));
-        if (!data) return {};
-        for (const auto id : {hud_file, items_file}) {
-            if (id >= data->files().size() || data->files()[id].size > 1024 * 1024) return {};
-        }
-        return decode_game_gathering_art(data->read(hud_file), data->read(items_file), pack, replaced);
-    } catch (const std::exception &) {
-        return {}; // Unsupported/missing input keeps the text fallback.
-    }
+    // Use the existing game-specific DATA.BIN reader, with the player's own prepared executable and ISO.
+    const std::uint32_t ids[] = {hud_file, items_file};
+    const auto files = read_game_files(iso_path, executable, ids);
+    if (!files) return {}; // Unsupported/missing input keeps the text fallback.
+    return decode_game_gathering_art((*files)[0], (*files)[1], pack, replaced);
 }
 } // namespace mhf::mhfu
