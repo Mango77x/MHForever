@@ -105,7 +105,8 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   the pack's size plus 64 MB free, shows its progress and can be cancelled) or **Use it where it is** (nothing copied; if the
   folder moves, the game is started without it). A switch turns it off and on; *Remove* forgets a pack used where it is
   and, after a confirmation, deletes MHForever's copy. The game gets `--texture-pack <folder>` and chooses the ini for its
-  own release. With a pack chosen, two filtering choices follow it (2026-11-11): **Mipmaps** (`packMipmaps`, off by
+  own release. Without the window (Steam Deck), `MHForever-cli --texture-pack <folder> | on | off [--disc <id>]` reviews
+  the folder the same way and uses the pack where it is; `off` and `on` work the switch (2026-11-22). With a pack chosen, two filtering choices follow it (2026-11-11): **Mipmaps** (`packMipmaps`, off by
   default: images are drawn as PPSSPP draws them, sharp far away with some shimmer; on, mip levels are made for images
   that ship none, softer far away without shimmer; passed as `--pack-mipmaps`) and **Anisotropic filtering**
   (`anisotropy`: Off, 2x, 4x, 8x or 16x, 16x by default; passed as `--anisotropy N` when not 16). Both go to the game

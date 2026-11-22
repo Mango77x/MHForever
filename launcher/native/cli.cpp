@@ -40,6 +40,8 @@ void usage() {
                  "        scale 1-10, fps 30-180, hudSize 50-100, musicVolume 0-100, sfxVolume 0-100,\n"
                  "        anisotropy 1 (off), 2, 4, 8 or 16 (texture packs), shadowQuality 0-2, shadowDarkness 0-100\n"
                  "  --font <font file> | default [--disc <id>]    a copy's text font (.ttf or .otf), or the default\n"
+                 "  --texture-pack <folder> | on | off [--disc <id>]\n"
+                 "                                                a copy's texture pack (PPSSPP format), used where it is\n"
                  "  --play [<disc id>]                            start the game and wait until it ends\n"
                  "  --update                                      update MHForever\n"
                  "  --version\n\n"
@@ -238,6 +240,51 @@ int font(const std::vector<std::string> &args) {
     return 0;
 }
 
+// `--texture-pack <folder> | on | off [--disc <disc id>]`: the copy's texture pack, as Game settings > Texture pack with
+// "Use where it is": the folder that holds textures.ini, the pack's main folder or PPSSPP's PSP/TEXTURES/<id>. "off"
+// turns the pack off and keeps it chosen, "on" turns it back on.
+int texture_pack(const std::vector<std::string> &args) {
+    std::string disc_id, folder;
+    for (std::size_t i = 1; i < args.size(); ++i) {
+        if (args[i] == "--texture-pack") continue;
+        if (args[i] == "--disc" && i + 1 < args.size()) disc_id = args[++i];
+        else if (!args[i].empty() && args[i][0] != '-') folder = args[i];
+        else {
+            std::fprintf(stderr, "unknown option: %s\n", args[i].c_str());
+            return 2;
+        }
+    }
+    if (folder.empty()) {
+        std::fprintf(stderr, "usage: MHForever-cli --texture-pack <folder> | on | off [--disc <disc id>]\n");
+        return 2;
+    }
+    Launcher launcher(platform::executable_dir());
+    if (!choose_copy(launcher, disc_id)) return 2;
+    const std::string chosen = launcher.disc_id_for("");
+    if (folder == "on" || folder == "off") {
+        if (folder == "on" && !launcher.state()["settings"]["texturePack"].is_string()) {
+            std::fprintf(stderr, "error: %s has no texture pack yet: give the pack's folder\n", chosen.c_str());
+            return 1;
+        }
+        launcher.set_texture_pack_enabled(chosen, folder == "on");
+    } else {
+        const Json review = launcher.review_texture_pack(chosen, platform::from_utf8(folder));
+        if (!review["ok"].as_bool() || !launcher.set_texture_pack(chosen, platform::from_utf8(folder))) {
+            std::fprintf(stderr, "error: %s\n", review["error"].as_string().c_str());
+            return 1;
+        }
+        for (const auto &w : review["warnings"].as_array()) std::printf("note: %s\n", w.as_string().c_str());
+    }
+    const Json state = launcher.state();
+    const Json &s = state["settings"];
+    if (s["texturePack"].is_string()) {
+        std::printf("%s: texture pack %s, %s\n    %s\n", chosen.c_str(), s["texturePackEnabled"].as_bool() ? "on" : "off",
+                    s["texturePackSummary"].is_string() ? s["texturePackSummary"].as_string().c_str() : "",
+                    s["texturePack"].as_string().c_str());
+    }
+    return 0;
+}
+
 // `--play [<disc id>]`: starts the game as the launcher's Play button does, and stays until it ends (a launcher entry in
 // Steam's game mode needs the program it started to keep running). What the player changes in the game's menu is kept.
 int play(const std::vector<std::string> &args) {
@@ -293,7 +340,7 @@ int play(const std::vector<std::string> &args) {
 
 bool handles(const std::string &first_argument) {
     return first_argument == "--install" || first_argument == "--update" || first_argument == "--list" ||
-           first_argument == "--set" || first_argument == "--font" || first_argument == "--play" || first_argument == "--version" ||
+           first_argument == "--set" || first_argument == "--font" || first_argument == "--texture-pack" || first_argument == "--play" || first_argument == "--version" ||
            first_argument == "--help" || first_argument == "-h";
 }
 
@@ -308,6 +355,7 @@ int run(const std::vector<std::string> &args) {
     if (mode == "--list") return list();
     if (mode == "--set") return set(args);
     if (mode == "--font") return font(args);
+    if (mode == "--texture-pack") return texture_pack(args);
     if (mode == "--play") return play(args);
     if (mode == "--version") {
         std::printf("MHForever %s\n", MHF_VERSION_STRING);
