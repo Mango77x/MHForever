@@ -205,15 +205,17 @@ void Gathering::update(psp::Runtime &rt, psp::Context &ctx) {
                 hint_ = text.gather;
             else if (decision.kind == GatheringKind::carve)
                 hint_ = text.carve;
+            // The button in the text shown without icons: Circle, or B with the Xbox button prompts.
+            const char *const button = xbox_prompts && xbox_prompts() ? "B  " : "○  ";
             if (remaining == 0) {
                 hint_.append(" - ").append(text.depleted);
             } else if (decision.kind == GatheringKind::mining || decision.kind == GatheringKind::bugs) {
                 if (!decision.tool_slot)
                     hint_.append(" - ").append(text.no_tool);
                 else if (automatic_tools)
-                    hint_ = "○  " + hint_;
+                    hint_ = button + hint_;
             } else if (!hint_.empty())
-                hint_ = "○  " + hint_;
+                hint_ = button + hint_;
         }
         if (!automatic_tools || !pressed || !decision.tool_slot || !decision.available) return;
         const auto action = m.load8(player + kPlayerAction);
@@ -242,6 +244,6 @@ std::string Gathering::hint(psp::Runtime &rt) const {
 std::vector<overlay::HintSprite> Gathering::sprites(psp::Runtime &rt) const {
     if (!indicators || !visual_active_ || !art_ || rt.now_us() - updated_ >= kHintLifetimeUs)
         return {};
-    return gathering_sprites(*art_, kind_, alpha_, button_, unavailable_);
+    return gathering_sprites(*art_, kind_, alpha_, button_, unavailable_, xbox_prompts && xbox_prompts());
 }
 } // namespace mhf::mhfu

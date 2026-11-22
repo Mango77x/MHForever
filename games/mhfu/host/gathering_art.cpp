@@ -7,7 +7,7 @@ std::uint8_t gathering_alpha(std::uint8_t previous, bool active) {
     return static_cast<std::uint8_t>(previous == 0 ? 0 : std::max(15, int(previous) - 64));
 }
 std::vector<overlay::HintSprite> gathering_sprites(const GatheringArt &art, GatheringKind kind, std::uint8_t alpha,
-                                                   bool button, bool unavailable) {
+                                                   bool button, bool unavailable, bool xbox_button) {
     if (!alpha) return {};
     std::vector<overlay::HintSprite> sprites;
     auto add = [&](int image, float x, float y, float size, float opacity) {
@@ -30,7 +30,7 @@ std::vector<overlay::HintSprite> gathering_sprites(const GatheringArt &art, Gath
             }();
             sprites.push_back({229, 84, 24, 1, 32, cross});
         } else if (button)
-            add(1, 219, 100, 15, 1);
+            add(xbox_button && art[5].pixels ? 5 : 1, 219, 100, 15, 1);
     }
     return sprites;
 }

@@ -16,6 +16,13 @@ int main() {
         MHF_CHECK(sprites[2].x == 219 && sprites[2].y == 100 && sprites[2].size == 15 &&
                   sprites[2].pixels == art[1].pixels);
     }
+    // With the Xbox button prompts the button is that style's, when the art has it.
+    auto xbox = gathering_sprites(art, GatheringKind::mining, 255, true, false, true);
+    MHF_CHECK(xbox.size() == 3 && xbox[2].pixels == art[5].pixels && xbox[2].pixels != art[1].pixels);
+    auto without = art;
+    without[5] = {};
+    auto fallback = gathering_sprites(without, GatheringKind::mining, 255, true, false, true);
+    MHF_CHECK(fallback.size() == 3 && fallback[2].pixels == art[1].pixels);
     auto bugs = gathering_sprites(art, GatheringKind::bugs, 255, false);
     MHF_CHECK(bugs.size() == 2);
     if (bugs.size() == 2) MHF_CHECK(bugs[1].pixels == art[3].pixels);

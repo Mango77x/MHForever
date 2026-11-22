@@ -390,6 +390,11 @@ void Frontend::set_button_prompts(std::vector<prompts::Atlas> atlases, prompts::
     impl_->live.button_prompts = static_cast<int>(style);
 }
 
+prompts::Style Frontend::button_prompts() const {
+    if (impl_->gpu_state != 1 || impl_->live.prompt_atlases.empty()) return prompts::Style::Original;
+    return static_cast<prompts::Style>(impl_->live.button_prompts.load(std::memory_order_relaxed));
+}
+
 float Frontend::game_aspect() const { return impl_->live.wide_aspect.load(std::memory_order_relaxed); }
 
 void Frontend::set_shadows(bool on, bool whole_map, int quality, int darkness) {

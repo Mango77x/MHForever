@@ -1274,6 +1274,7 @@ int main(int argc, char **argv) {
             // The horn's songs over the quest HUD, read from the game a few times a second (horn_songs.hpp). The
             // in-game menu turns them on and off, so they are read even while off.
             g_gathering.input_blocked = [&frontend] { return frontend.game_input_blocked(); };
+            g_gathering.xbox_prompts = [&frontend] { return frontend.button_prompts() == mhf::psp::prompts::Style::Xbox; };
             frontend.offer_songs(horn_songs, mhf::overlay::parse_song_spot(horn_songs_place).value_or(mhf::overlay::SongSpot{}));
             extra = [&frontend, rt = &runtime, songs = mhf::mhfu::HornSongs{}, read_at = std::uint64_t{0},
                      previous = std::move(extra)]() mutable {

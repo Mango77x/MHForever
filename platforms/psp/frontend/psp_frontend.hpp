@@ -69,6 +69,9 @@ public:
     // textures that hold its prompts, and the style to start with. Before attach(); the Controls tab of the in-game
     // menu then changes the style while playing (the GPU renderer only), and the controls file keeps it.
     void set_button_prompts(std::vector<prompts::Atlas> atlases, prompts::Style style);
+    // The style drawn now (the game's own with the software renderer, or without those textures), for what a game
+    // program draws over the game with the game's own prompt pieces.
+    [[nodiscard]] prompts::Style button_prompts() const;
     // The shape the game should draw its 3D at (width over height), 0 while widescreen does not apply. Read by the
     // game program's camera hooks.
     [[nodiscard]] float game_aspect() const;
