@@ -132,7 +132,9 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   copy, passed as `--horn-songs`) lists the songs the hunter's horn can play over the quest HUD (`06-mhfu-module.md` §9).
   Its position (`hornSongsPlace`, `--horn-songs-place`): next to the horn's note sheet (default), top middle, under the
   name plates, bottom left, or `custom:X,Y`. The in-game menu's Game tab picks the position or drags the list anywhere;
-  the game writes the choice to the controls file and the launcher keeps it. The same Game section holds **Show true weapon
+  the game writes the choice to the controls file and the launcher keeps it. The same Game section holds **Skip intro**
+  (`skipIntro`, `--skip-intro`, off by default: the boot goes from the memory stick check straight to the title screen,
+  without the violence notice, the logos and the opening movie; issue #106), **Show true weapon
   values** (`trueWeaponValues`, `--true-weapon-values`), **Fast supply box** (`fastSupplyBox`, `--fast-supply-box`,
   off by default: the supply box takes the next button 2 frames after a take-out instead of 30), **Smithy: browse
   with panels open** (`smithyBrowse`, `--smithy-browse`, off by default: the smithy's lists scroll with the materials

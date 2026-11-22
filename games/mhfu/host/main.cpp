@@ -11,7 +11,7 @@
 //             [--horn-songs [--horn-songs-place next-to-sheet|top-middle|under-names|bottom-left|custom:X,Y]]
 //             [--projected-shadows [--no-whole-map-shadows] [--shadow-quality 0-2] [--shadow-darkness 0-100]]
 //             [--music-volume 0-100] [--sfx-volume 0-100] [--font <font file>]
-//             [--language en|fr|de|es|it|jp]
+//             [--language en|fr|de|es|it|jp] [--skip-intro]
 //             [--keymap "south=KeyK,east=KeyL,..."] [--padmap "south=south,left_shoulder=left_shoulder+left_trigger,..."]
 //             [--controls-file <path>]
 //             [--adhoc-server host[:port]] [--adhoc-nick <name>] [--adhoc-mac AA:BB:CC:DD:EE:FF] [--adhoc-room CODE]
@@ -211,6 +211,38 @@ std::vector<ScriptedPress> parse_input_script(const std::string &text) {
     return out;
 }
 
+// --skip-intro. The demo_task overlay runs the start-up screens one after another (the memory stick check, the violence
+// notice, the company and audio logos, the opening movie, the title screen): each, when it ends, names the next screen
+// by a record {0, -1, screen, 0} in the overlay's data. The region map names two of those words: the screen that follows
+// the memory stick check, and the title screen as the game's own shortcut to it names it. Copying the second into the
+// first sends the boot from the memory stick check straight to the title screen. The title's own wait still plays the
+// logos and the movie when left alone, as the original does.
+constexpr bool kSkipIntroMapped = region::mh_intro_first_scene.has_value() && region::mh_intro_title_scene.has_value();
+bool g_skip_intro = false;
+
+// A next-screen record of `overlay` around the screen word at `address`.
+bool scene_record_at(psprecomp::GuestMemory &memory, const mhf::psp::Program &overlay, std::uint32_t address) {
+    const std::uint32_t screen = memory.load32(address);
+    return memory.load32(address - 8) == 0u && memory.load32(address - 4) == 0xFFFFFFFFu && memory.load32(address + 4) == 0u &&
+           screen >= overlay.code_start && screen < overlay.code_end;
+}
+
+// When demo_task has just been loaded: points the screen after the memory stick check at the title screen. Nothing is
+// written unless both words hold such records of that overlay, so a release whose data differs keeps its intro.
+void skip_intro(Runtime &rt) {
+    if constexpr (kSkipIntroMapped) {
+        const std::uint32_t first = *region::mh_intro_first_scene, title = *region::mh_intro_title_scene;
+        const mhf::psp::Program *overlay = rt.active_overlay_at(first);
+        if (overlay == nullptr || !std::string_view(overlay->name).ends_with("_ovl_demo_task")) return;
+        psprecomp::GuestMemory &memory = rt.memory();
+        if (!scene_record_at(memory, *overlay, first) || !scene_record_at(memory, *overlay, title)) {
+            std::fprintf(stderr, "[mhfu] --skip-intro: the start-up screens are not where the region map says, ignored\n");
+            return;
+        }
+        memory.store32(first, memory.load32(title));
+    }
+}
+
 // Hook on mh_overlay_prepare(image, size): the overlay image (header included) is already in guest memory and its
 // static initializers are about to run, so its recompiled code must become the active one for its region now.
 void on_overlay_prepare(Runtime &rt, Context &ctx) {
@@ -220,6 +252,7 @@ void on_overlay_prepare(Runtime &rt, Context &ctx) {
     if (g_log_overlays || !ok) {
         std::fprintf(stderr, "[mhfu] overlay %d %s at %08X\n", overlay_id, ok ? "activated" : "UNKNOWN", image);
     }
+    if (ok && g_skip_intro) skip_intro(rt);
 }
 
 // --fast-supply-box. Taking an item out of the supply box sets a cooldown in the Player to 30 frames, and the box ignores
@@ -996,6 +1029,7 @@ int main(int argc, char **argv) {
         else if (a == "--mouse-camera") g_mouse_camera = true; // enhancement, off by default; works with --analog-camera
         else if (a == "--mouse-camera-speed" && i + 1 < argc)
             g_mouse_speed = static_cast<float>(std::clamp(std::stoi(argv[++i]), 25, 300)) / 100.0f; // in percent
+        else if (a == "--skip-intro") g_skip_intro = true; // enhancement, off by default
         else if (a == "--gathering-indicators") g_gathering.indicators = true;
         else if (a == "--auto-gathering-tools") g_gathering.automatic_tools = true;
         else if (a == "--horn-songs") horn_songs = true; // enhancement

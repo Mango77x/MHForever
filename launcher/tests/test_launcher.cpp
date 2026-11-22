@@ -330,6 +330,7 @@ int main(int argc, char **argv) {
         CHECK(l.state()["settings"]["widescreen"].as_bool()); // not a bool: unchanged
         wide["widescreen"] = false;
         l.set_settings(wide);
+        CHECK(!l.state()["settings"]["skipIntro"].as_bool(true)); // the intro plays unless asked
         CHECK(!l.state()["settings"]["gatheringAssistance"].as_bool(true));
         Json gathering;
         gathering["gatheringAssistance"] = true;
@@ -1030,13 +1031,16 @@ int main(int argc, char **argv) {
         for (bool enabled : {false, true, false}) {
             Json gathering;
             gathering["gatheringAssistance"] = enabled;
+            gathering["skipIntro"] = enabled;
             l.set_settings(gathering);
             const auto plan = l.plan_launch("mhfu");
             CHECK(plan.error.empty());
+            CHECK((std::find(plan.args.begin(), plan.args.end(), "--skip-intro") != plan.args.end()) == enabled);
             CHECK((std::find(plan.args.begin(), plan.args.end(), "--gathering-indicators") != plan.args.end()) == enabled);
             CHECK((std::find(plan.args.begin(), plan.args.end(), "--auto-gathering-tools") != plan.args.end()) == enabled);
             Launcher again(base, data);
             CHECK(again.state()["settings"]["gatheringAssistance"].as_bool() == enabled);
+            CHECK(again.state()["settings"]["skipIntro"].as_bool() == enabled);
         }
     }
 

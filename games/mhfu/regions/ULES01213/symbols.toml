@@ -86,6 +86,8 @@ mh_smithy_model_scissor  = 0x09B085D0 # first entry: the screen rectangle the we
 mh_smithy_panel_draw_entry = 0x09A83BD8 # mh_smithy_panel_draw, which the game program also calls (both panels at once)
 mh_pad_input             = 0x08A62C64 # Pad*: this frame's buttons and sticks as the game reads them (s8 stick x at +2, y at +4)
 mh_draw_done             = 0x08A62C45 # u8: set when the game's drawing for the frame is done (mh_draw_wait waits for it)
+mh_intro_first_scene     = 0x09A61BB8 # u32 in demo_task's data: the start-up screen after the memory stick check (the violence notice)
+mh_intro_title_scene     = 0x09A61BA8 # u32 in demo_task's data: the title screen, where the game's own shortcut goes
 
 [offsets]
 system_active_overlays  = 0x00F7A580 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none)
