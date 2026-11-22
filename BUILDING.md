@@ -23,9 +23,11 @@ FFmpeg.
 
 ## Running on Linux
 
-The release tarball is a portable folder: extract it and run `./MHForever`. The launcher needs WebKitGTK 4.1 and GTK 3 at
-runtime (the build packages above are enough if you build from source on the same machine). A typical Debian/Ubuntu system
-needs:
+The release tarball is a portable folder: extract it and run `./MHForever`. That small program
+(`launcher/native/starter_linux.cpp`) starts the launcher's window, `MHForever-window`, which needs GTK 3 and WebKitGTK 4.1.
+It uses the system's WebKitGTK when there is one; otherwise the copy the archive carries in `lib/webkit` (SteamOS on the
+Steam Deck has none), and of that copy's libraries only those the system lacks. `MHF_WEBKIT=bundled` or
+`MHF_WEBKIT=system` forces either. A typical Debian/Ubuntu system needs:
 
 ```sh
 sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0 libasound2t64 libgl1
@@ -123,18 +125,27 @@ The archives are assembled from programs built elsewhere; game data never goes i
 
 ### Linux
 
-1. Build the launcher (`cmake --preset linux-clang`, then `cmake --build --preset linux-clang`).
-2. Build `mhfu` from the generated code (see above) in a Release configuration, with `-DMHF_FFMPEG=bundled` so FFmpeg is
+1. Build the launcher (`cmake --preset linux-clang`, then `cmake --build --preset linux-clang`): `MHForever`,
+   `MHForever-window` and `MHForever-cli`.
+2. Bundle WebKitGTK for systems without it, from the build machine's own packages (Ubuntu 24.04 with
+   `libwebkit2gtk-4.1-0` and `glib-networking`): `python3 scripts/bundle_webkit_linux.py --out <dir>`. It writes
+   `<dir>/lib/webkit` (WebKitGTK with its helper programs moved to the path the starter prepares, and the libraries it
+   needs beyond GTK's) and `<dir>/licenses/webkitgtk` (each package's copyright file and version).
+3. Build `mhfu` from the generated code (see above) in a Release configuration, with `-DMHF_FFMPEG=bundled` so FFmpeg is
    built from the pinned release and linked statically: the archive then needs nothing from the player's distribution.
-3. Package the programs, the free fonts and the licenses:
+4. Package the programs, the free fonts and the licenses:
    ```sh
    python scripts/package_release.py --platform linux \
-       --launcher <MHForever> --game <mhfu> --game-us <mhfu-us> --game-jp <mhfu-jp> --fonts <the fonts folder next to mhfu>
+       --launcher <MHForever> --launcher-window <MHForever-window> --launcher-cli <MHForever-cli> --webkit-bundle <dir> \
+       --game <mhfu> --game-us <mhfu-us> --game-jp <mhfu-jp> --fonts <the fonts folder next to mhfu>
    ```
    This writes `MHForever-<version>-linux-x64.tar.gz` and its `.sha256`; the execute permission of the programs is
    kept. FFmpeg is inside the programs (static), so the archive carries only its licence and source note
    (`third_party/ffmpeg/`). The text shown to players is `dist/PLAYER_README_LINUX.txt`. As on Windows, the version comes from
    `CMakeLists.txt`.
+5. Optionally, check the archive on SteamOS without a Steam Deck (as CI does): `sudo scripts/steamos_smoke_test.sh rootfs
+   <dir>` takes the system of Valve's latest recovery image, and `sudo scripts/steamos_smoke_test.sh run <dir> <unpacked
+   archive> <screen.png>` starts the launcher in it as the deck user, on a virtual display.
 
 Release archives are always built by the maintainer on their own machine (for Linux: on a Linux install, a virtual
 machine or WSL), never by CI and never by a third party, because they are programs people will run. CI only builds and

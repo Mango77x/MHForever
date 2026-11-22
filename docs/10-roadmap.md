@@ -98,7 +98,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
       `scripts/package_release.py --platform linux` (programs, fonts, licenses, `dist/PLAYER_README_LINUX.txt`), embedded
       application icon, and a `cmake --install` layout with the desktop entry and the icon. CI builds and packages the layout
       on Ubuntu.
-- [ ] Windows installer and AppImage (Linux). Steam Deck: players have reported it working on SteamOS; the maintainers have no Deck to test on.
+- [ ] Windows installer and AppImage (Linux). Steam Deck: the Linux archive carries WebKitGTK, so the launcher opens on SteamOS as it ships (tested on SteamOS's own system in CI); the maintainers have no Deck to test on.
 **Acceptance**: a user with no development tools goes from "I have my ISO" to "I'm playing" using only the launcher.
 
 ## Phase 5 — Multiplayer

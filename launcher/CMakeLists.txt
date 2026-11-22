@@ -149,7 +149,17 @@ add_executable(mhf_launcher
 target_include_directories(mhf_launcher PRIVATE native ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(mhf_launcher PRIVATE mhf_core mhf_psp_tools mhf_webview mhf_prx mhf_texture_pack)
 target_compile_definitions(mhf_launcher PRIVATE MHF_VERSION_STRING="${PROJECT_VERSION}")
-set_target_properties(mhf_launcher PROPERTIES OUTPUT_NAME MHForever) # MHForever.exe on Windows
+if(UNIX AND NOT APPLE)
+    # Linux: the window is MHForever-window, started by MHForever (native/starter_linux.cpp), which links no WebKitGTK and
+    # makes the window use the copy bundled with the release where the system has none (the Steam Deck's SteamOS).
+    set_target_properties(mhf_launcher PROPERTIES OUTPUT_NAME MHForever-window)
+    add_executable(mhf_launcher_starter native/starter_linux.cpp)
+    set_target_properties(mhf_launcher_starter PROPERTIES OUTPUT_NAME MHForever)
+    mhf_target_warnings(mhf_launcher_starter)
+    add_dependencies(mhf_launcher mhf_launcher_starter)
+else()
+    set_target_properties(mhf_launcher PROPERTIES OUTPUT_NAME MHForever) # MHForever.exe on Windows
+endif()
 if(WIN32)
     set_target_properties(mhf_launcher PROPERTIES WIN32_EXECUTABLE ON)
     target_sources(mhf_launcher PRIVATE ${MHF_WINDOWS_ICON_RC})
@@ -213,7 +223,7 @@ endforeach()
 # `cmake --install build/linux-clang --prefix ~/.local` puts the launcher, the game (when it was built), the fonts,
 # the desktop entry and the icon where the desktop finds them.
 if(UNIX AND NOT APPLE)
-    install(TARGETS mhf_launcher mhf_launcher_cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(TARGETS mhf_launcher mhf_launcher_starter mhf_launcher_cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     foreach(game IN LISTS MHF_GAMES)
         if(TARGET ${game})
             install(TARGETS ${game} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
@@ -257,6 +267,10 @@ if(MHF_BUILD_TESTS)
     # no copies, and keeps a setting within what the game accepts.
     add_test(NAME launcher_cli_version COMMAND mhf_launcher_cli --version)
     set_tests_properties(launcher_cli_version PROPERTIES PASS_REGULAR_EXPRESSION "^MHForever ${PROJECT_VERSION}")
+    if(TARGET mhf_launcher_starter) # Linux: MHForever hands the commands without a window to MHForever-cli
+        add_test(NAME launcher_starter_cli COMMAND mhf_launcher_starter --version)
+        set_tests_properties(launcher_starter_cli PROPERTIES PASS_REGULAR_EXPRESSION "^MHForever ${PROJECT_VERSION}")
+    endif()
     add_test(NAME launcher_cli_list COMMAND mhf_launcher_cli --list)
     set_tests_properties(launcher_cli_list PROPERTIES PASS_REGULAR_EXPRESSION "No copy of the game yet"
                          ENVIRONMENT "MHF_DATA_DIR=${CMAKE_CURRENT_BINARY_DIR}/cli_test_data")

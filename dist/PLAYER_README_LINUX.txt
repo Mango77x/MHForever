@@ -11,8 +11,9 @@ of the game.
 What you need
 -------------
 * A 64-bit Linux distribution (glibc) with a graphics driver that supports OpenGL 3.3, on X11 or Wayland.
-* WebKitGTK 4.1 and GTK 3, which the launcher uses to show its window (SteamOS does not include WebKitGTK: see
-  "Without the launcher's window" below).
+* GTK 3, which desktops have (SteamOS too). The launcher's window also uses WebKitGTK 4.1: it takes the system's when
+  there is one, and otherwise the copy in lib/webkit (SteamOS on the Steam Deck has none), so nothing needs to be
+  installed. The system's own, if you prefer it:
   Debian/Ubuntu: libwebkit2gtk-4.1-0 libgtk-3-0
   Fedora:        webkit2gtk4.1 gtk3
   Arch:          webkit2gtk-4.1 gtk3
@@ -35,7 +36,7 @@ How to play
 -----------
 1. Extract this folder anywhere you can write to, for example your home folder.
    The programs must keep their execute permission. If your file manager removed it:
-       chmod +x MHForever MHForever-cli mhfu mhfu-us mhfu-jp mhfu-fuc
+       chmod +x MHForever MHForever-window MHForever-cli mhfu* mhf1* lib/webkit/webkit2gtk-4.1/WebKit*
 2. Open MHForever.
 3. Add your .iso. The launcher checks your copy and prepares what it needs from it.
    In Settings you can choose to keep a copy of the image in MHForever's own folder.
@@ -54,11 +55,20 @@ Prepared game data and your library are stored in the same MHForever folder. Rem
 deletes only its prepared data (never your original .iso or your saves).
 
 
-Without the launcher's window (Steam Deck)
-------------------------------------------
-The launcher's window needs WebKitGTK, which SteamOS does not include: there MHForever cannot open its window. MHForever-cli
-is the same launcher without a window and needs nothing besides the C library. Open a terminal in this folder (Desktop
-Mode) and:
+Steam Deck
+----------
+In Desktop Mode, open MHForever as on any other Linux: the launcher's window uses its own WebKitGTK (lib/webkit), since
+SteamOS has none. To play from Game Mode, add MHForever to Steam as a non-Steam game (Desktop Mode > Steam > Add a Game >
+Add a Non-Steam Game > Browse, and choose MHForever in this folder). In Game Mode the launcher's window works with the
+controller (D-pad, A to choose, B to go back); it steps aside while the game runs and comes back when the game closes.
+Adding your .iso is easiest in Desktop Mode; in Game Mode the file dialog works with the touchscreen or the trackpad.
+The maintainers have no Deck: the launcher is tested on SteamOS 3.8's own system (from Valve's recovery image), not on
+a Deck. Reports from a Deck are welcome (Discord or GitHub).
+
+Without the launcher's window
+-----------------------------
+MHForever-cli is the same launcher without a window and needs nothing besides the C library. Open a terminal in this
+folder and:
     ./MHForever-cli --install "/path/to/your game.iso"      add your copy (once; --copy keeps a copy of the image)
     ./MHForever-cli --set fullscreen=true                    settings: fullscreen, scale (1-10), fps (30-180), hudSize (50-100),
                                                              smoothTextures, trueWeaponValues, fastSupplyBox, smithyBrowse,
@@ -67,16 +77,14 @@ Mode) and:
                                                              musicVolume, sfxVolume (0-100)
     ./MHForever-cli --list                                   your copies (and their disc IDs) and settings
     ./MHForever-cli --play                                   start the game (--play ULES01213 picks another copy)
-To play from Game Mode, add MHForever-cli to Steam as a non-Steam game (Desktop Mode > Add a Game > Add a Non-Steam
-Game) and set its launch options to --play: it stays running while the game does. The controls, the volume and the rest of
-the game's menu (Escape, or the controller's guide button) work as on any other system. The maintainers have no Deck to
-test on: this was checked to start without WebKitGTK, and reports from a Deck are welcome (Discord or GitHub).
+MHForever-cli added to Steam with --play as its launch options starts the game straight from Game Mode: it stays
+running while the game does.
 
 
 If something does not start
 ---------------------------
-* "The launcher needs WebKitGTK (libwebkit2gtk-4.1)": install the WebKitGTK 4.1 package listed above, or use
-  MHForever-cli (see "Without the launcher's window").
+* "The launcher's window needs WebKitGTK 4.1": the lib/webkit folder is missing (extract the whole archive again), or
+  install the WebKitGTK 4.1 package listed above, or use MHForever-cli (see "Without the launcher's window").
 * "Cannot create the window" or a black window: update your graphics driver, or try the X11 session instead of Wayland.
 * The game closes right away: its log is in game.log next to MHForever; the launcher shows its last lines.
 * Missing system libraries: run the program in a terminal to see which one the dynamic loader reports.
