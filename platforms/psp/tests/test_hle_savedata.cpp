@@ -134,6 +134,36 @@ int main() {
     prepare(rt, kAutoLoad, {}, &key);
     MHF_CHECK(mhf::psp::hle::execute_savedata(rt, kParams) == 0 && loaded(rt) == second);
 
+    // GETSIZE (mode 22) answers how much space is still missing beyond the free space: nothing for files that fit, the
+    // difference for files that do not. Freedom Unite's data install (183 files, about 580 MB) stops at "not enough free
+    // space" on anything but 0.
+    {
+        constexpr std::uint32_t kSizeInfo = 0x5FC, kInfo = 0x08A01000u, kEntries = 0x08A02000u;
+        const auto get_size = [&](std::uint64_t file_bytes, std::uint32_t files) {
+            prepare(rt, 22, {}, nullptr);
+            put_text(rt, kParams + kGameName, "ULES01213DAT");
+            put_text(rt, kParams + kSaveName, "");
+            auto &m = rt.memory();
+            for (std::uint32_t i = 0; i < 64; i += 4) m.store32(kInfo + i, 0);
+            m.store32(kInfo + 4, files); // normal entries
+            m.store32(kInfo + 12, kEntries);
+            for (std::uint32_t i = 0; i < files; ++i) {
+                m.store32(kEntries + i * 24, static_cast<std::uint32_t>(file_bytes));
+                m.store32(kEntries + i * 24 + 4, static_cast<std::uint32_t>(file_bytes >> 32));
+            }
+            m.store32(kParams + kSizeInfo, kInfo);
+            return mhf::psp::hle::execute_savedata(rt, kParams);
+        };
+        MHF_CHECK(get_size(3u << 20, 183) == 0);
+        const std::uint32_t free_kb = rt.memory().load32(kInfo + 24);
+        MHF_CHECK(free_kb >= 600u * 1024u);
+        MHF_CHECK(rt.memory().load32(kInfo + 36) == 0 && rt.memory().load32(kInfo + 48) == 0); // fits: nothing missing
+        MHF_CHECK(get_size(std::uint64_t{free_kb} * 1024u + (64u << 20), 1) == 0);
+        const std::uint32_t missing = rt.memory().load32(kInfo + 36);
+        MHF_CHECK(missing >= 64u * 1024u && missing < 65u * 1024u); // the 64 MB that do not fit, and the folder's few KB
+        MHF_CHECK(rt.memory().load32(kInfo + 48) == missing);      // nothing there to overwrite
+    }
+
     fs::remove_all(stick);
     return mhf::test::finish("test_hle_savedata");
 }
