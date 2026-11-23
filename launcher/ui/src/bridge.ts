@@ -12,6 +12,7 @@ export interface Game {
   region: string; // or a patched edition's own name (FUComplete)
   market?: string; // EU, US or JP: the disc the copy comes from
   discId: string;
+  iconUrl?: string | null;
   version: string;
   isoPath: string;
   verification: Verification;
