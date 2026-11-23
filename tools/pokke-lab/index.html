@@ -1,0 +1,39 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Pokke Lab</title><style>
+*{box-sizing:border-box}body{background:#122125;color:#edf4e8;font:16px system-ui;margin:auto;padding:3vw;max-width:1450px}h1{font: bold 46px Georgia;margin:0 0 20px}fieldset,section{border:1px solid #506567;border-radius:8px;padding:16px;margin:16px 0}fieldset{display:flex;flex-wrap:wrap;gap:18px;align-items:center}label{display:grid;gap:6px}button,select{background:#dcf3bc;color:#193323;border:0;padding:9px;border-radius:5px}button:disabled{opacity:.5}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}canvas{width:100%;height:auto;image-rendering:pixelated;background:#0c1314}figure{margin:0}figcaption{margin-bottom:8px}p{color:#cfdfd9}input{max-width:100%}</style>
+<h1>Pokke Lab</h1><p>Compare two MHForever capture folders by filename. Use runs with matching settings and capture cadence.</p>
+<fieldset id="inputs"><label>Baseline folder<input type="file" webkitdirectory id="a"></label><label>Candidate folder<input type="file" webkitdirectory id="b"></label><button id="run">Compare captures</button></fieldset>
+<p role="status" id="msg">Choose two folders containing gl_*.ppm files.</p>
+<section id="viewer" hidden><fieldset><label>Frame<select id="pick"></select></label><button id="next">Next difference</button><button id="save">Export Markdown</button></fieldset>
+<div class="grid"><figure><figcaption>Baseline</figcaption><canvas id="left"></canvas></figure><figure><figcaption>Candidate</figcaption><canvas id="right"></canvas></figure></div>
+<label>Candidate overlay on baseline<input type="range" id="blend" min="0" max="100" value="0"></label><p id="detail"></p></section>
+<script src="compare.js"></script><script>
+const el=id=>document.getElementById(id);
+const read=async f=>new Uint8Array(await f.arrayBuffer());
+function list(id){return new Map([...el(id).files].filter(f=>f.webkitRelativePath.split("/").length===2 && /^gl_.*\.ppm$/i.test(f.name)).map(f=>[f.name,f]));}
+let rows=[],a,b,version=0;
+function draw(id,f){
+  const c=el(id); c.width=f?f.w:1;c.height=f?f.h:1;if(!f)return;
+  const ctx=c.getContext("2d"),im=ctx.createImageData(f.w,f.h);
+  for(let i=0,j=0;i<f.pixels.length;i+=3,j+=4){im.data[j]=f.pixels[i];im.data[j+1]=f.pixels[i+1];im.data[j+2]=f.pixels[i+2];im.data[j+3]=255;}
+  ctx.putImageData(im,0,0);
+}
+let first;
+function overlay(){draw("left",first);if(el("blend").disabled)return;const ctx=el("left").getContext("2d");ctx.globalAlpha=el("blend").value/100;ctx.drawImage(el("right"),0,0);ctx.globalAlpha=1;}
+async function show(){
+  const stamp=++version,r=rows[el("pick").selectedIndex];
+  try{
+    const [x,y]=await Promise.all([a.get(r.name),b.get(r.name)].map(async f=>f?frame(await read(f)):null));
+    if(stamp!==version)return;first=x;draw("right",y);el("blend").disabled=!x||!y||x.w!==y.w||x.h!==y.h;overlay();
+    el("detail").textContent=r.status+(r.bounds?" · "+r.count+" changed pixels · bounds (inclusive): "+r.bounds.join(", "):"");
+  }catch(e){if(stamp===version)el("detail").textContent=e.message;}
+}
+el("run").onclick=async()=>{el("viewer").hidden=true;el("inputs").disabled=true;el("msg").textContent="Comparing captures…";
+  try{a=list("a");b=list("b");if(!a.size||!b.size)throw Error("Choose two folders with gl_*.ppm captures at their top level.");
+    rows=await compare(a,b,read);const pick=el("pick");pick.replaceChildren();for(const r of rows)pick.add(new Option(r.name+" · "+r.status));
+    pick.selectedIndex=Math.max(0,rows.findIndex(r=>r.status!=="Identical"));el("viewer").hidden=false;
+    el("msg").textContent=rows.length+" filenames · "+rows.filter(r=>r.status!=="Identical").length+" differences";await show();
+  }catch(e){el("msg").textContent=e.message;}finally{el("inputs").disabled=false;}};
+el("next").onclick=()=>{const p=el("pick");for(let k=1;k<=rows.length;k++){let i=(p.selectedIndex+k)%rows.length;if(rows[i].status!=="Identical"){p.selectedIndex=i;show();break;}}};
+el("pick").onchange=show;el("blend").oninput=overlay;
+el("save").onclick=()=>{const url=URL.createObjectURL(new Blob([report(rows)],{type:"text/markdown"}));const link=document.createElement("a");link.href=url;link.download="pokke-lab-report.md";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+</script></html>
