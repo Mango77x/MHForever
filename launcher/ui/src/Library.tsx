@@ -22,7 +22,6 @@ function GameCard({ game, selected, onOpen }: { game: Game; selected: boolean; o
       }}
       onMouseLeave={() => setT({ x: 0, y: 0, on: false })}
       style={{ transform: `perspective(900px) rotateY(${t.x * 14}deg) rotateX(${t.y * -14}deg) scale(${t.on ? 1.03 : 1})` }}
-      aria-label={`${game.title}, ${game.region}`}
     >
       <svg viewBox="0 0 300 400" preserveAspectRatio="xMidYMax slice" aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
         <circle cx="210" cy="110" r="34" fill="#ffd9a0" opacity=".85" />
