@@ -29,6 +29,15 @@ function GameCard({ game, selected, onOpen }: { game: Game; selected: boolean; o
         <path d="M0 270 L60 200 L110 245 L170 160 L230 240 L300 190 L300 400 L0 400 Z" fill="#2c1d2b" />
         <path d="M0 330 L70 290 L140 320 L210 285 L300 320 L300 400 L0 400 Z" fill="#160f17" />
       </svg>
+      {game.iconUrl?.startsWith('data:image/png;base64,') && (
+        <img
+          key={game.iconUrl}
+          src={game.iconUrl}
+          alt=""
+          onError={(e) => { e.currentTarget.hidden = true; }}
+          style={{ position: 'absolute', top: '16%', left: '15%', width: '70%', height: '35%', objectFit: 'contain' }}
+        />
+      )}
       <div className="shine" style={{ background: `radial-gradient(60% 50% at ${(t.x + 0.5) * 100}% ${(t.y + 0.5) * 100}%, rgba(255,240,210,.28), transparent 60%)` }} />
       <div className="meta">
         {game.supported ? (
