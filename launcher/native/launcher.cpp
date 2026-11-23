@@ -48,6 +48,45 @@ const char *region_name(const CatalogEntry &e) {
     return "Unknown region";
 }
 
+// ICON0 is optional. A bad icon must never prevent adding or opening a copy.
+std::string disc_icon(const fs::path &iso) {
+    if (iso.empty()) return {};
+    try {
+        psp::IsoImage image(iso);
+        const auto icon = image.find("/PSP_GAME/ICON0.PNG");
+        constexpr std::uint8_t png_header[] = {
+            0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 'I', 'H', 'D', 'R',
+        };
+        if (!icon || icon->size < 33 || icon->size > 256 * 1024) return {};
+        const auto bytes = image.read_file(*icon, 0, icon->size);
+        if (bytes.size() < 33 || !std::equal(std::begin(png_header), std::end(png_header), bytes.begin())) return {};
+        const auto dimension = [&](std::size_t offset) {
+            return (std::uint32_t(bytes[offset]) << 24) | (std::uint32_t(bytes[offset + 1]) << 16) |
+                   (std::uint32_t(bytes[offset + 2]) << 8) | std::uint32_t(bytes[offset + 3]);
+        };
+        const auto width = dimension(16), height = dimension(20);
+        if (width == 0 || height == 0 || width > 512 || height > 512) return {};
+
+        constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        std::string url = "data:image/png;base64,";
+        url.reserve(url.size() + 4 * ((bytes.size() + 2) / 3));
+        for (std::size_t i = 0; i < bytes.size(); i += 3) {
+            const bool has_second = i + 1 < bytes.size();
+            const bool has_third = i + 2 < bytes.size();
+            const auto first = std::uint32_t(bytes[i]);
+            const auto second = has_second ? std::uint32_t(bytes[i + 1]) : 0;
+            const auto third = has_third ? std::uint32_t(bytes[i + 2]) : 0;
+            url += alphabet[first >> 2];
+            url += alphabet[((first & 3) << 4) | (second >> 4)];
+            url += has_second ? alphabet[((second & 15) << 2) | (third >> 6)] : '=';
+            url += has_third ? alphabet[third & 63] : '=';
+        }
+        return url;
+    } catch (const std::exception &) {
+        return {};
+    }
+}
+
 #if defined(_WIN32)
 constexpr const char *kProgramSuffix = ".exe";
 #else
@@ -819,6 +858,16 @@ void Launcher::load() {
     data_["settings"] = settings;
     if (!data_["gameSettings"].is_object()) data_["gameSettings"] = Json(Json::Object{});
     if (!data_["games"].is_array()) data_["games"] = Json(Json::Array{});
+    for (auto &game : data_["games"].array()) {
+        const Json &saved = game;
+        if (!saved.is_object() || entry_for(saved["discId"].as_string()) == nullptr ||
+            !saved["iconUrl"].as_string().empty()) continue;
+        const auto icon = disc_icon(platform::from_utf8(saved["isoPath"].as_string()));
+        if (!icon.empty()) {
+            game["iconUrl"] = icon;
+            changed = true;
+        }
+    }
     if (!data_["stats"].is_object()) {
         Json stats;
         stats["secondsPlayed"] = 0;
@@ -978,6 +1027,7 @@ Json Launcher::state() {
         out["version"] = e->version;
         out["isoPath"] = g["isoPath"];
         out["verification"] = g["verification"];
+        out["iconUrl"] = g["iconUrl"];
         out["supported"] = std::string(e->status) != "planned";
         games.array().push_back(out);
     }
@@ -1369,6 +1419,7 @@ Launcher::AddResult Launcher::add_game(const fs::path &iso, const Progress &prog
             stored_iso = installed.image;
         }
     }
+    const auto icon = disc_icon(iso);
     {
         std::lock_guard lock(mutex_);
         auto &games = data_["games"].array();
@@ -1379,6 +1430,7 @@ Launcher::AddResult Launcher::add_game(const fs::path &iso, const Progress &prog
         g["discId"] = entry->disc_id;
         g["isoPath"] = platform::to_utf8(fs::weakly_canonical(stored_iso, ec));
         g["verification"] = verification;
+        if (!icon.empty()) g["iconUrl"] = icon;
         games.insert(games.begin(), g);
         save();
     }
