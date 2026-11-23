@@ -133,7 +133,8 @@ def write_zip(path: pathlib.Path, folder: str, readme: str, files: dict[str, pat
 
 def write_tarball(path: pathlib.Path, folder: str, readme: str, files: dict[str, pathlib.Path],
                   executables: set[str]) -> None:
-    with tarfile.open(path, "w:gz", compresslevel=9) as t:
+    # Store the selected files even when the build outputs are links on the packaging machine.
+    with tarfile.open(path, "w:gz", compresslevel=9, dereference=True) as t:
         readme_bytes = readme.encode("utf-8")
         info = tarfile.TarInfo(f"{folder}/README.txt")
         info.size = len(readme_bytes)
@@ -148,8 +149,6 @@ def write_tarball(path: pathlib.Path, folder: str, readme: str, files: dict[str,
         t.addfile(info, io.BytesIO(enet))
         for name, source in files.items():
             info = t.gettarinfo(str(source), arcname=f"{folder}/{name}")
-            if info is None:  # only symlinks can fail here, and the inputs are regular files
-                continue
             info.mode = 0o755 if name in executables else 0o644
             info.uid = info.gid = 0
             info.uname = info.gname = ""
