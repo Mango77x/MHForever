@@ -36,6 +36,12 @@ export const frameRates = [30, 60, 90, 120, 150, 180];
 export const hudSizes = [100, 90, 80, 70, 60, 50];
 // Anisotropic filtering of texture packs, 1 being off (the launcher's anisotropy setting, the game's --anisotropy).
 export const anisotropyLevels = [1, 2, 4, 8, 16];
+// Global texture filtering mode (the launcher's textureFilter setting, the game's --texture-filter).
+export const textureFilters = [
+  { id: 'auto', label: 'Auto' },
+  { id: 'linear', label: 'Linear' },
+  { id: 'nearest', label: 'Nearest' },
+] as const;
 // Where the hunting horn's songs can go (the game's names: core/overlay/song_panel.hpp, kSongPlaceNames).
 export const songPlaces = [
   { id: 'next-to-sheet', label: 'Next to the sheet' },

@@ -59,7 +59,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   pseudonym, identity seed, settings, library, stats. Adding a copy reads PARAM.SFO (`platforms/psp/tools/param_sfo`)
   and compares size + SHA-1 with `games/*/regions/*/region.toml` (catalog generated at configure time; identification
   data only). Launching runs `mhfu(.exe)` next to the launcher with the settings as flags (`--scale`, `--fullscreen`,
-  `--smooth-textures`, `--pack-mipmaps`, `--anisotropy`, `--projected-shadows`, `--no-whole-map-shadows`, `--shadow-quality`, `--shadow-darkness`, `--widescreen`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--smithy-browse`, `--smithy-layout`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
+  `--texture-filter`, `--pack-mipmaps`, `--anisotropy`, `--projected-shadows`, `--no-whole-map-shadows`, `--shadow-quality`, `--shadow-darkness`, `--widescreen`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--smithy-browse`, `--smithy-layout`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
   sessions. The game also needs the prepared executable: the installer produces it (below); developer builds can instead use
   `../exe/<DISC_ID>_EBOOT.BIN` (or one next to the ISO), checked against `dev_executable` in region.toml.
 - **Friend code**: the first 80 bits of SHA-256 of the player's Nostr public key, which is derived from a random identity
