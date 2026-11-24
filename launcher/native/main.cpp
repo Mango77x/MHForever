@@ -106,6 +106,18 @@ void on_set_settings(const char *id, const Json &args) {
     reply(id, g_app.launcher->state());
 }
 
+void on_set_game_art(const char *id, const Json &args) {
+    const auto &a = args.as_array();
+    if (a.size() >= 3) g_app.launcher->set_game_art(a[0].as_string(), a[1].as_string(), a[2].as_string());
+    reply(id, g_app.launcher->state());
+}
+
+void on_get_game_art(const char *id, const Json &args) {
+    const auto &a = args.as_array();
+    const std::string url = a.size() >= 2 ? g_app.launcher->game_art(a[0].as_string(), a[1].as_string()) : std::string();
+    reply(id, Json(url));
+}
+
 void on_set_pseudonym(const char *id, const Json &args) {
     if (!args.as_array().empty()) g_app.launcher->set_pseudonym(args.as_array()[0].as_string());
     reply(id, g_app.launcher->state());
@@ -632,6 +644,8 @@ int main(int argc, char **argv) {
 
     bind("mhf_getState", on_get_state);
     bind("mhf_setSettings", on_set_settings);
+    bind("mhf_setGameArt", on_set_game_art);
+    bind("mhf_getGameArt", on_get_game_art);
     bind("mhf_setPseudonym", on_set_pseudonym);
     bind("mhf_addGame", on_add_game);
     bind("mhf_removeGame", on_remove_game);

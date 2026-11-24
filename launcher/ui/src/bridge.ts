@@ -12,6 +12,11 @@ export interface Game {
   region: string; // or a patched edition's own name (FUComplete)
   market?: string; // EU, US or JP: the disc the copy comes from
   discId: string;
+  iconUrl?: string | null; // the player's own ICON0.PNG as a bounded PNG data URL; absent when there is none
+  hasCover?: boolean; // a cover file for the Library card exists in the launcher's data folder
+  coverVersion?: number; // bumped when the cover changes, so the UI refetches it
+  hasBanner?: boolean; // a banner file for Home exists in the launcher's data folder
+  bannerVersion?: number; // bumped when the banner changes, so the UI refetches it
   version: string;
   isoPath: string;
   verification: Verification;
@@ -66,6 +71,8 @@ export interface Settings {
   fdxFov?: number; // 0..255, 95 is the game's own
   fdxCamera?: number; // 1..5, 4 is the game's own
   copyImage: boolean; // keep a copy of the disc image in MHForever's own folder
+  useCustomArt?: boolean; // show the cover and banner the player uploaded; off keeps the drawn scenery
+  showGameIcon?: boolean; // show the small ICON0 badge on Library cards; off hides it
   musicVolume: number; // 0..100
   sfxVolume: number; // 0..100
   // Which physical key stands for which pad button: UI Events codes ("KeyK", "ArrowLeft"...), '' when unbound.
@@ -191,6 +198,8 @@ export interface UpdateInfo {
 type Native = {
   mhf_getState(): Promise<State>;
   mhf_setSettings(settings: Partial<Settings>): Promise<State>;
+  mhf_setGameArt(discId: string, kind: 'cover' | 'banner', dataUrl: string): Promise<State>;
+  mhf_getGameArt(discId: string, kind: 'cover' | 'banner'): Promise<string>; // the image data URL, empty when there is none
   mhf_setPseudonym(name: string): Promise<State>;
   mhf_addGame(): Promise<{ started: boolean }>;
   mhf_removeGame(id: string): Promise<State>;
@@ -234,6 +243,7 @@ export const isNative = typeof w.mhf_getState === 'function';
 
 function simulated(): Native {
   const emit = (e: LauncherEvent) => setTimeout(() => (window as unknown as { __mhfEvent: (e: LauncherEvent) => void }).__mhfEvent(e), 0);
+  const mockArt = new Map<string, string>();
   const defaultKeys: Record<string, string> = {
     south: 'KeyK', east: 'KeyL', west: 'KeyJ', north: 'KeyI',
     left_shoulder: 'KeyQ', right_shoulder: 'KeyE', start: 'Enter', select: 'Backspace',
@@ -255,7 +265,7 @@ function simulated(): Native {
     settings: {
       scale: 4, fullscreen: false, smoothTextures: false, packMipmaps: false, anisotropy: 16, widescreen: false, fps: 30, hudSize: 100, trueWeaponValues: false, fastSupplyBox: false,
       smithyBrowse: false, smithyLayout: false, analogCamera: false, analogCameraTurnSpeed: 100, analogCameraTiltSpeed: 100, mouseCamera: false, mouseCameraSpeed: 100,
-      gatheringAssistance: false, skipIntro: false, hornSongs: false, hornSongsPlace: 'next-to-sheet', language: '', copyImage: false, musicVolume: 80, sfxVolume: 90,
+      gatheringAssistance: false, skipIntro: false, hornSongs: false, hornSongsPlace: 'next-to-sheet', language: '', copyImage: false, useCustomArt: true, showGameIcon: true, musicVolume: 80, sfxVolume: 90,
       keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '', adhocRoom: '', checkUpdates: true,
       friendRelays: ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom', 'wss://offchain.pub', 'wss://relay.nostr.net'],
     },
@@ -273,6 +283,24 @@ function simulated(): Native {
   return {
     async mhf_getState() { return copy(); },
     async mhf_setSettings(s) { Object.assign(state.settings, s); return copy(); },
+    async mhf_setGameArt(discId, kind, dataUrl) {
+      const game = state.games.find((g) => g.discId === discId);
+      if (game) {
+        if (kind === 'cover') {
+          game.hasCover = Boolean(dataUrl);
+          game.coverVersion = (game.coverVersion ?? 0) + 1;
+        } else {
+          game.hasBanner = Boolean(dataUrl);
+          game.bannerVersion = (game.bannerVersion ?? 0) + 1;
+        }
+      }
+      if (dataUrl) mockArt.set(`${discId}:${kind}`, dataUrl);
+      else mockArt.delete(`${discId}:${kind}`);
+      return copy();
+    },
+    async mhf_getGameArt(discId, kind) {
+      return mockArt.get(`${discId}:${kind}`) ?? '';
+    },
     async mhf_setPseudonym(n) { state.pseudonym = n; return copy(); },
     async mhf_addGame() {
       let p = 0;

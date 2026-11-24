@@ -10,6 +10,7 @@ import { Library } from './Library';
 import { GameSettingsPage, SettingsPage } from './SettingsPage';
 import { clock, hours } from './format';
 import { startNavigation } from './gamepad';
+import { clearGameArt } from './gameArtCache';
 
 type Screen = 'home' | 'library' | 'settings' | 'game';
 type Verify = { phase: 'reading' | 'hashing' | 'preparing' | 'copying' | 'done' | 'failed'; progress: number; file: string; game?: Game; message?: string };
@@ -41,7 +42,7 @@ function Toast({ text }: { text: string | null }) {
           exit={{ opacity: 0, y: 20, x: '-50%' }}
           transition={spring}
         >
-          <CheckIcon size={16} color="#1a1208" /> {text}
+          <span className="toast-dot" /> {text}
         </motion.div>
       )}
     </AnimatePresence>
@@ -131,6 +132,17 @@ export default function App() {
   const setSettings = (s: Partial<Settings>) => {
     setState({ ...state, settings: { ...state.settings, ...s } });
     api.mhf_setSettings(s).then(setState);
+  };
+  const setGameArt = (discId: string, kind: 'cover' | 'banner', dataUrl: string) => {
+    api.mhf_setGameArt(discId, kind, dataUrl).then((s) => {
+      clearGameArt(discId, kind);
+      setState(s);
+      const game = s.games.find((g) => g.discId === discId);
+      const stored = kind === 'cover' ? game?.hasCover : game?.hasBanner;
+      if (!dataUrl) say('Artwork removed');
+      else if (!stored) say('Could not save the picture');
+      else say(kind === 'cover' ? 'Cover saved' : 'Banner saved');
+    });
   };
   const addCopy = () => { setProfileOpen(false); api.mhf_addGame(); };
   const locateExe = () => api.mhf_pickExecutable().then((s) => { setState(s); if (s.executable.found) say('Executable found'); });
@@ -278,11 +290,13 @@ export default function App() {
                   onOnlineSettings={() => go('settings')} onRoom={(adhocRoom) => setSettings({ adhocRoom })}
                   onCopy={(text) => api.mhf_copyText(text).then(() => say('Room code copied'))} />
               )}
-              {screen === 'library' && <Library games={state.games} onAddCopy={addCopy} selectedDisc={selectedGame(state)?.discId ?? ''} onOpen={(g) => api.mhf_selectGame(g.discId).then((s) => { setState(s); go('home'); })} />}
+              {screen === 'library' && <Library games={state.games} onAddCopy={addCopy} selectedDisc={selectedGame(state)?.discId ?? ''} useCustomArt={state.settings.useCustomArt ?? true} showGameIcon={state.settings.showGameIcon ?? true} onOpen={(g) => api.mhf_selectGame(g.discId).then((s) => { setState(s); go('home'); })} />}
               {screen === 'settings' && (
                 <SettingsPage
                   state={state}
                   onChange={setSettings}
+                  onGameArt={setGameArt}
+                  padMode={padMode}
                   onPseudonym={(n) => api.mhf_setPseudonym(n).then((s) => { setState(s); say('Name saved'); })}
                   onCopyCode={copyCode}
                   friendCode={friends.code}
@@ -298,7 +312,11 @@ export default function App() {
                   state={state}
                   onChange={setSettings}
                   onChangeCopy={addCopy}
-                  onRemoveCopy={(id) => api.mhf_removeGame(id).then((s) => { setState(s); say('Copy removed from the library'); })}
+                  onRemoveCopy={(id) => {
+                    const g = state.games.find((g) => g.id === id || g.discId === id);
+                    if (g) clearGameArt(g.discId);
+                    api.mhf_removeGame(id).then((s) => { setState(s); say('Copy removed from the library'); });
+                  }}
                   onLocateExecutable={locateExe}
                   onState={setState}
                   say={say}

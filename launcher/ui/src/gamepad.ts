@@ -76,6 +76,12 @@ function activate() {
 
 let started = false;
 let paused = false;
+let padUsedCallback: ((used: boolean) => void) | null = null;
+
+// The crop dialog uses this to show the pad hints only after the controller is actually used.
+export function markPadUsed(used: boolean) {
+  padUsedCallback?.(used);
+}
 
 // While the player is recording a key in Settings, neither the keyboard nor a pad may move the focus around.
 export function setNavigationPaused(value: boolean) {
@@ -85,6 +91,7 @@ export function setNavigationPaused(value: boolean) {
 export function startNavigation(onPadUsed: (used: boolean) => void) {
   if (started) return;
   started = true;
+  padUsedCallback = onPadUsed;
 
   window.addEventListener('keydown', (e) => {
     if (paused) return;

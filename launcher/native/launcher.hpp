@@ -62,6 +62,10 @@ public:
     // Settings belong to a copy of a game (Home's "Game settings": video, audio, controls), except `copyImage`, which is the
     // launcher's own. set_settings() changes the copy chosen in the Library; state()["settings"] shows the same copy's values.
     void set_settings(const Json &partial);
+    // The player's own cover (Library card) or banner (Home), cropped in the launcher; empty clears it.
+    void set_game_art(const std::string &disc_id, const std::string &kind, const std::string &data_url);
+    // The same picture as a data URL for the web UI, read from the data folder on demand.
+    std::string game_art(const std::string &disc_id, const std::string &kind);
     // The bindings the player changed in the game's own menu: the game writes them to controls_file() as it goes, and
     // this folds them into the settings (validated like any other change) and removes the file. Called when the launcher
     // starts, before a launch and when the game ends.

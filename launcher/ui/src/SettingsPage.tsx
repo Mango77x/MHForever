@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import { api, regionTag, selectedGame, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
+import { api, regionTag, selectedGame, type Game, type SaveImportResult, type SaveScan, type Settings, type State } from './bridge';
 import { CopyIcon } from './icons';
 import { FdxOptions } from './FdxOptions';
 import { FucOptions } from './FucOptions';
 import { OnlineSettings } from './OnlineSettings';
 import { TexturePackSection } from './TexturePack';
+import { ArtCropModal, type ArtKind } from './ImageCrop';
+import { getGameArt } from './gameArtCache';
 import { anisotropyLevels, frameRates, hudSizes, resolutions, songPlaces } from './format';
 import { setNavigationPaused } from './gamepad';
 import { keyGroups, keyLabel, reservedKeys } from './keys';
@@ -26,6 +28,8 @@ const languageNames: Record<string, string> = { en: 'English', fr: 'Français', 
 type Props = {
   state: State;
   onChange: (s: Partial<Settings>) => void;
+  onGameArt: (discId: string, kind: ArtKind, dataUrl: string) => void;
+  padMode: boolean;
   onPseudonym: (name: string) => void;
   onCopyCode: () => void;
   onChangeCopy: () => void;
@@ -420,11 +424,26 @@ function Controls({ keys, pad, keyDefaults, padDefaults, onChange }: {
   );
 }
 
-export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendCode, onSavesFolder }: Pick<Props, 'state' | 'onChange' | 'onPseudonym' | 'onCopyCode'> & {
+export function SettingsPage({ state, onChange, onGameArt, padMode, onPseudonym, onCopyCode, friendCode, onSavesFolder }: Pick<Props, 'state' | 'onChange' | 'onGameArt' | 'padMode' | 'onPseudonym' | 'onCopyCode'> & {
   friendCode: string;
   onSavesFolder: (backToDefault: boolean) => void;
 }) {
   const s = state.settings;
+  const [crop, setCrop] = useState<{ game: Game; kind: ArtKind } | null>(null);
+  const [cropInitial, setCropInitial] = useState<string | undefined>(undefined);
+  const cropTrigger = useRef<HTMLButtonElement | null>(null);
+  const focusCropTrigger = () => {
+    const el = cropTrigger.current;
+    if (!el) return;
+    (el as HTMLElement & { focus(o?: { focusVisible?: boolean; preventScroll?: boolean }): void }).focus({ focusVisible: true });
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  };
+  const openCrop = async (game: Game, kind: ArtKind, trigger: HTMLButtonElement) => {
+    cropTrigger.current = trigger;
+    const initial = await getGameArt(game.discId, kind);
+    setCropInitial(initial);
+    setCrop({ game, kind });
+  };
   const [name, setName] = useState(state.pseudonym);
   useEffect(() => setName(state.pseudonym), [state.pseudonym]);
   const commitName = () => {
@@ -455,7 +474,7 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
           />
         </div>
         <div className="srow">
-          <div className="slabel"><b>Friend code</b><span>Stored on this computer only. Back it up from the profile menu.</span></div>
+          <div className="slabel"><b>Friend code</b><span>Stored on this system only. Back it up from the profile menu.</span></div>
           <div className="code-box" style={{ minWidth: 300 }}>
             <span className="code">{friendCode}</span>
             <button className="copy" onClick={onCopyCode} aria-label="Copy friend code"><CopyIcon /> Copy</button>
@@ -490,6 +509,58 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
           </div>
         </div>
       </motion.div>
+      <motion.div className="glass section" {...rise(0.25)}>
+        <h3>Game artwork</h3>
+        <div className="srow">
+          <div className="slabel">
+            <b>Use my artwork</b>
+            <span>Shows the cover and banner you upload below. Off keeps MHForever's drawn scenery.</span>
+          </div>
+          <Toggle on={s.useCustomArt ?? true} onToggle={() => onChange({ useCustomArt: !(s.useCustomArt ?? true) })} label="Use my artwork" />
+        </div>
+        <div className="srow">
+          <div className="slabel">
+            <b>Show game icons</b>
+            <span>Shows the small icon from your own copy on the Library cards. Off hides it completely.</span>
+          </div>
+          <Toggle on={s.showGameIcon ?? true} onToggle={() => onChange({ showGameIcon: !(s.showGameIcon ?? true) })} label="Show game icons" />
+        </div>
+        <div className="srow" style={{ alignItems: 'flex-start' }}>
+          <div className="slabel">
+            <b>Your own covers and banners</b>
+            <span>Choose a picture for each game. The cover fills the Library card (3:4); the banner fills Home (12:5). Both stay on this system.</span>
+          </div>
+        </div>
+        {state.games.length === 0 ? (
+          <div className="empty"><b>No copies yet</b><span>Add a copy in the Library first.</span></div>
+        ) : (
+          <div className="art-list">
+            {state.games.map((game) => (
+              <div className="art-row" key={game.discId}>
+                <div className="art-game">
+                  {game.iconUrl && <img className="art-icon" src={game.iconUrl} alt="" />}
+                  <div className="art-name"><b>{game.title}</b><span>{game.region} · {game.discId}</span></div>
+                </div>
+                <div className="art-actions">
+                  <button className="ghost mid" onClick={(e) => { void openCrop(game, 'cover', e.currentTarget); }}>{game.hasCover ? 'Change cover…' : 'Cover…'}</button>
+                  <button className="ghost mid" onClick={(e) => { void openCrop(game, 'banner', e.currentTarget); }}>{game.hasBanner ? 'Change banner…' : 'Banner…'}</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {crop && (
+          <ArtCropModal
+            game={crop.game}
+            kind={crop.kind}
+            initial={cropInitial}
+            padMode={padMode}
+            onClose={() => { setCrop(null); setCropInitial(undefined); }}
+            onSave={(dataUrl) => { onGameArt(crop.game.discId, crop.kind, dataUrl); setCrop(null); setCropInitial(undefined); }}
+            onClosed={focusCropTrigger}
+          />
+        )}
+      </motion.div>
       <motion.div className="glass section" {...rise(0.3)}>
         <h3>About</h3>
         <div className="srow">
@@ -510,7 +581,7 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
   );
 }
 
-export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, onLocateExecutable, onState, say }: Omit<Props, 'onPseudonym' | 'onCopyCode'> & {
+export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, onLocateExecutable, onState, say }: Omit<Props, 'onPseudonym' | 'onCopyCode' | 'onGameArt' | 'padMode'> & {
   onState: (s: State) => void;
   say: (text: string) => void;
 }) {
