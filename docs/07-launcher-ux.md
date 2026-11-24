@@ -317,7 +317,8 @@ mode, where no second window can be shown.
   Steam's runtime from `LD_LIBRARY_PATH` (non-Steam shortcuts get it), and the window hands the game the environment as
   it came (`Process::start`, `MHF_RESTORE_ENV`). CI checks the archive in the system of Valve's latest recovery image,
   as the deck user (`scripts/steamos_smoke_test.sh`, job `steamos`). In Game Mode (gamescope) the window hides while
-  the game runs; the UI already works with a controller (Web Gamepad API, libmanette in WebKitGTK).
+  the game runs, and the UI takes a controller (Web Gamepad API, libmanette in WebKitGTK); neither has been tried on a
+  Deck yet.
   The archive also carries **`MHForever-cli`** (`launcher/native/cli.cpp`), the launcher without a window: `--install`,
   `--list`, `--set`, `--play`, `--update`. It links no web view and, with `MHF_NO_GTK`, no GTK (the file dialogs are
   stubs), so it needs only libc and libstdc++. `--play` stays running while the game does and keeps what the player
