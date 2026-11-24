@@ -157,6 +157,14 @@ def write_tarball(path: pathlib.Path, folder: str, readme: str, files: dict[str,
                 t.addfile(info, handle)
 
 
+def archive_sha256(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as archive:
+        while block := archive.read(256 * 1024):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--version", default=None,
@@ -273,7 +281,7 @@ def main() -> int:
     else:
         path = args.out / f"{folder}-{suffix}.tar.gz"
         write_tarball(path, folder, readme, files, {launcher_name} | programs)
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = archive_sha256(path)
     (args.out / f"{path.name}.sha256").write_text(f"{digest}  {path.name}\n", encoding="utf-8")
     print(f"{path} ({path.stat().st_size / 1e6:.1f} MB)\nsha256 {digest}")
     return 0
