@@ -453,6 +453,20 @@ std::string new_adhoc_room_code() {
     return code;
 }
 
+bool parse_adhoc_mac(std::string_view text, std::array<std::uint8_t, 6> &mac) {
+    unsigned v[6];
+    char sep[5];
+    if (std::sscanf(std::string(text).c_str(), "%2x%c%2x%c%2x%c%2x%c%2x%c%2x", &v[0], &sep[0], &v[1], &sep[1], &v[2],
+                    &sep[2], &v[3], &sep[3], &v[4], &sep[4], &v[5]) != 11) {
+        return false;
+    }
+    for (const char c : sep) {
+        if (c != ':' && c != '-') return false;
+    }
+    for (std::size_t i = 0; i < mac.size(); ++i) mac[i] = static_cast<std::uint8_t>(v[i]);
+    return true;
+}
+
 std::string format_adhoc_room_code(const std::string &code) {
     return code.size() == 8 ? code.substr(0, 4) + "-" + code.substr(4) : code;
 }

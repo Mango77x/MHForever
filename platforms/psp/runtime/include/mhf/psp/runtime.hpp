@@ -247,6 +247,8 @@ private:
 [[nodiscard]] std::string adhoc_room_code(std::string_view text);
 [[nodiscard]] std::string new_adhoc_room_code();
 [[nodiscard]] std::string format_adhoc_room_code(const std::string &code);
+// "02:AB:CD:EF:01:23" (or with dashes): RuntimeOptions::adhoc_mac as the launcher passes it.
+[[nodiscard]] bool parse_adhoc_mac(std::string_view text, std::array<std::uint8_t, 6> &mac);
 
 // Resolves and runs an imported function (also used by generated import wrappers through abi::call_import).
 void call_import(Runtime &rt, Context &ctx, ImportEntry &import);

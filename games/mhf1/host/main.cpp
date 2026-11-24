@@ -7,6 +7,7 @@
 // Usage: mhf1 --iso <image.iso> --exe <prepared executable> [--memstick <dir>] [--window] [--fullscreen] [--scale N]
 //             [--fps 30..180] [--seconds N] [--dump-frames <dir> [--dump-every N] [--dump-from S]]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--auto-dialogs] [--trace] [--quiet-overlays]
+//             [--adhoc-server host[:port]] [--adhoc-nick <name>] [--adhoc-mac AA:BB:CC:DD:EE:FF] [--adhoc-room CODE]
 
 #include "mhf/psp/abi.hpp"
 #include "mhf/psp/frame_dump.hpp"
@@ -170,6 +171,8 @@ int main(int argc, char **argv) {
     std::string texture_pack;          // --texture-pack: a texture pack's folder
     bool pack_mipmaps = false;
     int anisotropy = 16;
+    std::string friends_file, friend_actions_file; // --friends-file, --friend-actions-file: friends in the Online tab
+    std::string adhoc_nick;                        // --adhoc-nick: the name other players see online (default: --name)
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--iso" && i + 1 < argc) options.disc_image = argv[++i];
@@ -209,6 +212,16 @@ int main(int argc, char **argv) {
         else if (a == "--texture-pack" && i + 1 < argc) texture_pack = argv[++i];
         else if (a == "--pack-mipmaps") pack_mipmaps = true;
         else if (a == "--anisotropy" && i + 1 < argc) anisotropy = std::clamp(std::stoi(argv[++i]), 1, 16);
+        else if (a == "--friends-file" && i + 1 < argc) friends_file = argv[++i];
+        else if (a == "--friend-actions-file" && i + 1 < argc) friend_actions_file = argv[++i];
+        else if (a == "--adhoc-server" && i + 1 < argc) options.adhoc_server = argv[++i]; // online play: an ad hoc server (PPSSPP's)
+        else if (a == "--adhoc-nick" && i + 1 < argc) adhoc_nick = argv[++i];
+        else if (a == "--adhoc-room" && i + 1 < argc) options.adhoc_room = argv[++i]; // a private room's code
+        else if (a == "--adhoc-mac" && i + 1 < argc) {
+            if (!mhf::psp::parse_adhoc_mac(argv[++i], options.adhoc_mac)) {
+                std::fprintf(stderr, "[mhf1] --adhoc-mac: not a MAC address, ignored\n");
+            }
+        }
         else if (a.starts_with("--")) {
             // An option of another game's enhancements (the launcher passes the player's settings to every game):
             // not available in Freedom yet, so it is skipped with its value, if it has one.
@@ -229,6 +242,14 @@ int main(int argc, char **argv) {
         return 2;
     }
     options.interactive_dialogs = window && !auto_dialogs; // in a window the player answers the system dialogs
+    if (options.adhoc_server.empty()) {
+        if (const char *server = std::getenv("MHF_ADHOC_SERVER")) options.adhoc_server = server;
+    }
+    options.adhoc_nickname = adhoc_nick.empty() ? options.osk_default_text : adhoc_nick;
+    if (!options.adhoc_server.empty()) options.adhoc_product_code = disc_product_code(options.disc_image);
+    // The halls' names start with this in every release (docs/14-rooms-and-friends.md section 1). Any other prefix the
+    // game uses is learnt when it joins a hall.
+    options.adhoc_hall_prefixes = {"MHPSP0"};
     try {
         Runtime runtime{options};
         runtime.load_elf(exe);
@@ -276,6 +297,7 @@ int main(int argc, char **argv) {
         if (window && frontend.open(window_title(options.disc_image).c_str(), false, 2, true, render_scale, fullscreen,
                                     smooth_textures, target_fps, keyboard, controller)) {
             frontend.set_controls_file(controls_file);
+            frontend.set_friends_files(friends_file, friend_actions_file);
             if (!texture_pack.empty()) {
                 frontend.set_texture_pack(texture_pack, disc_product_code(options.disc_image), pack_mipmaps, anisotropy);
             }
@@ -294,6 +316,8 @@ int main(int argc, char **argv) {
         (void)keyboard;
         (void)controller;
         (void)controls_file;
+        (void)friends_file;
+        (void)friend_actions_file;
         (void)pack_mipmaps;
         (void)anisotropy;
         if (window) std::fprintf(stderr, "[mhf1] built without the SDL frontend; running headless\n");
