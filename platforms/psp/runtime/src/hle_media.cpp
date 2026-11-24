@@ -35,6 +35,7 @@ struct AudioChannel {
     std::uint64_t busy_until{};
     std::deque<std::int16_t> queue; // interleaved stereo waiting for the host mixer
     bool primed{};                  // the host mixer is consuming this channel (see mix_audio)
+    std::uint32_t since_drop{};     // frames mixed since the mixer last dropped one to catch up (see mix_audio)
 };
 std::array<AudioChannel, kChannels> g_channels{};
 constexpr std::size_t kMaxQueuedFrames = 44100 / 4; // 250 ms per channel
@@ -161,6 +162,24 @@ const HleFunction kFunctions[] = {
 
 std::span<const HleFunction> media_functions() { return kFunctions; }
 
+void audio_test_reserve(int channel, std::uint32_t block) {
+    auto &c = g_channels[static_cast<std::size_t>(channel)];
+    c = AudioChannel{};
+    c.reserved = true;
+    c.samples = block;
+}
+
+void audio_test_queue(int channel, const std::int16_t *stereo, std::size_t frames) {
+    auto &c = g_channels[static_cast<std::size_t>(channel)];
+    c.queue.insert(c.queue.end(), stereo, stereo + frames * 2);
+    while (c.queue.size() > kMaxQueuedFrames * 2) {
+        c.queue.pop_front();
+        c.queue.pop_front();
+    }
+}
+
+std::size_t audio_test_queued(int channel) { return g_channels[static_cast<std::size_t>(channel)].queue.size() / 2; }
+
 } // namespace mhf::psp::hle
 
 namespace mhf::psp {
@@ -169,12 +188,27 @@ std::size_t mix_audio(Runtime &, std::int16_t *out, std::size_t frames) {
     // Each channel is a real-time stream that the game fills in blocks (256 frames for the voice mixer, 2048 for
     // decoded music). A channel is only consumed once it holds two blocks, so the arrival jitter of its blocks never
     // reaches the output; when it runs dry it is paused and refills instead of clicking.
+    //
+    // A channel never keeps much more than that cushion (issue #148). The frontend asks for a few frames less than the time
+    // that passed while the device's queue is full, so a device that plays a little slower than the system clock leaves
+    // the difference here, and the sound fell further and further behind the picture. Beyond the cushion, a block and some
+    // jitter, one frame in 256 is dropped (0.4 % faster, which no one hears) until the channel is back; far beyond it,
+    // after a stall, the late part is dropped at once.
+    constexpr std::uint32_t kDropEvery = 256;
     for (std::size_t i = 0; i < frames; ++i) {
         std::int32_t left = 0, right = 0;
         for (auto &c : hle::g_channels) {
             const std::size_t prebuffer = std::max<std::size_t>(2u * c.samples, 1024u);
             if (!c.primed && c.queue.size() / 2 >= prebuffer) c.primed = true;
             if (!c.primed) continue;
+            const std::size_t behind = prebuffer + c.samples + 1024u, far_behind = behind + 4096u;
+            if (c.queue.size() / 2 > far_behind) {
+                c.queue.erase(c.queue.begin(), c.queue.end() - static_cast<std::ptrdiff_t>(behind * 2));
+            } else if (c.queue.size() / 2 > behind && ++c.since_drop >= kDropEvery) {
+                c.since_drop = 0;
+                c.queue.pop_front();
+                c.queue.pop_front();
+            }
             if (c.queue.size() < 2) {
                 c.primed = false;
                 continue;

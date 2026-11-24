@@ -28,7 +28,6 @@ function GameCard({ game, selected, useCustomArt, showGameIcon, onOpen }: { game
       }}
       onMouseLeave={() => setT({ x: 0, y: 0, on: false })}
       style={{ transform: `perspective(900px) rotateY(${t.x * 14}deg) rotateX(${t.y * -14}deg) scale(${t.on ? 1.03 : 1})`, background: cardSky(game, accent), borderColor: border }}
-      aria-label={`${game.title}, ${game.region}`}
     >
       <CardScenery game={game} accent={accent} />
       {cover && (

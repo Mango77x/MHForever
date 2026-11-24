@@ -133,7 +133,8 @@ def write_zip(path: pathlib.Path, folder: str, readme: str, files: dict[str, pat
 
 def write_tarball(path: pathlib.Path, folder: str, readme: str, files: dict[str, pathlib.Path],
                   executables: set[str]) -> None:
-    with tarfile.open(path, "w:gz", compresslevel=9) as t:
+    # Store the selected files even when the build outputs are links on the packaging machine.
+    with tarfile.open(path, "w:gz", compresslevel=9, dereference=True) as t:
         readme_bytes = readme.encode("utf-8")
         info = tarfile.TarInfo(f"{folder}/README.txt")
         info.size = len(readme_bytes)
@@ -148,13 +149,19 @@ def write_tarball(path: pathlib.Path, folder: str, readme: str, files: dict[str,
         t.addfile(info, io.BytesIO(enet))
         for name, source in files.items():
             info = t.gettarinfo(str(source), arcname=f"{folder}/{name}")
-            if info is None:  # only symlinks can fail here, and the inputs are regular files
-                continue
             info.mode = 0o755 if name in executables else 0o644
             info.uid = info.gid = 0
             info.uname = info.gname = ""
             with source.open("rb") as handle:
                 t.addfile(info, handle)
+
+
+def archive_sha256(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as archive:
+        while block := archive.read(256 * 1024):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def main() -> int:
@@ -273,7 +280,7 @@ def main() -> int:
     else:
         path = args.out / f"{folder}-{suffix}.tar.gz"
         write_tarball(path, folder, readme, files, {launcher_name} | programs)
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = archive_sha256(path)
     (args.out / f"{path.name}.sha256").write_text(f"{digest}  {path.name}\n", encoding="utf-8")
     print(f"{path} ({path.stat().st_size / 1e6:.1f} MB)\nsha256 {digest}")
     return 0

@@ -51,10 +51,8 @@ std::optional<Target> read_target(psp::Runtime &rt, const psp::Context &ctx, std
     query.gpr[6] = scratch;
     m.store16(scratch + 12, std::uint16_t{0xffff});
     rt.call(query, *region::mh_gathering_probe);
-    auto index = query.gpr[2] & 0xffffu;
-    auto type = m.load16(scratch + 12);
-    std::uint16_t remaining = 0;
-    bool dynamic = false;
+    const auto index = query.gpr[2] & 0xffffu;
+    const auto type = m.load16(scratch + 12);
     if (index == 0xffffu) {
         // The stock carving query scans these dynamic corpse/tail targets.
         // Read only, with bounds/finite checks; never invoke reward/consumption
@@ -66,6 +64,7 @@ std::optional<Target> read_target(psp::Runtime &rt, const psp::Context &ctx, std
         const float py = number(m.load32(player + kPlayerPosition + 4));
         const float pz = number(m.load32(player + kPlayerPosition + 8));
         if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz)) return {};
+        std::optional<Target> exhausted_carve;
         for (unsigned i = 0; i < kDynamicNodes; ++i) {
             const auto node = targets + 4 + i * kDynamicNodeSize;
             if (m.load16(node + kNodeId) == 0xffff || m.load16(node + 24) != m.load16(player + kPlayerArea)) continue;
@@ -74,13 +73,16 @@ std::optional<Target> read_target(psp::Runtime &rt, const psp::Context &ctx, std
             if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || !std::isfinite(radius) || radius < 0 ||
                 py < y - 200 || py >= y + 100 || (px - x) * (px - x) + (pz - z) * (pz - z) > radius * radius)
                 continue;
-            index = m.load16(node + kNodeId);
-            type = m.load16(node + kNodeType);
-            remaining = m.load16(node + kNodeRemaining);
-            dynamic = true;
-            break;
+            const auto node_type = m.load16(node + kNodeType);
+            const Target target{m.load16(node + kNodeId), node_type, m.load16(node + kNodeRemaining), node_type == 2};
+            if (target.carving && target.remaining != 0) return target;
+            // Keep the first exhausted carve as a fallback if no other carve is available.
+            if (!exhausted_carve) {
+                if (!target.carving) return target;
+                exhausted_carve = target;
+            }
         }
-        if (!dynamic) return {};
+        return exhausted_carve;
     } else {
         // The static probe ignores the remaining-use field; inspect the matched
         // node.
@@ -91,20 +93,16 @@ std::optional<Target> read_target(psp::Runtime &rt, const psp::Context &ctx, std
         list_call.gpr[5] = m.load16(player + kPlayerArea);
         rt.call(list_call, *region::mh_stage_gathering_nodes);
         auto node = list_call.gpr[2];
-        bool found = false;
         for (unsigned i = 0; i < 512 && m.contains(node, kStaticNodeSize); ++i, node += kStaticNodeSize) {
             if (m.load32(node) == 0xbf800000u) break; // x=-1 sentinel
             if (m.load16(node + kNodeId) != index || m.load16(node + kNodeType) != type) continue;
             if (m.load32(node) != m.load32(scratch) || m.load32(node + 4) != m.load32(scratch + 4) ||
                 m.load32(node + 8) != m.load32(scratch + 8))
                 continue;
-            remaining = m.load16(node + kNodeRemaining);
-            found = true;
-            break;
+            return Target{index, type, m.load16(node + kNodeRemaining), false};
         }
-        if (!found) return {};
+        return {};
     }
-    return Target{index, type, remaining, dynamic && type == 2};
 }
 
 } // namespace

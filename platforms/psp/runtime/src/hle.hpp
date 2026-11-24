@@ -113,6 +113,11 @@ std::span<const HleFunction> display_functions();  // sceDisplay, sceCtrl
 std::span<const HleFunction> misc_functions();     // interrupts, vtimers, modules, UMD, small services
 std::span<const HleFunction> ge_functions();       // sceGe_user
 std::span<const HleFunction> media_functions();    // sceAudio
+// sceAudio's channels without a running game, for the host mixer's tests (test_audio_mix.cpp): a channel reserved with
+// blocks of `block` frames, `frames` stereo frames queued on it as the game's output calls queue them, and what it holds.
+void audio_test_reserve(int channel, std::uint32_t block);
+void audio_test_queue(int channel, const std::int16_t *stereo, std::size_t frames);
+[[nodiscard]] std::size_t audio_test_queued(int channel);
 std::span<const HleFunction> mpeg_functions();     // sceMpeg (movies)
 std::span<const HleFunction> sas_functions();      // sceSasCore (voice mixer)
 std::span<const HleFunction> utility_functions();  // sceUtility dialogs
