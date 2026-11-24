@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { selectedGame, type State } from './bridge';
 import { HeroScenery, gameAccent, heroBorderColor, heroSky, useImageAccent } from './GameArt';
+import { useGameArt } from './gameArtCache';
 import { AlertIcon, CheckIcon, FolderIcon, PlayIcon, PlusIcon, SlidersIcon } from './icons';
 import { hours, lastPlayed, resolutions } from './format';
 import { formatRoomCode, newRoomCode, roomCode } from './rooms';
@@ -27,7 +28,7 @@ export function Hero({ state, onPlay, onAddCopy, onLocateExecutable, onSettings 
   const [m, setM] = useState({ x: 0, y: 0 });
   const game = selectedGame(state);
   const useCustomArt = state.settings.useCustomArt ?? true;
-  const banner = useCustomArt ? game?.bannerUrl : undefined;
+  const banner = useGameArt(game?.discId, 'banner', Boolean(game?.hasBanner) && useCustomArt, game?.bannerVersion);
   const bannerAccent = useImageAccent(banner);
   const iconAccent = useImageAccent(game?.iconUrl);
   const accent = gameAccent(game, bannerAccent, iconAccent);

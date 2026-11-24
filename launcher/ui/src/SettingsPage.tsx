@@ -7,6 +7,7 @@ import { FucOptions } from './FucOptions';
 import { OnlineSettings } from './OnlineSettings';
 import { TexturePackSection } from './TexturePack';
 import { ArtCropModal, type ArtKind } from './ImageCrop';
+import { getGameArt } from './gameArtCache';
 import { anisotropyLevels, frameRates, hudSizes, resolutions, songPlaces } from './format';
 import { setNavigationPaused } from './gamepad';
 import { keyGroups, keyLabel, reservedKeys } from './keys';
@@ -429,12 +430,19 @@ export function SettingsPage({ state, onChange, onGameArt, padMode, onPseudonym,
 }) {
   const s = state.settings;
   const [crop, setCrop] = useState<{ game: Game; kind: ArtKind } | null>(null);
+  const [cropInitial, setCropInitial] = useState<string | undefined>(undefined);
   const cropTrigger = useRef<HTMLButtonElement | null>(null);
   const focusCropTrigger = () => {
     const el = cropTrigger.current;
     if (!el) return;
     (el as HTMLElement & { focus(o?: { focusVisible?: boolean; preventScroll?: boolean }): void }).focus({ focusVisible: true });
     el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  };
+  const openCrop = async (game: Game, kind: ArtKind, trigger: HTMLButtonElement) => {
+    cropTrigger.current = trigger;
+    const initial = await getGameArt(game.discId, kind);
+    setCropInitial(initial);
+    setCrop({ game, kind });
   };
   const [name, setName] = useState(state.pseudonym);
   useEffect(() => setName(state.pseudonym), [state.pseudonym]);
@@ -533,8 +541,8 @@ export function SettingsPage({ state, onChange, onGameArt, padMode, onPseudonym,
                   <div className="art-name"><b>{game.title}</b><span>{game.region} · {game.discId}</span></div>
                 </div>
                 <div className="art-actions">
-                  <button className="ghost mid" onClick={(e) => { cropTrigger.current = e.currentTarget; setCrop({ game, kind: 'cover' }); }}>{game.coverUrl ? 'Change cover…' : 'Cover…'}</button>
-                  <button className="ghost mid" onClick={(e) => { cropTrigger.current = e.currentTarget; setCrop({ game, kind: 'banner' }); }}>{game.bannerUrl ? 'Change banner…' : 'Banner…'}</button>
+                  <button className="ghost mid" onClick={(e) => { void openCrop(game, 'cover', e.currentTarget); }}>{game.hasCover ? 'Change cover…' : 'Cover…'}</button>
+                  <button className="ghost mid" onClick={(e) => { void openCrop(game, 'banner', e.currentTarget); }}>{game.hasBanner ? 'Change banner…' : 'Banner…'}</button>
                 </div>
               </div>
             ))}
@@ -544,10 +552,10 @@ export function SettingsPage({ state, onChange, onGameArt, padMode, onPseudonym,
           <ArtCropModal
             game={crop.game}
             kind={crop.kind}
-            initial={crop.kind === 'cover' ? crop.game.coverUrl : crop.game.bannerUrl}
+            initial={cropInitial}
             padMode={padMode}
-            onClose={() => setCrop(null)}
-            onSave={(dataUrl) => { onGameArt(crop.game.discId, crop.kind, dataUrl); setCrop(null); }}
+            onClose={() => { setCrop(null); setCropInitial(undefined); }}
+            onSave={(dataUrl) => { onGameArt(crop.game.discId, crop.kind, dataUrl); setCrop(null); setCropInitial(undefined); }}
             onClosed={focusCropTrigger}
           />
         )}

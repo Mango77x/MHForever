@@ -163,10 +163,13 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
 - **Game artwork (2026-11-24)**: the card shows the small `ICON0.PNG` from the player's own copy as a rounded badge;
   a copy without an icon shows no badge or frame at all, and **Show game icons** (Settings > Game artwork) hides it for
   players who want a clean picture. In **Settings > Game artwork** the player can choose a cover for the Library card
-  (3:4) and a banner for Home (12:5), each in a crop/pan window; both stay with the copy in `launcher.json` as bounded
-  JPEG data URLs (at most 2 MiB each) and on that computer. **Use my artwork** (Settings > Game artwork, the default)
-  shows them; off keeps the drawn scenery. The card edge follows the picture's own tone when there is one, otherwise
-  the game's icon accent. Nothing is bundled in the repository.
+  (3:4) and a banner for Home (12:5), each in a crop/pan window. Both are written as image files in the launcher's data
+  folder (`art/<discId>-cover.jpg` and `art/<discId>-banner.jpg`, at most 2 MiB each) and stay on that computer;
+  `launcher.json` only keeps whether they exist and a version, so settings changes stay small and the UI fetches each
+  picture once. **Use my artwork** (Settings > Game artwork, the default) shows them; off keeps the drawn scenery. The
+  crop window also works with a controller: stick/D-pad moves, triggers or the right stick zoom, A saves, B cancels,
+  X removes and Y picks a file; the pad hints appear only after controller input. The card edge follows the picture's
+  own tone when there is one, otherwise the game's icon accent. Nothing is bundled in the repository.
 - Still to do: launcher-managed updates (signed), Steam Deck packaging
   (AppImage/Flatpak), moving the per-user folder, moving saves there.
 

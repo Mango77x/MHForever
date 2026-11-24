@@ -10,6 +10,7 @@ import { Library } from './Library';
 import { GameSettingsPage, SettingsPage } from './SettingsPage';
 import { clock, hours } from './format';
 import { startNavigation } from './gamepad';
+import { clearGameArt } from './gameArtCache';
 
 type Screen = 'home' | 'library' | 'settings' | 'game';
 type Verify = { phase: 'reading' | 'hashing' | 'preparing' | 'copying' | 'done' | 'failed'; progress: number; file: string; game?: Game; message?: string };
@@ -134,11 +135,12 @@ export default function App() {
   };
   const setGameArt = (discId: string, kind: 'cover' | 'banner', dataUrl: string) => {
     api.mhf_setGameArt(discId, kind, dataUrl).then((s) => {
+      clearGameArt(discId, kind);
       setState(s);
       const game = s.games.find((g) => g.discId === discId);
-      const stored = kind === 'cover' ? game?.coverUrl : game?.bannerUrl;
+      const stored = kind === 'cover' ? game?.hasCover : game?.hasBanner;
       if (!dataUrl) say('Artwork removed');
-      else if (stored !== dataUrl) say('Could not save the picture');
+      else if (!stored) say('Could not save the picture');
       else say(kind === 'cover' ? 'Cover saved' : 'Banner saved');
     });
   };
@@ -310,7 +312,11 @@ export default function App() {
                   state={state}
                   onChange={setSettings}
                   onChangeCopy={addCopy}
-                  onRemoveCopy={(id) => api.mhf_removeGame(id).then((s) => { setState(s); say('Copy removed from the library'); })}
+                  onRemoveCopy={(id) => {
+                    const g = state.games.find((g) => g.id === id || g.discId === id);
+                    if (g) clearGameArt(g.discId);
+                    api.mhf_removeGame(id).then((s) => { setState(s); say('Copy removed from the library'); });
+                  }}
                   onLocateExecutable={locateExe}
                   onState={setState}
                   say={say}

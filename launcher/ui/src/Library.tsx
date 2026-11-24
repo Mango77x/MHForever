@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import type { Game } from './bridge';
 import { CardScenery, cardBorderColor, cardSky, gameAccent, useImageAccent } from './GameArt';
+import { useGameArt } from './gameArtCache';
 import { AlertIcon, PlusIcon } from './icons';
 
 const rise = (delay: number) => ({
@@ -12,7 +13,7 @@ const rise = (delay: number) => ({
 
 function GameCard({ game, selected, useCustomArt, showGameIcon, onOpen }: { game: Game; selected: boolean; useCustomArt: boolean; showGameIcon: boolean; onOpen: () => void }) {
   const [t, setT] = useState({ x: 0, y: 0, on: false });
-  const cover = useCustomArt ? game.coverUrl : undefined;
+  const cover = useGameArt(game.discId, 'cover', Boolean(game.hasCover) && useCustomArt, game.coverVersion);
   const coverAccent = useImageAccent(cover);
   const iconAccent = useImageAccent(game.iconUrl);
   const accent = gameAccent(game, coverAccent, iconAccent);
