@@ -15,13 +15,20 @@ export function clock(seconds: number): string {
 
 export function lastPlayed(unix: number | null): string {
   if (unix === null) return 'Never';
-  const diff = Date.now() / 1000 - unix;
-  if (diff < 90) return 'Just now';
-  if (diff < 3600) return `${Math.round(diff / 60)} minutes ago`;
-  if (diff < 86400) return `${Math.round(diff / 3600)} hours ago`;
-  if (diff < 86400 * 2) return 'Yesterday';
-  if (diff < 86400 * 14) return `${Math.round(diff / 86400)} days ago`;
-  return new Date(unix * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  const now = new Date();
+  const played = new Date(unix * 1000);
+  // Compare local calendar dates without counting the hours in each day.
+  const day = (date: Date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000;
+  const daysAgo = day(now) - day(played);
+  if (daysAgo === 1) return 'Yesterday';
+  if (daysAgo >= 2 && daysAgo < 14) return `${daysAgo} days ago`;
+  if (daysAgo >= 14) return played.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+
+  const minutes = Math.floor((now.getTime() - played.getTime()) / 60_000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
+  const hours = Math.floor(minutes / 60);
+  return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
 }
 
 export const frameRates = [30, 60, 90, 120, 150, 180];
