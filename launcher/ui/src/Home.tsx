@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { selectedGame, type State } from './bridge';
+import { HeroScenery, heroSky } from './GameArt';
 import { AlertIcon, CheckIcon, FolderIcon, PlayIcon, PlusIcon, SlidersIcon } from './icons';
 import { hours, lastPlayed, resolutions } from './format';
 import { formatRoomCode, newRoomCode, roomCode } from './rooms';
@@ -30,25 +31,14 @@ export function Hero({ state, onPlay, onAddCopy, onLocateExecutable, onSettings 
     <motion.section
       className="hero"
       {...rise(0)}
+      style={{ background: heroSky(game) }}
       onMouseMove={(e) => {
         const r = e.currentTarget.getBoundingClientRect();
         setM({ x: (e.clientX - r.left) / r.width - 0.5, y: (e.clientY - r.top) / r.height - 0.5 });
       }}
       onMouseLeave={() => setM({ x: 0, y: 0 })}
     >
-      <svg className="layer" viewBox="0 0 1200 500" preserveAspectRatio="xMidYMax slice" aria-hidden="true" style={layer(12, 1.04)}>
-        <circle cx="880" cy="150" r="70" fill="#ffd9a0" opacity=".9" />
-        <circle cx="880" cy="150" r="130" fill="#ffd9a0" opacity=".12" />
-        <path d="M0 330 L160 210 L280 290 L420 150 L560 280 L700 190 L860 300 L1000 170 L1200 280 L1200 500 L0 500 Z" fill="#3b2a3a" opacity=".85" />
-      </svg>
-      <svg className="layer" viewBox="0 0 1200 500" preserveAspectRatio="xMidYMax slice" aria-hidden="true" style={layer(26, 1.06)}>
-        <path d="M0 390 L140 300 L250 360 L390 250 L520 350 L640 290 L780 380 L930 280 L1080 360 L1200 320 L1200 500 L0 500 Z" fill="#26192a" />
-        <path d="M390 250 L420 272 L405 270 L390 262 L372 270 Z" fill="#f4efe6" opacity=".7" />
-        <path d="M930 280 L955 300 L940 297 L930 290 L914 298 Z" fill="#f4efe6" opacity=".6" />
-      </svg>
-      <svg className="layer" viewBox="0 0 1200 500" preserveAspectRatio="xMidYMax slice" aria-hidden="true" style={layer(44, 1.08)}>
-        <path d="M0 440 L120 400 L230 430 L360 380 L470 425 L610 395 L760 440 L900 410 L1050 445 L1200 415 L1200 500 L0 500 Z" fill="#140e16" />
-      </svg>
+      <HeroScenery game={game} layer={layer} />
       <div className="shade" aria-hidden="true" />
       <motion.div className="hero-body" {...rise(0.08)}>
         {game ? (
@@ -89,7 +79,7 @@ export function Hero({ state, onPlay, onAddCopy, onLocateExecutable, onSettings 
           <>
             <span className="chip" style={{ alignSelf: 'flex-start' }}>Welcome</span>
             <h1>Bring your game.</h1>
-            <p>Add your own copy of Freedom Unite and play it natively on PC. Nothing is downloaded and nothing leaves your computer.</p>
+            <p>Add your own copy of Freedom or Freedom Unite and play it natively on PC. Nothing is downloaded and nothing leaves your computer.</p>
             <div className="row-wrap" style={{ marginTop: 6 }}>
               <button className="play" onClick={onAddCopy} data-nav-default>
                 <PlusIcon size={22} color="#1a1208" /> Add my copy

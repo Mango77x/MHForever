@@ -228,7 +228,6 @@ button { -webkit-tap-highlight-color: transparent; }
 
 .hero {
   position: relative; min-height: 440px; flex: none; border-radius: 32px; overflow: hidden; border: 1px solid rgba(255, 236, 210, 0.09);
-  background: linear-gradient(180deg, #2a2230 0%, #4a2f2a 45%, #b0613c 100%);
   display: flex; flex-direction: column; justify-content: flex-end; padding: clamp(24px, 4vw, 52px);
 }
 .hero svg.layer { position: absolute; inset: 0; width: 100%; height: 100%; transition: transform 0.8s var(--ease); }
@@ -251,8 +250,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .page-title p { margin: 6px 0 0; color: var(--mute); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 22px; }
 .card3d {
-  position: relative; aspect-ratio: 3 / 4; border-radius: 26px; overflow: hidden; cursor: pointer; border: 1px solid var(--line);
-  background: linear-gradient(180deg, #2a2230, #6b3a2e 60%, #c4703f); padding: 0; text-align: left;
+  position: relative; aspect-ratio: 3 / 4; border-radius: 26px; overflow: hidden; cursor: pointer; border: 1px solid var(--line); padding: 0; text-align: left;
   transition: transform 0.5s var(--ease), box-shadow 0.5s var(--ease); will-change: transform;
 }
 .card3d:hover { box-shadow: 0 40px 80px -30px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(242, 165, 65, 0.35); }
