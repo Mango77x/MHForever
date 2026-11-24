@@ -179,6 +179,18 @@ int main() {
     MHF_CHECK(depleted_sprites.size() == 3);
     if (carve_sprites.size() == 3 && depleted_sprites.size() == 3)
         MHF_CHECK(carve_sprites[2].pixels != depleted_sprites[2].pixels);
+    // An exhausted target must not hide another carve within reach.
+    const auto tail = corpse + 32;
+    m.store16(tail + 16, std::uint16_t{2});
+    m.store16(tail + 18, std::uint16_t{1});
+    m.store16(tail + 20, std::uint16_t{2});
+    m.store32(tail + 12, std::uint32_t{0x42c80000});
+    g.update(rt, ctx);
+    MHF_CHECK(g.hint(rt) == "○  Tallar");
+    m.store16(tail + 24, std::uint16_t{1});
+    g.update(rt, ctx);
+    MHF_CHECK(g.hint(rt) == "Tallar - Agotado");
+    m.store16(tail + 16, std::uint16_t{0xffff});
     m.store32(player + 0x200, std::uint32_t{0x43fa0000}); // x500 outside radius
     g.update(rt, ctx);
     MHF_CHECK(g.hint(rt).empty());
