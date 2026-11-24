@@ -156,6 +156,9 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   replaces is kept as `<name>.old` until the next start, and a failure at any step puts everything back. Then it restarts.
   `MHForever --update` does the same without the window; `MHF_UPDATE_URL` points the check at another release description
   (tests use a `file://` one). Saves and settings live outside the program folder, so they are never touched.
+- **Library scenery (2026-11-24)**: Home's hero and each Library card draw the game's own original, abstract scenery:
+  Freedom a green forest valley with pines and a stream, Freedom Unite the dusk mountains it had. No art from the
+  series is shipped (§1), and copies of different games no longer share one fallback picture.
 - Still to do: launcher-managed updates (signed), Steam Deck packaging
   (AppImage/Flatpak), moving the per-user folder, moving saves there.
 
