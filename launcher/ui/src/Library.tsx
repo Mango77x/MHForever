@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import type { Game } from './bridge';
+import { cardBorder, cardSky, CardScenery } from './GameArt';
 import { AlertIcon, PlusIcon } from './icons';
 
 const rise = (delay: number) => ({
@@ -21,14 +22,10 @@ function GameCard({ game, selected, onOpen }: { game: Game; selected: boolean; o
         setT({ x: (e.clientX - r.left) / r.width - 0.5, y: (e.clientY - r.top) / r.height - 0.5, on: true });
       }}
       onMouseLeave={() => setT({ x: 0, y: 0, on: false })}
-      style={{ transform: `perspective(900px) rotateY(${t.x * 14}deg) rotateX(${t.y * -14}deg) scale(${t.on ? 1.03 : 1})` }}
+      style={{ transform: `perspective(900px) rotateY(${t.x * 14}deg) rotateX(${t.y * -14}deg) scale(${t.on ? 1.03 : 1})`, background: cardSky(game), borderColor: cardBorder(game) }}
       aria-label={`${game.title}, ${game.region}`}
     >
-      <svg viewBox="0 0 300 400" preserveAspectRatio="xMidYMax slice" aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
-        <circle cx="210" cy="110" r="34" fill="#ffd9a0" opacity=".85" />
-        <path d="M0 270 L60 200 L110 245 L170 160 L230 240 L300 190 L300 400 L0 400 Z" fill="#2c1d2b" />
-        <path d="M0 330 L70 290 L140 320 L210 285 L300 320 L300 400 L0 400 Z" fill="#160f17" />
-      </svg>
+      <CardScenery game={game} />
       <div className="shine" style={{ background: `radial-gradient(60% 50% at ${(t.x + 0.5) * 100}% ${(t.y + 0.5) * 100}%, rgba(255,240,210,.28), transparent 60%)` }} />
       <div className="meta">
         {game.supported ? (
