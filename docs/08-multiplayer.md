@@ -3,7 +3,8 @@
 Freedom Unite plays online since 0.6.0 (experimental): players pick one of the PSP community's ad hoc servers in the
 launcher and meet in the game's own Gathering Hall, with other copies of MHForever and with PPSSPP players, and go on
 quests together. Private rooms (a code that gives friends halls of their own) and friends (added by code, who is
-online, invites, joining) came in 0.8.0 (`14-rooms-and-friends.md`). Freedom does not play online yet (§7).
+online, invites, joining) came in 0.8.0 (`14-rooms-and-friends.md`). Freedom (and Freedom DX) plays online too, the same
+way (§1.4).
 
 The runtime side, call by call, is in `05-runtime-hle.md` §5i; the launcher's screens are in `07-launcher-ux.md`.
 
@@ -81,6 +82,18 @@ uses its ad hoc libraries.
 - The game must never pause while online: a paused game stops answering and the others drop it from the quest. The
   Escape menu does not pause the game (since 0.6.0), as a PSP had no pause either.
 
+### 1.4 What Freedom does on the network [measured 2026-11-24, all three releases]
+
+The same calls as Freedom Unite, from the same engine, so the same runtime serves it and nothing of it is mapped per
+release. What differs:
+- **Halls:** `MHPSP0` and two digits (`MHPSP000`), the same in the European, North American and Japanese executables, so
+  all three releases meet in the same halls (the servers crosslink `ULUS10084`, `ULES00318` and `ULJM05066`).
+- **Gathering Hall:** PDP datagrams on port 10000, of 90, 110, 74 and 24 bytes (and one of 338 when a player comes in).
+  The names of everyone in the hall show in the list, but **a hunter's body shows only to those in the same quest party**:
+  players see each other once they have joined the same quest. The game works so; it is not a fault of the network.
+- **Quests:** PTP streams on port 20001 and up, as Freedom Unite's, plus PDP datagrams on the quest's own port.
+- The village's Online Gathering Hall opens after the first talk with the village elder.
+
 ## 2. Servers
 
 - **The list.** Settings → Online offers Offline, five servers from PPSSPP's published list
@@ -112,7 +125,9 @@ uses its ad hoc libraries.
 | FU (EU/NA) ↔ Portable 2nd G (JP) | Do not meet | The server crosslinks them, but the Japanese game's halls are `集会所NN` and FU's `MHP2Q0NN`: neither game lists the other's |
 | FUComplete ↔ the plain Japanese release | Meet in the same halls | Both are `ULJM05500`; FUComplete adds quests and events, so play with the same edition |
 | Two versions of MHForever | Compatible | Nothing of MHForever's own is on the wire: the traffic is the game's and the protocol aemu's |
-| Freedom (any release) | Not yet | §7 |
+| Freedom, EU ↔ NA ↔ JP, Freedom DX included | Works: hall and quests (one of each in a quest of three, 2026-11-24) | Same hall names, crosslinked product codes. Freedom DX and the plain release meet; play with the same edition, since its options change the game |
+| Freedom ↔ Freedom Unite | Do not meet | Two games: the servers do not crosslink them, and their halls differ |
+| Freedom ↔ PPSSPP | Expected to work, not tested | Same protocol and port offset as Freedom Unite's |
 
 Why real PSPs of different regions never met in 2009–2011 (players' reports): a PSP's ad hoc network name contains the
 product code, so EU and US consoles did not see each other; tunnels that ignored it (Ad-Hoc Party, XLink Kai) let them
@@ -181,7 +196,7 @@ Target: at least as safe as ad hoc play in PPSSPP, where peers' packets also rea
 
 | Symptom | Likely causes |
 |---|---|
-| "Communication error" before the Gathering Hall | No server set for that game program, the server is down or unreachable (TCP 27312 blocked), or the game is not one that plays online yet (Freedom, §7) |
+| "Communication error" before the Gathering Hall | No server set for that game program, the server is down or unreachable (TCP 27312 blocked) |
 | No halls, or nobody in them | Players on different servers, one of them in a private room (or with another code), or a different release that does not share halls (§3) |
 | Players see each other in the hall, but a quest stays on the loading screen | The quest's streams go through the relay (TCP 27313): blocked by a firewall, antivirus or VPN, a server without the relay, PPSSPP without the relay, or a very distant server; or two editions with different quests (FUComplete and the plain release); or both players with the same virtual MAC because one copied the other's `launcher.json` |
 | A remote hunter moves in steps | The game's own rate (§1.3), not a network problem |
@@ -207,12 +222,14 @@ datagrams were sent and read; `=2` also dumps the start of every datagram. `BUIL
 | 2026-10-27 | quests with a PPSSPP player on socom.cc, either side leading | works; both times MHForever listened and PPSSPP connected |
 | 2026-10-29 | private room: two copies with one code meet, a third does not see them; switching public ↔ private in a hall with a PPSSPP player | works (`14-rooms-and-friends.md` §6) |
 | 2026-10-30 | friends over the default relays, two networks | works |
+| 2026-11-24 | Freedom: two copies (EU) on a local server and on socom.cc (through the internet, in a private room): hall, quest posted, joined from the board, completed with its rewards, back in the hall | works at 30 fps |
+| 2026-11-24 | Freedom: three players, one of each release (EU, NA, JP), and one on Freedom DX; one player's program closed in the middle of a quest | they meet and play; the others go on and the game drops the one who left |
+| 2026-11-24 | Freedom: a private room (two with a code, one without) | the two meet in their own hall, the third is alone in the public one |
 
 ## 7. Open work
 
-- **Freedom online.** Its game program did not take the launcher's online options, so it started without a server and
-  showed a communication error at the Gathering Hall; the fix is waiting for a test in the game. Its hall names are not
-  mapped yet (a private room learns them as the game joins a hall).
+- **Freedom online, still to check:** four players, a large monster hunted to the end, PPSSPP and real PSPs, Freedom DX's
+  North American and Japanese copies, and players on different networks.
 - **Measurements still to make:** EU with NA; three and four players (the PTP backlog of 3, the relay's limits); players
   on different networks, mobile data included; Linux; a real PSP.
 - **Fuzzing** the ad hoc entry points and the control library's parser (§4.6).

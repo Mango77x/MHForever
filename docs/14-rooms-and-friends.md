@@ -45,7 +45,7 @@ never lists it and never joins it. That is what private rooms use.
   on status pages; the code does not (25 bits of hash cannot give it back).
 - In scan results the library translates private names back to the game's and **drops every public group**, so the
   game lists only the room's halls. To translate back it needs the game's prefixes: the game module gives them
-  (`adhoc_hall_prefixes`: `MHP2Q0`, `MHP2A0` and the Japanese `集会所` for Freedom Unite), and any prefix the game joins
+  (`adhoc_hall_prefixes`: `MHP2Q0`, `MHP2A0` and the Japanese `集会所` for Freedom Unite, `MHPSP0` for Freedom), and any prefix the game joins
   with is learnt. A hall with an unknown prefix is only missing from the list; joining it still works.
 - Connect, disconnect, peer lists and the network dialog use the game's name on the game's side and the private one on
   the server's. PDP, PTP and the relay are untouched.

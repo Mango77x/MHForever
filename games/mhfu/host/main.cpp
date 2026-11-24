@@ -890,21 +890,6 @@ std::string disc_product_code(const std::filesystem::path &disc_image) {
     return {};
 }
 
-// "AA:BB:CC:DD:EE:FF" (or with '-') as bytes. False for anything else.
-bool parse_mac(const std::string &text, std::array<std::uint8_t, 6> &mac) {
-    unsigned v[6];
-    char sep[5];
-    if (std::sscanf(text.c_str(), "%2x%c%2x%c%2x%c%2x%c%2x%c%2x", &v[0], &sep[0], &v[1], &sep[1], &v[2], &sep[2], &v[3], &sep[3], &v[4],
-                    &sep[4], &v[5]) != 11) {
-        return false;
-    }
-    for (const char c : sep) {
-        if (c != ':' && c != '-') return false;
-    }
-    for (int i = 0; i < 6; ++i) mac[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(v[i]);
-    return true;
-}
-
 // "MHForever - <the disc's own title>": the window names the game that is running. The title comes from the disc image's
 // PARAM.SFO (upper-case titles are shown in title case); without a readable image the window is just "MHForever".
 std::string window_title(const std::filesystem::path &disc_image) {
@@ -1061,7 +1046,7 @@ int main(int argc, char **argv) {
         else if (a == "--adhoc-nick" && i + 1 < argc) adhoc_nick = argv[++i];
         else if (a == "--adhoc-room" && i + 1 < argc) options.adhoc_room = argv[++i]; // a private room's code
         else if (a == "--adhoc-mac" && i + 1 < argc) {
-            if (!parse_mac(argv[++i], options.adhoc_mac)) std::fprintf(stderr, "[mhfu] --adhoc-mac: not a MAC address, ignored\n");
+            if (!mhf::psp::parse_adhoc_mac(argv[++i], options.adhoc_mac)) std::fprintf(stderr, "[mhfu] --adhoc-mac: not a MAC address, ignored\n");
         }
         else if (a == "--input" && i + 1 < argc) script = parse_input_script(argv[++i]);
         else if (a == "--name" && i + 1 < argc) options.osk_default_text = argv[++i]; // text typed into keyboards

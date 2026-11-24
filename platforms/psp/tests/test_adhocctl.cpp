@@ -5,6 +5,7 @@
 #include "adhocctl.hpp"
 
 #include "check.hpp"
+#include "mhf/psp/runtime.hpp"
 
 #include <cstring>
 #include <deque>
@@ -217,6 +218,17 @@ int main() {
         MHF_CHECK(normalize_room_code("").empty());
     }
 
+    // The virtual MAC as the launcher passes it to the game programs.
+    {
+        std::array<std::uint8_t, 6> parsed{};
+        MHF_CHECK(mhf::psp::parse_adhoc_mac("02:AB:cd:EF:01:23", parsed));
+        MHF_CHECK((parsed == std::array<std::uint8_t, 6>{0x02, 0xAB, 0xCD, 0xEF, 0x01, 0x23}));
+        MHF_CHECK(mhf::psp::parse_adhoc_mac("02-00-00-00-00-01", parsed) && parsed[5] == 1);
+        MHF_CHECK(!mhf::psp::parse_adhoc_mac("02:AB:CD:EF:01", parsed));
+        MHF_CHECK(!mhf::psp::parse_adhoc_mac("02.AB.CD.EF.01.23", parsed));
+        MHF_CHECK(!mhf::psp::parse_adhoc_mac("", parsed));
+    }
+
     // A private name: "F", five characters from the code and the game's prefix, then the hall number.
     {
         const GroupName name = private_name("K7QF29XM", group("MHP2Q011"));
@@ -278,6 +290,30 @@ int main() {
         // A code that is not valid means the public halls.
         c.set_room("nope");
         MHF_CHECK(c.room().empty());
+    }
+
+    // Freedom's halls ("MHPSP0" and two digits) go private the same way, without meeting Freedom Unite's of the same code.
+    {
+        FakeLink link;
+        Adhocctl c(&link);
+        MHF_CHECK(c.init() == 0);
+        c.set_room("K7QF29XM");
+        c.add_hall_prefix({'M', 'H', 'P', 'S', 'P', '0'});
+        MHF_CHECK(private_name("K7QF29XM", group("MHPSP000")) != private_name("K7QF29XM", group("MHP2Q000")));
+        MHF_CHECK(c.scan() == 0);
+        const auto report = [&](const GroupName &name, std::uint8_t leader) {
+            auto &e = link.say(LinkEvent::Kind::Scan);
+            e.group = name;
+            e.mac = mac(leader);
+        };
+        report(group("MHPSP000"), 1);                           // a public hall
+        report(private_name("K7QF29XM", group("MHPSP000")), 2); // our room's
+        report(private_name("K7QF29XM", group("MHP2Q001")), 3); // the same code's, in the other game
+        link.say(LinkEvent::Kind::ScanComplete);
+        (void)c.poll();
+        MHF_CHECK(c.groups().size() == 1 && c.groups()[0].name == group("MHPSP000") && c.groups()[0].leader == mac(2));
+        MHF_CHECK(c.connect(group("MHPSP000")) == 0);
+        MHF_CHECK(link.connects.size() == 1 && link.connects[0] == private_name("K7QF29XM", group("MHPSP000")));
     }
 
     // Group names in logs: Freedom Unite's halls as they are, the Japanese release's Shift-JIS bytes in hex.

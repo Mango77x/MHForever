@@ -122,8 +122,8 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [ ] Before the launcher reads PPSSPP's server list itself: write to PPSSPP and the server operators (drafts kept outside
   the repository). Then the measurements still to make (`08-multiplayer.md` §7): EU with NA, three and four players,
   different networks, Linux, a real PSP; and fuzzing.
-- [ ] Freedom online: the game program takes the launcher's online options (fix written, waiting for a test in the
-  game).
+- [x] Freedom online: the game program takes the launcher's online options, with hall names shared by the three
+  releases (`08-multiplayer.md` §1.4), tested in quests with two and three players, 2026-11-24.
 - [x] Private rooms: room codes that rename the game's 24 halls on any public server (`14-rooms-and-friends.md` §3).
   **Released in 0.8.0** (PR #33).
 - [x] Friends: friend codes, presence, invites and join over Nostr relays (`14-rooms-and-friends.md` §4). **Released in 0.8.0**

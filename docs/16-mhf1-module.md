@@ -81,6 +81,13 @@ lists the words in `[guards]` (docs/04-recompiler.md section 6): a function hold
 the word has changed. Measured with the field of view and camera changed: the camera's two functions switch to the
 interpreter at the title, in all four copies.
 
+## 3.2 Online play
+
+The program takes the launcher's online options (`--adhoc-server`, `--adhoc-nick`, `--adhoc-mac`, `--adhoc-room`,
+`--friends-file`, `--friend-actions-file`), as Freedom Unite's does. Its network code is Freedom Unite's earlier version and
+uses the same calls, which the platform serves; only the hall prefix (`MHPSP0`) is Freedom's own. What was measured is in
+`08-multiplayer.md` §1.4 and §6.
+
 ## 4. Freedom and Freedom Unite
 
 Freedom runs an earlier version of Freedom Unite's engine: 39 % of its functions are the same, instruction for

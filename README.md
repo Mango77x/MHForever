@@ -42,7 +42,7 @@ welcome.
 - **HD texture packs** made for PPSSPP (such as KHD), one per copy of the game. None is included.
 - **Projected shadows**, **HUD scale** down to 50%, and optional extras such as the analog camera, the mouse camera,
   a fast supply box and true weapon values (Freedom Unite).
-- **Online play** (Freedom Unite) on the PSP ad hoc servers PPSSPP uses, with other copies of MHForever and
+- **Online play** (Freedom Unite and Freedom) on the PSP ad hoc servers PPSSPP uses, with other copies of MHForever and
   PPSSPP players, plus private rooms with a code and friends added by code.
 - **Controllers** work out of the box (tested with a PS5 DualSense); keyboard and mouse too. Buttons can be changed in the
   launcher or the in-game menu (Esc).
