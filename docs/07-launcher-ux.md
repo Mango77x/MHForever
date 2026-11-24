@@ -63,8 +63,8 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   `--smooth-textures`, `--pack-mipmaps`, `--anisotropy`, `--projected-shadows`, `--no-whole-map-shadows`, `--shadow-quality`, `--shadow-darkness`, `--widescreen`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--smithy-browse`, `--smithy-layout`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
   sessions. The game also needs the prepared executable: the installer produces it (below); developer builds can instead use
   `../exe/<DISC_ID>_EBOOT.BIN` (or one next to the ISO), checked against `dev_executable` in region.toml.
-- **Friend code**: generated locally (SHA-256 of a random identity seed, Crockford base32). Provisional: online play will
-  derive it from the Ed25519 public key (`08-multiplayer.md` §4.1); the backup file carries the seed.
+- **Friend code**: the first 80 bits of SHA-256 of the player's Nostr public key, which is derived from a random identity
+  seed made locally (`08-multiplayer.md` §4.1); the backup file carries the seed.
 - **Input**: mouse, keyboard (arrows/Enter/Esc) and gamepad (Gamepad API: D-pad/stick move focus spatially, A selects,
   B goes back; menus, drawers and dialogs trap focus via `data-nav-scope`). `prefers-reduced-motion` is honoured.
 - **Windows details**: dark title bar (DWM), WebView2 background colour set before creation (no white flash), message
@@ -281,7 +281,7 @@ mode, where no second window can be shown.
   name is the one in `--name`); empty keeps the game offline and nothing is contacted. The page says the server sees the name
   and the game. Each server shows how long a TCP connection to it takes (`mhf_probeServer`, `native/probe.cpp`); the list
   is only measured once the player is online or asks for it, so an offline launcher contacts no one. Before a release that
-  reads PPSSPP's list itself, PPSSPP and the operators are asked first (`08-multiplayer.md` section 1.2).
+  reads PPSSPP's list itself, PPSSPP and the operators are asked first (`08-multiplayer.md` §7).
 - Several local pads: player 1 only (the PSP is single-player). Local multiplayer on one machine = several instances: out of scope v1.
 
 ## 6. Steam Deck / Linux

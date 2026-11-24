@@ -101,9 +101,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 ## Phase 5 — Multiplayer
 
-- Research 2026-10-27 (`13-online-plan.md`): how the game uses the network (PTP send is its only blocking call),
-  ranked causes of the quest-start freeze and the diagnostics that decide them, compatibility between regions and with
-  PPSSPP and real PSPs, private rooms on public servers, and the plan for 0.6, 0.7 and later.
+- How online play works, who plays with whom, and what is still open: `08-multiplayer.md`.
 - The network layer is shared by every future console (3DS, Switch, PS2, Wii, Wii U): `core/net` offers rooms
   (packets or inputs mode), each console adds an adapter (`08-multiplayer.md` §1.1).
 - [x] Harden HLE boundaries first (`08-multiplayer.md` §4.6): the Windows drive-letter path escape is fixed,
@@ -116,14 +114,16 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Two instances on one PC complete a quest through a local server (2026-10-27). The freeze at the start of a quest
   had two causes: the fallback interpreter treated a jump into a jump-table case that the analysis had taken for a
   function as a tail call and dropped the caller's frame, and `sceNetAdhocPtpOpen` checked the wrong arguments and
-  refused the flag the game passes, so the guest could not reach the host and gave it up (`13-online-plan.md` §7, E1).
-- [x] Quests with PPSSPP on a public server (socom.cc), with either side leading the quest (2026-10-27, E3).
+  refused the flag the game passes, so the guest could not reach the host and gave it up (`08-multiplayer.md` §6).
+- [x] Quests with PPSSPP on a public server (socom.cc), with either side leading the quest (2026-10-27).
 - [x] Launcher: Settings → Online picks the server (Offline, five community servers from PPSSPP's list with their ping, or
   any host), stable virtual MAC, pseudonym, and the privacy note (2026-10-27). The in-game menu no longer pauses the
-  game, so opening it does not drop the player from a quest (2026-10-27, E6). **Released in 0.6.0.**
-- [ ] Before the launcher reads PPSSPP's server list itself: write to PPSSPP and the server operators (`08-multiplayer.md`
-  section 1.2; drafts kept outside the repository). Then the remaining experiments of `13-online-plan.md` §7: EU with
-  NA (E2), three and four players (E4), two networks (E5), Linux (E8), fuzzing (E9).
+  game, so opening it does not drop the player from a quest (2026-10-27). **Released in 0.6.0.**
+- [ ] Before the launcher reads PPSSPP's server list itself: write to PPSSPP and the server operators (drafts kept outside
+  the repository). Then the measurements still to make (`08-multiplayer.md` §7): EU with NA, three and four players,
+  different networks, Linux, a real PSP; and fuzzing.
+- [ ] Freedom online: the game program takes the launcher's online options (fix written, waiting for a test in the
+  game).
 - [x] Private rooms: room codes that rename the game's 24 halls on any public server (`14-rooms-and-friends.md` §3).
   **Released in 0.8.0** (PR #33).
 - [x] Friends: friend codes, presence, invites and join over Nostr relays (`14-rooms-and-friends.md` §4). **Released in 0.8.0**

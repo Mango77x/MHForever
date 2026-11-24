@@ -1,283 +1,243 @@
-# 08 — Multiplayer
+# 08 — Online play
 
-## 1. Goal
+Freedom Unite plays online since 0.6.0 (experimental): players pick one of the PSP community's ad hoc servers in the
+launcher and meet in the game's own Gathering Hall, with other copies of MHForever and with PPSSPP players, and go on
+quests together. Private rooms (a code that gives friends halls of their own) and friends (added by code, who is
+online, invites, joining) came in 0.8.0 (`14-rooms-and-friends.md`). Freedom does not play online yet (§7).
 
-2–4 friends play quests together as on the PSP, over the internet, without router configuration. P2P whenever possible, relay
-otherwise.
+The runtime side, call by call, is in `05-runtime-hle.md` §5i; the launcher's screens are in `07-launcher-ux.md`.
 
-### 1.1 Every platform, one network layer (decided 2026-10-22)
+## 1. How it works
+
+### 1.1 Every platform, one network layer
 
 Freedom Unite is the first game, not the only one: later titles may come from the 3DS, Switch, PS2, Wii or Wii U, each
-with its own kind of multiplayer. The friends system and the peer-to-peer layer are written once and shared; each
-console only adds an adapter. Nothing below `core/net` may know which console or game is running (the same rule as
-`core/` in `CLAUDE.md`).
+with its own kind of multiplayer. What can be shared is written once; each console adds an adapter, and nothing below
+`core/net` knows which console or game is running.
 
 ```
-launcher            identity, friends, presence ("playing <game>"), invites, rooms        — shared by every game
+launcher            identity, friends, presence, invites, rooms                    — shared by every game
    │
-core/net            discovery, peer links, relay through the group, encryption            — shared by every console
-   │                offers one service: a ROOM of N members with virtual addresses, in one of two modes:
-   │                  · packets:  members exchange datagrams/streams (the game's own netcode)
-   │                  · inputs:   members exchange controller inputs per frame (netplay)
+core/net            rooms: N members with virtual addresses (room.hpp)            — shared by every console
+   │                  · packets: members exchange datagrams/streams (the game's own netcode)
+   │                  · inputs:  members exchange controller inputs per frame (netplay, later)
    ▼
-platforms/<console>/net   adapter: the console's network API ↔ a room
-                          psp: sceNetAdhoc/Adhocctl · 3ds: local wireless · switch: local wireless (LDN) · ps2/wii: LAN
-games/<id>/               data only: max players, compatible builds, mode, expected bandwidth
+platforms/<console>  adapter: the console's network API
+                     psp: sceNetAdhoc/Adhocctl over the community servers (§1.2)
+games/<id>/          data only: max players, hall names, compatible releases
 ```
 
-The multiplayer kinds found on these consoles, and how each maps onto a room:
+Today the PSP adapter talks to the community servers directly (§1.2), so `core/net` holds the room interface and an
+in-process network for tests (`local_network.*`). Other consoles' kinds of multiplayer map onto rooms as follows:
 
-| Kind | Examples | How | Serverless? |
-|---|---|---|---|
-| Local wireless | PSP ad-hoc, DS/3DS, Switch local | the room is a virtual LAN; the game sees nearby consoles | yes |
-| LAN / system link | PS2 network adapter, Wii U LAN | the same virtual LAN | yes |
-| Official online services | DS/Wii Nintendo WFC, 3DS/Wii U online, PS2 online games | per game: many used the service only for matchmaking and then played peer to peer, which a room can replace; others need a replacement service | depends on the game |
-| Several controllers on one console | Wii, PS2 split screen | no game netcode: inputs are synchronised between PCs (lockstep, later rollback); needs the game to run deterministically | yes, in inputs mode |
+| Kind | Examples | How |
+|---|---|---|
+| Local wireless | PSP ad hoc, DS/3DS, Switch local | the room is a virtual LAN; the game sees nearby consoles |
+| LAN / system link | PS2 network adapter, Wii U LAN | the same virtual LAN |
+| Official online services | DS/Wii Nintendo WFC, 3DS/Wii U online, PS2 online games | per game: many used the service only for matchmaking and then played peer to peer, which a room can replace |
+| Several controllers on one console | Wii, PS2 split screen | inputs synchronised between PCs (lockstep, later rollback); needs deterministic emulation |
 
-Consequences:
-- Identity and friend codes belong to the launcher, not to a game: a friend is a friend in every game, and presence
-  and invites carry the game id.
-- Every room carries `game id + region + build + mode + max players`; mismatched clients are refused with a clear
-  message.
-- The group relay (§4.3) is sized per game from measured traffic; later consoles can send much more than FU.
-- The room service is the only interface between `core/net` and an adapter. Anything PSP-specific that appears in
-  `core/net` while writing the first adapter is in the wrong place.
+### 1.2 The transport: the community's ad hoc servers
 
-### 1.2 First transport: the community's ad hoc servers (decided 2026-10-23)
+MHForever plays on the servers the PSP community already runs for PPSSPP and real PSPs (aemu), not on servers of its
+own and not peer to peer:
+- **It works on every network.** Each player only connects out to the server over TCP, so CG-NAT, mobile data and
+  strict NATs are no obstacle and nobody opens ports.
+- **No cost.** The servers are run by volunteers and listed by PPSSPP.
+- **Players from day one**, PPSSPP and real PSP players included.
 
-Online play ships first on the servers the PSP community already runs for PPSSPP and for real PSPs (aemu), not on
-servers of our own and not on direct P2P. Reasons:
-- **It works on every network.** Each player only connects out to the server (TCP), so CG-NAT, mobile data and strict
-  NATs are no obstacle; nobody opens ports. Direct P2P (§4) cannot promise that without a relay of some kind.
-- **No cost and no money.** Rule 7 of `CLAUDE.md` stays as it is; the servers are run by volunteers and listed by
-  PPSSPP.
-- **Players from day one**, including PPSSPP and real PSP players, and the servers already group the European, North
-  American and Japanese releases of the game together (see §3). The Japanese release names its rooms in Japanese, so in
-  practice it does not meet the other two (`13-online-plan.md` §4).
-- **It is proven** with Monster Hunter: PPSSPP players use it, and a sibling recompilation project (Yakumo, MHP3rd, MIT)
-  reports a complete quest between two machines through such a server.
+Two services on the same host:
 
-What it means for the design:
-- The PSP adapter (`platforms/psp/net`) implements `sceNetAdhoc*`, `sceNetAdhocctl*` and `sceNetAdhocDiscover*` on top of
-  the aemu protocols. They are PSP-specific, so they never enter `core/net`.
-- The launcher picks the server (PPSSPP's published list, or any address) and gives the game a stable virtual MAC and
-  the player's pseudonym.
-- The final design of §4 (friends, presence, invites, room codes) is still the goal, built later on top of this: a room
-  code can stand for "group G on server S", and friends exchange invites over the DHT or a direct link between
-  launchers. A server of our own is only needed for direct P2P links (§4.3), which become an optional improvement.
-- Before release: ask PPSSPP before the launcher reads their server list, write to the main server operators, and credit
-  PPSSPP, aemu/aemu_postoffice and the server operators in the README and on the website.
-- Privacy: the servers' public status pages show each player's nickname and ports; the launcher says so. Servers in
-  their default `relay_only` mode do not give players' IP addresses to other players.
+| Service | Port | What goes through it |
+|---|---|---|
+| adhocctl (control) | TCP 27312 (`host:port` overrides it) | login (virtual MAC, nickname, product code), groups (the game's halls), scans, peer lists |
+| aemu postoffice (relay) | TCP 27313, the next port up | every datagram (PDP, up to 10 KiB) and stream (PTP, up to 50 KiB) between players |
 
-## 2. How the game does it
+The client is aemu_postoffice's, vendored unmodified (`third_party/aemu_postoffice`, GPL-3.0, the one PPSSPP uses). On
+top of it the runtime implements `sceNetAdhocctl` (`adhocctl.*`, `adhoc_link_aemu.*`), `sceNetAdhoc` PDP and PTP
+(`adhoc_sockets.*`, `hle_net_sockets.cpp`) and a `sceNetAdhocDiscover` stub. Ports go on the wire plus 10000, as in
+PPSSPP, so both meet.
 
-The game uses the PSP's **ad-hoc** stack: `sceNetAdhocctl` for groups/rooms, `sceNetAdhoc` PDP (datagrams) and PTP (streams),
-and `sceNetAdhocDiscover` (measured imports: 15 + 8 + 5 functions). Ports observed in FU: UDP 10000 (room) and 20001–20004 (quest).
-See `06-mhfu-module.md` §7. Our runtime implements those APIs and sends packets over the internet instead of Wi-Fi.
+What the launcher gives the game when a server is chosen (Settings → Online): `--adhoc-server`, a virtual MAC that is the
+same on every launch (`02:` and five bytes of `SHA-256("mhf-adhoc-mac" + identity seed)`, a locally administered address
+that tells nothing about the computer), the player's name as the nickname, the private room's code if any
+(`--adhoc-room`), and the two friends files of `14-rooms-and-friends.md` §4.3. Nothing is contacted before the game first
+uses its ad hoc libraries.
 
-## 3. How the community does it (reference)
+### 1.3 What Freedom Unite does on the network [verified 2026-10-27, European executable]
 
-- **PPSSPP**: an *adhocctl* server (TCP 27312) for group discovery and, since 1.20, the **"aemu postoffice" relay** (TCP 27313) that
-  forwards all traffic with no port forwarding. Public relays exist (EU, Asia, etc.) with Monster Hunter communities.
-  - PPSSPP downloads its server list from `https://metadata.ppsspp.org/adhoc-servers.json` (21 servers on 2026-10-23,
-    all `"data_mode": "AemuPostoffice"`); its default server is `socom.cc`. Entries have a host, a location, a Discord
-    link and often a live status URL (`data.json`: games, groups, nicknames, ports). One of them (`psp.mgn.pub`) says it
-    has "a good amount of Monster Hunter players".
-  - adhocctl (verified in PPSSPP's `proAdhoc.h`): little-endian, packed; opcodes ping 0, login 1 (MAC[6], nickname[128],
-    product code[9]), connect 2 (group[8]), disconnect 3, scan 4, scan complete 5, connect BSSID 6, chat 7 (64 bytes).
-  - Relay (aemu_postoffice `design.md`, `aemu_postoffice_packets.h`): one TCP connection per ad hoc socket, opened with
-    an init record (type: PDP, PTP listen, PTP connect, PTP accept, unreliable PDP; source and destination MAC and port);
-    PDP blocks up to 10 KiB, PTP up to 50 KiB. There is also a UDP path through ENet.
-  - The reference server's `game_db.json` "crosslinks" product codes into one game: `ULES01213` (FU Europe),
-    `ULUS10391` (FU North America) and `ULJM05500` (MHP2G Japan) all count as one game. Groups are named by the game, though:
-    FU uses `MHP2Q0` and two digits, the Japanese release `集会所` and two digits (seen live on 2026-10-27), so EU and US
-    players meet and Japanese players stay in rooms of their own (`13-online-plan.md` §4 and §6.3).
-- **aemu / PRO Online**: the same protocol on real PSPs/Vitas via a plugin. So **a client compatible with aemu could play with PPSSPP
-  users and real PSPs** .
-- `aemu_postoffice` publishes a C client (`postoffice_client.h`, `adhocctl.h`) meant to be integrated into PSP implementations.
-  License: **GPL-3.0** (verified 2026-10-17), which is compatible with this GPL-3.0-or-later repository (relicensed 2026-10-19); the protocol can also be
-  reimplemented from its `design.md`. Its client (`client/postoffice.c` with Windows/Linux socket layers and ENet, plus
-  `adhocctl/client/adhocctl.c`) is the one PPSSPP uses; the plan is to vendor it in `third_party/aemu_postoffice/`.
-  Its reference server (`server_cpp`) can run locally, so tests can talk to a real server without internet or game data.
+- **Gathering Hall:** PDP datagrams, all broadcast to the group, on port 10000. A hunter's position and name go out every
+  40 vblanks (667 ms), two other kinds every 16 vblanks, so a remote hunter moves in steps, in PPSSPP too
+  (`05-runtime-hle.md` §5i).
+- **Quests:** PTP streams on ports 20001–20004 (8 KiB buffers, 250 ms retransmit interval, 100 retries, a backlog of 3).
+  The game opens, listens, connects and accepts them; which side connects is the game's choice, not the quest leader's.
+- Connect, accept and both receives are polled every frame. **PTP send is the only blocking call, with no timeout**, so
+  it is the one place where a network problem can stop the game; the runtime waits the way the PSP does, in 1 ms steps,
+  with the other threads running.
+- The game joins its hall through the network configuration dialog (`sceUtilityNetconf`), which the runtime fails after
+  15 s if the server never confirms the group. It does not use GameMode, Matching or Discover.
+- Hall names are the game's: `MHP2Q0` or `MHP2A0` and two digits (`MHP2Q000`–`MHP2Q023`), the same in the European and
+  North American executables; the Japanese release uses `集会所` and two digits (`14-rooms-and-friends.md` §1).
+- The game must never pause while online: a paused game stops answering and the others drop it from the quest. The
+  Escape menu does not pause the game (since 0.6.0), as a PSP had no pause either.
 
-## 4. Target design (decided 2026-10-17): friend codes and room codes, no accounts, no servers of our own
+## 2. Servers
 
-> **Partly superseded.** What shipped: the community's ad hoc servers as the transport (§1.2, 0.6.0), private rooms that
-> rename the game's halls on any public server, and friends found over public Nostr relays instead of the Mainline DHT
-> (`14-rooms-and-friends.md`, 0.8.0). Direct P2P links (§4.3) are no longer needed for Freedom Unite and stay an optional
-> improvement. The requirements and the security model below still apply.
+- **The list.** Settings → Online offers Offline, five servers from PPSSPP's published list
+  (`metadata.ppsspp.org/adhoc-servers.json`) with their ping, or any address: Socom (socom.cc, France, the busiest),
+  Madness Gaming Network (psp.mgn.pub, United States, a Monster Hunter community), Games Nexus (adhoc.gamesnexus.ovh,
+  Italy), Psi-Hate (psi-hate.com, United States) and Neko PSP (cat.wjg.jp, Japan). The list is built into the launcher
+  (`launcher/ui/src/servers.ts`); it does not download PPSSPP's.
+- **Crosslinks.** A server groups players by product code, and "crosslinks" the releases of one game: `ULES01213`,
+  `ULUS10391` and `ULJM05500` count as one game (PPSSPP's server and aemu's `game_db.json` list them), so a scan returns
+  the halls of all three. The game itself keeps only the names it knows (§3).
+- **What the server checks at login:** the MAC must not be `xx:00:00:00:00:00` (it compares only the last five bytes,
+  "because some games corrupt the first byte"), the product code must be nine capital letters or digits, the nickname
+  shorter than 128 bytes. Group names are not checked.
+- **Defaults that matter:** `relay_only` (players' IP addresses are not given to other players), at most 20 relay
+  sessions per MAC and 16 control sessions per IP, a client dropped after 30 s of silence.
+- **Port offset:** fixed at PPSSPP's default of 10000. Players on another offset (some communities use 8800) do not meet
+  MHForever players; there is no setting for it.
+- **Status pages** (`data.json`, `status.xml`) show every game's halls with each player's nickname and ports, not their
+  MAC or IP address. The launcher says so next to the server choice.
 
-Requirements: no hosted servers, no accounts; a local pseudonym, friend codes and room codes; the launcher is the
-hub (friends list, presence, invites, rooms). Researched 2026-10-17 (sources in §7).
+## 3. Who plays with whom
 
-```
-recompiled game ── sceNetAdhoc*/sceNetAdhocctl HLE (platforms/psp/runtime)
-                         │ virtual ad-hoc LAN: virtual MACs, PDP/PTP ports, one group per room
-                         ▼
-core/net ── one UDP socket per player, shared by every peer link
-   ├─ identity:   Ed25519 key pair generated locally + pseudonym (exportable backup file)
-   ├─ discovery:  BitTorrent Mainline DHT (public, ~10M nodes, nobody owns it)
-   ├─ links:      UDP hole punching (+ IPv6 direct, + UPnP/NAT-PMP/PCP port mapping)
-   └─ fallback:   relay through another player of the group; optional community relays
-```
+| Players | Status | Notes |
+|---|---|---|
+| MHForever ↔ MHForever, same release | Works: quests (two instances, 2026-10-27; players since 0.6.0) | |
+| MHForever EU ↔ MHForever NA | Expected to work, not measured | Same code and hall names; the server crosslinks the two product codes |
+| MHForever ↔ PPSSPP (FU, EU or NA) | Works: quests with either side leading (socom.cc, 2026-10-27) | PPSSPP 1.20 or later, with the server's relay: PPSSPP uses it by itself for servers in its list, and needs "Try to use the packet relay of the server" set to always on for any other address |
+| MHForever ↔ real PSP or Vita (aemu plugin) | Expected to work, not tested | Same protocols; the plugin uses the same port offset |
+| FU (EU/NA) ↔ Portable 2nd G (JP) | Do not meet | The server crosslinks them, but the Japanese game's halls are `集会所NN` and FU's `MHP2Q0NN`: neither game lists the other's |
+| FUComplete ↔ the plain Japanese release | Meet in the same halls | Both are `ULJM05500`; FUComplete adds quests and events, so play with the same edition |
+| Two versions of MHForever | Compatible | Nothing of MHForever's own is on the wire: the traffic is the game's and the protocol aemu's |
+| Freedom (any release) | Not yet | §7 |
+
+Why real PSPs of different regions never met in 2009–2011 (players' reports): a PSP's ad hoc network name contains the
+product code, so EU and US consoles did not see each other; tunnels that ignored it (Ad-Hoc Party, XLink Kai) let them
+play. The servers' crosslinks do the same.
+
+## 4. Identity, rooms, friends and safety
 
 ### 4.1 Identity and friend codes
-- First run: the player picks a pseudonym; the launcher creates an Ed25519 key pair (never leaves the PC) and offers a
-  backup file (losing the PC without it = new identity; friends re-add the new code).
-- **Friend code** = the first 80 bits of SHA-256(public key), base32 → `XXXX-XXXX-XXXX-XXXX` (16 characters, typeable).
-  Collisions or impersonation would need ~2^80 work. On first contact each side proves it owns the key behind the code
-  (challenge signed with Ed25519), then both store the full public keys; after that every link is authenticated.
-- Adding a friend is mutual (both enter each other's code, or one accepts the other's request once connected).
+- The launcher makes a secret **identity seed** on first run and offers a backup file; nothing else identifies the
+  player. The virtual MAC (§1.2) and the Nostr key of the friends network (`HKDF-SHA256(seed, "mhf-nostr")`) both come
+  from it, so the backup restores both.
+- The **friend code** is the first 80 bits of `SHA-256(Nostr public key)`, 16 base32 characters (`XXXX-XXXX-XXXX-XXXX`).
+  Finding another key with the same code would take about 2^80 tries; adding a friend checks that the key behind the
+  code hashes to it (`14-rooms-and-friends.md` §4.3).
+- The **name** is the player's pseudonym, sent to the server as the nickname and to friends with presence.
 
-### 4.2 Discovery and presence (Mainline DHT)
-- (Superseded in part by §4.6.2: the public code is only announced while accepting friend requests; established friends
-  use a pairwise secret rendezvous.)
-- While the launcher runs it **announces** itself (BEP 5 `announce_peer` with `implied_port`) under
-  `info_hash = SHA-1("mhf-friend" ‖ friend code)`. `implied_port` makes the DHT record the NAT-mapped port of the very UDP
-  socket used for play, which is what hole punching needs. Re-announce every ~15 min (DHT peer entries expire in ~30 min).
-- To find a friend: `get_peers` on that info hash → candidate addresses → hole punch (§4.3) → authenticate (§4.1).
-  Median Mainline lookups are typically one second or less; good enough for presence and invites.
-- Once linked, friends keep a direct, encrypted keep-alive link while both launchers are open: **presence**
-  ("in the village", "in a quest", "room open"), **invites** and chat travel directly, with no third party.
-- Optional, later: BEP 44 signed records (≤1000 bytes) to publish a richer status without a live link.
-- Library: `jech/dht` (MIT, single C file, used by Transmission; BEP 5, IPv4 + IPv6) or our own small KRPC client.
-- Caveat: some corporate/university networks block the DHT; home networks normally don't.
+### 4.2 Private rooms
+A room code (`K7QF-29XM`, 8 Crockford base32 characters) renames every hall the game asks for, so only players with the
+same code see and join those halls, on any public server, with nothing for the operators to do. Only MHForever players
+can enter one; the public halls stay the default and a switch goes back to them at any time. Details:
+`14-rooms-and-friends.md` §3.
 
-### 4.3 Peer links (NAT traversal)
-1. **IPv6 first**: when both players have global IPv6 the link is direct with no NAT at all. Correction 2026-10-27: only
-   about 11 % of users in Spain are IPv6-capable (APNIC), so this helps few players (`13-online-plan.md` §5). This also sidesteps CG-NAT, which several Spanish ISPs use on IPv4 (Másmóvil/Yoigo/Pepephone, Digi,
-   Orange/Jazztel via DS-Lite, Fi).
-2. **Automatic port mapping**: try UPnP-IGD, NAT-PMP and PCP (`miniupnpc`, `libnatpmp`, BSD-3). PCP works through
-   Orange's DS-Lite.
-3. **UDP hole punching**: both sides learn each other's public endpoint (DHT `implied_port`, public STUN servers) and send
-   simultaneously, ICE-style. `libjuice` (MPL-2.0, C, no dependencies, ICE/STUN/TURN, IPv4/IPv6) implements the
-   connectivity checks; signaling (exchanging candidates) goes over the DHT/first-contact path. Large measurements put
-   decentralised hole punching at ~70 % success, 97 % of it on the first attempt; failures are mostly
-   endpoint-dependent ("symmetric") NATs, common on mobile data and some CG-NAT.
-4. **Relay through the group**: game traffic is small, so any member who can reach two others forwards packets between
-   them (the room host by default). Only a group where *every* member is behind a symmetric NAT cannot meet.
-5. **Optional community relays**: as a last resort, the launcher can use public relays run by others (PPSSPP's aemu
-   postoffice servers, reimplemented protocol), off by default and clearly labelled.
+### 4.3 Friends
+Friends find each other over public Nostr relays (WebSocket, outgoing only): presence ("playing Freedom Unite on
+socom.cc, room open"), invites and joining in one click, without accounts or servers of MHForever's own, and without
+showing anyone's IP address to friends. Details: `14-rooms-and-friends.md` §4.
 
-### 4.4 Rooms
-- **Room code** (6 characters) created by the host. The host announces under `SHA-1("mhf-room" ‖ code ‖ game id)`;
-  joiners look it up, link to the host and then to every member (full mesh of up to 4, relayed where needed).
-- The room carries `game id + region + build version`; mismatched clients are refused with a clear message.
-- Friends see "room open" in presence and join with one click (no code needed).
-- Inside the game nothing changes: the room is one virtual ad-hoc group, and the game's Gathering Hall works as on the
-  PSP.
+### 4.4 In the launcher and in the game
+- **Launcher:** Settings → Online (server, name, privacy note); Home's "Play with friends" card (create or join a room,
+  copy its code, back to the public halls); the Friends drawer (`07-launcher-ux.md`).
+- **Game:** the Escape menu's Online tab, shown when a server is set: public halls or private room, friends and their
+  invites, the current room and who is in it, and the server. Room and server change while playing, taking effect only
+  when that cuts nobody off (`14-rooms-and-friends.md` §3.4). A notice says when friends come into the player's room.
 
-### 4.5 Privacy and safety (shown in the launcher)
-- Linked players see each other's IP address, as in any P2P game; the DHT also sees that an address runs the launcher
-  (as with torrents). An option "only connect through the group relay" hides your IP from non-friends in rooms.
-- No central moderation: blocking is local (block list by key).
-- All links are encrypted and authenticated (keys from §4.1, e.g. Noise or libsodium `crypto_box`/`crypto_kx`).
+### 4.5 Privacy
+- The ad hoc server sees the player's IP address, nickname, product code and when they play; its status page shows the
+  nickname to anyone. In `relay_only` mode other players never see the IP address.
+- The Nostr relays see the player's IP address and when the launcher is open, and random-looking keys; not who is friends
+  with whom, and nothing they can read (`14-rooms-and-friends.md` §5).
+- Room codes are secrets: never logged, never put in a URL.
 
-### 4.6 Security model (threat review 2026-10-17) — must be done before multiplayer ships
-1. **The game's own network code is the largest risk.** FU parses peers' packets with 2008 code never meant for hostile
-   input. Containment: recompiled code only reaches guest memory through bounds-checked accessors (`GuestMemory`
-   aot_load*/aot_store*, slow path for anything outside RAM) and indirect jumps only reach recompiled functions or the
-   interpreter, so a game exploit stays inside the virtual PSP. The walls to harden are the HLE boundaries:
-   - `hle_io.cpp` `host_path()`: reject path components with a drive or root name (`C:`, `\\?\`, ADS `file:stream`) —
-     on Windows `root / "C:"` replaces the root and escapes the memory stick folder. **Fixed** (`resolve_under_root`,
-     tested in `test_hle_io`).
-   - `host0:` maps to `RuntimeOptions::host_root` (debug). **Fixed 2026-10-23:** empty by default, and an empty root never
-     resolves, so the device is closed unless a developer tool sets a folder.
-   - GE direct memory reads. **Checked 2026-10-23:** the GE reaches memory only through `host(address, length)`, which
-     returns nothing outside RAM and the EDRAM mirrors (reads give 0, writes are dropped); the OpenGL backend and the
-     frontend use `GuestMemory::raw_pointer(address, length)`, also bounds-checked, and skip a null result.
-   - HLE functions that take guest pointers/sizes. **Checked 2026-10-23:** they go through `GuestMemory`
-     (`load*`/`store*`/`copy_in`/`copy_out`/`read_string`), which throws outside guest memory; `Kernel::thread_main`
-     catches it and stops the program with a message. A bad pointer from the network therefore ends the game cleanly
-     instead of touching host memory. Host buffers sized by the guest (`hle_misc`, savedata, thread arguments) can at
-     worst fail to allocate, which ends the same way. The new net HLE must follow the same rule and cap every size by
-     the protocol limits (PDP 10 KiB, PTP 50 KiB blocks).
-   - Fuzz the ad-hoc HLE entry points and the HLE file/GE boundaries with malformed input before release. **Pending**,
-     with the net HLE.
-2. **IP exposure.** Linked players see each other's IP (city-level geolocation, possible DDoS while playing).
-   **Design correction:** the public friend code must not be a permanent rendezvous, or anyone holding a leaked code
-   could find a player's IP and online times. So:
-   - The public code is only announced while the player has "accept friend requests" open (time-limited).
-   - Established friends meet at a **pairwise secret rendezvous**: `info_hash = H(X25519 shared secret ‖ epoch)`, rotated
-     periodically; only that friend can compute it.
-   - Public rooms: option to route through the room host so non-friends never see your IP.
-3. **Launcher network code** (DHT/KRPC bencode parsing, ICE, our framing): strict validation, size limits, rate limits,
-   fuzzing (libFuzzer) in CI.
-4. **Covered by design:** all links encrypted and mutually authenticated by Ed25519 keys (no impersonation, no MITM on
-   the same LAN); cheating among friends is out of scope (same as on PSP) and only affects the game; blocking is local.
-5. **Distribution:** if the launcher ever self-updates, updates must be signed (Ed25519/minisign) and verified before
-   running; an unsigned updater would be the most dangerous entry point.
-Target: equal or better than ad-hoc in PPSSPP (where peer packets also reach the emulated game, without encryption or
-authentication).
+### 4.6 Security model
+1. **The game's own network code is the largest risk.** Freedom Unite parses peers' packets with 2008 code never meant
+   for hostile input. Containment: recompiled code reaches guest memory only through bounds-checked accessors, and
+   indirect jumps only reach recompiled functions or the interpreter, so a game exploit stays inside the virtual PSP.
+   The walls are the HLE boundaries:
+   - File paths: a component with a drive or root name (`C:`, `\\?\`, `file:stream`) is refused, so nothing escapes the
+     memory stick folder (`resolve_under_root`, tested in `test_hle_io`). `host0:` is closed unless a developer tool sets
+     a folder.
+   - The GE reaches memory only through bounds-checked lookups (outside RAM reads give 0, writes are dropped).
+   - HLE functions that take guest pointers go through `GuestMemory`, which throws outside guest memory; the kernel stops
+     the program with a message, so a bad pointer from the network ends the game cleanly. The net HLE caps every size by
+     the protocol's limits (PDP 10 KiB, PTP 50 KiB).
+   - Fuzzing the ad hoc entry points and the control library's parser with malformed input is still to do (§7).
+2. **IP addresses.** Nobody sees another player's address: the ad hoc servers relay everything and the friends network
+   goes through Nostr relays.
+3. **Launcher network code** (Nostr events): every event is checked before use (signature, size, age, rate, fields), as
+   `14-rooms-and-friends.md` §4.3 lists.
+4. **Updates** are checked against the SHA-256 GitHub publishes for each archive; signed updates are still to do
+   (`07-launcher-ux.md`).
+5. Cheating among players is out of scope, as on the PSP.
 
-### 4.7 Implementation order (revised 2026-10-23)
-The detailed plan for 0.6, 0.7 and later, with the research of 2026-10-27, is `13-online-plan.md` §8.
+Target: at least as safe as ad hoc play in PPSSPP, where peers' packets also reach the emulated game.
 
-1. Fix the HLE boundary issues above (independent of networking).
-2. Vendor the aemu_postoffice client; the PSP adapter (`sceNetAdhoc*`, `sceNetAdhocctl*`, `sceNetAdhocDiscover*`) on top
-   of it, with call and packet tracing. **Done 2026-10-23** (`05-runtime-hle.md` §5i), tested against the reference server
-   running locally; a homebrew test against it and the first run with the game are still to do.
-3. Two instances on one PC, through a local server, complete a quest together.
-4. Launcher: server choice (PPSSPP's list or an address), live status, stable virtual MAC, pseudonym; a real game on a
-   community server. Credits and the messages to PPSSPP and the operators before release (§1.2). Target: 0.6
-   (0.5 was the North American release, so multiplayer moved back one version).
-5. Measure FU's traffic (packet sizes/rates on ports 10000 and 20001–20004).
-6. The design of §4 on top: identity, friends, presence, invites and room codes (room = group on a server); then,
-   optionally, direct P2P links (libjuice, UPnP/PCP, IPv6) for lower latency. Target: 0.7.
-7. Test matrix in §6 including Spanish ISPs with CG-NAT (Digi, Másmóvil group, Orange DS-Lite) and mobile hotspot.
+## 5. When it does not work
 
-### 4.8 Compatibility with PPSSPP and real PSPs
-Done in 0.6.0: speaking PPSSPP's adhoc-server protocol plus aemu postoffice is how MHForever plays online (§1.2), so it
-meets PPSSPP players on the same servers (quests verified with either side leading, `13-online-plan.md` §7, E3). Real PSPs
-and Vitas (aemu plugin) are expected to work the same way and are not tested.
+| Symptom | Likely causes |
+|---|---|
+| "Communication error" before the Gathering Hall | No server set for that game program, the server is down or unreachable (TCP 27312 blocked), or the game is not one that plays online yet (Freedom, §7) |
+| No halls, or nobody in them | Players on different servers, one of them in a private room (or with another code), or a different release that does not share halls (§3) |
+| Players see each other in the hall, but a quest stays on the loading screen | The quest's streams go through the relay (TCP 27313): blocked by a firewall, antivirus or VPN, a server without the relay, PPSSPP without the relay, or a very distant server; or two editions with different quests (FUComplete and the plain release); or both players with the same virtual MAC because one copied the other's `launcher.json` |
+| A remote hunter moves in steps | The game's own rate (§1.3), not a network problem |
 
-## 5. Libraries (licenses checked 2026-10-17 against GPL-2.0-only; the repository is GPL-3.0-or-later since 2026-10-19, which only widens what is allowed)
+For a report: `game.log` from every player, the server, each player's release, and whether anyone is on PPSSPP.
+`MHF_TRACE_ADHOC=1` logs the ad hoc calls (those that fail, and those that keep waiting) and, once a second, how many
+datagrams were sent and read; `=2` also dumps the start of every datagram. `BUILDING.md` ("Trying online play") runs a local server.
 
-| Library | License | Use | Verdict |
-|---|---|---|---|
-| **libjuice** | MPL-2.0 | ICE/STUN/TURN, hole punching | ✅ MPL-2.0 lists GPL-2.0 as a "Secondary License" |
-| **jech/dht** | MIT | Mainline DHT (BEP 5, IPv6) | ✅ |
-| **miniupnpc / libnatpmp** | BSD-3 | UPnP, NAT-PMP, PCP | ✅ |
-| **libsodium** or **Monocypher** | ISC / BSD-2 or CC0 | Ed25519, key exchange, encryption | ✅ |
-| GameNetworkingSockets (Valve) | BSD-3 | Messages + P2P (WebRTC ICE, own signaling) | ✅ license, but heavy (protobuf, WebRTC); not needed |
-| iroh (n0) | MIT/Apache-2.0, but depends on `ring` (Apache-2.0 AND ISC) | Dial by key, DHT discovery, relays | ❌ Apache-2.0 is incompatible with GPL-2.0; also Rust toolchain; n0's public relays are "development and hobby use only" |
-| c-toxcore (Tox) | GPL-3.0+ | Same model (key IDs, DHT, relays) | ❌ GPL-3 only — design reference |
-| aemu_postoffice | GPL-3.0 | PPSSPP relay protocol and client | ✅ since the GPL-3.0-or-later relicensing: vendored client (§1.2) |
-| HyperDHT (Holepunch) | MIT | DHT + hole punching by key | ⚠️ JavaScript runtime; reference only |
+## 6. Tests and results
 
-Since the move to GPL-3.0-or-later, iroh (Apache-2.0) and toxcore (GPL-3.0+) are also license-compatible; not needed for this design.
-
-## 6. Tests
-
-1. Two instances on the same machine (loopback) with our own ad-hoc homebrew. *Homebrew still to write*; the live test
-   `psp_adhocctl_server` (two players against a real server) covers the library and the sockets.
-2. Two machines on a LAN.
-3. Internet with different NATs (including a phone hotspot, usually strict NAT → relay).
-4. Mixed Windows ↔ Linux/Deck.
-5. Against PPSSPP through an aemu relay.
-Measure latency and loss; the game is tolerant, but verify it in FU.
-
-How to run these locally is in `BUILDING.md` ("Trying online play"). Results so far (reference server running in WSL2 on the same PC):
+- `psp_adhocctl` (no network): the control library against a fake server.
+- `psp_adhocctl_server`: two players against a real server (`MHF_ADHOC_TEST_SERVER`), with groups, datagrams, a stream,
+  a private room, and optionally a 45 s keepalive and a jitter run; skipped without a server.
+- `launcher/ui/tools/friends-live-check.ts`: two identities on the default Nostr relays add each other and exchange
+  presence and an invite.
 
 | Date | What | Result |
 |---|---|---|
-| 2026-10-23 | `psp_adhocctl_server`: two players join a group, see each other, exchange datagrams (also one that does not fit) and a PTP stream, close | passes (3 of 3 runs) |
-| 2026-10-24 | keepalive: 45 s idle | passes (needs a server on a steady clock) |
-| 2026-10-24 | jitter: 300 datagrams at 30 per second | 300 of 300 arrive, median delay 16 ms, max 23 ms |
-| 2026-10-24 | two copies of the game in the Gathering Hall | they see each other |
-| 2026-10-24 | our game with PPSSPP 1.20.4 in the Gathering Hall | they see each other (PPSSPP needs the relay forced on for this server) |
-| 2026-10-24 | movement of a remote hunter | steps every 0.67 s in ours and in PPSSPP: the game's own traffic |
-| 2026-10-24 | starting a quest together | **fails**: the host freezes (see `10-roadmap.md`, Phase 5) |
+| 2026-10-23 | `psp_adhocctl_server` against the reference server | passes (3 of 3 runs) |
+| 2026-10-24 | 300 datagrams at 30 per second through the relay | 300 of 300, median delay 16 ms, max 23 ms |
+| 2026-10-24 | two copies, and a copy with PPSSPP 1.20.4, in the Gathering Hall | they see each other |
+| 2026-10-27 | two instances on one PC start and complete a quest | works, after two fixes: the interpreter dropped the caller's frame on a jump into a jump-table case, and `sceNetAdhocPtpOpen` refused the flag the game passes |
+| 2026-10-27 | quests with a PPSSPP player on socom.cc, either side leading | works; both times MHForever listened and PPSSPP connected |
+| 2026-10-29 | private room: two copies with one code meet, a third does not see them; switching public ↔ private in a hall with a PPSSPP player | works (`14-rooms-and-friends.md` §6) |
+| 2026-10-30 | friends over the default relays, two networks | works |
 
-Not yet tried: a public server, mobile data or strict NATs, more than two players, Linux, a real PSP.
+## 7. Open work
 
-## 7. Sources (2026-10-17)
+- **Freedom online.** Its game program did not take the launcher's online options, so it started without a server and
+  showed a communication error at the Gathering Hall; the fix is waiting for a test in the game. Its hall names are not
+  mapped yet (a private room learns them as the game joins a hall).
+- **Measurements still to make:** EU with NA; three and four players (the PTP backlog of 3, the relay's limits); players
+  on different networks, mobile data included; Linux; a real PSP.
+- **Fuzzing** the ad hoc entry points and the control library's parser (§4.6).
+- **PPSSPP and the server operators:** write to them about MHForever on their servers (drafts kept outside the
+  repository); required before the launcher reads PPSSPP's list itself.
+- **Optional:** the servers' UDP mode (the vendored client has the ENet path); a port offset setting; PPSSPP's MAC
+  normalisation if a game turns out to alter the first byte; invite links (`mhforever://`); Discord Rich Presence; the
+  Japanese bridge; a built-in server for LAN or VPN play (aemu's server is GPL-3.0, so it can be bundled); proposing
+  hidden groups to aemu_postoffice (`14-rooms-and-friends.md` §2).
 
+## 8. Not pursued: direct peer-to-peer links
+
+The first design (2026-10-17) had players link to each other directly: Ed25519 identities, discovery through the
+BitTorrent Mainline DHT, UDP hole punching with IPv6 and UPnP/NAT-PMP/PCP port mapping, and relaying through another
+player when that failed. The community servers made it unnecessary for Freedom Unite: they work behind any NAT, hide IP
+addresses and bring PPSSPP players. Hole punching succeeds for about 70 % of pairs in large measurements, and only about
+11 % of Spanish users have IPv6, so a relay would be needed anyway. It could come back for lower latency or LAN play;
+the libraries checked then (libjuice MPL-2.0, jech/dht MIT, miniupnpc/libnatpmp BSD-3, libsodium ISC, Monocypher
+BSD-2/CC0) are all compatible with the repository's GPL-3.0-or-later.
+
+## 9. Sources
+
+- PPSSPP: `Core/HLE/proAdhoc.cpp`, `proAdhocServer.cpp` (crosslinks), `sceNetAdhoc.cpp`; the published server list.
+- Kethen/aemu_postoffice: `design.md`, `aemu_postoffice_packets.h`, the adhocctl server and client (to 2026-10-28).
+- TeamGDB/Yakumo (MIT, static recompilation of Portable 3rd): quests through a PSP ad hoc server, the no-pause rule.
+- The servers' live status pages (socom.cc, Games Nexus, Neko PSP and others), October 2026.
 - Trautwein et al., "Challenging Tribal Knowledge – Large Scale Measurement Campaign on Decentralized NAT Traversal",
-  arXiv:2510.27500 (≈70 % hole-punching success, 97.6 % first attempt).
-- Jiménez, "Kademlia on the Open Internet" (KTH licentiate): Mainline DHT median lookup < 200 ms with improvements.
-- Pubky/pkarr and pubky.org Mainline DHT notes: ~10 M nodes, BEP 44 records ≤ 1000 bytes, expire after hours.
-- libjuice, jech/dht, Kethen/aemu_postoffice, GameNetworkingSockets READMEs; iroh docs (public relays terms, DHT lookup);
-  Apache Software Foundation, "GPL compatibility"; Tor Project issue on `ring`'s license.
-- itigic.com, "Which Internet operators in Spain use CG-NAT".
+  arXiv:2510.27500; APNIC IPv6 measurements for Spain (to 2026-10-24).
