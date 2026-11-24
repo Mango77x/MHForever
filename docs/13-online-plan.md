@@ -1,5 +1,9 @@
 # 13 — Online play: research and the plan to finish it (2026-10-27)
 
+> **Historical record.** This is how online play stood on 2026-10-27 and the plan made then. The quest-start freeze of §3
+> was fixed that same day (E1 in §7), online play shipped in 0.6.0 and private rooms and friends in 0.8.0
+> (`14-rooms-and-friends.md`, which replaced §8's 0.7 plan). What is still open is in `10-roadmap.md`, phase 5.
+
 This document gathers what was researched on 2026-10-27 to take online play from "the Gathering Hall works" to a release,
 and on to the long-term vision of `08-multiplayer.md` (friends, rooms, every console on one network layer). It does not
 replace `08-multiplayer.md`: that stays the design reference; this is the evidence and the work plan. Details that come

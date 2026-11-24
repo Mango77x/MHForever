@@ -103,7 +103,10 @@ See `06-mhfu-module.md` §7. Our runtime implements those APIs and sends packets
 
 ## 4. Target design (decided 2026-10-17): friend codes and room codes, no accounts, no servers of our own
 
-Since 2026-10-23 this is the design built after the first transport of §1.2, on top of it.
+> **Partly superseded.** What shipped: the community's ad hoc servers as the transport (§1.2, 0.6.0), private rooms that
+> rename the game's halls on any public server, and friends found over public Nostr relays instead of the Mainline DHT
+> (`14-rooms-and-friends.md`, 0.8.0). Direct P2P links (§4.3) are no longer needed for Freedom Unite and stay an optional
+> improvement. The requirements and the security model below still apply.
 
 Requirements: no hosted servers, no accounts; a local pseudonym, friend codes and room codes; the launcher is the
 hub (friends list, presence, invites, rooms). Researched 2026-10-17 (sources in §7).
@@ -224,9 +227,10 @@ The detailed plan for 0.6, 0.7 and later, with the research of 2026-10-27, is `1
    optionally, direct P2P links (libjuice, UPnP/PCP, IPv6) for lower latency. Target: 0.7.
 7. Test matrix in §6 including Spanish ISPs with CG-NAT (Digi, Másmóvil group, Orange DS-Lite) and mobile hotspot.
 
-### 4.8 Compatibility with PPSSPP and real PSPs 
-Optional mode, later: speak PPSSPP's adhoc-server protocol plus aemu postoffice to join existing community servers
-(not ours). Separate from the friends system.
+### 4.8 Compatibility with PPSSPP and real PSPs
+Done in 0.6.0: speaking PPSSPP's adhoc-server protocol plus aemu postoffice is how MHForever plays online (§1.2), so it
+meets PPSSPP players on the same servers (quests verified with either side leading, `13-online-plan.md` §7, E3). Real PSPs
+and Vitas (aemu plugin) are expected to work the same way and are not tested.
 
 ## 5. Libraries (licenses checked 2026-10-17 against GPL-2.0-only; the repository is GPL-3.0-or-later since 2026-10-19, which only widens what is allowed)
 

@@ -5,7 +5,8 @@
 - **Gamepad-first**: the whole launcher works with a controller (the Deck has no comfortable keyboard). Mouse and keyboard too.
 - Fullscreen by default on Deck; resizable window on desktop.
 - No jargon: "Add my copy", "Play", "Play with friends".
-- No art from the series in the launcher UI, except optionally the icon read from the player's copy (pending legal OK).
+- No art from the series in the launcher UI, except the icon read from the player's own copy (planned, issue #120) and
+  pictures the player chooses.
 
 ## 2. First-run flow
 
@@ -156,8 +157,8 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   replaces is kept as `<name>.old` until the next start, and a failure at any step puts everything back. Then it restarts.
   `MHForever --update` does the same without the window; `MHF_UPDATE_URL` points the check at another release description
   (tests use a `file://` one). Saves and settings live outside the program folder, so they are never touched.
-- Still to do: launcher-managed updates (signed), Steam Deck packaging
-  (AppImage/Flatpak), moving the per-user folder, moving saves there.
+- Still to do: signed updates, an AppImage or Flatpak, moving the per-user folder (the saves folder can already be moved,
+  Settings > Storage).
 
 ## 3c. The in-game menu (decided 2026-10-22)
 
@@ -261,7 +262,8 @@ mode, where no second window can be shown.
     `--padmap "south=south,left_shoulder=left_shoulder+left_trigger,...,stick=left"`; `core/host/padmap*` resolves it.
     In the launcher the controller's own navigation pauses while a button is recorded; Backspace or Delete removes a source,
     Esc cancels, and a source already in use is swapped. The Guide button is never offered (it opens the in-game menu).
-  - Per-controller profiles, deadzones, sensitivity and a mouse camera are pending; rumble optional (the PSP has none).
+  - Per-controller profiles, deadzones and sensitivity are pending (the mouse camera is done, 0.9.4); rumble optional (the
+    PSP has none).
 - In the game: the in-game menu has a **Controls** tab with the same bindings. Pick a row, press the new key or button and it
   applies at once; Esc or a click cancels, Backspace unbinds, F11 stays reserved. The host reports the next key or button by
   name while the menu waits for one (`SdlHost::set_capture`). The game writes every change, and the Audio tab's volumes, to

@@ -1,5 +1,8 @@
 # 14 — Private rooms and friends: research and plan (2026-10-29)
 
+> Both shipped in 0.8.0 (private rooms, PR #33; friends, PR #34). The research and plan below are kept as written;
+> what is still open (the Japanese bridge, Discord Rich Presence) is in §7, "After that, optional".
+
 Online play works since 0.6.0: players pick a community ad hoc server and meet in the game's own Gathering Hall, with
 PPSSPP and real PSP players. This document is the research for the last part of the online plan: **private rooms**
 (play only with the people you choose, on any public server) and **friends** (see who is playing, invite them, join

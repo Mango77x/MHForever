@@ -264,5 +264,7 @@ and [source](https://github.com/pggkun/mhfu_gathering_nodes).
 - System fonts: FU imports `sceLibFont` → free replacement fonts with compatible metrics (no PGF).
 - PSMF intro videos (a real HLE of `sceMpeg`, implemented above in `05`).
 - Imprecise SAS reverb (known in PPSSPP for FU).
-- Cross-region multiplayer: regions probably cannot play together in the original game `[VERIFY]`; the lobby must group by region.
+- Cross-region multiplayer: the servers group the European and North American releases into one game (PPSSPP's server
+  and aemu's `game_db.json` list the pair), so they meet in the same halls; the Japanese release names its halls in
+  Japanese and does not meet them (`13-online-plan.md` §4).
 - Overlays: extraction and runtime routing are mandatory before any gameplay works.
