@@ -343,6 +343,12 @@ button { -webkit-tap-highlight-color: transparent; }
 .crop-controls .rng { flex: 1; }
 .crop-help { margin: 0; color: var(--mute); font-size: 12px; line-height: 1.5; }
 .crop-error { margin: 0; color: var(--warn); font-size: 13px; }
+.crop-pad-hint { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; color: var(--mute); font-size: 12px; font-weight: 700; }
+.crop-pad-hint span { display: inline-flex; align-items: center; gap: 6px; }
+.crop-pad-hint kbd {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px;
+  border-radius: 6px; background: rgba(255, 236, 210, 0.1); color: var(--ink); font-family: var(--body);
+}
 .crop-empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 48px 24px; border: 1px dashed var(--line-2); border-radius: 18px; color: var(--mute); }
 .crop-empty p { margin: 0; }
 .crop-actions { display: flex; justify-content: flex-end; gap: 10px; }
@@ -381,10 +387,15 @@ button { -webkit-tap-highlight-color: transparent; }
 .progress > div { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), #ffd08a); transition: width 0.12s linear; }
 .timer { font-family: var(--display); font-size: 44px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .toast {
-  position: fixed; left: 50%; bottom: 32px; z-index: 60; background: var(--ink); color: var(--on-accent); font-weight: 700;
-  font-size: 14px; padding: 12px 18px; border-radius: 14px; display: flex; align-items: center; gap: 8px;
-  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.6); white-space: nowrap;
+  position: fixed; left: 50%; bottom: 32px; z-index: 60;
+  background: rgba(18, 16, 14, 0.94); color: var(--ink);
+  border: 1px solid rgba(242, 165, 65, 0.35); border-radius: 16px;
+  font-weight: 700; font-size: 14px; padding: 12px 18px;
+  display: flex; align-items: center; gap: 8px;
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.8), 0 0 24px -10px rgba(242, 165, 65, 0.45);
+  backdrop-filter: blur(24px) saturate(1.3); white-space: nowrap;
 }
+.toast-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); flex: none; }
 .pad-hint { position: fixed; right: 20px; bottom: 16px; z-index: 4; display: flex; gap: 14px; color: var(--mute); font-size: 12px; font-weight: 700; }
 .pad-hint kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 6px; background: rgba(255, 236, 210, 0.1); color: var(--ink); font-family: var(--body); margin-right: 5px; }
 

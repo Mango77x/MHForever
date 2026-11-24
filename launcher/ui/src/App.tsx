@@ -41,7 +41,7 @@ function Toast({ text }: { text: string | null }) {
           exit={{ opacity: 0, y: 20, x: '-50%' }}
           transition={spring}
         >
-          <CheckIcon size={16} color="#1a1208" /> {text}
+          <span className="toast-dot" /> {text}
         </motion.div>
       )}
     </AnimatePresence>
@@ -133,7 +133,14 @@ export default function App() {
     api.mhf_setSettings(s).then(setState);
   };
   const setGameArt = (discId: string, kind: 'cover' | 'banner', dataUrl: string) => {
-    api.mhf_setGameArt(discId, kind, dataUrl).then(setState);
+    api.mhf_setGameArt(discId, kind, dataUrl).then((s) => {
+      setState(s);
+      const game = s.games.find((g) => g.discId === discId);
+      const stored = kind === 'cover' ? game?.coverUrl : game?.bannerUrl;
+      if (!dataUrl) say('Artwork removed');
+      else if (stored !== dataUrl) say('Could not save the picture');
+      else say(kind === 'cover' ? 'Cover saved' : 'Banner saved');
+    });
   };
   const addCopy = () => { setProfileOpen(false); api.mhf_addGame(); };
   const locateExe = () => api.mhf_pickExecutable().then((s) => { setState(s); if (s.executable.found) say('Executable found'); });
@@ -287,6 +294,7 @@ export default function App() {
                   state={state}
                   onChange={setSettings}
                   onGameArt={setGameArt}
+                  padMode={padMode}
                   onPseudonym={(n) => api.mhf_setPseudonym(n).then((s) => { setState(s); say('Name saved'); })}
                   onCopyCode={copyCode}
                   friendCode={friends.code}

@@ -86,7 +86,7 @@ export function Library({ games, selectedDisc, useCustomArt, showGameIcon, onAdd
         <motion.button className="addcard" {...rise(0.16)} onClick={onAddCopy} data-nav-default={games.length === 0 ? '' : undefined}>
           <span className="plus"><PlusIcon /></span>
           <b>{games.length === 0 ? 'Add my copy' : 'Add another copy'}</b>
-          <span>Pick your ISO. It is checked on this computer and never uploaded anywhere.</span>
+          <span>Pick your ISO. It is checked on this system and never uploaded anywhere.</span>
         </motion.button>
       </div>
     </section>
