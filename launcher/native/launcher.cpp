@@ -18,6 +18,7 @@
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <ctime>
 #include <fstream>
 #include <iterator>
@@ -46,6 +47,75 @@ const char *region_name(const CatalogEntry &e) {
     if (market == "US") return "North America";
     if (market == "JP") return "Japan";
     return "Unknown region";
+}
+
+// A small PNG from the player's own disc, as a bounded data URL for the web UI. Nothing is downloaded or shipped.
+std::string png_data_url(const std::vector<std::uint8_t> &bytes, std::uint32_t max_side) {
+    constexpr std::uint8_t png_header[] = {
+        0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 'I', 'H', 'D', 'R',
+    };
+    if (bytes.size() < 33 || !std::equal(std::begin(png_header), std::end(png_header), bytes.begin())) return {};
+    const auto dimension = [&](std::size_t offset) {
+        return (std::uint32_t(bytes[offset]) << 24) | (std::uint32_t(bytes[offset + 1]) << 16) |
+               (std::uint32_t(bytes[offset + 2]) << 8) | std::uint32_t(bytes[offset + 3]);
+    };
+    const auto width = dimension(16), height = dimension(20);
+    if (width == 0 || height == 0 || width > max_side || height > max_side) return {};
+
+    constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string url = "data:image/png;base64,";
+    url.reserve(url.size() + 4 * ((bytes.size() + 2) / 3));
+    for (std::size_t i = 0; i < bytes.size(); i += 3) {
+        const bool has_second = i + 1 < bytes.size();
+        const bool has_third = i + 2 < bytes.size();
+        const auto first = std::uint32_t(bytes[i]);
+        const auto second = has_second ? std::uint32_t(bytes[i + 1]) : 0;
+        const auto third = has_third ? std::uint32_t(bytes[i + 2]) : 0;
+        url += alphabet[first >> 2];
+        url += alphabet[((first & 3) << 4) | (second >> 4)];
+        url += has_second ? alphabet[((second & 15) << 2) | (third >> 6)] : '=';
+        url += has_third ? alphabet[third & 63] : '=';
+    }
+    return url;
+}
+
+std::string disc_png(psp::IsoImage &image, std::string_view path, std::size_t max_bytes,
+                     std::uint32_t max_side) {
+    const auto entry = image.find(path);
+    if (!entry || entry->size < 33 || entry->size > max_bytes) return {};
+    return png_data_url(image.read_file(*entry, 0, entry->size), max_side);
+}
+
+struct DiscArt {
+    std::string icon; // ICON0.PNG, the small Library-card icon
+};
+
+// Read the small icon in one pass over the image. A missing or broken icon must never stop a copy from working.
+DiscArt disc_art(const fs::path &iso) {
+    DiscArt art;
+    if (iso.empty()) return art;
+    try {
+        psp::IsoImage image(iso);
+        art.icon = disc_png(image, "/PSP_GAME/ICON0.PNG", 256 * 1024, 512);
+    } catch (const std::exception &) {
+    }
+    return art;
+}
+
+// A picture the player uploaded and cropped in the launcher: a bounded data URL, never downloaded or shipped.
+bool valid_image_data_url(const std::string &url, std::size_t max_bytes) {
+    if (url.size() > max_bytes) return false;
+    constexpr std::string_view png = "data:image/png;base64,";
+    constexpr std::string_view jpeg = "data:image/jpeg;base64,";
+    std::size_t offset = 0;
+    if (url.rfind(png, 0) == 0) offset = png.size();
+    else if (url.rfind(jpeg, 0) == 0) offset = jpeg.size();
+    else return false;
+    if (url.size() <= offset) return false;
+    return std::all_of(url.begin() + static_cast<std::ptrdiff_t>(offset), url.end(), [](char c) {
+        const auto u = static_cast<unsigned char>(c);
+        return std::isalnum(u) || c == '+' || c == '/' || c == '=';
+    });
 }
 
 #if defined(_WIN32)
@@ -96,7 +166,7 @@ const Json *chosen_copy(const Json &data, const std::string &game_id, const Cata
 
 // The launcher's own settings: everything else is kept per copy of a game.
 bool is_launcher_setting(const std::string &key) {
-    return key == "copyImage" || key == "adhocServer" || key == "adhocRoom" || key == "checkUpdates" || key == "friendRelays";
+    return key == "copyImage" || key == "useCustomArt" || key == "showGameIcon" || key == "adhocServer" || key == "adhocRoom" || key == "checkUpdates" || key == "friendRelays";
 }
 
 // What a copy of a game uses: its own settings, over what the launcher.json "settings" hold (the values every copy started
@@ -156,6 +226,8 @@ Json default_settings() {
     s["hornSongs"] = false; // the hunting horn's songs over the quest HUD
     s["hornSongsPlace"] = "next-to-sheet"; // and where: a place's name, or "custom:X,Y" (overlay/song_panel.hpp)
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
+    s["useCustomArt"] = true; // show the cover and banner the player uploaded for each game; off keeps the drawn scenery
+    s["showGameIcon"] = true; // show the small ICON0 badge on Library cards; off hides it for a cleaner picture
     s["checkUpdates"] = true; // ask GitHub for a newer release when the launcher starts
     s["musicVolume"] = 100;
     s["sfxVolume"] = 100;
@@ -801,6 +873,7 @@ void Launcher::load() {
         ss << in.rdbuf();
         if (auto parsed = Json::parse(ss.str()); parsed && parsed->is_object()) data_ = std::move(*parsed);
     }
+    in.close(); // Windows cannot replace the file while it is open when save() runs below.
     if (!data_.is_object()) data_ = Json(Json::Object{});
     bool changed = false;
     const std::string seed_hex = data_["identitySeed"].as_string();
@@ -817,8 +890,27 @@ void Launcher::load() {
     Json settings = default_settings();
     for (const auto &[k, v] : data_["settings"].as_object()) settings[k] = v;
     data_["settings"] = settings;
+    if (data_["settings"].object().erase("useGameImage") != 0) changed = true; // the old automatic-picture switch
     if (!data_["gameSettings"].is_object()) data_["gameSettings"] = Json(Json::Object{});
     if (!data_["games"].is_array()) data_["games"] = Json(Json::Array{});
+    // The cards and Home show the player's own icon; read it once for copies saved before icons existed.
+    // A missing or broken icon just keeps the drawn scenery, and nothing is downloaded.
+    for (auto &game : data_["games"].array()) {
+        const Json &saved = game;
+        if (!saved.is_object() || entry_for(saved["discId"].as_string()) == nullptr) continue;
+        if (saved["picUrl"].is_string()) { // the old automatic PIC1 background: no longer used, drop it to keep launcher.json small
+            game.object().erase("picUrl");
+            changed = true;
+        }
+        if (!saved["iconUrl"].as_string().empty()) continue;
+        const std::string iso = saved["isoPath"].as_string();
+        if (iso.empty()) continue;
+        const auto art = disc_art(platform::from_utf8(iso));
+        if (!art.icon.empty()) {
+            game["iconUrl"] = art.icon;
+            changed = true;
+        }
+    }
     if (!data_["stats"].is_object()) {
         Json stats;
         stats["secondsPlayed"] = 0;
@@ -978,6 +1070,9 @@ Json Launcher::state() {
         out["version"] = e->version;
         out["isoPath"] = g["isoPath"];
         out["verification"] = g["verification"];
+        out["iconUrl"] = g["iconUrl"];
+        out["coverUrl"] = g["coverUrl"];
+        out["bannerUrl"] = g["bannerUrl"];
         out["supported"] = std::string(e->status) != "planned";
         games.array().push_back(out);
     }
@@ -1069,6 +1164,24 @@ void Launcher::set_settings(const Json &partial) {
     apply_settings(entry != nullptr ? entry->disc_id : "", partial);
 }
 
+// A cover for the Library card or a banner for Home, cropped by the player in the launcher. Empty clears it.
+void Launcher::set_game_art(const std::string &disc_id, const std::string &kind, const std::string &data_url) {
+    std::lock_guard lock(mutex_);
+    if (kind != "cover" && kind != "banner") return;
+    for (auto &game : data_["games"].array()) {
+        if (!game.is_object() || game["discId"].as_string() != disc_id) continue;
+        const char *key = kind == "cover" ? "coverUrl" : "bannerUrl";
+        if (data_url.empty()) {
+            game.object().erase(key);
+        } else {
+            if (!valid_image_data_url(data_url, 2 * 1024 * 1024)) return;
+            game[key] = data_url;
+        }
+        save();
+        return;
+    }
+}
+
 // A room code as the game takes it: 8 characters of Crockford base32, "K7QF-29XM" -> "K7QF29XM" (O reads as 0, I and L
 // as 1). Empty when the text is not one. The same rule as the game's (platforms/psp/runtime/src/adhocctl.cpp).
 namespace {
@@ -1105,6 +1218,9 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
         own = &all[disc_id];
     }
     Json &s = own != nullptr ? *own : launcher_settings;
+    // A launcher-wide choice, not a per-copy one: both cards and Home follow it.
+    if (partial["useCustomArt"].is_bool()) launcher_settings["useCustomArt"] = partial["useCustomArt"];
+    if (partial["showGameIcon"].is_bool()) launcher_settings["showGameIcon"] = partial["showGameIcon"];
     const auto num = [&](const char *key, double lo, double hi) {
         if (partial[key].is_number()) s[key] = std::clamp(std::round(partial[key].as_number()), lo, hi);
     };
@@ -1369,6 +1485,7 @@ Launcher::AddResult Launcher::add_game(const fs::path &iso, const Progress &prog
             stored_iso = installed.image;
         }
     }
+    const auto art = disc_art(iso);
     {
         std::lock_guard lock(mutex_);
         auto &games = data_["games"].array();
@@ -1379,6 +1496,7 @@ Launcher::AddResult Launcher::add_game(const fs::path &iso, const Progress &prog
         g["discId"] = entry->disc_id;
         g["isoPath"] = platform::to_utf8(fs::weakly_canonical(stored_iso, ec));
         g["verification"] = verification;
+        if (!art.icon.empty()) g["iconUrl"] = art.icon;
         games.insert(games.begin(), g);
         save();
     }

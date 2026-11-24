@@ -5,7 +5,7 @@
 - **Gamepad-first**: the whole launcher works with a controller (the Deck has no comfortable keyboard). Mouse and keyboard too.
 - Fullscreen by default on Deck; resizable window on desktop.
 - No jargon: "Add my copy", "Play", "Play with friends".
-- No art from the series in the launcher UI, except optionally the icon read from the player's copy (pending legal OK).
+- No art from the series in the launcher UI, except the small icon read from the player's own copy and pictures the player chooses for the launcher (both stored locally, never shipped).
 
 ## 2. First-run flow
 
@@ -157,8 +157,16 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   `MHForever --update` does the same without the window; `MHF_UPDATE_URL` points the check at another release description
   (tests use a `file://` one). Saves and settings live outside the program folder, so they are never touched.
 - **Library scenery (2026-11-24)**: Home's hero and each Library card draw the game's own original, abstract scenery:
-  Freedom a green mountain valley, Freedom Unite the dusk mountains it had. No art from the
-  series is shipped (§1), and copies of different games no longer share one fallback picture.
+  Freedom a blue mountain valley, Freedom Unite a brighter green one, and any other game the same mountain range
+  tinted from its own icon. No art from the series is shipped (§1), and copies of different games no longer share
+  one fallback picture.
+- **Game artwork (2026-11-24)**: the card shows the small `ICON0.PNG` from the player's own copy as a rounded badge;
+  a copy without an icon shows no badge or frame at all, and **Show game icons** (Settings > Game artwork) hides it for
+  players who want a clean picture. In **Settings > Game artwork** the player can choose a cover for the Library card
+  (3:4) and a banner for Home (12:5), each in a crop/pan window; both stay with the copy in `launcher.json` as bounded
+  JPEG data URLs (at most 2 MiB each) and on that computer. **Use my artwork** (Settings > Game artwork, the default)
+  shows them; off keeps the drawn scenery. The card edge follows the picture's own tone when there is one, otherwise
+  the game's icon accent. Nothing is bundled in the repository.
 - Still to do: launcher-managed updates (signed), Steam Deck packaging
   (AppImage/Flatpak), moving the per-user folder, moving saves there.
 

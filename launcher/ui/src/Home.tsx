@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { selectedGame, type State } from './bridge';
-import { HeroScenery, heroSky } from './GameArt';
+import { HeroScenery, gameAccent, heroBorderColor, heroSky, useImageAccent } from './GameArt';
 import { AlertIcon, CheckIcon, FolderIcon, PlayIcon, PlusIcon, SlidersIcon } from './icons';
 import { hours, lastPlayed, resolutions } from './format';
 import { formatRoomCode, newRoomCode, roomCode } from './rooms';
@@ -26,19 +26,36 @@ const rise = (delay: number) => ({
 export function Hero({ state, onPlay, onAddCopy, onLocateExecutable, onSettings }: Omit<Props, 'onOnlineSettings' | 'onRoom' | 'onCopy'>) {
   const [m, setM] = useState({ x: 0, y: 0 });
   const game = selectedGame(state);
+  const useCustomArt = state.settings.useCustomArt ?? true;
+  const banner = useCustomArt ? game?.bannerUrl : undefined;
+  const bannerAccent = useImageAccent(banner);
+  const iconAccent = useImageAccent(game?.iconUrl);
+  const accent = gameAccent(game, bannerAccent, iconAccent);
+  const border = heroBorderColor(game, accent);
   const layer = (k: number, s: number) => ({ transform: `translate3d(${m.x * -k}px, ${m.y * -k * 0.45}px, 0) scale(${s})` });
   return (
     <motion.section
       className="hero"
       {...rise(0)}
-      style={{ background: heroSky(game) }}
+      style={{ background: heroSky(game, accent), borderColor: border }}
       onMouseMove={(e) => {
         const r = e.currentTarget.getBoundingClientRect();
         setM({ x: (e.clientX - r.left) / r.width - 0.5, y: (e.clientY - r.top) / r.height - 0.5 });
       }}
       onMouseLeave={() => setM({ x: 0, y: 0 })}
     >
-      <HeroScenery game={game} layer={layer} />
+      <HeroScenery game={game} layer={layer} accent={accent} />
+      {banner && (
+        <img
+          className="hero-image"
+          src={banner}
+          alt=""
+          draggable={false}
+          decoding="async"
+          onLoad={(e) => { e.currentTarget.hidden = false; }}
+          onError={(e) => { e.currentTarget.hidden = true; }}
+        />
+      )}
       <div className="shade" aria-hidden="true" />
       <motion.div className="hero-body" {...rise(0.08)}>
         {game ? (
