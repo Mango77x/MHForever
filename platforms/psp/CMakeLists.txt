@@ -104,6 +104,12 @@ if(MHF_BUILD_TESTS)
     mhf_target_warnings(test_hle_savedata)
     add_test(NAME psp_hle_savedata COMMAND test_hle_savedata)
 
+    add_executable(test_audio_mix tests/test_audio_mix.cpp)
+    target_include_directories(test_audio_mix PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src)
+    target_link_libraries(test_audio_mix PRIVATE mhf_psp_runtime)
+    mhf_target_warnings(test_audio_mix)
+    add_test(NAME psp_audio_mix COMMAND test_audio_mix)
+
     add_executable(test_region_data tests/test_region_data.cpp)
     target_include_directories(test_region_data PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
     target_link_libraries(test_region_data PRIVATE mhf_psp_recomp)
