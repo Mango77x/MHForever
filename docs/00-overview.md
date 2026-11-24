@@ -48,7 +48,7 @@ is used as a **knowledge source** (names, structures), not as the base of the po
 
 ## 5. Phased vision (summary; details in `10-roadmap.md`)
 
-Phases 0 to 7 are done for Freedom Unite (as of 0.12.1, 2026-11-21); the roadmap keeps what is still open in each.
+Phases 0 to 7 are done for Freedom Unite (as of 0.13.0, 2026-11-24); the roadmap keeps what is still open in each.
 
 0. Foundations: repo, CI, legal, name, test homebrew. Done.
 1. Minimal PSP runtime on our own homebrew (window, controller, audio, GE→OpenGL 3.3; Vulkan optional later). Done.

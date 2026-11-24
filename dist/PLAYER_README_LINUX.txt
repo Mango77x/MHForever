@@ -59,11 +59,10 @@ Steam Deck
 ----------
 In Desktop Mode, open MHForever as on any other Linux: the launcher's window uses its own WebKitGTK (lib/webkit), since
 SteamOS has none. To play from Game Mode, add MHForever to Steam as a non-Steam game (Desktop Mode > Steam > Add a Game >
-Add a Non-Steam Game > Browse, and choose MHForever in this folder). In Game Mode the launcher's window works with the
-controller (D-pad, A to choose, B to go back); it steps aside while the game runs and comes back when the game closes.
-Adding your .iso is easiest in Desktop Mode; in Game Mode the file dialog works with the touchscreen or the trackpad.
-The maintainers have no Deck: the launcher is tested on SteamOS 3.8's own system (from Valve's recovery image), not on
-a Deck. Reports from a Deck are welcome (Discord or GitHub).
+Add a Non-Steam Game > Browse, and choose MHForever in this folder). Add your .iso in Desktop Mode first. In Game Mode
+the launcher is made to be used with the controller (D-pad, A to choose, B to go back) and to step aside while the game
+runs, but none of that has been tried on a Deck yet: the maintainers have none, and test the launcher on SteamOS 3.8's
+own system (from Valve's recovery image). Reports from a Deck are welcome (Discord or GitHub).
 
 Without the launcher's window
 -----------------------------
