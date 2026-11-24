@@ -27,19 +27,21 @@ Developer machine only (never CI):
 
 Layers, bottom-up:
 
-1. **core/** — console-independent: the SDL3 host (window, input, audio output) and base utilities. Config, logging,
-   network (P2P/relay) and a debug overlay are planned.
+1. **core/** — console-independent: the SDL3 host (window, input, audio output), base utilities, the rooms every console
+   adapter uses (`net/`), the local link between the game and the launcher (`link/`) and the in-game menu and overlays
+   (`overlay/`).
 2. **platforms/psp/** — knows the PSP but no specific game:
    - `tools/`: ISO9660 and PARAM.SFO readers.
    - `recomp/`: function analyzer and Allegrex→C++ emitter (`mhf_recomp`); the ELF loader and MIPS decoder come from
      `third_party/psprecomp`.
    - `runtime/`: memory, CPU context, kernel (fibers, threads, semaphores...), HLE of system libraries (by NID), SAS and
-     ATRAC3+ audio, overlay manager, fallback interpreter.
+     ATRAC3+ audio, overlay manager, fallback interpreter, ad hoc play over the community servers (aemu_postoffice).
    - `gpu/`: GE list processing, vertex decoding, T&L and the software renderer, behind a backend interface.
-   - `frontend/`: glue to the SDL3 host, the OpenGL 3.3 backend and the system dialogs drawn over the game.
+   - `frontend/`: glue to the SDL3 host, the OpenGL 3.3 backend (frame interpolation, texture packs, projected shadows,
+     widescreen) and the system dialogs drawn over the game.
    - `hle/`: the NID database (system function names, no Sony code).
-3. **games/mhfu/** — the profile: regions (hashes, symbol maps), recompiler configuration, overlay table, patches, native fast
-   paths, optional enhancements, game tests.
+3. **games/<game>/** — one module per game, `mhfu` (Freedom Unite) and `mhf1` (Freedom): regions (hashes, symbol maps),
+   overlay table, the game program, game-specific enhancements, tests. A game module never includes another's code.
 
 Dependency rule: `games → platforms → core`. Never the other way. `core` and `platforms` contain no game addresses.
 
@@ -48,10 +50,11 @@ Dependency rule: `games → platforms → core`. Never the other way. `core` and
 ```
 /
 ├─ CONTRIBUTING.md  README.md  BUILDING.md  THIRD_PARTY.md  LICENSE (GPL-3.0-or-later)
-├─ CMakeLists.txt            root; option -DMHF_GAMES="mhfu"
+├─ CMakeLists.txt            root; option -DMHF_GAMES="mhfu;mhf1"
 ├─ CMakePresets.json
 ├─ cmake/                    SDL3 and webview helpers
-├─ core/                     app/ (entry point), base/ (version), host/ (SDL3 window, input, audio)
+├─ core/                     app/, base/, host/ (SDL3 window, input, audio), net/ (rooms), link/ (game ↔ launcher),
+│                            overlay/ (in-game menu)
 ├─ platforms/psp/
 │  ├─ tools/                 ISO9660 and PARAM.SFO readers
 │  ├─ recomp/                analyzer and Allegrex→C++ emitter (mhf_recomp)
@@ -62,23 +65,24 @@ Dependency rule: `games → platforms → core`. Never the other way. `core` and
 │  └─ tests/
 ├─ games/mhfu/
 │  ├─ game.toml              module metadata
-│  ├─ regions/ULES01213/     region.toml, symbols.toml, overlays.toml (ULUS10391 and ULJM05500: the same files)
+│  ├─ regions/ULES01213/     region.toml, symbols.toml, overlays.toml (ULUS10391, ULJM05500, ULJM05500-FUC: the same)
 │  ├─ host/                  game-specific host (command line, overlay hook, integration)
 │  ├─ tools/                 DATA.BIN reader, overlay extractor, prepare.py
 │  └─ tests/
+├─ games/mhf1/               the same shape for Freedom (regions ULES00318, ULUS10084, ULJM05066 and the -FDX copies)
 ├─ launcher/                 native/ (+ install/), ui/ (React), tests/
 ├─ homebrew/                 our own PSP programs (pspdev) used by tests
 ├─ tests/                    repository-level tests; support/check.hpp
 ├─ scripts/                  content guard, NID extraction, release packaging
 ├─ dist/                     text shipped with the release
-├─ third_party/              psprecomp, ppsspp_prx, stb, fonts
+├─ third_party/              psprecomp, ppsspp_prx, pokke_save_crypto, aemu_postoffice, ffmpeg, basisu, xxhash, stb, fonts
 ├─ docs/
 ├─ research/                 git-ignored except README.md
 └─ user_data/                ALWAYS git-ignored: isos/, exe/, overlays/, generated/, build-game/, saves/
 ```
 
-Planned and not present yet: `games/mhfu/enhancements/` and per-region `patches/`, a network module in `core/`, and the
-JP symbol map.
+Enhancements and patches live in each module's `host/` and in the region maps (instruction and call patches, guards:
+`04-recompiler.md` §6); there are no separate `enhancements/` or `patches/` folders.
 
 ## 3. Player pipeline
 
@@ -111,14 +115,14 @@ Alternatively (model B), steps 1–3 move to the player's machine (requires a bu
 | Compiler | Clang on both OSes (clang-cl or MSVC on Windows acceptable) | Uniform behavior |
 | Window/input/audio | SDL3 | Controllers, Steam Input, Deck |
 | Rendering | OpenGL 3.3 (implemented); Vulkan 1.2+ possible later | Same code on Windows, Linux and Deck; backend interface keeps Vulkan open |
-| Debug UI | Dear ImGui (MIT), planned | Not used yet; ACX recomp uses the same |
+| In-game UI | Our own (`core/overlay`), drawn with the game | Dear ImGui was considered and is not used |
 | Config | TOML, read by a small in-house parser (`mini_toml.hpp`) | N64Recomp uses TOML |
-| Network | libjuice (MPL-2.0, ICE) or GameNetworkingSockets (BSD-3), planned | Phase 5, see `08-multiplayer.md` |
+| Network | aemu_postoffice client (GPL-3.0) to the community's ad hoc servers; friends over public Nostr relays | `08-multiplayer.md` §1.2, `14-rooms-and-friends.md` |
 | MIPS decoding | PSPRecomp decoder (MIT): covers all but 55 words of FU's main `.text` | Measured, `04-recompiler.md` §1 |
 | Tests | In-house `tests/support/check.hpp` + ctest | Dependency-free |
 | CI | GitHub Actions: Windows + Ubuntu, no game data | |
 
-## 6. Module configuration (draft format)
+## 6. Module configuration
 
 `games/mhfu/game.toml`
 ```toml

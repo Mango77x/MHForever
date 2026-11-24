@@ -438,10 +438,32 @@ Launcher::SavesFolderChange Launcher::set_saves_folder(const fs::path &folder) {
     std::error_code ec;
     const bool same = fs::exists(target, ec) && fs::exists(saves_dir_, ec) && fs::equivalent(target, saves_dir_, ec);
     if (!same) {
-        // A folder inside the current one would be copied into itself.
+        // Players often keep their saves in folders other programs use too (PPSSPP's or RetroArch's, a synced one), so
+        // nothing here may copy what is not the launcher's (issue #151): one folder must not hold the other (a folder
+        // inside the current one would be copied into itself, and a folder around it mixes the two), and only the games'
+        // own folders, named by their disc id, are copied.
         const fs::path from = fs::weakly_canonical(saves_dir_, ec), to = fs::weakly_canonical(target, ec);
-        if (std::mismatch(from.begin(), from.end(), to.begin(), to.end()).first == from.end()) {
+        const auto holds = [](const fs::path &outer, const fs::path &inner) {
+            return std::mismatch(outer.begin(), outer.end(), inner.begin(), inner.end()).first == outer.end();
+        };
+        if (holds(from, to)) {
             result.error = "That folder is inside the current saves folder. Choose one outside it.";
+            return result;
+        }
+        if (holds(to, from)) {
+            result.error = "That folder holds the current saves folder. Choose one that is not around it.";
+            return result;
+        }
+        // A PSP/SAVEDATA folder (PPSSPP's, RetroArch's) holds saves directly, while the launcher's holds one folder per
+        // game with its own PSP/SAVEDATA inside: the two cannot be the same folder.
+        const auto named = [](const fs::path &p, std::string_view name) {
+            const std::string s = platform::to_utf8(p.filename());
+            return std::equal(s.begin(), s.end(), name.begin(), name.end(),
+                              [](char a, char b) { return std::toupper(static_cast<unsigned char>(a)) == b; });
+        };
+        if (named(to, "SAVEDATA") && named(to.parent_path(), "PSP")) {
+            result.error = "That is a PSP/SAVEDATA folder, like PPSSPP's. Choose another folder; to bring saves from there, use "
+                           "Game settings > Saves.";
             return result;
         }
         fs::create_directories(target, ec);
@@ -453,6 +475,7 @@ Launcher::SavesFolderChange Launcher::set_saves_folder(const fs::path &folder) {
             for (const auto &game : fs::directory_iterator(saves_dir_, ec)) {
                 std::error_code item;
                 if (!game.is_directory(item)) continue;
+                if (entry_for(platform::to_utf8(game.path().filename())) == nullptr) continue; // not a game's folder: not ours
                 const fs::path destination = target / game.path().filename();
                 if (fs::exists(destination, item)) continue; // that game already has saves there: they stay as they are
                 fs::copy(game.path(), destination, fs::copy_options::recursive, item);

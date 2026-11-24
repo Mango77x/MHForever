@@ -87,6 +87,6 @@ Freedom runs an earlier version of Freedom Unite's engine: 39 % of its functions
 instruction (addresses aside), and `DATA.BIN` uses the same cipher, so Freedom Unite's overlay extractor reads it
 unchanged. The addresses in `regions/ULES00318/symbols.toml` were found by matching Freedom Unite's mapped code.
 
-What both games share is moved into an engine-family library only once Freedom runs, with Freedom Unite behaving
-exactly as before; until then `prepare.py` calls the build's `mhfu_extract_overlays` and the game program repeats the
-few lines of overlay and draw-wait handling it needs.
+Freedom runs now (0.11.0 onwards), so what both games share can move into an engine-family library, with Freedom Unite
+behaving exactly as before; that has not been done yet. Until then `prepare.py` calls the build's `mhfu_extract_overlays`
+and the game program repeats the few lines of overlay and draw-wait handling it needs.

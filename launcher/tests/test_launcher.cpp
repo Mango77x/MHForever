@@ -655,6 +655,42 @@ int main(int argc, char **argv) {
         CHECK(!again.state()["savesFolderCustom"].as_bool());
     }
 
+    // Issue #151: a saves folder other programs use too (here RetroArch's, with PPSSPP's folders in it). Only the games'
+    // own folders are copied out of it, a folder around it or a PSP/SAVEDATA folder is refused, and nothing is touched.
+    {
+        const fs::path base = dir / "shared_base", data = dir / "shared_data", shared = dir / "retroarch" / "saves";
+        const fs::path mine = shared / "ULES01213" / "PSP" / "SAVEDATA" / "ULES01213SLOT1" / "DATA.BIN";
+        fs::create_directories(mine.parent_path());
+        std::ofstream(mine, std::ios::binary) << "mine";
+        fs::create_directories(shared / "PSP" / "SAVEDATA" / "ULUS10391SLOT1");
+        std::ofstream(shared / "PSP" / "SAVEDATA" / "ULUS10391SLOT1" / "DATA.BIN") << "ppsspp";
+        fs::create_directories(shared / "SYSTEM");
+        std::ofstream(shared / "notes.txt") << "theirs";
+        Launcher l(base, data);
+        CHECK(l.set_saves_folder(shared).changed);
+        CHECK(l.saves_dir() == shared);
+
+        const auto around = l.set_saves_folder(dir / "retroarch"); // the folder right outside the current one
+        CHECK(!around.changed && !around.error.empty());
+        CHECK(!fs::exists(dir / "retroarch" / "PSP"));
+        CHECK(l.saves_dir() == shared);
+
+        const auto savedata = l.set_saves_folder(dir / "ppsspp" / "memstick" / "psp" / "savedata");
+        CHECK(!savedata.changed && !savedata.error.empty());
+        CHECK(!fs::exists(dir / "ppsspp"));
+
+        const fs::path elsewhere = dir / "elsewhere";
+        const auto moved = l.set_saves_folder(elsewhere);
+        CHECK(moved.changed && moved.error.empty());
+        CHECK(moved.copied == 1); // ULES01213 only
+        CHECK(fs::is_regular_file(elsewhere / "ULES01213" / "PSP" / "SAVEDATA" / "ULES01213SLOT1" / "DATA.BIN"));
+        CHECK(!fs::exists(elsewhere / "PSP"));
+        CHECK(!fs::exists(elsewhere / "SYSTEM"));
+        CHECK(!fs::exists(elsewhere / "notes.txt"));
+        CHECK(fs::is_regular_file(mine)); // the old folder is untouched
+        CHECK(fs::is_regular_file(shared / "PSP" / "SAVEDATA" / "ULUS10391SLOT1" / "DATA.BIN"));
+    }
+
     // Updates: versions, the release GitHub describes, and putting the new files in place (and back on failure).
     {
         namespace up = mhf::launcher::update;

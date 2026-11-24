@@ -13,7 +13,8 @@ provides their own copy.
 - **Modular**: each game is an independent module built on a per-console runtime (PSP first; later PS2/3DS/Wii) and a
   shared core (launcher, input, network, rendering).
 
-**First module:** Freedom Unite (PSP), supporting all three regions (EU, US, JP/2nd G). Development starts on EU (ULES01213).
+**Modules today:** Freedom Unite (PSP, `games/mhfu`: EU, US, JP/2nd G and FUComplete), the first, and Freedom (PSP,
+`games/mhf1`: EU, US, JP/Portable and Freedom DX), playable since 0.11.0 (`16-mhf1-module.md`).
 
 ## 2. What it is not
 
@@ -47,13 +48,16 @@ is used as a **knowledge source** (names, structures), not as the base of the po
 
 ## 5. Phased vision (summary; details in `10-roadmap.md`)
 
-0. Foundations: repo, CI, legal, name, test homebrew.
-1. Minimal PSP runtime on our own homebrew (window, controller, audio, GE→OpenGL 3.3; Vulkan optional later).
-2. Freedom Unite boots to the main menu (EU first).
-3. Village and first quests playable, saving works.
-4. Launcher and packaging.
-5. Multiplayer (ad-hoc over the internet).
-6. US and JP regions.
-7. Optional enhancements (widescreen, high resolution, 60 fps, analog camera).
-8. Next game (Portable 3rd or Freedom/Freedom 2), reusing the PSP runtime. Long term: other consoles (PS2 when PS2Recomp
-   matures, 3DS) and progressive reimplementation of modules.
+Phases 0 to 7 are done for Freedom Unite (as of 0.12.1, 2026-11-21); the roadmap keeps what is still open in each.
+
+0. Foundations: repo, CI, legal, name, test homebrew. Done.
+1. Minimal PSP runtime on our own homebrew (window, controller, audio, GE→OpenGL 3.3; Vulkan optional later). Done.
+2. Freedom Unite boots to the main menu (EU first). Done.
+3. Village and quests playable, saving works. Done: single player from start to finish (2026-10-21).
+4. Launcher and packaging. Done: Windows and Linux archives, self-updating launcher.
+5. Multiplayer (ad-hoc over the internet). Done in 0.6 (community servers), private rooms and friends in 0.8.
+6. US and JP regions. Done (0.5 and 0.7).
+7. Optional enhancements (widescreen, high resolution, 60 to 180 fps, analog camera and more). Done, more to come.
+8. Next game: Freedom is playable (0.11 and 0.12); next the shared engine library, then Freedom 2 and Portable 3rd,
+   reusing the PSP runtime. Long term: other consoles (PS2 when PS2Recomp matures, 3DS) and progressive reimplementation
+   of modules.
