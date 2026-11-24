@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import type { Game } from './bridge';
-import { cardSky, CardScenery } from './GameArt';
+import { cardBorder, cardSky, CardScenery } from './GameArt';
 import { AlertIcon, PlusIcon } from './icons';
 
 const rise = (delay: number) => ({
@@ -22,7 +22,7 @@ function GameCard({ game, selected, onOpen }: { game: Game; selected: boolean; o
         setT({ x: (e.clientX - r.left) / r.width - 0.5, y: (e.clientY - r.top) / r.height - 0.5, on: true });
       }}
       onMouseLeave={() => setT({ x: 0, y: 0, on: false })}
-      style={{ transform: `perspective(900px) rotateY(${t.x * 14}deg) rotateX(${t.y * -14}deg) scale(${t.on ? 1.03 : 1})`, background: cardSky(game) }}
+      style={{ transform: `perspective(900px) rotateY(${t.x * 14}deg) rotateX(${t.y * -14}deg) scale(${t.on ? 1.03 : 1})`, background: cardSky(game), borderColor: cardBorder(game) }}
       aria-label={`${game.title}, ${game.region}`}
     >
       <CardScenery game={game} />
