@@ -276,7 +276,8 @@ Json default_settings() {
     Json s;
     s["scale"] = 4;
     s["fullscreen"] = false;
-    s["smoothTextures"] = false;
+    s["textureFilter"] = "auto"; // auto (the game's own), linear (bilinear 3D), or nearest (pixelated 3D/2D)
+    s["smoothTextures"] = false; // legacy mirror of textureFilter == "linear"
     s["packMipmaps"] = false; // texture packs: mip levels made for images that ship none (softer far away, no shimmer)
     s["anisotropy"] = 16;     // texture packs: anisotropic filtering, 1 (off), 2, 4, 8 or 16
     s["projectedShadows"] = false; // projected shadows from the game's light (the in-game menu changes them too)
@@ -984,11 +985,24 @@ void Launcher::load() {
         data_["pseudonym"] = "Hunter";
         changed = true;
     }
+    const bool migrate_global_tf = data_["settings"].is_object() && !data_["settings"].has("textureFilter") &&
+                                   data_["settings"]["smoothTextures"].is_bool();
     Json settings = default_settings();
     for (const auto &[k, v] : data_["settings"].as_object()) settings[k] = v;
+    if (migrate_global_tf) {
+        settings["textureFilter"] = settings["smoothTextures"].as_bool() ? "linear" : "auto";
+        changed = true;
+    }
     data_["settings"] = settings;
     if (data_["settings"].object().erase("useGameImage") != 0) changed = true; // the old automatic-picture switch
     if (!data_["gameSettings"].is_object()) data_["gameSettings"] = Json(Json::Object{});
+    for (auto &[disc, gs] : data_["gameSettings"].object()) {
+        (void)disc;
+        if (gs.is_object() && !gs.has("textureFilter") && gs["smoothTextures"].is_bool()) {
+            gs["textureFilter"] = gs["smoothTextures"].as_bool() ? "linear" : "auto";
+            changed = true;
+        }
+    }
     if (!data_["games"].is_array()) data_["games"] = Json(Json::Array{});
     // The cards and Home show the player's own icon; read it once for copies saved before icons existed.
     // A missing or broken icon just keeps the drawn scenery, and nothing is downloaded.
@@ -1239,7 +1253,7 @@ void Launcher::import_game_controls() {
                 // the launcher's own names. Only these settings; apply_settings checks each value.
                 static constexpr std::string_view kGameOptions[] = {"gatheringAssistance", "trueWeaponValues", "fastSupplyBox", "analogCamera",
                                                                     "analogCameraTurnSpeed", "analogCameraTiltSpeed",
-                                                                    "mouseCamera", "mouseCameraSpeed", "packMipmaps", "anisotropy",
+                                                                    "mouseCamera", "mouseCameraSpeed", "textureFilter", "packMipmaps", "anisotropy",
                                                                     "projectedShadows", "wholeMapShadows", "shadowQuality",
                                                                     "shadowDarkness", "widescreen"};
                 const std::string setting = name == "horn-songs" ? "hornSongs" : name == "hud-size" ? "hudSize" : name.substr(7);
@@ -1247,6 +1261,7 @@ void Launcher::import_game_controls() {
                 int value = 0;
                 const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
                 if (text == "true" || text == "false") options[setting] = text == "true";
+                else if (setting == "textureFilter") options[setting] = text;
                 else if (error == std::errc{} && end == text.data() + text.size()) options[setting] = value;
             } else if (name == "horn-songs-place") { // where the game's Video tab put the hunting horn's songs (or dragged them)
                 song_place = text;
@@ -1398,7 +1413,20 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
         const double level = std::clamp(partial["anisotropy"].as_number(), 1.0, 16.0);
         s["anisotropy"] = std::exp2(std::round(std::log2(level)));
     }
-    for (const char *key : {"fullscreen", "smoothTextures", "packMipmaps", "projectedShadows", "wholeMapShadows", "widescreen", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
+    if (partial.has("textureFilter")) {
+        if (partial["textureFilter"].is_string()) {
+            const std::string mode = partial["textureFilter"].as_string();
+            if (mode == "auto" || mode == "linear" || mode == "nearest") {
+                s["textureFilter"] = mode;
+                s["smoothTextures"] = (mode == "linear");
+            }
+        }
+    } else if (partial["smoothTextures"].is_bool()) {
+        const bool smooth = partial["smoothTextures"].as_bool();
+        s["smoothTextures"] = smooth;
+        s["textureFilter"] = smooth ? "linear" : "auto";
+    }
+    for (const char *key : {"fullscreen", "packMipmaps", "projectedShadows", "wholeMapShadows", "widescreen", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
                             "analogCamera", "mouseCamera", "hornSongs", "gatheringAssistance", "skipIntro", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest",
                             "fucDrinkBuff", "fdxHoldToGather", "fdxTrueRaw", "fdxLaoEarlyKill", "fdxSnsDebuff", "fdxFileReplacer",
                             "fdxFelyneSkills", "fdxDrinkBuff", "fdxInstantSupply", "fdxOfflineTreasure"}) {
@@ -1745,7 +1773,12 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
                  platform::to_utf8(stick), "--window", "--scale", num("scale"), "--name",
                  data_["pseudonym"].as_string(), "--music-volume", num("musicVolume"), "--sfx-volume", num("sfxVolume")};
     if (s["fullscreen"].as_bool()) plan.args.push_back("--fullscreen");
-    if (s["smoothTextures"].as_bool()) plan.args.push_back("--smooth-textures");
+    const std::string texture_filter = s["textureFilter"].is_string() ? s["textureFilter"].as_string()
+                                                                      : (s["smoothTextures"].as_bool() ? "linear" : "auto");
+    if (texture_filter == "linear" || texture_filter == "nearest") {
+        plan.args.push_back("--texture-filter");
+        plan.args.push_back(texture_filter);
+    }
     const std::string language = s["language"].as_string();
     if (!language.empty() && std::string_view(entry->market) != "JP") {
         // Straight into the chosen language: the game answers its own language screen (docs/06-mhfu-module.md). The

@@ -37,6 +37,7 @@ void usage() {
                  "  --set <name>=<value>... [--disc <disc id>]    change a copy's settings\n"
                  "        fullscreen, smoothTextures, packMipmaps, trueWeaponValues, fastSupplyBox, smithyBrowse,\n"
                  "        smithyLayout, projectedShadows, wholeMapShadows, widescreen, useCustomArt, showGameIcon: true or false\n"
+                 "        textureFilter: auto, linear or nearest\n"
                  "        scale 1-10, fps 30-180, hudSize 50-100, musicVolume 0-100, sfxVolume 0-100,\n"
                  "        anisotropy 1 (off), 2, 4, 8 or 16 (texture packs), shadowQuality 0-2, shadowDarkness 0-100\n"
                  "  --font <font file> | default [--disc <id>]    a copy's text font (.ttf or .otf), or the default\n"
@@ -145,6 +146,7 @@ void print_copies(Launcher &launcher) {
     for (const char *name : kNumberSettings) {
         if (s[name].is_number()) std::printf("  %-18s %d\n", name, static_cast<int>(s[name].as_number()));
     }
+    if (s["textureFilter"].is_string()) std::printf("  %-18s %s\n", "textureFilter", s["textureFilter"].as_string().c_str());
     for (const char *name : kBoolSettings) {
         if (s[name].is_bool()) std::printf("  %-18s %s\n", name, s[name].as_bool() ? "true" : "false");
     }
@@ -180,6 +182,13 @@ int set(const std::vector<std::string> &args) {
             else if (value == "false" || value == "off" || value == "no" || value == "0") partial[name] = false;
             else {
                 std::fprintf(stderr, "error: %s is true or false\n", name.c_str());
+                return 2;
+            }
+        } else if (name == "textureFilter") {
+            if (value == "auto" || value == "linear" || value == "nearest") {
+                partial[name] = value;
+            } else {
+                std::fprintf(stderr, "error: %s is auto, linear or nearest\n", name.c_str());
                 return 2;
             }
         } else if (contains(kNumberSettings, std::size(kNumberSettings), name)) {
