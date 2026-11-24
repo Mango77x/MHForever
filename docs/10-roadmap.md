@@ -37,7 +37,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Dump hashes, `PARAM.SFO`, `BOOT.BIN` state (zeros) — 2026-10-16.
 - [x] Decrypted executable available in `user_data/exe/` — 2026-10-16.
 - [x] Import inventory: 272 functions / 34 libraries (`05` §1) — 2026-10-16.
-- [ ] Local Ghidra project + MCP (`09`).
+- [ ] Local Ghidra project + MCP (local tooling in `research/`, not documented here).
 - [x] `DATA.BIN` container + overlay format understood; developer-only extractor `mhfu_extract_overlays` with synthetic tests;
       298 EU overlays extracted and validated (0 undecodable instructions); manifest versioned (2026-10-16).
 - [x] Overlay loader located in the EU executable (request/finish/prepare, region table, active-slot array); hook point
@@ -65,8 +65,8 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Our own UI for the save list, message dialog and on-screen keyboard (`05` §5h, 2026-10-18): drawn over the game,
       gamepad and physical keyboard; verified in FU's character creation (name typed, autosave toast).
 - [ ] GE: stencil, color test, logic ops, CPU reads of framebuffers; Bézier/spline patches if used (gaps in `05` §6).
-- [ ] Overlays: stage and monster overlays dispatch correctly.
-- [ ] Village, shop, Felyne kitchen, one gathering quest and one hunting quest completed.
+- [x] Overlays: stage and monster overlays dispatch correctly (2026-10-21, owner playtest).
+- [x] Village, shop, Felyne kitchen, gathering and hunting quests completed (2026-10-21, owner playtest).
 - [ ] Performance measured on a modest PC and on Linux.
 - [x] Owner playtest (2026-10-21): single player played from start to finish on Windows. Fixed in 0.2.1: audio clicks (the
       output device was fed 0.2 % too little, `psp_frontend.cpp`) and flicker of item icons, text and textures at 60 fps and
@@ -90,10 +90,8 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
   game in it and answers its language screen (EU and NA, each with its region's symbol for the counter), and *Ask* keeps
   the game's own screen at every start.
 - [ ] Launcher: signed updates.
-- [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19), v0.2.0 adds frame interpolation (2026-10-21), v0.2.1 fixes audio clicks and keeps saves and settings outside the program folder (2026-10-22), v0.2.2 makes the 2D HUD interpolate again (2026-10-22), v0.2.3 makes interpolation lighter (about 90 to 150 fps in
-      the village at 180, 2026-10-22), v0.3.0 adds the in-game menu on Escape with live video and audio settings and
-      internal resolution up to 10x (2026-10-22), v0.4.0 uses the PSP save format: saves can be imported from a PSP or PPSSPP
-      and copied back (2026-10-22), v0.4.1 is the first release with a Linux tarball next to the Windows zip (2026-10-23), v0.4.2 plays the pre-rendered movies and decodes the music with FFmpeg, and edits the keyboard and controller buttons from the launcher and the in-game menu (2026-10-25), v0.5.0 adds the North American release: one program per region, a Library that chooses the copy, and video, audio and controls per copy under Game settings (2026-10-26), v0.6.0 brings online play on the PSP ad hoc servers PPSSPP uses: quests with other copies and with PPSSPP, a server picker in the launcher, and an in-game menu that no longer pauses (2026-10-27), v0.6.1 fixes a crash in the sound driver (the Shogun Ceanataur quest in the Swamp), shows the quest-end background and the level stars again, and lets the saves live in a folder of the player's choice (2026-10-28), v0.6.2 brings the quest-end background back and removes the particle fragments at high frame rates (2026-10-29), v0.7.0 adds the Japanese release (Portable 2nd G) with its Japanese text, and a launcher that updates itself from the GitHub releases (2026-10-29), v0.8.0 brings private rooms (a room code, made or joined in the launcher or the in-game menu, with the server switched in game too) and friends (added by code, over public Nostr relays: who is online and where, invites and joining), and a mouse-first in-game menu (2026-10-30), v0.8.1 makes frame interpolation match whole draws and draw them again, so the ground no longer tears above 30 fps and animated models move smoothly, and says at once when a friend is in your room (2026-10-30), v0.8.2 brings HD texture packs in PPSSPP's format (such as KHD), one per copy of the game in Game settings (2026-10-30), v0.8.3 adds a hunting HUD scale, saves the volumes changed in the in-game menu, and an optional true weapon values display (2026-11-02), v0.8.4 adds a fast supply box and browsing the smithy with its panels open, both optional (2026-11-06), v0.9.0 adds FUComplete as its own copy of the game, a language choice in the launcher, an improved smithy layout, an analog camera on the right stick, enhancements that change in the in-game menu while playing, and keeps the HUD scale with a comrade or other hunters (2026-11-09), v0.9.1 keeps the HUD scale with status icons such as a hot drink, imports the saves of the release a FUComplete copy uses, and stops the brief shake of frame interpolation when the camera turns, such as when it zooms in on an NPC (2026-11-09), v0.9.2 scales the whole hunting HUD by the game's own 2D layers, so the long sword spirit gauge, the ammo and coating panels and aiming keep it in place, fixes the bowgun crosshair, and brings the analog camera to FUComplete (2026-11-10), v0.9.3 keeps a longer health or stamina bar (Health +50, Nutrients, rations) in the smaller HUD, makes texture packs sharp at a distance with anisotropic filtering, and moves monsters between frames as before 0.9.1 (2026-11-10), v0.9.4 adds a mouse camera with mouse aiming for bows and bowguns, mouse buttons that bind like keys, and stops the scenery shaking when the camera vote followed the hunter (2026-11-11), v0.9.5 keeps texture pack images sharp at a distance as PPSSPP does and stops the shake inside houses and the village cave (2026-11-11), v0.10.0 adds projected shadows (by ibonplix), widescreen for wide windows and screens, texture pack mipmaps and anisotropic filtering chosen by the player, no more thin lines along the bars of a smaller HUD, and runs lighter on the CPU (2026-11-12), v0.10.1 lightens slowdowns in busy scenes on machines with few cores, the projected shadows most, keeps menu, dialog and banner text in place in widescreen, and stops characters and props vanishing near the edges of a wide picture (2026-11-12), v0.10.2 draws all text in HD (accents and Japanese included, with Kaneda's character art), holds name tags still and keeps window text in place in widescreen, and stretches the snowstorm's effects to the screen's edges (2026-11-13), v0.11.0 adds Monster Hunter Freedom (European release) as a game of its own, at its original 30 fps, added and played from the launcher like Freedom Unite (2026-11-13), v0.11.1 lets the player choose the font of the game's text, in Freedom Unite and Freedom, and keeps every letter on the same baseline (2026-11-14), v0.12.0 brings Freedom's frame interpolation up to 180 fps and its quest HUD scale, its North American release and Monster Hunter Portable (Japan), and Freedom DX (SilverJolteon's patch) as copies of their own on all three, with its options in Game settings (2026-11-18), v0.12.1 makes Freedom DX's options that rewrite the game's code take effect (field of view, camera, instant supply box, hold to gather and more), stops projected shadows sliding between frames and makes them lighter, and keeps FUComplete's field of view while the analog camera tilts (2026-11-21).
+- [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19), and a release every few days since
+      (v0.12.1 on 2026-11-21). What each one brought is in the GitHub Releases' notes.
 - [x] Linux release (2026-10-22): portable `MHForever-<version>-linux-x64.tar.gz` from
       `scripts/package_release.py --platform linux` (programs, fonts, licenses, `dist/PLAYER_README_LINUX.txt`), embedded
       application icon, and a `cmake --install` layout with the desktop entry and the icon. CI builds and packages the layout
@@ -103,9 +101,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 
 ## Phase 5 — Multiplayer
 
-- Research 2026-10-27 (`13-online-plan.md`): how the game uses the network (PTP send is its only blocking call),
-  ranked causes of the quest-start freeze and the diagnostics that decide them, compatibility between regions and with
-  PPSSPP and real PSPs, private rooms on public servers, and the plan for 0.6, 0.7 and later.
+- How online play works, who plays with whom, and what is still open: `08-multiplayer.md`.
 - The network layer is shared by every future console (3DS, Switch, PS2, Wii, Wii U): `core/net` offers rooms
   (packets or inputs mode), each console adds an adapter (`08-multiplayer.md` §1.1).
 - [x] Harden HLE boundaries first (`08-multiplayer.md` §4.6): the Windows drive-letter path escape is fixed,
@@ -118,14 +114,16 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
 - [x] Two instances on one PC complete a quest through a local server (2026-10-27). The freeze at the start of a quest
   had two causes: the fallback interpreter treated a jump into a jump-table case that the analysis had taken for a
   function as a tail call and dropped the caller's frame, and `sceNetAdhocPtpOpen` checked the wrong arguments and
-  refused the flag the game passes, so the guest could not reach the host and gave it up (`13-online-plan.md` §7, E1).
-- [x] Quests with PPSSPP on a public server (socom.cc), with either side leading the quest (2026-10-27, E3).
+  refused the flag the game passes, so the guest could not reach the host and gave it up (`08-multiplayer.md` §6).
+- [x] Quests with PPSSPP on a public server (socom.cc), with either side leading the quest (2026-10-27).
 - [x] Launcher: Settings → Online picks the server (Offline, five community servers from PPSSPP's list with their ping, or
   any host), stable virtual MAC, pseudonym, and the privacy note (2026-10-27). The in-game menu no longer pauses the
-  game, so opening it does not drop the player from a quest (2026-10-27, E6). **Released in 0.6.0.**
-- [ ] Before the launcher reads PPSSPP's server list itself: write to PPSSPP and the server operators (`08-multiplayer.md`
-  section 1.2; drafts kept outside the repository). Then the remaining experiments of `13-online-plan.md` §7: EU with
-  NA (E2), three and four players (E4), two networks (E5), Linux (E8), fuzzing (E9).
+  game, so opening it does not drop the player from a quest (2026-10-27). **Released in 0.6.0.**
+- [ ] Before the launcher reads PPSSPP's server list itself: write to PPSSPP and the server operators (drafts kept outside
+  the repository). Then the measurements still to make (`08-multiplayer.md` §7): EU with NA, three and four players,
+  different networks, Linux, a real PSP; and fuzzing.
+- [ ] Freedom online: the game program takes the launcher's online options (fix written, waiting for a test in the
+  game).
 - [x] Private rooms: room codes that rename the game's 24 halls on any public server (`14-rooms-and-friends.md` §3).
   **Released in 0.8.0** (PR #33).
 - [x] Friends: friend codes, presence, invites and join over Nostr relays (`14-rooms-and-friends.md` §4). **Released in 0.8.0**
@@ -177,14 +175,15 @@ about 150 there (measured with `MHF_PROFILE=1`, 0.2.3). See `06-mhfu-module.md` 
 
 ## Phase 8 — Next game
 
-Freedom (European release) is playable since 0.11.0 as its own module (`games/mhf1`, `16-mhf1-module.md`). Next: the
+Freedom is playable as its own module (`games/mhf1`, `16-mhf1-module.md`): the European release since 0.11.0, the North
+American and Japanese releases and Freedom DX since 0.12.0, with frame interpolation up to 180 fps and the HUD scale.
+Its online play is not working yet (the game program did not take the launcher's online options). Next: the
 shared engine library for Freedom, Freedom 2 and Freedom Unite, Freedom Unite's enhancements in Freedom, then Freedom 2 and
 Portable 3rd (PSP), reusing the runtime. Then PS2 (Monster Hunter 1/G/2 "Dos") once PS2Recomp is usable, and
 3DS (MH4U, Generations) once a base exists.
 
 ## Backlog / ideas
 
-- Import PSP/PPSSPP saves (careful: save encryption).
 - Local "download server" for event quests the player already owns (`05` §1, P3).
 - Recording, voice chat.
 - macOS/ARM64 ports.
