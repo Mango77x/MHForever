@@ -79,6 +79,11 @@ if(MHF_BUILD_TESTS)
     mhf_target_warnings(test_texture_pack)
     add_test(NAME psp_texture_pack COMMAND test_texture_pack)
 
+    add_executable(test_texture_filter tests/test_texture_filter.cpp)
+    target_include_directories(test_texture_filter PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/frontend)
+    mhf_target_warnings(test_texture_filter)
+    add_test(NAME psp_texture_filter COMMAND test_texture_filter)
+
     add_executable(test_adhocctl tests/test_adhocctl.cpp)
     target_include_directories(test_adhocctl PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src)
     target_link_libraries(test_adhocctl PRIVATE mhf_psp_runtime)
