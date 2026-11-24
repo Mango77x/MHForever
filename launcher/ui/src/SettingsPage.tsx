@@ -478,8 +478,9 @@ export function SettingsPage({ state, onChange, onPseudonym, onCopyCode, friendC
             <b>Saves folder</b>
             <span className="prose">
               Location of your saves. Each copy of the game saves in its own folder inside it (for example
-              ULUS10391\PSP\SAVEDATA), shown in its Game settings. Changing it copies your saves to the new folder;
-              existing saves there are kept.
+              ULUS10391\PSP\SAVEDATA), shown in its Game settings. Changing it copies those game folders to the new
+              folder; existing saves there are kept, and nothing else is copied. It is not a PSP\SAVEDATA folder itself:
+              to bring saves from PPSSPP or RetroArch, use Game settings &gt; Saves.
             </span>
             <span className="path">{state.savesFolder}</span>
           </div>
