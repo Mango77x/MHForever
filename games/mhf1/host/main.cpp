@@ -162,7 +162,8 @@ int main(int argc, char **argv) {
     unsigned dump_every = 30;
     double dump_from = 0.0;
     double seconds = 0;
-    bool window = false, auto_dialogs = false, fullscreen = false, smooth_textures = false;
+    bool window = false, auto_dialogs = false, fullscreen = false;
+    std::string texture_filter = "auto";
     int render_scale = 4, target_fps = 30;
     std::vector<ScriptedPress> script;
     mhf::host::KeyBindings keyboard;   // --keymap: the launcher's keyboard bindings
@@ -192,7 +193,12 @@ int main(int argc, char **argv) {
         else if (a == "--name" && i + 1 < argc) options.osk_default_text = argv[++i];
         else if (a == "--font" && i + 1 < argc) options.custom_font = argv[++i]; // a font file of the player's
         else if (a == "--auto-dialogs") auto_dialogs = true;
-        else if (a == "--smooth-textures") smooth_textures = true;
+        else if (a == "--smooth-textures") texture_filter = "linear";
+        else if (a == "--texture-filter" && i + 1 < argc) {
+            const std::string mode = argv[++i];
+            if (mode == "auto" || mode == "linear" || mode == "nearest") texture_filter = mode;
+            else std::fprintf(stderr, "[mhf1] --texture-filter: unknown mode '%s' (auto, linear, nearest), ignored\n", mode.c_str());
+        }
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--sfx-volume" && i + 1 < argc) options.sfx_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--language" && i + 1 < argc) {
@@ -294,8 +300,10 @@ int main(int argc, char **argv) {
         }
 #if defined(MHF_HAS_FRONTEND)
         mhf::psp::Frontend frontend;
+        const mhf::psp::TextureFilter filter_mode =
+            mhf::psp::parse_texture_filter(texture_filter).value_or(mhf::psp::TextureFilter::Auto);
         if (window && frontend.open(window_title(options.disc_image).c_str(), false, 2, true, render_scale, fullscreen,
-                                    smooth_textures, target_fps, keyboard, controller)) {
+                                    filter_mode, target_fps, keyboard, controller)) {
             frontend.set_controls_file(controls_file);
             frontend.set_friends_files(friends_file, friend_actions_file);
             if (!texture_pack.empty()) {
@@ -312,7 +320,7 @@ int main(int argc, char **argv) {
         (void)fullscreen;
         (void)render_scale;
         (void)target_fps;
-        (void)smooth_textures;
+        (void)texture_filter;
         (void)keyboard;
         (void)controller;
         (void)controls_file;

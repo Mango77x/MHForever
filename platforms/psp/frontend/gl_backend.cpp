@@ -642,6 +642,7 @@ struct DrawSetup {
     float uv_xform[4]{1, 1, 0, 0};
     bool texture_mips{};          // a texture pack image: mipmapped filtering over the levels it has, anisotropic
     std::uint8_t texture_filter{}; // a texture pack's [filtering] for it: 0 the game's, 1 nearest, 2 linear
+    bool texture_hd_text{};       // HD glyph page or built-in HD text texture (preserved smooth under Nearest)
     bool through{};
     float tex_width{1}, tex_height{1};
     std::uint32_t target{}; // VRAM offset of the render target
@@ -799,11 +800,11 @@ std::uint8_t to_byte(float v) { return static_cast<std::uint8_t>(std::clamp(v, 0
 
 class GlBackend final : public gpu::Backend {
 public:
-    GlBackend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory, bool smooth_textures,
+    GlBackend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory, TextureFilter texture_filter,
               OverlayImage *overlay, int factor, LiveSettings *live)
         : window_(window), scale_(std::max(1, scale)), memory_(memory), live_(live != nullptr ? live : &own_live_),
           overlay_(overlay), factor_(std::clamp(factor, 1, 6)), interpolate_(factor > 1) {
-        if (live == nullptr) own_live_.smooth_textures = smooth_textures;
+        if (live == nullptr) own_live_.texture_filter = texture_filter;
         open_texture_pack();
         const char *hud_log = std::getenv("MHF_HUD_LOG");
         hud_log_ = hud_log != nullptr && hud_log[0] == '1';
@@ -1469,6 +1470,7 @@ private:
     bool tex_mips_ = false;          // the texture texture_for() gave is a pack image (texture_mips)
     float anisotropy_ = 1.0f;        // the most anisotropic filtering the GPU offers, up to 16 (1: none, it lacks it)
     std::uint8_t tex_filter_ = 0;    // and its pack [filtering]
+    bool tex_hd_text_ = false;       // and whether it is an HD text texture (kHdTextImage or kBuiltinImage)
     float tex_holes_{-1.0f};         // the share of transparent texels of the texture texture_for() gave
     float shadow_texture_holes_{-1.0f}; // the same for the draw being captured
     std::uint64_t tex_hash_{}, shadow_texture_hash_{}; // the game's texture, as the content hash the cache keys it by
@@ -1838,15 +1840,15 @@ GlBackend::RenderTarget *GlBackend::find_target(std::uint32_t vram_offset, bool 
 
 void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips) {
     // Texture pack images: mipmapped filtering over the levels the pack gives (one level, as KHD: the full-size image;
-    // upload_pack_image sets the last level), with anisotropic filtering.
-    const GLint min_filter = mips ? (linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_LINEAR) : (linear ? GL_LINEAR : GL_NEAREST);
+    // upload_pack_image sets the last level), with anisotropic filtering when linear.
+    const GLint min_filter = mips ? (linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST) : (linear ? GL_LINEAR : GL_NEAREST);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, clamp_s ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, clamp_t ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     // The player's level (the menu changes it while playing), up to what the GPU offers.
     const float level = std::clamp(static_cast<float>(live_->texture_pack_anisotropy.load(std::memory_order_relaxed)), 1.0f, anisotropy_);
-    if (anisotropy_ > 1.0f) gl_.TexParameterf(GL_TEXTURE_2D, kGlTextureMaxAnisotropy, mips ? level : 1.0f);
+    if (anisotropy_ > 1.0f) gl_.TexParameterf(GL_TEXTURE_2D, kGlTextureMaxAnisotropy, (mips && linear) ? level : 1.0f);
 }
 
 textures::TextureFacts texture_facts(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, std::uint16_t max_seen_v);
@@ -1854,6 +1856,7 @@ textures::TextureFacts texture_facts(const gpu::Ge &ge, const gpu::Ge::TextureIn
 GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
     tex_mips_ = false;
     tex_filter_ = 0;
+    tex_hd_text_ = false;
     seen_v_ = nullptr;
     // The player turned the pack on or off: every texture is uploaded again, as the game's or as the pack's.
     if (const bool want = pack_ != nullptr && live_->texture_pack.load(std::memory_order_relaxed); want != pack_on_) {
@@ -1997,6 +2000,7 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
     uv_xform[1] = t.uv_scale[1];
     tex_mips_ = t.mips;
     tex_filter_ = t.filter;
+    tex_hd_text_ = t.shown == kHdTextImage || t.shown.starts_with(kBuiltinImage);
     if (packs_on && info.height == 512) seen_v_ = &t.max_seen_v;
     if (t.holes < 0.0f && live_->shadow.load(std::memory_order_relaxed)) {
         // Which textures really have holes (leaves, fronds): the game leaves the alpha test on for plain rock and ground too.
@@ -2563,6 +2567,7 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
     seen_v_ = nullptr; // untextured draws say nothing of the last texture's rows
     tex_mips_ = false;
     tex_filter_ = 0;
+    tex_hd_text_ = false;
     tex_holes_ = -1.0f;
     tex_hash_ = 0;
     tex_zone_ = -1;
@@ -2572,6 +2577,7 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
         setup.self_sampled = setup.texture == copy_texture_;
         setup.texture_mips = tex_mips_;
         setup.texture_filter = tex_filter_;
+        setup.texture_hd_text = tex_hd_text_;
     }
     shadow_texture_holes_ = tex_holes_;
     shadow_texture_hash_ = tex_hash_;
@@ -4162,14 +4168,19 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
     if (textured) {
         gl_.ActiveTexture(GL_TEXTURE0);
         gl_.BindTexture(GL_TEXTURE_2D, setup.texture);
-        // Enhancement (off by default): bilinear filtering for 3D textures; 2D (through-mode) art stays as drawn.
-        bool linear = (R(kTexFilter) & 0x100u) != 0 || (live_->smooth_textures.load(std::memory_order_relaxed) && !through);
         // 2D art drawn smaller than its pixels would shimmer if left nearest; filtered, a texture set to repeat would
         // also blend in its opposite edge (a faint frame around the minimap), so a sized draw that stays inside its
         // texture clamps. One that repeats it (the dotted line under a menu's title) has to keep repeating.
         const bool resized = setup.hud[0] < 1.0f || setup.wide[0] < 1.0f;
-        if (resized) linear = true;
-        if (setup.texture_filter != 0) linear = setup.texture_filter == 2; // a texture pack's [filtering]
+        const bool linear = resolve_texture_linear({
+            live_->texture_filter.load(std::memory_order_relaxed),
+            (R(kTexFilter) & 0x100u) != 0,
+            through,
+            resized,
+            setup.texture_hd_text,
+            setup.texture_mips,
+            setup.texture_filter,
+        });
         const bool clamp = resized && setup.hud_clamp;
         set_texture_params(linear, clamp || (R(kTexWrap) & 1u) != 0, clamp || (R(kTexWrap) & 0x100u) != 0, setup.texture_mips);
     }
@@ -6548,12 +6559,12 @@ void GlBackend::dump_window(int w, int h) {
 } // namespace
 
 std::unique_ptr<gpu::Backend> make_gl_backend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory,
-                                              bool smooth_textures, OverlayImage *overlay, int target_fps,
+                                              TextureFilter texture_filter, OverlayImage *overlay, int target_fps,
                                               LiveSettings *live) {
     if (const char *v = std::getenv("MHF_FPS")) target_fps = std::atoi(v); // testing aid
     // The game flips at 30 fps: the output rate is a whole multiple of it, from 1x (as the game) to 6x (180 fps).
     const int factor = std::clamp((target_fps + 15) / 30, 1, 6);
-    auto backend = std::make_unique<GlBackend>(window, scale, memory, smooth_textures, overlay, factor, live);
+    auto backend = std::make_unique<GlBackend>(window, scale, memory, texture_filter, overlay, factor, live);
     if (!backend->init()) return nullptr;
     return backend;
 }
