@@ -22,7 +22,7 @@ namespace {
 #endif
 
 // The settings `--set` changes (the others, such as the controls, are changed in the game's own menu).
-constexpr const char *kBoolSettings[] = {"fullscreen", "smoothTextures", "packMipmaps", "trueWeaponValues", "fastSupplyBox",
+constexpr const char *kBoolSettings[] = {"fullscreen", "smoothTextures", "smaa", "packMipmaps", "trueWeaponValues", "fastSupplyBox",
                                          "smithyBrowse", "smithyLayout", "analogCamera", "mouseCamera", "hornSongs", "gatheringAssistance", "skipIntro",
                                          "projectedShadows", "wholeMapShadows", "widescreen", "useCustomArt", "showGameIcon"};
 constexpr const char *kNumberSettings[] = {"scale", "fps", "hudSize", "musicVolume", "sfxVolume",
@@ -35,7 +35,7 @@ void usage() {
                  "  --install <image.iso> [--in-place | --copy]   add your copy of the game (once)\n"
                  "  --list                                        your copies and their settings\n"
                  "  --set <name>=<value>... [--disc <disc id>]    change a copy's settings\n"
-                 "        fullscreen, smoothTextures, packMipmaps, trueWeaponValues, fastSupplyBox, smithyBrowse,\n"
+                 "        fullscreen, smoothTextures, smaa, packMipmaps, trueWeaponValues, fastSupplyBox, smithyBrowse,\n"
                  "        smithyLayout, projectedShadows, wholeMapShadows, widescreen, useCustomArt, showGameIcon: true or false\n"
                  "        textureFilter: auto, linear or nearest\n"
                  "        scale 1-10, fps 30-180, hudSize 50-100, musicVolume 0-100, sfxVolume 0-100,\n"

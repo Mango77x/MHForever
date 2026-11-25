@@ -278,6 +278,7 @@ Json default_settings() {
     s["fullscreen"] = false;
     s["textureFilter"] = "auto"; // auto (the game's own), linear (bilinear 3D), or nearest (pixelated 3D/2D)
     s["smoothTextures"] = false; // legacy mirror of textureFilter == "linear"
+    s["smaa"] = false; // SMAA 1x anti-aliasing on 3D scenes (the in-game menu changes it too)
     s["packMipmaps"] = false; // texture packs: mip levels made for images that ship none (softer far away, no shimmer)
     s["anisotropy"] = 16;     // texture packs: anisotropic filtering, 1 (off), 2, 4, 8 or 16
     s["projectedShadows"] = false; // projected shadows from the game's light (the in-game menu changes them too)
@@ -1253,7 +1254,7 @@ void Launcher::import_game_controls() {
                 // the launcher's own names. Only these settings; apply_settings checks each value.
                 static constexpr std::string_view kGameOptions[] = {"gatheringAssistance", "trueWeaponValues", "fastSupplyBox", "analogCamera",
                                                                     "analogCameraTurnSpeed", "analogCameraTiltSpeed",
-                                                                    "mouseCamera", "mouseCameraSpeed", "textureFilter", "packMipmaps", "anisotropy",
+                                                                    "mouseCamera", "mouseCameraSpeed", "textureFilter", "smaa", "packMipmaps", "anisotropy",
                                                                     "projectedShadows", "wholeMapShadows", "shadowQuality",
                                                                     "shadowDarkness", "widescreen"};
                 const std::string setting = name == "horn-songs" ? "hornSongs" : name == "hud-size" ? "hudSize" : name.substr(7);
@@ -1426,7 +1427,7 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
         s["smoothTextures"] = smooth;
         s["textureFilter"] = smooth ? "linear" : "auto";
     }
-    for (const char *key : {"fullscreen", "packMipmaps", "projectedShadows", "wholeMapShadows", "widescreen", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
+    for (const char *key : {"fullscreen", "smaa", "packMipmaps", "projectedShadows", "wholeMapShadows", "widescreen", "trueWeaponValues", "fastSupplyBox", "smithyBrowse", "smithyLayout",
                             "analogCamera", "mouseCamera", "hornSongs", "gatheringAssistance", "skipIntro", "fucDosAudio", "fucHornTweak", "fucLaoEarlyKill", "fucFullChest",
                             "fucDrinkBuff", "fdxHoldToGather", "fdxTrueRaw", "fdxLaoEarlyKill", "fdxSnsDebuff", "fdxFileReplacer",
                             "fdxFelyneSkills", "fdxDrinkBuff", "fdxInstantSupply", "fdxOfflineTreasure"}) {
@@ -1779,6 +1780,7 @@ Launcher::LaunchPlan Launcher::plan_launch(const std::string &game_id) {
         plan.args.push_back("--texture-filter");
         plan.args.push_back(texture_filter);
     }
+    if (s["smaa"].as_bool()) plan.args.push_back("--smaa");
     const std::string language = s["language"].as_string();
     if (!language.empty() && std::string_view(entry->market) != "JP") {
         // Straight into the chosen language: the game answers its own language screen (docs/06-mhfu-module.md). The

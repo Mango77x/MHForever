@@ -580,13 +580,39 @@ int main(int argc, char **argv) {
         CHECK(!l.state()["settings"]["copyImage"].as_bool(true));                // not one the game changes
 
         CHECK(!l.state()["settings"]["gatheringAssistance"].as_bool(true));
-        std::ofstream(l.controls_file()) << "option.gatheringAssistance=true\noption.textureFilter=nearest\n";
+        CHECK(!l.state()["settings"]["smaa"].as_bool(true));
+        {
+            Json smaa_edit;
+            smaa_edit["smaa"] = true;
+            l.set_settings(smaa_edit);
+            CHECK(l.state()["settings"]["smaa"].as_bool());
+            Json bad_str;
+            bad_str["smaa"] = "yes";
+            l.set_settings(bad_str);
+            CHECK(l.state()["settings"]["smaa"].as_bool());
+            Json bad_num;
+            bad_num["smaa"] = 1;
+            l.set_settings(bad_num);
+            CHECK(l.state()["settings"]["smaa"].as_bool());
+            smaa_edit["smaa"] = false;
+            l.set_settings(smaa_edit);
+            CHECK(!l.state()["settings"]["smaa"].as_bool(true));
+        }
+        std::ofstream(l.controls_file()) << "option.gatheringAssistance=true\noption.textureFilter=nearest\noption.smaa=true\n";
         l.import_game_controls();
         CHECK(l.state()["settings"]["gatheringAssistance"].as_bool());
         CHECK(l.state()["settings"]["textureFilter"].as_string() == "nearest");
-        std::ofstream(l.controls_file()) << "option.textureFilter=bogus\n";
+        CHECK(l.state()["settings"]["smaa"].as_bool());
+        std::ofstream(l.controls_file()) << "option.textureFilter=bogus\noption.smaa=bogus\n";
         l.import_game_controls();
         CHECK(l.state()["settings"]["textureFilter"].as_string() == "nearest");
+        CHECK(l.state()["settings"]["smaa"].as_bool());
+        std::ofstream(l.controls_file()) << "option.smaa=false\n";
+        l.import_game_controls();
+        CHECK(!l.state()["settings"]["smaa"].as_bool(true));
+        std::ofstream(l.controls_file()) << "option.smaa=true\n";
+        l.import_game_controls();
+        CHECK(l.state()["settings"]["smaa"].as_bool());
         auto plan = l.plan_launch("mhfu");
         CHECK(!plan.error.empty()); // no game files here
     }
@@ -598,6 +624,7 @@ int main(int argc, char **argv) {
         CHECK(again.state()["settings"]["fps"].as_number() == 90);
         CHECK(again.state()["settings"]["gatheringAssistance"].as_bool());
         CHECK(again.state()["settings"]["textureFilter"].as_string() == "nearest");
+        CHECK(again.state()["settings"]["smaa"].as_bool());
         CHECK(again.state()["settings"]["sfxVolume"].as_number() == 35); // the game's volume survives a restart
         CHECK(again.state()["settings"]["language"].as_string() == "es");
         CHECK(again.state()["settings"]["keys"]["south"].as_string() == "KeyZ");
@@ -1187,6 +1214,41 @@ int main(int argc, char **argv) {
             } else {
                 CHECK(flag != plan.args.end() && flag + 1 != plan.args.end() && *(flag + 1) == mode);
             }
+        }
+        for (bool enabled : {false, true, false}) {
+            Json smaa;
+            smaa["smaa"] = enabled;
+            l.set_settings(smaa);
+            const auto plan = l.plan_launch("mhfu");
+            CHECK(plan.error.empty());
+            CHECK((std::find(plan.args.begin(), plan.args.end(), "--smaa") != plan.args.end()) == enabled);
+        }
+    }
+
+    // SMAA launch argument for Freedom (mhf1), using synthetic files only.
+    for (const auto &edition : catalog()) {
+        if (std::string_view(edition.disc_id) != "ULES00318") continue;
+        const fs::path base = dir / "smaa_mhf1", data = base / "data";
+        fs::create_directories(data);
+        const fs::path image = base / "disc.iso";
+        std::ofstream(image) << "synthetic image";
+        std::ofstream(base / (std::string(edition.disc_id) + "_EBOOT.BIN"), std::ios::binary)
+            << std::string(edition.dev_executable_size, '\0');
+        std::string program = "mhf1";
+#if defined(_WIN32)
+        program += ".exe";
+#endif
+        std::ofstream(base / program) << "synthetic program";
+        std::ofstream(data / "launcher.json") << "{\"games\":[{\"discId\":\"" << edition.disc_id
+            << "\",\"isoPath\":\"" << image.generic_string() << "\"}]}";
+        Launcher l(base, data);
+        for (bool enabled : {false, true, false}) {
+            Json smaa;
+            smaa["smaa"] = enabled;
+            l.set_settings(smaa);
+            const auto plan = l.plan_launch("mhf1");
+            CHECK(plan.error.empty());
+            CHECK((std::find(plan.args.begin(), plan.args.end(), "--smaa") != plan.args.end()) == enabled);
         }
     }
 

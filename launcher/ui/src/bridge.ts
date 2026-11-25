@@ -29,6 +29,7 @@ export interface Settings {
   fullscreen: boolean;
   textureFilter?: TextureFilter; // 'auto' (game default), 'linear' (bilinear 3D), or 'nearest' (pixelated 3D/2D)
   smoothTextures?: boolean; // legacy mirror of textureFilter === 'linear'
+  smaa?: boolean; // SMAA 1x anti-aliasing on 3D scenes
   packMipmaps?: boolean; // texture packs: mip levels made for images that ship none (softer at a distance, no shimmer)
   anisotropy?: number; // texture packs: anisotropic filtering, 1 (off), 2, 4, 8 or 16
   widescreen?: boolean; // the 3D fills a window wider than the PSP's screen, 2D keeps its shape
@@ -265,7 +266,7 @@ function simulated(): Native {
     friends: [],
     blocked: [],
     settings: {
-      scale: 4, fullscreen: false, textureFilter: 'auto', smoothTextures: false, packMipmaps: false, anisotropy: 16, widescreen: false, fps: 30, hudSize: 100, trueWeaponValues: false, fastSupplyBox: false,
+      scale: 4, fullscreen: false, textureFilter: 'auto', smoothTextures: false, smaa: false, packMipmaps: false, anisotropy: 16, widescreen: false, fps: 30, hudSize: 100, trueWeaponValues: false, fastSupplyBox: false,
       smithyBrowse: false, smithyLayout: false, analogCamera: false, analogCameraTurnSpeed: 100, analogCameraTiltSpeed: 100, mouseCamera: false, mouseCameraSpeed: 100,
       gatheringAssistance: false, skipIntro: false, hornSongs: false, hornSongsPlace: 'next-to-sheet', language: '', copyImage: false, useCustomArt: true, showGameIcon: true, musicVolume: 80, sfxVolume: 90,
       keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '', adhocRoom: '', checkUpdates: true,

@@ -59,7 +59,7 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   pseudonym, identity seed, settings, library, stats. Adding a copy reads PARAM.SFO (`platforms/psp/tools/param_sfo`)
   and compares size + SHA-1 with `games/*/regions/*/region.toml` (catalog generated at configure time; identification
   data only). Launching runs `mhfu(.exe)` next to the launcher with the settings as flags (`--scale`, `--fullscreen`,
-  `--texture-filter`, `--pack-mipmaps`, `--anisotropy`, `--projected-shadows`, `--no-whole-map-shadows`, `--shadow-quality`, `--shadow-darkness`, `--widescreen`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--smithy-browse`, `--smithy-layout`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
+  `--texture-filter`, `--smaa`, `--pack-mipmaps`, `--anisotropy`, `--projected-shadows`, `--no-whole-map-shadows`, `--shadow-quality`, `--shadow-darkness`, `--widescreen`, `--fps`, `--true-weapon-values`, `--fast-supply-box`, `--smithy-browse`, `--smithy-layout`, `--horn-songs`, `--music-volume`, `--sfx-volume`, `--name`, `--language`), logs to `game.log`, and records play time and
   sessions. The game also needs the prepared executable: the installer produces it (below); developer builds can instead use
   `../exe/<DISC_ID>_EBOOT.BIN` (or one next to the ISO), checked against `dev_executable` in region.toml.
 - **Friend code**: the first 80 bits of SHA-256 of the player's Nostr public key, which is derived from a random identity
@@ -188,7 +188,7 @@ fullscreen, resizing, closing the game while it is up) is fragile on Windows and
 mode, where no second window can be shown.
 
 - Sections: **Game** (back to the game, quit with a confirmation), **Audio** (music, sound effects), **Video** (internal
-  resolution 1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures, texture pack, HUD scale), **Controls**, and **Online** when a server
+  resolution 1x to 10x, frame rate 30 to 180 fps, fullscreen, texture filtering, anti-aliasing (SMAA), texture pack, HUD scale), **Controls**, and **Online** when a server
   is set. Since 2026-11-09 the Game section also changes, while playing, the enhancements whose hooks read a switch every
   time (`Frontend::add_game_option`): true weapon values (not for FUComplete, which has its own), fast supply box, the
   analog camera with its turn and tilt speeds and the mouse camera with its sensitivity, and the hunting horn songs on or off. The controls file

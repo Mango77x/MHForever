@@ -647,6 +647,10 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           );
         })()}
         <div className="srow">
+          <div className="slabel"><b>Anti-aliasing (SMAA)</b><span>Smooths jagged 3D edges without blurring textures.</span></div>
+          <Toggle on={!!s.smaa} onToggle={() => onChange({ smaa: !s.smaa })} label="Anti-aliasing (SMAA)" />
+        </div>
+        <div className="srow">
           <div className="slabel">
             <b>Text font</b>
             <span>{s.textFontName ? `${s.textFontName}. Large fonts may overlap.` : 'Default font with HD text. Choose a .ttf or .otf file to use your own.'}</span>
