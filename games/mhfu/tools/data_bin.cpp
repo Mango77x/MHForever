@@ -104,12 +104,16 @@ std::optional<DataBin> DataBin::open(Reader reader, std::uint64_t total_size,
     // (and their executable no longer unscrambles it).
     std::vector<std::optional<SubstitutionTable>> attempts(candidates.begin(), candidates.end());
     attempts.emplace_back(std::nullopt);
+    // Every attempt starts from the same four bytes, even when the archive is stored plain.
+    const auto prefix = reader(0, 4);
+    if (prefix.size() != 4) return std::nullopt;
     for (const auto& attempt : attempts) {
-        const auto decode = [&](std::vector<std::uint8_t>& bytes, std::uint32_t seed) {
+        const auto decode = [&](std::span<std::uint8_t> bytes, std::uint32_t seed) {
             if (attempt) unscramble(bytes, *attempt, seed);
         };
         // The first entry is the first block of file 0, i.e. the header length in blocks.
-        auto probe = reader(0, 4);
+        std::array<std::uint8_t, 4> probe;
+        std::memcpy(probe.data(), prefix.data(), probe.size());
         decode(probe, 0);
         const std::uint32_t header_blocks = load_le32(probe.data());
         if (header_blocks == 0 || header_blocks >= total_blocks) {
