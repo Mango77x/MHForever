@@ -224,9 +224,40 @@ const Matching &Matcher::match(
     // a crowd agreeing on a wrong motion. So the candidates and the voters are the objects drawn once when there are
     // enough of them (else every object), plus no motion at all and the change of the view matrix (where a game keeps
     // its camera's turn).
+    using Probe = std::array<float, 3>;
+    using ProbePositions = std::array<Probe, 5>;
+    static constexpr ProbePositions kProbes{{{0, 0, -150}, {-200, 0, -400}, {200, 0, -400},
+                                            {0, -150, -300}, {0, 150, -800}}};
+    static const auto tolerances = [] {
+        std::array<float, kProbes.size()> values{};
+        for (std::size_t i = 0; i < kProbes.size(); ++i) values[i] = 0.5f + 0.002f * length3(kProbes[i].data());
+        return values;
+    }();
+    const auto project_probes = [](const Matrix &m) {
+        ProbePositions positions{};
+        for (std::size_t i = 0; i < kProbes.size(); ++i) {
+            const Probe &p = kProbes[i];
+            positions[i] = {m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+                            m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+                            m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14]};
+        }
+        return positions;
+    };
+    const auto apart = [](const Probe &a, const Probe &b) {
+        const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+        return std::sqrt(dx * dx + dy * dy + dz * dz);
+    };
+    const auto agree = [&](const ProbePositions &candidate, const ProbePositions &voter) {
+        for (std::size_t i = 0; i < kProbes.size(); ++i) {
+            if (apart(candidate[i], voter[i]) > tolerances[i]) return false;
+        }
+        return true;
+    };
+
+    // Each motion projects the same probes for every comparison. Project it once before counting votes.
     std::vector<Matrix> candidates;
     struct Voter {
-        Matrix motion;
+        ProbePositions probes;
         std::uint32_t votes; // the square root of the object's pairs of draws, at least 1
     };
     std::vector<Voter> voters;
@@ -251,41 +282,24 @@ const Matching &Matcher::match(
         }
         for (std::size_t k = 0, step = std::max<std::size_t>(1u, trusted.size() / 512u); k < trusted.size(); k += step) {
             const auto weight = static_cast<std::uint32_t>(std::lround(std::sqrt(static_cast<double>(trusted[k]->draws))));
-            voters.push_back({trusted[k]->motion, std::max(weight, 1u)});
+            voters.push_back({project_probes(trusted[k]->motion), std::max(weight, 1u)});
         }
         out.objects = static_cast<std::uint32_t>(objects.size());
     }
     if (pairs != 0u && !voters.empty()) {
-        static constexpr std::array<std::array<float, 3>, 5> kProbes{{{0, 0, -150}, {-200, 0, -400}, {200, 0, -400},
-                                                                      {0, -150, -300}, {0, 150, -800}}};
-        const auto apply = [](const Matrix &m, const std::array<float, 3> &p) {
-            return std::array<float, 3>{m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
-                                        m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
-                                        m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14]};
-        };
-        const auto apart = [](const std::array<float, 3> &a, const std::array<float, 3> &b) {
-            const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
-            return std::sqrt(dx * dx + dy * dy + dz * dz);
-        };
+        const ProbePositions previous = has_previous_camera_ ? project_probes(previous_camera_) : ProbePositions{};
         const Matrix *best = nullptr;
         std::size_t best_votes = 0;
         float best_size = 0;
         for (const Matrix &candidate : candidates) {
+            const ProbePositions projected = project_probes(candidate);
             std::size_t votes = 0;
             for (const Voter &voter : voters) {
-                bool agrees = true;
-                for (const auto &p : kProbes) {
-                    const float tolerance = 0.5f + 0.002f * std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
-                    if (apart(apply(candidate, p), apply(voter.motion, p)) > tolerance) {
-                        agrees = false;
-                        break;
-                    }
-                }
-                votes += agrees ? voter.votes : 0u;
+                if (agree(projected, voter.probes)) votes += voter.votes;
             }
             float size = 0;
             if (has_previous_camera_) {
-                for (const auto &p : kProbes) size += apart(apply(candidate, p), apply(previous_camera_, p));
+                for (std::size_t i = 0; i < kProbes.size(); ++i) size += apart(projected[i], previous[i]);
             } else {
                 size = rotation_angle_degrees(identity(), candidate) +
                        std::sqrt(candidate[12] * candidate[12] + candidate[13] * candidate[13] + candidate[14] * candidate[14]);
@@ -298,23 +312,15 @@ const Matching &Matcher::match(
         }
         if (thresholds.diagnose) {
             // Every object asked (instances too): which candidate the crowd follows, and how many follow the chosen one.
+            std::vector<ProbePositions> crowd_probes;
+            const std::size_t step = std::max<std::size_t>(1u, objects.size() / 512u);
+            for (std::size_t i = 0; i < objects.size(); i += step) crowd_probes.push_back(project_probes(objects[i].motion));
             const auto crowd = [&](const Matrix &candidate) {
-                std::uint32_t votes = 0;
-                for (std::size_t k = 0, step = std::max<std::size_t>(1u, objects.size() / 512u); k < objects.size(); k += step) {
-                    bool agrees = true;
-                    for (const auto &p : kProbes) {
-                        const float tolerance = 0.5f + 0.002f * std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
-                        if (apart(apply(candidate, p), apply(objects[k].motion, p)) > tolerance) {
-                            agrees = false;
-                            break;
-                        }
-                    }
-                    votes += agrees ? 1u : 0u;
-                }
-                return votes;
+                const ProbePositions projected = project_probes(candidate);
+                return static_cast<std::uint32_t>(std::count_if(crowd_probes.begin(), crowd_probes.end(),
+                    [&](const ProbePositions &voter) { return agree(projected, voter); }));
             };
-            out.crowd_voters = static_cast<std::uint32_t>((objects.size() + std::max<std::size_t>(1u, objects.size() / 512u) - 1u) /
-                                                          std::max<std::size_t>(1u, objects.size() / 512u));
+            out.crowd_voters = static_cast<std::uint32_t>(crowd_probes.size());
             out.camera_crowd_votes = crowd(*best);
             out.crowd_votes = out.camera_crowd_votes;
             for (const Matrix &candidate : candidates) out.crowd_votes = std::max(out.crowd_votes, crowd(candidate));

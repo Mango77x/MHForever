@@ -178,10 +178,14 @@ int main() {
             mark_eligible(out, 0x88000u);
             return out;
         };
-        const Matching &m = matcher.match(town(camera(0, 0, 0)), town(camera(3.0f, 0, -30.0f)), CutThresholds{});
+        CutThresholds thresholds;
+        thresholds.diagnose = true;
+        const Matching &m = matcher.match(town(camera(0, 0, 0)), town(camera(3.0f, 0, -30.0f)), thresholds);
         MHF_CHECK(m.cut == nullptr && m.camera_found);
         MHF_CHECK(std::fabs(m.camera_angle_degrees - 3.0f) < 0.05f && std::fabs(m.camera_distance - 30.0f) < 0.5f);
         MHF_CHECK(m.camera_votes == 14u && m.camera_voters == 17u); // the square root of 200, and 3 more
+        MHF_CHECK(m.camera_off_crowd);
+        MHF_CHECK(m.crowd_voters == 4u && m.crowd_votes == 3u && m.camera_crowd_votes == 1u);
     }
 
     // A house: the room drawn as four objects (887, 36, 30 and 12 draws) that move with the camera, and one object of 1144
