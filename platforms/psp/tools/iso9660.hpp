@@ -5,6 +5,8 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace mhf::psp {
@@ -13,7 +15,7 @@ namespace mhf::psp {
 class IsoImage {
 public:
     struct Entry {
-        std::string path;   // absolute, uppercase as stored, without ";1" (e.g. "/PSP_GAME/USRDIR/DATA.BIN")
+        std::string path;   // absolute, with original casing, without ";1" (e.g. "/PSP_GAME/USRDIR/DATA.BIN")
         std::uint32_t lba{};
         std::uint32_t size{};
         bool is_directory{};
@@ -41,6 +43,7 @@ private:
     std::ifstream file_;
     std::uint64_t image_size_{};
     std::vector<Entry> entries_;
+    std::unordered_map<std::string, std::size_t> entries_by_path_;
 };
 
 } // namespace mhf::psp
