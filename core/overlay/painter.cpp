@@ -58,11 +58,11 @@ Painter::Painter(const std::filesystem::path &font_directory) : font_(std::make_
 
 Painter::~Painter() = default;
 
-void Painter::begin(std::vector<std::uint32_t> &pixels, int width, int height, float scale) {
+void Painter::begin(std::vector<std::uint32_t> &pixels, int width, int height, float scale, std::uint32_t background) {
     width_ = width;
     height_ = height;
     scale_ = scale;
-    pixels.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0u);
+    pixels.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), background);
     px_ = &pixels;
     unclip();
 }
@@ -124,16 +124,6 @@ void Painter::rrect(float x, float y, float w, float h, float radius, Color top,
             else cov = std::clamp(0.5f - d, 0.0f, 1.0f);
             if (cov > 0.0f) blend_px(row[pxx], r, g, b, byte(alpha * cov));
         }
-    }
-}
-
-void Painter::fill_all(Color c, float alpha) {
-    const std::uint32_t a = byte(alpha);
-    const std::uint32_t value = ((byte(c.r) * a / 255u)) | ((byte(c.g) * a / 255u) << 8u) |
-                                ((byte(c.b) * a / 255u) << 16u) | (a << 24u);
-    for (auto &d : *px_) {
-        if (d == 0) d = value;
-        else blend_px(d, byte(c.r), byte(c.g), byte(c.b), a);
     }
 }
 

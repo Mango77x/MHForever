@@ -392,6 +392,7 @@ int main() {
     Menu shown;
     shown.set(sample());
     MHF_CHECK(renderer.render(shown.view(), 2, pixels));
+    MHF_CHECK(!pixels.empty() && pixels.front() == 0x73000000u && pixels.back() == 0x73000000u);
     MHF_CHECK(pixels.size() == static_cast<std::size_t>(MenuRenderer::width(2)) * static_cast<std::size_t>(MenuRenderer::height(2)));
     MHF_CHECK(std::any_of(pixels.begin(), pixels.end(), [](std::uint32_t p) { return (p >> 24u) != 0; }));
     // A notice: a card in the top right corner, the rest of the picture clear.

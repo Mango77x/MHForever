@@ -41,9 +41,9 @@ public:
 
     [[nodiscard]] bool font_ok() const { return font_ok_; }
 
-    // Starts drawing into `pixels` (cleared): premultiplied RGBA, R in the low byte, `width` x `height` pixels, where
-    // one logical unit is `scale` pixels.
-    void begin(std::vector<std::uint32_t> &pixels, int width, int height, float scale);
+    // Starts drawing into `pixels`, initialized to `background` (premultiplied RGBA, R in the low byte).
+    // The canvas is `width` x `height` pixels, with `scale` pixels per logical unit.
+    void begin(std::vector<std::uint32_t> &pixels, int width, int height, float scale, std::uint32_t background = 0u);
     void end() { px_ = nullptr; }
     // Draws only between logical y0 and y1 until unclip() (a list scrolled under a header).
     void clip(float y0, float y1);
@@ -52,7 +52,6 @@ public:
     // Rounded rectangle in logical units. `border` > 0 strokes instead of filling. `bottom` blends a vertical gradient.
     void rrect(float x, float y, float w, float h, float radius, Color top, float alpha, float border = 0.0f,
                const Color *bottom = nullptr);
-    void fill_all(Color c, float alpha);
 
     // Width in logical units of `text` at `size` logical pixels; `tracking` is extra space after every glyph.
     [[nodiscard]] float measure(const std::string &text, float size, bool bold = false, float tracking = 0.0f) const;
