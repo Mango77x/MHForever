@@ -1016,8 +1016,9 @@ private:
     // Gives each of `kept`'s player pieces its partner in `older` (shadow_pairs_): the same model, the nearest once `motion`
     // brings it into `kept`'s eye space, no farther than `reach`.
     void pair_player_pieces(const ShadowKept &kept, const ShadowKept &older, const interpolation::Matrix &motion, float reach);
-    // `fbo`: where to, when not the map's own. `moving_only`: over what the map already holds, without what is kept.
-    void draw_shadow_map(const ShadowPass &p, const ShadowKept &kept, const std::vector<float> &vertices, bool player, GLuint fbo = 0,
+    void upload_shadow_vertices(const std::vector<float> &vertices);
+    // Ranges index the last upload. `fbo`: where to, when not the map's own. `moving_only`: omit fixed pieces.
+    void draw_shadow_map(const ShadowPass &p, std::span<const KeptRange> ranges, bool player, GLuint fbo = 0,
                          bool moving_only = false);
     void shadow_forget_scenery();
     void shadow_begin_draw(const gpu::DrawInfo &draw);
@@ -3844,7 +3845,8 @@ void GlBackend::run_shadow(RenderTarget &rt) {
                     }
                     shadow_seen_map_.ranges = shadow_seen_ranges_;
                     ShadowPass whole = p;
-                    draw_shadow_map(whole, shadow_seen_map_, shadow_seen_map_.vertices, false, shadow_seen_fbo_);
+                    upload_shadow_vertices(shadow_seen_map_.vertices);
+                    draw_shadow_map(whole, shadow_seen_map_.ranges, false, shadow_seen_fbo_);
                     shadow_seen_built_ = true;
                     shadow_seen_grew_ = false;
                     shadow_seen_age_ = 0;
@@ -3866,18 +3868,23 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         gl_.BindFramebuffer(GL_DRAW_FRAMEBUFFER, shadow_fbo_[p.map]);
         gl_.BlitFramebuffer(0, 0, shadow_size_, shadow_size_, 0, 0, shadow_size_, shadow_size_, GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
     }
-    draw_shadow_map(p, kept, kept.vertices, false, 0, scenery_kept);
+    upload_shadow_vertices(kept.vertices);
+    draw_shadow_map(p, kept.ranges, false, 0, scenery_kept);
     if (p.player_half > 0.0f) {
-        draw_shadow_map(p, kept, kept.vertices, true);
+        draw_shadow_map(p, kept.ranges, true);
     }
     static constexpr float same_eye[12] = {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
     apply_shadow(rt, p, same_eye);
     gl_.BindVertexArray(empty_vao_);
 }
 
+void GlBackend::upload_shadow_vertices(const std::vector<float> &vertices) {
+    gl_.BindBuffer(GL_ARRAY_BUFFER, shadow_vbo_);
+    gl_.BufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices.size() * sizeof(float)), vertices.data(), GL_STREAM_DRAW);
+}
+
 // Draws the map again for `p`, from the eye space of its picture. The caller's GL state does not survive.
-void GlBackend::draw_shadow_map(const ShadowPass &p, const ShadowKept &kept, const std::vector<float> &vertices, bool player, GLuint fbo,
-                                bool moving_only) {
+void GlBackend::draw_shadow_map(const ShadowPass &p, std::span<const KeptRange> ranges, bool player, GLuint fbo, bool moving_only) {
     const float half = player ? p.player_half : p.half;
     const float *center = player ? p.player_center : p.center;
     const GLsizei size = player ? kShadowPlayerSize : shadow_size_;
@@ -3907,10 +3914,8 @@ void GlBackend::draw_shadow_map(const ShadowPass &p, const ShadowKept &kept, con
                 l_mask = uniform(program, "u_alpha_mask"), l_s = uniform(program, "u_clamp_s"), l_t = uniform(program, "u_clamp_t"),
                 l_scenery = uniform(program, "u_scenery");
     gl_.BindVertexArray(shadow_vao_);
-    gl_.BindBuffer(GL_ARRAY_BUFFER, shadow_vbo_);
-    gl_.BufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices.size() * sizeof(float)), vertices.data(), GL_STREAM_DRAW);
     gl_.ActiveTexture(GL_TEXTURE0);
-    for (const KeptRange &r : kept.ranges) {
+    for (const KeptRange &r : ranges) {
         if (r.player != player || (moving_only && r.fixed)) continue;
         gl_.Uniform1f(l_scenery, r.scenery ? 1.0f : 0.0f);
         gl_.Uniform1i(l_func, r.texture != 0 ? r.func : 1);
@@ -6011,7 +6016,8 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                             }
                         }
                     }
-                    draw_shadow_map(flip_.shadow, shadow_between_kept_, shadow_between_, true);
+                    upload_shadow_vertices(shadow_between_);
+                    draw_shadow_map(flip_.shadow, shadow_between_kept_.ranges, true);
                 }
                 apply_shadow(scratch_, flip_.shadow, eye_to_map);
                 gl_.BindVertexArray(vao_);
