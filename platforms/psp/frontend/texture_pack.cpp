@@ -605,6 +605,15 @@ const T *Pack::lookup(const std::unordered_map<Key, T, KeyHash> &map, const Key 
     };
     const std::uint64_t low = key.cache & 0xFFFFFFFFull, high = key.cache & ~0xFFFFFFFFull;
     if (const T *v = at(key.cache, key.data)) return v;
+    // For an addressless key most wildcard forms repeat the same keys.
+    if (high == 0) {
+        if (key.data != 0) {
+            if (const T *v = at(low, 0)) return v;
+        }
+        if (low == 0) return nullptr;
+        if (const T *v = at(0, key.data)) return v;
+        return !options_.ignore_address && key.data != 0 ? at(0, 0) : nullptr;
+    }
     if (const T *v = at(low, 0)) return v;
     if (!options_.ignore_address) {
         if (const T *v = at(key.cache, 0)) return v;
