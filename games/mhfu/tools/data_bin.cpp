@@ -1,7 +1,7 @@
 #include "data_bin.hpp"
 
+#include <algorithm>
 #include <cstring>
-#include <map>
 #include <stdexcept>
 
 namespace mhf::mhfu {
@@ -139,26 +139,24 @@ std::optional<DataBin> DataBin::open(Reader reader, std::uint64_t total_size,
         }
         const auto file_count = static_cast<std::uint32_t>(sentinel);
 
-        // Exact sizes for files that do not fill their last block: ascending (id, size) pairs.
-        std::map<std::uint32_t, std::uint32_t> exact_sizes;
-        std::uint32_t previous_id = 0;
-        for (std::size_t i = sentinel + 1; i + 1 < word_count; i += 2) {
-            const std::uint32_t id = word(i);
-            const std::uint32_t size = word(i + 1);
-            if (id >= file_count || (!exact_sizes.empty() && id <= previous_id) || size == 0 ||
-                size > (word(id + 1) - word(id)) * kBlockSize) {
-                break;
-            }
-            exact_sizes[id] = size;
-            previous_id = id;
-        }
-
         std::vector<FileEntry> files;
         files.reserve(file_count);
         for (std::uint32_t id = 0; id < file_count; ++id) {
-            const auto it = exact_sizes.find(id);
-            const std::uint32_t block_span = (word(id + 1) - word(id)) * kBlockSize;
-            files.push_back(FileEntry{id, word(id), it != exact_sizes.end() ? it->second : block_span});
+            const std::uint32_t first_block = word(id);
+            const std::uint32_t block_span = (word(id + 1) - first_block) * kBlockSize;
+            files.push_back(FileEntry{id, first_block, block_span});
+        }
+
+        // Apply the exact sizes directly to the file entries. The pairs are in ascending file ID order.
+        std::uint32_t next_id = 0;
+        for (std::size_t i = sentinel + 1; i + 1 < word_count; i += 2) {
+            const std::uint32_t id = word(i);
+            const std::uint32_t size = word(i + 1);
+            if (id >= file_count || id < next_id || size == 0 || size > files[id].size) {
+                break;
+            }
+            files[id].size = size;
+            next_id = id + 1;
         }
         return DataBin{std::move(reader), attempt, std::move(files)};
     }

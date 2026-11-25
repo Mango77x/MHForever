@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 #include <numeric>
 #include <random>
 #include <string>
@@ -159,6 +160,23 @@ int main() {
             MHF_CHECK(!data_bin->table().has_value());
             MHF_CHECK(data_bin->files().size() == 3 && data_bin->files()[0].size == 100);
             MHF_CHECK(data_bin->read(1, static_cast<std::uint32_t>(synthetic.overlay.size())) == synthetic.overlay);
+        }
+    }
+    // Exact sizes can skip files. A duplicate ID ends the list without replacing its first size.
+    {
+        std::vector<std::uint8_t> container(5 * kBlock, 0);
+        const std::uint32_t words[] = {1, 2, 3, 4, 5, 0, 17, 2, 59, 2, 71, 3, 101};
+        for (std::size_t i = 0; i < std::size(words); ++i) put_le32(container, i * 4, words[i]);
+        auto reader = [&](std::uint64_t offset, std::size_t size) {
+            const auto start = container.begin() + static_cast<std::ptrdiff_t>(offset);
+            return std::vector<std::uint8_t>(start, start + static_cast<std::ptrdiff_t>(size));
+        };
+        const auto data_bin = DataBin::open(reader, container.size(), {});
+        MHF_CHECK(data_bin && data_bin->files().size() == 4);
+        if (data_bin && data_bin->files().size() == 4) {
+            const auto& files = data_bin->files();
+            MHF_CHECK(files[0].size == 17 && files[1].size == kBlock);
+            MHF_CHECK(files[2].size == 59 && files[3].size == kBlock);
         }
     }
     return mhf::test::finish("test_data_bin");
