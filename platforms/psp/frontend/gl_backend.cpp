@@ -9,6 +9,7 @@
 
 #include "gl_backend.hpp"
 #include "frame_matching.hpp"
+#include "shadow_geometry.hpp"
 #include "texture_images.hpp"
 #include "texture_pack.hpp"
 #include "mhf/psp/font_glyphs.hpp"
@@ -45,6 +46,8 @@
 namespace mhf::psp {
 
 namespace {
+
+using shadow::KeptRange;
 
 // GE registers used here (see platforms/psp/gpu/ge.cpp).
 enum Reg : std::uint32_t {
@@ -1000,14 +1003,6 @@ private:
         float player_center[3]{}, player_half{}; // the player's own map (half 0: none)
         int facing{};                            // which buffer holds the surfaces turned away from the sun
         float facing_motion[12]{1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0}; // from the eye space they were worked out in to this one's
-    };
-    struct KeptRange { // one run of triangles of a map, with what it takes to draw it again
-        std::uint32_t first{}, count{}, vertices{};
-        GLuint texture{};
-        float xform[4]{1, 1, 0, 0};
-        std::int32_t func{1}, ref{}, mask{255}, clamp_s{}, clamp_t{};
-        bool scenery{}, player{};
-        bool fixed{}; // part of the scenery: it can be kept from one picture to the next
     };
     struct ShadowKept {
         std::uint64_t generation{};
@@ -3686,7 +3681,6 @@ void GlBackend::run_shadow(RenderTarget &rt) {
     // What was mapped stays, for the in-between pictures to map it again with the characters where they are by then.
     ShadowKept &kept = shadow_kept_[p.generation % 3u];
     kept.generation = p.generation;
-    kept.vertices = shadow_vertices_;
     kept.ranges.clear();
     for (const ShadowRange &r : shadow_ranges_) {
         const ShadowDraw &d = shadow_draws_[r.draw];
@@ -3708,6 +3702,7 @@ void GlBackend::run_shadow(RenderTarget &rt) {
         k.fixed = whole_map && !shadow_groups_[d.group].skinned && !casts(shadow_groups_[d.group]) && !d.cutout;
         kept.ranges.push_back(k);
     }
+    shadow::pack_vertices(shadow_vertices_, kept.ranges, kept.vertices);
     // The scenery does not move, so its shadows need not be drawn again: what has been seen of it is kept (and goes on casting
     // when the camera turns away), its map is copied, and only what moves is drawn over that.
     bool scenery_kept = false;
