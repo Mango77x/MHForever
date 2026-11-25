@@ -150,11 +150,14 @@ int main() {
     // A container stored unscrambled opens with any candidates (none of them fits) and reads back as stored.
     {
         const auto synthetic = build(make_table(4), false);
+        unsigned probe_reads = 0;
         auto reader = [&](std::uint64_t offset, std::size_t size) {
+            if (offset == 0 && size == 4) ++probe_reads;
             return std::vector<std::uint8_t>(synthetic.container.begin() + static_cast<std::ptrdiff_t>(offset),
                                              synthetic.container.begin() + static_cast<std::ptrdiff_t>(offset + size));
         };
         const auto data_bin = DataBin::open(reader, synthetic.container.size(), {make_table(12), make_table(13)});
+        MHF_CHECK(probe_reads == 1);
         MHF_CHECK(data_bin.has_value());
         if (data_bin) {
             MHF_CHECK(!data_bin->table().has_value());
