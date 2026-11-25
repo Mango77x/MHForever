@@ -40,6 +40,12 @@ target_include_directories(mhf_texture_images PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(mhf_texture_images PRIVATE mhf_basisu mhf_stb_image)
 mhf_target_warnings(mhf_texture_images)
 
+# SMAA 1x shader assembly and LUT views (frontend/smaa_shaders.*): pure C++, no SDL/OpenGL dependency.
+add_library(mhf_smaa_shaders STATIC frontend/smaa_shaders.cpp)
+target_include_directories(mhf_smaa_shaders PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/frontend)
+target_link_libraries(mhf_smaa_shaders PRIVATE mhf_smaa)
+mhf_target_warnings(mhf_smaa_shaders)
+
 if(MHF_WITH_SDL)
     add_library(mhf_psp_frontend STATIC frontend/psp_frontend.cpp frontend/gl_backend.cpp frontend/dialog_overlay.cpp)
     target_include_directories(mhf_psp_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/frontend
@@ -83,6 +89,12 @@ if(MHF_BUILD_TESTS)
     target_include_directories(test_texture_filter PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/frontend)
     mhf_target_warnings(test_texture_filter)
     add_test(NAME psp_texture_filter COMMAND test_texture_filter)
+
+    add_executable(test_smaa tests/test_smaa.cpp)
+    target_include_directories(test_smaa PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+    target_link_libraries(test_smaa PRIVATE mhf_smaa_shaders)
+    mhf_target_warnings(test_smaa)
+    add_test(NAME psp_smaa COMMAND test_smaa)
 
     add_executable(test_adhocctl tests/test_adhocctl.cpp)
     target_include_directories(test_adhocctl PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src)
