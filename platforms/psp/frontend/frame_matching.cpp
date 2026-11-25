@@ -192,9 +192,35 @@ const Matching &Matcher::match(
     std::vector<Object> objects;
     std::size_t pairs = 0;
     {
-        std::vector<std::uint64_t> seen;
-        std::vector<std::int32_t> seen_object; // the object of each pair of matrices seen, -1 when it has no inverse
-        seen.reserve(older.size());
+        constexpr std::int32_t kUnseen = -2, kNoInverse = -1;
+        struct SeenObject {
+            std::uint64_t hash;
+            std::int32_t index;
+        };
+        // Frame pairs with many draws can still share just a handful of transforms.
+        // Search those on the stack before creating a hash table for denser scenes.
+        std::array<SeenObject, 32> small{};
+        std::size_t small_size = 0;
+        std::vector<SeenObject> seen;
+        const auto object_slot_for = [&](std::uint64_t hash) -> SeenObject & {
+            const std::size_t object_mask = seen.size() - 1u;
+            std::size_t slot = static_cast<std::size_t>(hash ^ (hash >> 32u)) & object_mask;
+            while (seen[slot].index != kUnseen && seen[slot].hash != hash) slot = (slot + 1u) & object_mask;
+            return seen[slot];
+        };
+        const auto find_or_insert = [&](std::uint64_t hash) -> SeenObject & {
+            if (seen.empty()) {
+                for (std::size_t i = 0; i < small_size; ++i) {
+                    if (small[i].hash == hash) return small[i];
+                }
+                if (small_size < small.size()) return small[small_size++] = {hash, kUnseen};
+
+                // One new hash per matched draw at most, so the table cannot fill past half capacity.
+                seen.assign(std::bit_ceil(std::size_t{out.matched} * 2u), SeenObject{0, kUnseen});
+                for (const auto &entry : small) object_slot_for(entry.hash) = entry;
+            }
+            return object_slot_for(hash);
+        };
         for (std::size_t i = 0; i < older.size(); ++i) {
             if (out.newer_of[i] < 0) continue;
             ++pairs;
@@ -204,18 +230,15 @@ const Matching &Matcher::match(
             for (const Matrix *m : {&before, &after}) {
                 for (const float f : *m) h = (h ^ std::bit_cast<std::uint32_t>(f)) * 1099511628211ull;
             }
-            if (const auto known = std::find(seen.begin(), seen.end(), h); known != seen.end()) {
-                const std::int32_t o = seen_object[static_cast<std::size_t>(known - seen.begin())];
-                if (o >= 0) ++objects[static_cast<std::size_t>(o)].draws;
+            SeenObject &entry = find_or_insert(h);
+            if (entry.index != kUnseen) {
+                if (entry.index >= 0) ++objects[static_cast<std::size_t>(entry.index)].draws;
                 continue;
             }
-            seen.push_back(h);
+            entry = {h, kNoInverse};
             Matrix before_inverse{};
-            if (!affine_inverse(before, before_inverse)) {
-                seen_object.push_back(-1);
-                continue;
-            }
-            seen_object.push_back(static_cast<std::int32_t>(objects.size()));
+            if (!affine_inverse(before, before_inverse)) continue;
+            entry.index = static_cast<std::int32_t>(objects.size());
             objects.push_back({multiply(after, before_inverse), single(i), 1u});
         }
     }
