@@ -43,11 +43,12 @@ std::vector<std::uint8_t> build_image() {
         std::uint8_t* p = &image[lba * kSector];
         p += put_record(p, lba, kSector, true, std::string(1, '\0'));
         p += put_record(p, parent, kSector, true, std::string(1, '\1'));
-        put_record(p, child_lba, child_size, child_dir, child);
+        return p + put_record(p, child_lba, child_size, child_dir, child);
     };
     dir(20, 20, "PSP_GAME", 21, kSector, true);
     dir(21, 20, "USRDIR", 22, kSector, true);
-    dir(22, 21, "DATA.BIN;1", 23, 12, false);
+    auto* duplicate = dir(22, 21, "Data.Bin;1", 23, 12, false);
+    put_record(duplicate, 23, 5, false, "DATA.BIN;2");
     std::memcpy(&image[23 * kSector], "hello world!", 12);
     return image;
 }
@@ -63,7 +64,11 @@ int main() {
     }
     {
         mhf::psp::IsoImage iso{path};
-        MHF_CHECK(iso.entries().size() == 3);
+        MHF_CHECK(iso.entries().size() == 4);
+        MHF_CHECK(iso.entries().at(2).path == "/PSP_GAME/USRDIR/Data.Bin");
+        MHF_CHECK(iso.entries().at(3).path == "/PSP_GAME/USRDIR/DATA.BIN");
+        const auto directory = iso.find("/psp_game/UsrDir");
+        MHF_CHECK(directory && directory->is_directory);
         const auto entry = iso.find("/psp_game/usrdir/data.bin");
         MHF_CHECK(entry.has_value());
         if (entry) {
