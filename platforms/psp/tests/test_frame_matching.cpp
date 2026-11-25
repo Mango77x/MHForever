@@ -164,6 +164,23 @@ int main() {
         MHF_CHECK(m.camera_votes == m.camera_voters);
     }
 
+    // Draws sharing a transform vote as one object. Repeated singular transforms do not vote.
+    {
+        Matcher matcher;
+        Matrix singular = identity();
+        singular[0] = 0.0f;
+        const Matrix prop = at(0.0f, 0.0f, -200.0f);
+        Scene repeated{{singular, prop}, {}};
+        // Cross the in-place lookup limit before revisiting both kinds of transform.
+        for (int i = 1; i <= 40; ++i) repeated.props.push_back(at(static_cast<float>(i), 0.0f, -200.0f));
+        repeated.props.insert(repeated.props.end(), {singular, prop, prop, prop});
+        const auto old_frame = frame(repeated, identity(), {});
+        const auto new_frame = frame(repeated, camera(0.0f, 0.0f, -20.0f), {});
+        const Matching &m = matcher.match(old_frame, new_frame, CutThresholds{});
+        MHF_CHECK(m.camera_found && m.matched == 46u && m.objects == 41u);
+        MHF_CHECK(m.camera_voters == 42u && m.camera_votes == 42u);
+    }
+
     // A town drawn as one object of many draws (many meshes under one matrix), and the hunter the camera follows, in
     // three pieces that stay where they are on the screen. Each object voting once, the hunter's pieces would win 3 to
     // 1 and the camera would be no motion at all; counting the pairs of draws, the town's motion wins.
