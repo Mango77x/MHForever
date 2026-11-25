@@ -162,7 +162,7 @@ int main(int argc, char **argv) {
     unsigned dump_every = 30;
     double dump_from = 0.0;
     double seconds = 0;
-    bool window = false, auto_dialogs = false, fullscreen = false;
+    bool window = false, auto_dialogs = false, fullscreen = false, smaa = false;
     std::string texture_filter = "auto";
     int render_scale = 4, target_fps = 30;
     std::vector<ScriptedPress> script;
@@ -199,6 +199,7 @@ int main(int argc, char **argv) {
             if (mode == "auto" || mode == "linear" || mode == "nearest") texture_filter = mode;
             else std::fprintf(stderr, "[mhf1] --texture-filter: unknown mode '%s' (auto, linear, nearest), ignored\n", mode.c_str());
         }
+        else if (a == "--smaa") smaa = true;
         else if (a == "--music-volume" && i + 1 < argc) options.music_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--sfx-volume" && i + 1 < argc) options.sfx_volume = std::clamp(std::stoi(argv[++i]), 0, 100);
         else if (a == "--language" && i + 1 < argc) {
@@ -306,6 +307,7 @@ int main(int argc, char **argv) {
                                     filter_mode, target_fps, keyboard, controller)) {
             frontend.set_controls_file(controls_file);
             frontend.set_friends_files(friends_file, friend_actions_file);
+            frontend.set_smaa(smaa);
             if (!texture_pack.empty()) {
                 frontend.set_texture_pack(texture_pack, disc_product_code(options.disc_image), pack_mipmaps, anisotropy);
             }
@@ -321,6 +323,7 @@ int main(int argc, char **argv) {
         (void)render_scale;
         (void)target_fps;
         (void)texture_filter;
+        (void)smaa;
         (void)keyboard;
         (void)controller;
         (void)controls_file;

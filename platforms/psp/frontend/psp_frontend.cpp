@@ -168,6 +168,7 @@ struct Frontend::Impl {
     std::function<bool()> mouse_look;               // set_mouse_look
     bool hud_size_changed{}; // the Video tab changed the HUD's size: the controls file keeps it
     bool widescreen_known{}; // widescreen came from the launcher or the Video tab changed it: the controls file keeps it
+    bool smaa_known{}; // SMAA came from the launcher or the Video tab changed it: the controls file keeps it
     bool pack_filter_changed{}; // the Video tab changed the texture pack's mipmaps or anisotropic filtering: kept too
     bool shadows_known{}; // the shadows' settings came from the launcher or the Video tab changed them: the controls file keeps them
     // The game supports them (it called set_widescreen / set_shadows: camera hooks, zones): only then does the Video tab
@@ -383,6 +384,11 @@ void Frontend::set_widescreen(bool on) {
     impl_->live.widescreen = on;
     impl_->widescreen_known = true;
     impl_->widescreen_offered = true;
+}
+
+void Frontend::set_smaa(bool on) {
+    impl_->live.smaa = on;
+    impl_->smaa_known = true;
 }
 
 float Frontend::game_aspect() const { return impl_->live.wide_aspect.load(std::memory_order_relaxed); }
@@ -682,7 +688,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 }
 
 enum MenuId {
-    kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kTextureFilter, kTexturePack, kHudSize, kSongPlace, kSongMove, kPadStick, kRestoreKeys, kRestorePad,
+    kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kTextureFilter, kSmaa, kTexturePack, kHudSize, kSongPlace, kSongMove, kPadStick, kRestoreKeys, kRestorePad,
     kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn, kPackMipmaps, kAnisotropy, kShadow, kShadowStrength, kShadowWholeMap, kShadowQuality, kWidescreen
 };
 constexpr int kGameOptionBase = 3000; // the Game tab's options of the game: kGameOptionBase + an index into Impl::game_options
@@ -1002,9 +1008,11 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
                                              static_cast<int>(impl.live.texture_filter.load()));
     tex_filter.options = {"Auto", "Linear", "Nearest"};
     tex_filter.detail = "Controls how the game's textures are filtered.";
+    overlay::MenuItem smaa = menu_item(Kind::Toggle, kSmaa, "Anti-aliasing (SMAA)", impl.live.smaa ? 1 : 0);
+    smaa.detail = "Smooths jagged 3D edges without blurring textures.";
     overlay::MenuTab video{"Video", {scale, fps,
                                       menu_item(Kind::Toggle, kFullscreen, "Fullscreen", impl.host.window_rect().fullscreen ? 1 : 0),
-                                      tex_filter},
+                                      tex_filter, smaa},
                            "Changes apply immediately."};
     if (impl.gpu_state == 1 && impl.widescreen_offered) { // the GPU renderer stretches the picture; the software one draws the PSP's screen as it is
         overlay::MenuItem wide = menu_item(Kind::Toggle, kWidescreen, "Widescreen", impl.live.widescreen ? 1 : 0);
@@ -1105,6 +1113,7 @@ void save_controls(const Frontend::Impl &impl) {
         if (impl.songs_offered) out << "horn-songs=" << (impl.songs_on ? "true" : "false") << "\n";
         if (impl.hud_size_changed) out << "hud-size=" << impl.live.hud_size.load() << "\n";
         if (impl.widescreen_known) out << "option.widescreen=" << (impl.live.widescreen ? "true" : "false") << "\n";
+        if (impl.smaa_known) out << "option.smaa=" << (impl.live.smaa ? "true" : "false") << "\n";
         if (impl.texture_filter_changed) {
             out << "option.textureFilter=" << texture_filter_name(impl.live.texture_filter.load()) << "\n";
         }
@@ -1450,6 +1459,11 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
                 impl.texture_filter_changed = true;
                 save_controls(impl);
             }
+            break;
+        case kSmaa:
+            impl.live.smaa = e.value != 0;
+            impl.smaa_known = true;
+            save_controls(impl);
             break;
         case kTexturePack:
             impl.live.texture_pack = e.value != 0;

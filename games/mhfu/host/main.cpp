@@ -3,7 +3,7 @@
 // usage: mhfu --iso <image.iso> --exe <decrypted executable> [--trace] [--memstick <dir>]
 //             [--window] [--auto-dialogs] [--dump-frames <dir> [--dump-every N] [--dump-from S]] [--seconds S] [--quiet-overlays]
 //             [--input "<seconds>:<button>,..."] [--name <text>] [--software] [--scale N] [--fullscreen]
-//             [--texture-filter auto|linear|nearest] [--texture-pack <folder> [--pack-mipmaps] [--anisotropy 1|2|4|8|16]] [--fps 30..180] [--hud-size 50-100] [--widescreen] [--true-weapon-values] [--fast-supply-box]
+//             [--texture-filter auto|linear|nearest] [--smaa] [--texture-pack <folder> [--pack-mipmaps] [--anisotropy 1|2|4|8|16]] [--fps 30..180] [--hud-size 50-100] [--widescreen] [--true-weapon-values] [--fast-supply-box]
 //             [--smithy-browse [--smithy-layout]]
 //             [--analog-camera [--analog-camera-turn-speed 50-200] [--analog-camera-tilt-speed 50-200]]
 //             [--mouse-camera [--mouse-camera-speed 25-300]]
@@ -955,6 +955,7 @@ int main(int argc, char **argv) {
     int render_scale = 4;  // --scale N: internal resolution = N x 480x272 (GPU renderer)
     bool fullscreen = false;
     std::string texture_filter = "auto"; // --texture-filter auto|linear|nearest (enhancement, auto by default)
+    bool smaa = false; // --smaa: SMAA 1x anti-aliasing on 3D scenes (enhancement, off by default)
     int target_fps = 30; // --fps N: 30 (the game's own rate) or a multiple of it up to 180
     int hud_size = 100; // --hud-size N: the quest HUD's size in percent (enhancement)
     bool widescreen = false; // --widescreen: the 3D fills a window wider than the PSP's screen (enhancement)
@@ -1000,6 +1001,7 @@ int main(int argc, char **argv) {
             if (mode == "auto" || mode == "linear" || mode == "nearest") texture_filter = mode;
             else std::fprintf(stderr, "[mhfu] --texture-filter: unknown mode '%s' (auto, linear, nearest), ignored\n", mode.c_str());
         }
+        else if (a == "--smaa") smaa = true; // enhancement, off by default
         else if (a == "--fps" && i + 1 < argc) target_fps = std::clamp(std::stoi(argv[++i]), 30, 180); // enhancement
         else if (a == "--hud-size" && i + 1 < argc) hud_size = std::clamp(std::stoi(argv[++i]), 50, 100); // enhancement
         else if (a == "--widescreen") widescreen = true; // enhancement, off by default
@@ -1247,6 +1249,7 @@ int main(int argc, char **argv) {
             frontend.set_shadow_zones({std::begin(kShadowZoneNames), std::end(kShadowZoneNames)}, shadow_zone_textures());
             frontend.set_hud(hud_size);
             frontend.set_widescreen(widescreen);
+            frontend.set_smaa(smaa);
             const char *shadow_env = std::getenv("MHF_SHADOW"); // MHF_SHADOW=1 turns them on as --projected-shadows does
             frontend.set_shadows(projected_shadows || (shadow_env != nullptr && shadow_env[0] != '0'), whole_map_shadows, shadow_quality,
                                  shadow_darkness);
@@ -1323,6 +1326,7 @@ int main(int argc, char **argv) {
         }
 #else
         (void)texture_filter;
+        (void)smaa;
         (void)keyboard; // only the windowed frontend maps the keyboard and the controller
         (void)controller;
         (void)controls_file;

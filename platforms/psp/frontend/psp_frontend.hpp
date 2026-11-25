@@ -65,6 +65,9 @@ public:
     // Widescreen (gl_backend.hpp, LiveSettings): the 3D fills a window wider than the PSP's screen, 2D keeps its shape.
     // Before attach(); the Video tab turns it on and off while playing.
     void set_widescreen(bool on);
+    // SMAA 1x anti-aliasing (gl_backend.hpp, LiveSettings): smooths jagged 3D edges without blurring textures.
+    // Before attach(); the Video tab turns it on and off while playing.
+    void set_smaa(bool on);
     // The shape the game should draw its 3D at (width over height), 0 while widescreen does not apply. Read by the
     // game program's camera hooks.
     [[nodiscard]] float game_aspect() const;

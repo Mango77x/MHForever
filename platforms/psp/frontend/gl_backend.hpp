@@ -42,6 +42,8 @@ struct OverlayImage {
 // What the player can change while the game runs (read by the GE thread).
 struct LiveSettings {
     std::atomic<TextureFilter> texture_filter{TextureFilter::Auto};
+    // SMAA 1x anti-aliasing (enhancement, off by default): runs on the 3D scene before 2D HUD/text.
+    std::atomic<bool> smaa{false};
     // Requests for the drawing thread, taken at the start of the next picture (0 = none): the internal resolution
     // multiplier (1..10) and the output rate in fps (a multiple of 30 up to 180).
     std::atomic<int> scale{0};

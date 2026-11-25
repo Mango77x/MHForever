@@ -52,7 +52,7 @@ if(MHF_WITH_SDL)
                                PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/gpu)
     # mhf_overlay is public: psp_frontend.hpp takes the horn's song panel (overlay/song_panel.hpp).
     target_link_libraries(mhf_psp_frontend PUBLIC mhf_psp_runtime mhf_overlay PRIVATE mhf_core_host mhf_stb_truetype mhf_psp_interpolation
-                                                                    mhf_texture_pack mhf_texture_images)
+                                                                    mhf_texture_pack mhf_texture_images mhf_smaa_shaders)
     target_compile_definitions(mhf_psp_frontend PUBLIC MHF_HAS_FRONTEND=1)
     mhf_target_warnings(mhf_psp_frontend)
 endif()
