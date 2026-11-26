@@ -167,6 +167,26 @@ int main() {
         MHF_CHECK(c.poll().empty() && c.groups().size() == 2);
     }
 
+    // A cancelled request can still send untagged scan packets on the same link.
+    for (bool reinitialize : {false, true}) {
+        FakeLink link;
+        Adhocctl c(&link);
+        MHF_CHECK(c.init() == 0 && c.scan() == 0);
+        if (reinitialize) {
+            MHF_CHECK(c.term() == 0 && c.init() == 0);
+        } else {
+            MHF_CHECK(c.disconnect() == 0);
+        }
+        MHF_CHECK(c.scan() == error::kBusy && link.scans == 1);
+        link.say(LinkEvent::Kind::Scan).group = group("OLD");
+        link.say(LinkEvent::Kind::ScanComplete);
+        MHF_CHECK(c.poll().empty() && c.groups().empty());
+        MHF_CHECK(c.scan() == 0 && link.scans == 2);
+        link.say(LinkEvent::Kind::Scan).group = group("NEW");
+        link.say(LinkEvent::Kind::ScanComplete);
+        MHF_CHECK(c.poll().size() == 1);
+        MHF_CHECK(c.groups().size() == 1 && c.groups().front().name == group("NEW"));
+    }
     // Losing the server: a group in progress ends with DISCONNECT, a scan with SCAN.
     {
         FakeLink link;

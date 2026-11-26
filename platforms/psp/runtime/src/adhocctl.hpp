@@ -160,7 +160,7 @@ private:
     std::vector<ScanGroup> scan_in_progress_;
     Mac leader_{};
     bool connecting_ = false;
-    bool discard_scan_ = false; // drain a scan requested for a previous room through ScanComplete
+    bool discard_scan_ = false; // drain an invalidated or cancelled request through ScanComplete
     std::vector<Notification> pending_; // events raised by calls, delivered by the next poll
 };
 

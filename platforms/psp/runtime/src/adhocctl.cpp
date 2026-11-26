@@ -77,6 +77,7 @@ std::uint32_t Adhocctl::init() {
 
 bool Adhocctl::set_link(AdhocLink *link) {
     if (!idle()) return false;
+    if (link != link_) discard_scan_ = false;
     link_ = link;
     peers_.clear();
     groups_.clear();
@@ -87,6 +88,7 @@ bool Adhocctl::set_link(AdhocLink *link) {
 std::uint32_t Adhocctl::term() {
     if (!initialized_) return 0;
     if (link_ != nullptr && (state_ == State::Connected || connecting_)) link_->request_disconnect();
+    if (state_ == State::Scanning) discard_scan_ = true;
     initialized_ = false;
     state_ = State::Disconnected;
     leader_ = {};
@@ -134,6 +136,7 @@ std::uint32_t Adhocctl::connect(const GroupName &group) {
 std::uint32_t Adhocctl::disconnect() {
     if (!initialized_) return error::kNotInitialized;
     if (link_ != nullptr && (state_ == State::Connected || connecting_)) link_->request_disconnect();
+    if (state_ == State::Scanning) discard_scan_ = true;
     const bool was_connected = state_ == State::Connected;
     leader_ = {};
     state_ = State::Disconnected;
@@ -147,9 +150,8 @@ std::uint32_t Adhocctl::disconnect() {
 std::uint32_t Adhocctl::scan() {
     if (!initialized_) return error::kNotInitialized;
     if (state_ == State::Connected || connecting_) return error::kAlreadyConnected;
-    if (state_ == State::Scanning) return error::kBusy;
+    if (state_ == State::Scanning || discard_scan_) return error::kBusy;
     state_ = State::Scanning;
-    discard_scan_ = false;
     scan_in_progress_.clear();
     if (link_ == nullptr) {
         // No server: the scan finds nothing.
@@ -187,6 +189,7 @@ std::vector<Notification> Adhocctl::poll() {
             break;
         }
         case LinkEvent::Kind::ScanComplete:
+            discard_scan_ = false;
             if (state_ == State::Scanning) {
                 groups_.swap(scan_in_progress_);
                 scan_in_progress_.clear();
@@ -215,6 +218,7 @@ std::vector<Notification> Adhocctl::poll() {
             break;
         case LinkEvent::Kind::Chat: break;
         case LinkEvent::Kind::Error:
+            discard_scan_ = false;
             // The server is gone. A group we were in is gone with it; a scan under way ends without results.
             if (state_ == State::Connected || connecting_) out.push_back({kEventDisconnect, 0});
             else if (state_ == State::Scanning) out.push_back({kEventScan, 0});
