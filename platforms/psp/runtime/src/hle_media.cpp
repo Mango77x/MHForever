@@ -28,12 +28,17 @@ Kernel &k(Runtime &rt) { return rt.kernel(); }
 constexpr int kChannels = 8;
 constexpr std::uint32_t kSampleRate = 44100;
 
+struct StereoFrame {
+    std::int16_t left;
+    std::int16_t right;
+};
+
 struct AudioChannel {
     bool reserved{};
     std::uint32_t samples{};
     std::uint32_t format{}; // 0 stereo, 0x10 mono
     std::uint64_t busy_until{};
-    std::deque<std::int16_t> queue; // interleaved stereo waiting for the host mixer
+    std::deque<StereoFrame> queue; // stereo frames waiting for the host mixer
     bool primed{};                  // the host mixer is consuming this channel (see mix_audio)
     std::uint32_t since_drop{};     // frames mixed since the mixer last dropped one to catch up (see mix_audio)
 };
@@ -53,13 +58,10 @@ void enqueue_pcm(Runtime &rt, AudioChannel &c, std::uint32_t buffer, std::uint32
             l = static_cast<std::int16_t>(mem.load16(buffer + i * 4u));
             r = static_cast<std::int16_t>(mem.load16(buffer + i * 4u + 2u));
         }
-        c.queue.push_back(static_cast<std::int16_t>((l * static_cast<std::int32_t>(left_volume)) >> 15));
-        c.queue.push_back(static_cast<std::int16_t>((r * static_cast<std::int32_t>(right_volume)) >> 15));
+        c.queue.push_back({static_cast<std::int16_t>((l * static_cast<std::int32_t>(left_volume)) >> 15),
+                           static_cast<std::int16_t>((r * static_cast<std::int32_t>(right_volume)) >> 15)});
     }
-    while (c.queue.size() > kMaxQueuedFrames * 2) {
-        c.queue.pop_front();
-        c.queue.pop_front();
-    }
+    while (c.queue.size() > kMaxQueuedFrames) c.queue.pop_front();
 }
 
 void AudioChReserve(Runtime &, Context &ctx) {
@@ -171,14 +173,11 @@ void audio_test_reserve(int channel, std::uint32_t block) {
 
 void audio_test_queue(int channel, const std::int16_t *stereo, std::size_t frames) {
     auto &c = g_channels[static_cast<std::size_t>(channel)];
-    c.queue.insert(c.queue.end(), stereo, stereo + frames * 2);
-    while (c.queue.size() > kMaxQueuedFrames * 2) {
-        c.queue.pop_front();
-        c.queue.pop_front();
-    }
+    for (std::size_t i = 0; i < frames; ++i) c.queue.push_back({stereo[i * 2], stereo[i * 2 + 1]});
+    while (c.queue.size() > kMaxQueuedFrames) c.queue.pop_front();
 }
 
-std::size_t audio_test_queued(int channel) { return g_channels[static_cast<std::size_t>(channel)].queue.size() / 2; }
+std::size_t audio_test_queued(int channel) { return g_channels[static_cast<std::size_t>(channel)].queue.size(); }
 
 } // namespace mhf::psp::hle
 
@@ -199,24 +198,23 @@ std::size_t mix_audio(Runtime &, std::int16_t *out, std::size_t frames) {
         std::int32_t left = 0, right = 0;
         for (auto &c : hle::g_channels) {
             const std::size_t prebuffer = std::max<std::size_t>(2u * c.samples, 1024u);
-            if (!c.primed && c.queue.size() / 2 >= prebuffer) c.primed = true;
+            if (!c.primed && c.queue.size() >= prebuffer) c.primed = true;
             if (!c.primed) continue;
             const std::size_t behind = prebuffer + c.samples + 1024u, far_behind = behind + 4096u;
-            if (c.queue.size() / 2 > far_behind) {
-                c.queue.erase(c.queue.begin(), c.queue.end() - static_cast<std::ptrdiff_t>(behind * 2));
-            } else if (c.queue.size() / 2 > behind && ++c.since_drop >= kDropEvery) {
+            if (c.queue.size() > far_behind) {
+                c.queue.erase(c.queue.begin(), c.queue.end() - static_cast<std::ptrdiff_t>(behind));
+            } else if (c.queue.size() > behind && ++c.since_drop >= kDropEvery) {
                 c.since_drop = 0;
                 c.queue.pop_front();
-                c.queue.pop_front();
             }
-            if (c.queue.size() < 2) {
+            if (c.queue.empty()) {
                 c.primed = false;
                 continue;
             }
-            left += c.queue.front();
+            const auto frame = c.queue.front();
             c.queue.pop_front();
-            right += c.queue.front();
-            c.queue.pop_front();
+            left += frame.left;
+            right += frame.right;
         }
         out[i * 2] = static_cast<std::int16_t>(std::clamp(left, -32768, 32767));
         out[i * 2 + 1] = static_cast<std::int16_t>(std::clamp(right, -32768, 32767));

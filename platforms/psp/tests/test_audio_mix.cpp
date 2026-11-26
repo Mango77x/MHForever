@@ -74,6 +74,50 @@ Run run(mhf::psp::Runtime &rt, std::uint32_t block, double seconds, double speed
     return out;
 }
 
+void check_stereo_mix(mhf::psp::Runtime &rt) {
+    constexpr std::size_t frames = 1024;
+    constexpr int first = 0, second = 1;
+    std::vector<std::int16_t> a(frames * 2), b(frames * 2), mixed(frames * 2);
+    for (std::size_t i = 0; i < frames; ++i) {
+        a[i * 2] = static_cast<std::int16_t>(30000 - static_cast<int>(i));
+        a[i * 2 + 1] = static_cast<std::int16_t>(-30000 + static_cast<int>(i));
+        b[i * 2] = i % 2 == 0 ? 10000 : -10000;
+        b[i * 2 + 1] = i % 2 == 0 ? -10000 : 10000;
+    }
+
+    audio_test_reserve(first, 256);
+    audio_test_reserve(second, 256);
+    audio_test_queue(first, a.data(), frames);
+    audio_test_queue(second, b.data(), frames);
+    MHF_CHECK(mhf::psp::mix_audio(rt, mixed.data(), frames) == frames);
+    bool matches = true;
+    for (std::size_t i = 0; i < mixed.size(); ++i) {
+        matches &= mixed[i] == std::clamp(static_cast<int>(a[i]) + b[i], -32768, 32767);
+    }
+    MHF_CHECK(matches);
+    MHF_CHECK(audio_test_queued(first) == 0);
+    MHF_CHECK(audio_test_queued(second) == 0);
+
+    audio_test_reserve(first, 256);
+    audio_test_reserve(second, 256);
+    constexpr std::size_t limit = 44100 / 4;
+    std::vector<std::int16_t> late((limit + 128) * 2);
+    for (std::size_t i = 0; i < late.size() / 2; ++i) {
+        late[i * 2] = static_cast<std::int16_t>(i);
+        late[i * 2 + 1] = static_cast<std::int16_t>(-late[i * 2]);
+    }
+    audio_test_queue(first, late.data(), late.size() / 2);
+    MHF_CHECK(audio_test_queued(first) == limit);
+    mhf::psp::mix_audio(rt, mixed.data(), 1);
+    constexpr std::size_t cushion = 1024 + 256 + 1024;
+    const auto expected = static_cast<std::int16_t>(late.size() / 2 - cushion);
+    MHF_CHECK(mixed[0] == expected);
+    MHF_CHECK(mixed[1] == -expected);
+    MHF_CHECK(audio_test_queued(first) == cushion - 1);
+    audio_test_reserve(first, 0);
+    audio_test_reserve(second, 0);
+}
+
 double ms(std::size_t frames) { return static_cast<double>(frames) * 1000.0 / kRate; }
 
 } // namespace
@@ -81,6 +125,8 @@ double ms(std::size_t frames) { return static_cast<double>(frames) * 1000.0 / kR
 int main() {
     mhf::psp::RuntimeOptions options; // a runtime without a program or a window: nothing is played
     mhf::psp::Runtime rt(options);
+    check_stereo_mix(rt);
+
     // The voice mixer's channel (256-frame blocks), sound effects: a device 0.1 % slow for three minutes must not leave
     // the effects more than a few tens of milliseconds behind.
     const Run effects = run(rt, 256, 180.0, 0.999);
