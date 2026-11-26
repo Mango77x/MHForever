@@ -178,6 +178,7 @@ std::string install(const fs::path &unpacked, const fs::path &install) {
         bool had_old;
     };
     std::vector<Done> done;
+    std::vector<fs::path> created_dirs;
     const auto undo = [&](std::string error) {
         bool restored = true;
         for (auto it = done.rbegin(); it != done.rend(); ++it) {
@@ -185,6 +186,11 @@ std::string install(const fs::path &unpacked, const fs::path &install) {
             std::error_code e;
             fs::remove(target, e);
             if (!e && it->had_old) fs::rename(backup / "files" / it->relative, target, e);
+            if (e) restored = false;
+        }
+        for (auto it = created_dirs.rbegin(); it != created_dirs.rend(); ++it) {
+            std::error_code e;
+            fs::remove(*it, e); // removes only an empty directory
             if (e) restored = false;
         }
         if (restored) {
@@ -199,8 +205,12 @@ std::string install(const fs::path &unpacked, const fs::path &install) {
     for (const fs::path &relative : files) {
         const fs::path target = install / relative;
         const fs::path old = backup / "files" / relative;
-        fs::create_directories(target.parent_path(), ec);
-        if (ec) return undo("Cannot write in " + platform::to_utf8(target.parent_path()) + ": " + ec.message());
+        fs::path parent = install;
+        for (const auto &part : relative.parent_path()) {
+            parent /= part;
+            if (fs::create_directory(parent, ec)) created_dirs.push_back(parent);
+            if (ec) return undo("Cannot write in " + platform::to_utf8(parent) + ": " + ec.message());
+        }
         const fs::file_status status = fs::symlink_status(target, ec);
         if (ec && status.type() != fs::file_type::not_found) {
             return undo("Cannot check " + platform::to_utf8(relative) + ": " + ec.message());

@@ -750,10 +750,12 @@ int main(int argc, char **argv) {
         std::ofstream(unpacked / "zz_blocked" / "file") << "x";
         std::ofstream(app / "zz_blocked") << "a file where the archive has a folder";
         std::ofstream(unpacked / "MHForever.exe") << "newer launcher";
-        std::ofstream(unpacked / "added.txt") << "new file";
+        fs::create_directories(unpacked / "added" / "nested");
+        std::ofstream(unpacked / "added" / "nested" / "file") << "new file";
         CHECK(!up::install(unpacked, app).empty());
         CHECK(text(app / "MHForever.exe") == "new launcher"); // rolled back
-        CHECK(!fs::exists(app / "added.txt"));
+        CHECK(!fs::exists(app / "added"));
+        CHECK(fs::is_directory(app / "fonts"));
         CHECK(!fs::exists(backup));
         CHECK(text(app / "MHForever.exe.old") == "personal launcher backup");
 
