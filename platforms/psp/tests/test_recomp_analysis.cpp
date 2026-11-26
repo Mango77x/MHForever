@@ -56,7 +56,7 @@ int main() {
     expect_pointer({lui(8u, 0x0800u), addiu(8u, 8u, 0x100u), jr_ra, 0u}, true);
     expect_pointer({lui(8u, 0x0800u), jr_ra, addiu(9u, 8u, 0x100u)}, true);
     // Completing a pair into another register does not overwrite the LUI source.
-    expect_pointer({lui(8u, 0x0800u), ori(9u, 8u, 0x20u),
+    expect_pointer({lui(8u, 0x0800u), ori(9u, 8u, 0x8000u),
                     addiu(10u, 8u, 0x100u), jr_ra, 0u}, true);
 
     // ORI and ADDIU overwrite the tracked register even when their source is unknown.
