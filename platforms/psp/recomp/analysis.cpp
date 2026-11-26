@@ -303,7 +303,8 @@ public:
                 }
                 continue;
             }
-            if ((d.kind == OpcodeKind::Addiu || d.kind == OpcodeKind::Ori) && lui[d.rs]) {
+            // A result written to $zero is discarded, so it is not a pointer.
+            if ((d.kind == OpcodeKind::Addiu || d.kind == OpcodeKind::Ori) && d.rt != 0u && lui[d.rs]) {
                 const std::uint32_t value = d.kind == OpcodeKind::Addiu
                     ? *lui[d.rs] + static_cast<std::uint32_t>(static_cast<std::int32_t>(d.immediate))
                     : *lui[d.rs] | static_cast<std::uint16_t>(d.immediate);

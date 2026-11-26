@@ -74,6 +74,10 @@ int main() {
     // LUI cannot change $zero.
     expect_pointer({lui(0u, 0x0800u), ori(9u, 0u, 0x100u), jr_ra, 0u}, false);
 
+    // Neither can ORI or ADDIU: a pair completed into $zero builds nothing.
+    expect_pointer({lui(8u, 0x0800u), ori(0u, 8u, 0x100u), jr_ra, 0u}, false);
+    expect_pointer({lui(8u, 0x0800u), addiu(0u, 8u, 0x100u), jr_ra, 0u}, false);
+
     // ADDIU sign-extends its immediate: 0x08010000 + 0xFFFF8000 = 0x08008000
     // (zero extension would give 0x08018000).
     expect_pointer({lui(8u, 0x0801u), addiu(9u, 8u, 0x8000u), jr_ra, 0u}, true, far_target);
