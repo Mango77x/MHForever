@@ -57,4 +57,18 @@ constexpr bool resolve_texture_linear(const TextureFilterContext &ctx) noexcept 
     }
 }
 
+struct TextureSampling {
+    bool linear{false};          // GL_LINEAR vs GL_NEAREST magnification (and non-mip minification)
+    bool mip_linear_blend{true}; // GL_*_MIPMAP_LINEAR (true) vs GL_*_MIPMAP_NEAREST (false) when mipmapped
+    bool anisotropy{true};       // apply configured texture-pack anisotropy when mipmapped
+};
+
+// Resolves full sampling policy. Auto and Linear preserve trilinear mip blending (GL_NEAREST_MIPMAP_LINEAR when
+// nearest) and configured anisotropy for mipmapped pack textures; explicit Nearest disables both on nearest draws.
+constexpr TextureSampling resolve_texture_sampling(const TextureFilterContext &ctx) noexcept {
+    const bool linear = resolve_texture_linear(ctx);
+    const bool strict_nearest = !linear && ctx.mode == TextureFilter::Nearest;
+    return {linear, !strict_nearest, !strict_nearest};
+}
+
 } // namespace mhf::psp

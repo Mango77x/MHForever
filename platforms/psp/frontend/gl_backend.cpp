@@ -1172,7 +1172,7 @@ private:
                      std::uint32_t dst_stride, std::uint32_t dx, std::uint32_t dy, std::uint32_t width, std::uint32_t height);
     GLuint compile(const char *vertex, const char *fragment);
     GLint uniform(GLuint program, const char *name) { return gl_.GetUniformLocation(program, name); }
-    void set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips = false);
+    void set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips = false, bool strict_nearest = false);
     // Texture packs (frontend/texture_pack.hpp, texture_images.hpp): opening the pack, its key for the current texture
     // and the image for it, putting a decoded image on the GPU, dumping the game's textures for pack makers, and
     // keeping pack images within their memory budget.
@@ -1859,17 +1859,19 @@ GlBackend::RenderTarget *GlBackend::find_target(std::uint32_t vram_offset, bool 
 
 // ---------------------------------------------------------------- state
 
-void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips) {
+void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips, bool strict_nearest) {
     // Texture pack images: mipmapped filtering over the levels the pack gives (one level, as KHD: the full-size image;
-    // upload_pack_image sets the last level), with anisotropic filtering when linear.
-    const GLint min_filter = mips ? (linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST) : (linear ? GL_LINEAR : GL_NEAREST);
+    // upload_pack_image sets the last level), with anisotropic filtering unless strict Nearest filtering is active.
+    const GLint min_filter = mips
+        ? (linear ? GL_LINEAR_MIPMAP_LINEAR : (strict_nearest ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST_MIPMAP_LINEAR))
+        : (linear ? GL_LINEAR : GL_NEAREST);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, clamp_s ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, clamp_t ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     // The player's level (the menu changes it while playing), up to what the GPU offers.
     const float level = std::clamp(static_cast<float>(live_->texture_pack_anisotropy.load(std::memory_order_relaxed)), 1.0f, anisotropy_);
-    if (anisotropy_ > 1.0f) gl_.TexParameterf(GL_TEXTURE_2D, kGlTextureMaxAnisotropy, (mips && linear) ? level : 1.0f);
+    if (anisotropy_ > 1.0f) gl_.TexParameterf(GL_TEXTURE_2D, kGlTextureMaxAnisotropy, (mips && !strict_nearest) ? level : 1.0f);
 }
 
 textures::TextureFacts texture_facts(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, std::uint16_t max_seen_v);
@@ -4396,7 +4398,7 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
         // also blend in its opposite edge (a faint frame around the minimap), so a sized draw that stays inside its
         // texture clamps. One that repeats it (the dotted line under a menu's title) has to keep repeating.
         const bool resized = setup.hud[0] < 1.0f || setup.wide[0] < 1.0f;
-        const bool linear = resolve_texture_linear({
+        const TextureSampling sampling = resolve_texture_sampling({
             live_->texture_filter.load(std::memory_order_relaxed),
             (R(kTexFilter) & 0x100u) != 0,
             through,
@@ -4406,7 +4408,8 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
             setup.texture_filter,
         });
         const bool clamp = resized && setup.hud_clamp;
-        set_texture_params(linear, clamp || (R(kTexWrap) & 1u) != 0, clamp || (R(kTexWrap) & 0x100u) != 0, setup.texture_mips);
+        set_texture_params(sampling.linear, clamp || (R(kTexWrap) & 1u) != 0, clamp || (R(kTexWrap) & 0x100u) != 0,
+                           setup.texture_mips, !sampling.mip_linear_blend);
     }
 
     gl_.BindFramebuffer(GL_FRAMEBUFFER, rt.fbo);

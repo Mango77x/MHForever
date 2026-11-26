@@ -59,5 +59,29 @@ int main() {
     MHF_CHECK(!resolve_texture_linear({TextureFilter::Nearest, true, false, false, false, false, 0}));
     MHF_CHECK(resolve_texture_linear({TextureFilter::Linear, false, false, false, false, false, 0}));
 
+    // Mipmap blending and anisotropy policy (set_texture_params):
+    // Auto and Linear preserve main's GL_NEAREST_MIPMAP_LINEAR + anisotropy when a mipmapped pack texture resolves to nearest.
+    {
+        const TextureSampling auto_nearest = resolve_texture_sampling({TextureFilter::Auto, false, false, false, false, true, 0});
+        MHF_CHECK(!auto_nearest.linear && auto_nearest.mip_linear_blend && auto_nearest.anisotropy);
+        const TextureSampling auto_pack_nearest = resolve_texture_sampling({TextureFilter::Auto, true, false, false, false, true, 1});
+        MHF_CHECK(!auto_pack_nearest.linear && auto_pack_nearest.mip_linear_blend && auto_pack_nearest.anisotropy);
+        const TextureSampling auto_linear = resolve_texture_sampling({TextureFilter::Auto, true, false, false, false, true, 0});
+        MHF_CHECK(auto_linear.linear && auto_linear.mip_linear_blend && auto_linear.anisotropy);
+        const TextureSampling linear_2d_nearest = resolve_texture_sampling({TextureFilter::Linear, false, true, false, false, true, 0});
+        MHF_CHECK(!linear_2d_nearest.linear && linear_2d_nearest.mip_linear_blend && linear_2d_nearest.anisotropy);
+
+        // Explicit Nearest disables mipmap linear blending and anisotropy on draws that resolve to nearest,
+        // while preserving linear mip blending and anisotropy when a pack [filtering] override or HD text stays linear.
+        const TextureSampling forced_nearest = resolve_texture_sampling({TextureFilter::Nearest, true, false, false, false, true, 0});
+        MHF_CHECK(!forced_nearest.linear && !forced_nearest.mip_linear_blend && !forced_nearest.anisotropy);
+        const TextureSampling forced_nearest_pack = resolve_texture_sampling({TextureFilter::Nearest, true, false, false, false, true, 1});
+        MHF_CHECK(!forced_nearest_pack.linear && !forced_nearest_pack.mip_linear_blend && !forced_nearest_pack.anisotropy);
+        const TextureSampling nearest_pack_linear = resolve_texture_sampling({TextureFilter::Nearest, false, false, false, false, true, 2});
+        MHF_CHECK(nearest_pack_linear.linear && nearest_pack_linear.mip_linear_blend && nearest_pack_linear.anisotropy);
+        const TextureSampling nearest_hd_text = resolve_texture_sampling({TextureFilter::Nearest, false, true, false, true, true, 0});
+        MHF_CHECK(nearest_hd_text.linear && nearest_hd_text.mip_linear_blend && nearest_hd_text.anisotropy);
+    }
+
     return mhf::test::finish("psp_texture_filter");
 }
