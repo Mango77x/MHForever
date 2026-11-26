@@ -6,6 +6,7 @@
 // into an upscaled render target, and presents the displayed one to the window.
 
 #include "backend.hpp"
+#include "frame_pacing_capture.hpp"
 
 #include "psprecomp/guest_memory.hpp"
 
@@ -40,6 +41,7 @@ struct OverlayImage {
 
 // What the player can change while the game runs (read by the GE thread).
 struct LiveSettings {
+    FramePacingCapture frame_pacing;
     std::atomic<bool> smooth_textures{false};
     // Requests for the drawing thread, taken at the start of the next picture (0 = none): the internal resolution
     // multiplier (1..10) and the output rate in fps (a multiple of 30 up to 180).

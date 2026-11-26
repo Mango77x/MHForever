@@ -88,7 +88,7 @@ public:
     [[nodiscard]] std::vector<CapturedInput> take_captured();
     // The system clipboard's text ("" when it holds none), and putting text there.
     [[nodiscard]] std::string clipboard_text() const;
-    void set_clipboard_text(const std::string &text);
+    bool set_clipboard_text(const std::string &text);
     // Shows or hides the mouse cursor over the window.
     void show_cursor(bool show);
     // Mouse look: while on (and the window has the focus), the mouse is held in the window with its pointer hidden, and
