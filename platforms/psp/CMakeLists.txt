@@ -91,6 +91,7 @@ if(MHF_BUILD_TESTS)
     target_link_libraries(test_adhocctl_server PRIVATE mhf_psp_runtime)
     mhf_target_warnings(test_adhocctl_server)
     add_test(NAME psp_adhocctl_server COMMAND test_adhocctl_server)
+    set_tests_properties(psp_adhocctl_server PROPERTIES SKIP_RETURN_CODE 77)
 
     add_executable(test_save_crypto tests/test_save_crypto.cpp)
     target_include_directories(test_save_crypto PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)

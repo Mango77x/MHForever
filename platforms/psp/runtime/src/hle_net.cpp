@@ -120,7 +120,7 @@ void start_link(NetState &s) {
         s.adhocctl->add_hall_prefix(prefix);
     }
     if (!o.adhoc_room.empty()) {
-        NET_TRACE("private room %s", s.room.empty() ? "(not a valid code: public halls)" : s.room.c_str());
+        NET_TRACE("room mode: %s", s.room.empty() ? "public (invalid code)" : "private");
     }
     NetState *state = &s;
     s.rt->kernel().pollers.push_back([state] {
@@ -402,7 +402,7 @@ void Runtime::set_adhoc_room(std::string_view code) {
     hle::NetState &s = hle::net_state(*this);
     s.room = adhoc::normalize_room_code(code);
     s.adhocctl->set_room(s.room);
-    NET_TRACE("room changed: %s", s.room.empty() ? "public halls" : s.room.c_str());
+    NET_TRACE("room changed: %s", s.room.empty() ? "public halls" : "private");
 }
 
 std::string Runtime::adhoc_room() { return hle::net_state(*this).room; }

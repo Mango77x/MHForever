@@ -4,7 +4,7 @@
 // Then the sockets over the same server's relay: datagrams both ways (and one that does not fit), a stream between a listening
 // socket and a connecting one, and the end of the stream when one side closes.
 //
-// Needs a server, so it only runs when MHF_ADHOC_TEST_SERVER is set ("host" or "host:port"); otherwise it passes at once.
+// Needs a server, so it only runs when MHF_ADHOC_TEST_SERVER is set ("host" or "host:port"); otherwise CTest reports it as skipped.
 // Not part of the game data tests: it uses made-up product codes and nicknames.
 
 #include "adhoc_link_aemu.hpp"
@@ -68,7 +68,7 @@ int main() {
     const char *server = std::getenv("MHF_ADHOC_TEST_SERVER");
     if (server == nullptr || server[0] == '\0') {
         std::printf("psp_adhocctl_server: no MHF_ADHOC_TEST_SERVER, skipped\n");
-        return 0;
+        return 77;
     }
 
     // The aemu client does not allow two sessions to be created at the same time (it shares a table of slots), so the second
