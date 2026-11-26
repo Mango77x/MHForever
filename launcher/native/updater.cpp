@@ -20,6 +20,9 @@ namespace fs = std::filesystem;
 
 namespace {
 
+constexpr char kBackupDir[] = ".mhforever-update-backup";
+constexpr char kComplete[] = "complete";
+
 // "v0.6.3-beta" -> {0, 6, 3}
 std::vector<int> parts(std::string_view version) {
     if (!version.empty() && (version.front() == 'v' || version.front() == 'V')) version.remove_prefix(1);
@@ -155,53 +158,83 @@ std::string install(const fs::path &unpacked, const fs::path &install) {
     }
     if (ec) return "Cannot read the unpacked update: " + ec.message();
     if (files.empty()) return "The update archive is empty.";
+    // Reserve a directory on the same volume so a running Windows executable can be renamed.
+    // An unmarked directory may contain the only copy of files from an interrupted update.
+    const fs::path backup = install / kBackupDir;
+    for (const fs::path &relative : files) {
+        if (lower(platform::to_utf8(*relative.begin())) == kBackupDir) {
+            return "The update archive contains the reserved backup directory.";
+        }
+    }
+    fs::create_directories(install, ec);
+    if (ec) return "Cannot open the installation directory: " + ec.message();
+    if (!fs::create_directory(backup, ec)) {
+        return "Cannot reserve the update backup directory " + platform::to_utf8(backup) +
+               (ec ? ": " + ec.message() : ". A previous or active update still has backups there.");
+    }
+
     struct Done {
-        fs::path target;
+        fs::path relative;
         bool had_old;
     };
     std::vector<Done> done;
-    const auto undo = [&] {
+    const auto undo = [&](std::string error) {
+        bool restored = true;
         for (auto it = done.rbegin(); it != done.rend(); ++it) {
+            const fs::path target = install / it->relative;
             std::error_code e;
-            fs::remove(it->target, e);
-            if (it->had_old) fs::rename(fs::path(it->target.native() + fs::path(".old").native()), it->target, e);
+            fs::remove(target, e);
+            if (!e && it->had_old) fs::rename(backup / "files" / it->relative, target, e);
+            if (e) restored = false;
         }
+        if (restored) {
+            std::error_code e;
+            fs::remove_all(backup, e);
+            if (!e) return error;
+        }
+        return error + " Automatic rollback or cleanup was incomplete. Check " + platform::to_utf8(backup) + ".";
     };
+
+    std::sort(files.begin(), files.end());
     for (const fs::path &relative : files) {
         const fs::path target = install / relative;
-        const fs::path old = fs::path(target.native() + fs::path(".old").native());
+        const fs::path old = backup / "files" / relative;
         fs::create_directories(target.parent_path(), ec);
-        if (ec) {
-            undo();
-            return "Cannot write in " + platform::to_utf8(target.parent_path()) + ": " + ec.message();
+        if (ec) return undo("Cannot write in " + platform::to_utf8(target.parent_path()) + ": " + ec.message());
+        const fs::file_status status = fs::symlink_status(target, ec);
+        if (ec && status.type() != fs::file_type::not_found) {
+            return undo("Cannot check " + platform::to_utf8(relative) + ": " + ec.message());
         }
-        const bool exists = fs::exists(target, ec);
+        const bool exists = fs::exists(status);
         if (exists) {
-            fs::remove(old, ec); // from an earlier update; still in use only if that launcher is somehow running
-            fs::rename(target, old, ec);
-            if (ec) {
-                undo();
-                return "Cannot replace " + platform::to_utf8(relative) + ": " + ec.message();
+            if (!fs::is_regular_file(target, ec)) {
+                return undo("Cannot replace " + platform::to_utf8(relative) + ": not a regular file.");
             }
+            fs::create_directories(old.parent_path(), ec);
+            if (!ec) fs::rename(target, old, ec);
+            if (ec) return undo("Cannot replace " + platform::to_utf8(relative) + ": " + ec.message());
         }
-        done.push_back({target, exists});
-        fs::copy_file(unpacked / relative, target, fs::copy_options::overwrite_existing, ec);
-        if (ec) {
-            undo();
-            return "Cannot write " + platform::to_utf8(relative) + ": " + ec.message();
-        }
+        done.push_back({relative, exists});
+        fs::copy_file(unpacked / relative, target, fs::copy_options::none, ec);
+        if (ec) return undo("Cannot write " + platform::to_utf8(relative) + ": " + ec.message());
     }
+    fs::create_directory(backup / kComplete, ec);
+    if (ec) return undo("Cannot mark the update backup as complete: " + ec.message());
     return {};
 }
 
 void remove_old(const fs::path &install) {
+    const fs::path backup = install / kBackupDir;
+    const fs::path complete = backup / kComplete;
     std::error_code ec;
-    std::vector<fs::path> old;
-    for (auto it = fs::recursive_directory_iterator(install, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
-        std::error_code e;
-        if (it->is_regular_file(e) && it->path().extension() == ".old") old.push_back(it->path());
-    }
-    for (const fs::path &file : old) fs::remove(file, ec);
+    if (!fs::is_directory(fs::symlink_status(backup, ec)) ||
+        !fs::is_directory(fs::symlink_status(complete, ec))) return;
+    // Claim cleanup by removing the marker. A concurrent launcher must leave the directory alone.
+    if (!fs::remove(complete, ec)) return;
+    fs::remove_all(backup / "files", ec);
+    if (!ec && fs::remove(backup, ec)) return;
+    // For example, a previous launcher may still have one of the Windows files open.
+    fs::create_directory(complete, ec);
 }
 
 std::string download(const std::string &url, const fs::path &to, std::uint64_t expected_size, const Progress &progress,
@@ -274,7 +307,7 @@ std::string apply(const Release &release, const fs::path &work, const fs::path &
     for (const auto &entry : fs::directory_iterator(unpacked, ec)) entries.push_back(entry.path());
     if (entries.size() == 1 && fs::is_directory(entries.front(), ec)) top = entries.front();
     if (std::string error = update::install(top, install); !error.empty()) {
-        return error + " Nothing was changed; the new version can be downloaded from its release page.";
+        return error + " The new version can be downloaded from its release page.";
     }
     fs::remove(archive, ec);
     fs::remove_all(unpacked, ec);

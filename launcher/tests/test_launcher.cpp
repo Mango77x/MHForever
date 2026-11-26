@@ -721,29 +721,49 @@ int main(int argc, char **argv) {
         fs::remove_all(root);
         fs::create_directories(app / "fonts");
         fs::create_directories(unpacked / "fonts");
+        const auto text = [](const fs::path &p) { std::ifstream in(p); std::string t; std::getline(in, t); return t; };
+        const fs::path backup = app / ".mhforever-update-backup";
         std::ofstream(app / "MHForever.exe") << "old launcher";
         std::ofstream(app / "fonts" / "a.ttf") << "old font";
         std::ofstream(app / "game.log") << "mine";
+        std::ofstream(app / "MHForever.exe.old") << "personal launcher backup";
+        std::ofstream(app / "fonts" / "personal.old") << "personal nested file";
+        up::remove_old(app);
+        CHECK(text(app / "MHForever.exe.old") == "personal launcher backup");
+        CHECK(text(app / "fonts" / "personal.old") == "personal nested file");
         std::ofstream(unpacked / "MHForever.exe") << "new launcher";
         std::ofstream(unpacked / "fonts" / "a.ttf") << "new font";
         std::ofstream(unpacked / "fonts" / "b.ttf") << "added";
         CHECK(up::install(unpacked, app).empty());
-        const auto text = [](const fs::path &p) { std::ifstream in(p); std::string t; std::getline(in, t); return t; };
         CHECK(text(app / "MHForever.exe") == "new launcher");
         CHECK(text(app / "fonts" / "a.ttf") == "new font");
         CHECK(text(app / "fonts" / "b.ttf") == "added");
         CHECK(text(app / "game.log") == "mine"); // not in the archive: untouched
-        CHECK(text(app / "MHForever.exe.old") == "old launcher");
+        CHECK(text(backup / "files" / "MHForever.exe") == "old launcher");
+        CHECK(text(backup / "files" / "fonts" / "a.ttf") == "old font");
         up::remove_old(app);
-        CHECK(!fs::exists(app / "MHForever.exe.old") && !fs::exists(app / "fonts" / "a.ttf.old"));
-        // A file that cannot be written (a folder in its place) puts everything back.
+        CHECK(!fs::exists(backup));
+        CHECK(text(app / "MHForever.exe.old") == "personal launcher backup");
+        CHECK(text(app / "fonts" / "personal.old") == "personal nested file");
+        // A conflicting directory path after earlier replacements puts those files back.
         fs::create_directories(unpacked / "zz_blocked");
         std::ofstream(unpacked / "zz_blocked" / "file") << "x";
         std::ofstream(app / "zz_blocked") << "a file where the archive has a folder";
         std::ofstream(unpacked / "MHForever.exe") << "newer launcher";
+        std::ofstream(unpacked / "added.txt") << "new file";
         CHECK(!up::install(unpacked, app).empty());
         CHECK(text(app / "MHForever.exe") == "new launcher"); // rolled back
-        CHECK(!fs::exists(app / "MHForever.exe.old"));
+        CHECK(!fs::exists(app / "added.txt"));
+        CHECK(!fs::exists(backup));
+        CHECK(text(app / "MHForever.exe.old") == "personal launcher backup");
+
+        // Startup and a retry preserve the backups of an unfinished install.
+        fs::create_directories(backup / "files");
+        std::ofstream(backup / "files" / "MHForever.exe") << "interrupted update backup";
+        up::remove_old(app);
+        CHECK(!up::install(unpacked, app).empty());
+        CHECK(text(backup / "files" / "MHForever.exe") == "interrupted update backup");
+        CHECK(text(app / "MHForever.exe") == "new launcher");
         const fs::path hashed = root / "hashed.bin";
         std::ofstream(hashed, std::ios::binary) << "abc";
         CHECK(up::sha256_of(hashed) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");

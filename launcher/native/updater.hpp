@@ -36,11 +36,11 @@ std::optional<Release> pick(const Json &release, std::string_view suffix);
 // Lowercase hex SHA-256 of a file ("" when it cannot be read).
 std::string sha256_of(const std::filesystem::path &file);
 
-// Puts every file of `unpacked` in `install`, at the same relative path. A file it replaces is first renamed to
-// <name>.old (Windows lets a running program be renamed, not overwritten); if anything fails, every file is put back as
-// it was. Files of `install` the archive does not have are left alone. Returns an error message, empty on success.
+// Puts every file of `unpacked` in `install`, at the same relative path. Replaced files are moved into an updater-owned
+// backup directory. An install error triggers rollback, retaining backups if restoration fails.
+// Returns an error message, empty on success.
 std::string install(const std::filesystem::path &unpacked, const std::filesystem::path &install);
-// Deletes the <name>.old files a previous update left in `install` (the running launcher can only do it once restarted).
+// Deletes backups from a completed update after the launcher restarts.
 void remove_old(const std::filesystem::path &install);
 
 // Downloads `url` to `to` with the system's curl, calling `progress` with the fraction done when the size is known.
@@ -58,8 +58,7 @@ std::string latest_release_url();
 // says why).
 std::optional<Release> check(const std::filesystem::path &work, std::string_view current, std::string &error);
 // Downloads `release`, checks its SHA-256, unpacks it and puts its files in `install`, reporting each phase
-// ("downloading" with the fraction done, "verifying", "installing"). Nothing is changed unless every step works. Returns an
-// error message, empty on success.
+// ("downloading" with the fraction done, "verifying", "installing"). Returns an error message, empty on success.
 using Phase = std::function<void(const char *, double)>;
 std::string apply(const Release &release, const std::filesystem::path &work, const std::filesystem::path &install,
                   const Phase &phase);
