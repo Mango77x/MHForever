@@ -15,6 +15,54 @@ std::string_view hlsl_source() noexcept {
     return {reinterpret_cast<const char *>(kSmaaHlsl), kSmaaHlslSize};
 }
 
+// Strip block comments and normalize line endings so strict GLSL 330 compilers do not reject
+// trailing '\' characters in SMAA.hlsl's ASCII banner as GLSL 420+ line continuations, while
+// keeping third_party/smaa/SMAA.hlsl verbatim upstream. Preserves newlines for diagnostics.
+std::string sanitize_glsl330(std::string_view src) {
+    std::string out;
+    out.reserve(src.size());
+    bool in_line_comment = false;
+    bool in_block_comment = false;
+    for (std::size_t i = 0; i < src.size(); ++i) {
+        const char c = src[i];
+        const char next = i + 1 < src.size() ? src[i + 1] : '\0';
+        if (in_block_comment) {
+            if (c == '*' && next == '/') {
+                in_block_comment = false;
+                ++i;
+                out.push_back(' ');
+            } else if (c == '\n') {
+                out.push_back('\n');
+            }
+            continue;
+        }
+        if (in_line_comment) {
+            if (c == '\n') {
+                in_line_comment = false;
+                while (!out.empty() && (out.back() == ' ' || out.back() == '\t')) out.pop_back();
+                while (!out.empty() && out.back() == '\\') out.pop_back();
+                out.push_back('\n');
+            } else if (c != '\r') {
+                out.push_back(c);
+            }
+            continue;
+        }
+        if (c == '/' && next == '*') {
+            in_block_comment = true;
+            ++i;
+            continue;
+        }
+        if (c == '/' && next == '/') {
+            in_line_comment = true;
+            out.append("//");
+            ++i;
+            continue;
+        }
+        if (c != '\r') out.push_back(c);
+    }
+    return out;
+}
+
 std::string build_stage(bool is_vs, const char *entry) {
     const char *preamble = is_vs
         ? "#version 330 core\n"
@@ -31,7 +79,7 @@ std::string build_stage(bool is_vs, const char *entry) {
           "#define SMAA_INCLUDE_PS 1\n"
           "uniform vec4 u_smaa_metrics;\n"
           "#define SMAA_RT_METRICS u_smaa_metrics\n";
-    const std::string_view body = hlsl_source();
+    const std::string body = sanitize_glsl330(hlsl_source());
     std::string out;
     out.reserve(body.size() + 1024u);
     out.append(preamble);

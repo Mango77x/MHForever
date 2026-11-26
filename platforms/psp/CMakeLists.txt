@@ -96,6 +96,28 @@ if(MHF_BUILD_TESTS)
     mhf_target_warnings(test_smaa)
     add_test(NAME psp_smaa COMMAND test_smaa)
 
+    if(MHF_WITH_SDL)
+        add_executable(test_smaa_gl tests/test_smaa_gl.cpp)
+        target_include_directories(test_smaa_gl PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+        target_link_libraries(test_smaa_gl PRIVATE mhf_smaa_shaders SDL3::SDL3-static)
+        mhf_target_warnings(test_smaa_gl)
+        add_test(NAME psp_smaa_gl COMMAND test_smaa_gl)
+        set_tests_properties(psp_smaa_gl PROPERTIES SKIP_RETURN_CODE 77 LABELS opengl)
+        if(NOT WIN32)
+            set_tests_properties(psp_smaa_gl PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+        endif()
+    endif()
+
+    find_program(MHF_GLSLANG_VALIDATOR NAMES glslangValidator)
+    if(MHF_GLSLANG_VALIDATOR)
+        add_test(NAME psp_smaa_glslang
+                 COMMAND ${CMAKE_COMMAND}
+                     -DTEST_SMAA=$<TARGET_FILE:test_smaa>
+                     -DGLSLANG=${MHF_GLSLANG_VALIDATOR}
+                     -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/smaa_glslang_check
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_smaa_glslang.cmake)
+    endif()
+
     add_executable(test_adhocctl tests/test_adhocctl.cpp)
     target_include_directories(test_adhocctl PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src)
     target_link_libraries(test_adhocctl PRIVATE mhf_psp_runtime)
