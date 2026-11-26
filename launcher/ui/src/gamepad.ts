@@ -70,7 +70,7 @@ export function back() {
 
 function activate() {
   const el = document.activeElement as HTMLElement | null;
-  if (el && el !== document.body) el.click();
+  if (el && el !== document.body && scopeRoot().contains(el)) el.click();
   else move('down');
 }
 
