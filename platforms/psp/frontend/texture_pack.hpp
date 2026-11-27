@@ -71,6 +71,16 @@ enum class Filter { Auto, Nearest, Linear };
 struct Entry {
     std::map<int, std::string> levels;
     [[nodiscard]] const std::string &image() const { return levels.begin()->second; }
+    // For the loader and GPU cache: include every mip file, with unambiguous filename boundaries.
+    [[nodiscard]] std::string image_id() const {
+        std::string id;
+        for (const auto &[level, name] : levels) {
+            id += std::to_string(name.size());
+            id += ':';
+            id += name;
+        }
+        return id;
+    }
     [[nodiscard]] bool keeps_original() const { return levels.empty() || levels.begin()->second.empty(); }
 };
 

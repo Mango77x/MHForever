@@ -254,5 +254,37 @@ int main() {
         MHF_CHECK(loader.get("a", {dir.path / "pack" / "a.png"}, got) == Loader::State::Loading); // decoded again on demand
     }
 
+    // A shared base image with distinct mip files must load correctly in either order.
+    const Entry red{{{0, "base.png"}, {1, "red.png"}}};
+    const Entry blue{{{0, "base.png"}, {1, "blue.png"}}};
+    write_test_png(dir.path / "base.png", 8);
+    for (const Entry *entry : {&red, &blue}) {
+        const std::vector<std::uint32_t> pixels(16, entry == &red ? 0xFF0000FFu : 0xFFFF0000u);
+        MHF_CHECK(write_png(dir.path / entry->levels.at(1), 4, 4, pixels.data()));
+    }
+    for (const Entry *first : {&red, &blue}) {
+        Loader loader(1);
+        const auto load = [&](const Entry &entry) {
+            std::vector<fs::path> files;
+            for (const auto &[level, name] : entry.levels) files.push_back(dir.path / name);
+            std::shared_ptr<const Image> result;
+            const auto id = entry.image_id();
+            const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (loader.get(id, files, result) == Loader::State::Loading && std::chrono::steady_clock::now() < until)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            return result;
+        };
+        for (const Entry *entry : {first, first == &red ? &blue : &red}) {
+            const auto image = load(*entry);
+            MHF_CHECK(image && image->levels.size() == 2);
+            if (image && image->levels.size() == 2) {
+                const auto &mip = image->levels[1];
+                MHF_CHECK(mip.size() == 64 && mip[0] == (entry == &red ? 255 : 0) && mip[2] == (entry == &blue ? 255 : 0));
+            }
+            MHF_CHECK(load(Entry{entry->levels}) == image);
+        }
+        MHF_CHECK(loader.counters().decoded == 2);
+    }
+
     return mhf::test::finish("texture_pack");
 }
