@@ -21,6 +21,21 @@ def run(tool, *args, cwd=None):
     return subprocess.run([tool, *args], capture_output=True, text=True, cwd=cwd, check=False).stdout
 
 
+def resident_library_names(objdump, objects):
+    names = set()
+    for obj in objects:
+        dump = run(objdump, "-s", "-j", ".rodata.sceResident", obj)
+        text = b""
+        for line in dump.splitlines():
+            m = re.match(r"^ [0-9a-f]{4} ((?:[0-9a-f]{2,8} ?)+)", line)
+            if m:
+                text += bytes.fromhex("".join(m.group(1).split()))
+        name = text.partition(b"\0")[0]
+        if name:
+            names.add(name.decode("latin1"))
+    return names
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pspdev", default=os.environ.get("PSPDEV", "/opt/pspdev"))
@@ -34,28 +49,22 @@ def main():
             target = os.path.join(work, os.path.basename(archive))
             os.makedirs(target)
             run(ar, "x", archive, cwd=target)
-            # Archives whose objects are not named "<library>_NNNN.o" declare one library in their stub header.
-            header_names = set()
-            for obj in glob.glob(os.path.join(target, "*.o")):
-                dump = run(objdump, "-s", "-j", ".rodata.sceResident", obj)
-                text = b""
-                for line in dump.splitlines():
-                    m = re.match(r"^ [0-9a-f]{4} ((?:[0-9a-f]{2,8} ?)+)", line)
-                    if m:
-                        text += bytes.fromhex("".join(m.group(1).split()))
-                if text.split(b"\0")[0]:
-                    header_names.add(text.split(b"\0")[0].decode("latin1"))
-            for obj in sorted(glob.glob(os.path.join(target, "*.o"))):
+            objects = sorted(glob.glob(os.path.join(target, "*.o")))
+            header_names = None
+            for obj in objects:
                 stem = os.path.basename(obj)[:-2]
                 m = re.match(r"^(.+)_\d{4}$", stem)
                 if m and not m.group(1).startswith("__sceSas"):
                     library = m.group(1)
                 elif stem.startswith("__sceSas"):
                     library = "sceSasCore"  # libpspsas names its objects after the functions
-                elif len(header_names) == 1:
-                    library = next(iter(header_names))
                 else:
-                    continue
+                    # An unnamed object needs the library declared by the whole archive.
+                    if header_names is None:
+                        header_names = resident_library_names(objdump, objects)
+                    if len(header_names) != 1:
+                        continue
+                    library = next(iter(header_names))
                 if EXCLUDED.search(library):
                     continue
                 stubs = set()
