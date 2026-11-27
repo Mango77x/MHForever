@@ -632,7 +632,8 @@ void mouse_aim(Runtime &rt, float dx, float dy) {
     const float speed = g_mouse_speed.load() / kMousePixelsPerPush;
     // Left turns the aim up the angle, as the d-pad's Left; a turn and a raise too small for a whole step carry over.
     const float turn = std::clamp(-dx * speed, -kMouseMostPush, kMouseMostPush) * kAimTurnPerPush + g_aim_turn_rest;
-    const long whole_turn = std::lround(turn);
+    // Keep a stationary axis still: rounding its carried half-step again would reverse the last step.
+    const long whole_turn = dx == 0.0f ? 0L : std::lround(turn);
     g_aim_turn_rest = turn - static_cast<float>(whole_turn);
     if (whole_turn != 0) {
         const auto yaw = static_cast<std::uint16_t>(memory.load16(player + kPlayerAimYaw) + static_cast<std::uint16_t>(whole_turn));
@@ -640,7 +641,7 @@ void mouse_aim(Runtime &rt, float dx, float dy) {
         memory.store16(player + kPlayerAimYawCopy, yaw);
     }
     const float raise = std::clamp(-dy * speed, -kMouseMostPush, kMouseMostPush) * kAimRaisePerPush + g_aim_raise_rest;
-    const long whole_raise = std::lround(raise);
+    const long whole_raise = dy == 0.0f ? 0L : std::lround(raise);
     g_aim_raise_rest = raise - static_cast<float>(whole_raise);
     if (whole_raise != 0) {
         const int height = std::clamp(static_cast<int>(static_cast<std::int8_t>(memory.load8(player + kPlayerAimHeight))) +
