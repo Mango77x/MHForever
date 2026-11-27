@@ -35,7 +35,8 @@ export function move(dir: Dir) {
     return;
   }
   if (current instanceof HTMLInputElement && current.type === 'range' && (dir === 'left' || dir === 'right')) {
-    const step = Number(current.step || 1) * 5;
+    // Use each camera setting's own increment. Volume sliders omit step and move by five.
+    const step = Number(current.step || 5);
     const next = Math.min(Number(current.max), Math.max(Number(current.min), Number(current.value) + (dir === 'right' ? step : -step)));
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
     setter?.call(current, String(next));
