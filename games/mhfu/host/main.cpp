@@ -227,6 +227,35 @@ bool scene_record_at(psprecomp::GuestMemory &memory, const mhf::psp::Program &ov
            screen >= overlay.code_start && screen < overlay.code_end;
 }
 
+// The skipped screens are also where the game loads its sounds: the violence notice (Europe and North America) or the
+// company logo (Japan) loads the sound effects, one set a frame, and the company logo the sound banks, one a frame, each
+// by a step function of demo_sub.ovl that the screen calls every frame until it reports done. Without them the title
+// screen and the menus are silent. So while the title screen runs, the host takes the same steps for it, in the same
+// order; it is done within about a second. Once per start: later visits to the title (after quitting a game) come by
+// the game's own shortcut, with the sounds already in.
+constexpr bool kIntroSoundsMapped = kSkipIntroMapped && region::mh_intro_sound_sets.has_value() &&
+                                    region::mh_intro_sound_banks.has_value() && region::mh_intro_sub.has_value();
+bool g_intro_sounds_done = false;
+
+void on_intro_title_screen([[maybe_unused]] Runtime &rt, [[maybe_unused]] Context &ctx) {
+    if constexpr (kIntroSoundsMapped) {
+        if (!g_skip_intro || g_intro_sounds_done) return;
+        const mhf::psp::Program *sub = rt.active_overlay_at(*region::mh_intro_sound_banks);
+        if (sub == nullptr || !std::string_view(sub->name).ends_with("_ovl_demo_sub")) return;
+        const std::uint32_t object = rt.memory().load32(*region::mh_intro_sub);
+        if (object == 0 || !rt.memory().contains(object)) return;
+        constexpr std::uint8_t kSetsLoaded = 0x02, kBanksLoaded = 0x04; // the flags the two steps set when done
+        const std::uint8_t flags = rt.memory().load8(object);
+        if ((flags & kBanksLoaded) != 0) {
+            g_intro_sounds_done = true;
+            return;
+        }
+        Context call = ctx;
+        call.gpr[4] = object;
+        rt.call(call, (flags & kSetsLoaded) != 0 ? *region::mh_intro_sound_banks : *region::mh_intro_sound_sets);
+    }
+}
+
 // When demo_task has just been loaded: points the screen after the memory stick check at the title screen. Nothing is
 // written unless both words hold such records of that overlay, so a release whose data differs keeps its intro.
 void skip_intro(Runtime &rt) {
@@ -1123,6 +1152,7 @@ int main(int argc, char **argv) {
         if (g_gathering.indicators || g_gathering.automatic_tools) load_gathering_icons();
         runtime.register_hook("mh_gathering_prompt_update", &on_gathering_update);
         runtime.register_hook("mh_draw_wait", &on_draw_wait); // sleeps through the game's wait for its drawing
+        runtime.register_hook("mh_intro_title_screen", &on_intro_title_screen); // --skip-intro's sound banks
         if (smithy_layout) smithy_browse = true; // the layout scrolls the list with Info open
         if (smithy_browse && kSmithyBrowseMapped) {
             for (const char *patch : kSmithyBrowsePatches) runtime.enable_patch(patch);
