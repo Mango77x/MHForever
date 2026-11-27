@@ -125,7 +125,8 @@ struct Frontend::Impl {
     bool open{};
     bool gpu{};
     int render_scale{4};
-    bool smooth_textures{};
+    TextureFilter texture_filter{TextureFilter::Auto};
+    bool texture_filter_changed{}; // the player changed Texture filtering in the in-game menu: write it back to the launcher
     int target_fps{30};
     std::atomic<int> gpu_state{0};
     // System dialogs drawn over the game. Drawing one takes a few tens of milliseconds at 4x, so a worker thread
@@ -167,6 +168,7 @@ struct Frontend::Impl {
     std::function<bool()> mouse_look;               // set_mouse_look
     bool hud_size_changed{}; // the Video tab changed the HUD's size: the controls file keeps it
     bool widescreen_known{}; // widescreen came from the launcher or the Video tab changed it: the controls file keeps it
+    bool smaa_known{}; // SMAA came from the launcher or the Video tab changed it: the controls file keeps it
     bool pack_filter_changed{}; // the Video tab changed the texture pack's mipmaps or anisotropic filtering: kept too
     bool shadows_known{}; // the shadows' settings came from the launcher or the Video tab changed them: the controls file keeps them
     // The game supports them (it called set_widescreen / set_shadows: camera hooks, zones): only then does the Video tab
@@ -336,7 +338,7 @@ Frontend::~Frontend() {
 }
 
 bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int render_scale, bool fullscreen,
-                    bool smooth_textures, int target_fps) {
+                    TextureFilter texture_filter, int target_fps) {
     host::HostOptions o;
     o.title = title;
     o.hidden = hidden;
@@ -344,7 +346,7 @@ bool Frontend::open(const char *title, bool hidden, int scale, bool gpu, int ren
     o.opengl = gpu;
     impl_->gpu = gpu;
     impl_->render_scale = render_scale;
-    impl_->smooth_textures = smooth_textures;
+    impl_->texture_filter = texture_filter;
     impl_->target_fps = target_fps;
     impl_->title = title;
     impl_->open = impl_->host.open(o);
@@ -382,6 +384,11 @@ void Frontend::set_widescreen(bool on) {
     impl_->live.widescreen = on;
     impl_->widescreen_known = true;
     impl_->widescreen_offered = true;
+}
+
+void Frontend::set_smaa(bool on) {
+    impl_->live.smaa = on;
+    impl_->smaa_known = true;
 }
 
 float Frontend::game_aspect() const { return impl_->live.wide_aspect.load(std::memory_order_relaxed); }
@@ -681,7 +688,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 }
 
 enum MenuId {
-    kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kHudSize, kSongPlace, kSongMove, kPadStick, kRestoreKeys, kRestorePad,
+    kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kTextureFilter, kSmaa, kTexturePack, kHudSize, kSongPlace, kSongMove, kPadStick, kRestoreKeys, kRestorePad,
     kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn, kPackMipmaps, kAnisotropy, kShadow, kShadowStrength, kShadowWholeMap, kShadowQuality, kWidescreen
 };
 constexpr int kGameOptionBase = 3000; // the Game tab's options of the game: kGameOptionBase + an index into Impl::game_options
@@ -997,9 +1004,15 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
     }
     fps.value = fps_index;
     fps.detail = "Frames above 30 fps are interpolated.";
+    overlay::MenuItem tex_filter = menu_item(Kind::Choice, kTextureFilter, "Texture filtering",
+                                             static_cast<int>(impl.live.texture_filter.load()));
+    tex_filter.options = {"Auto", "Linear", "Nearest"};
+    tex_filter.detail = "Controls how the game's textures are filtered.";
+    overlay::MenuItem smaa = menu_item(Kind::Toggle, kSmaa, "Anti-aliasing (SMAA)", impl.live.smaa ? 1 : 0);
+    smaa.detail = "Smooths jagged 3D edges without blurring textures.";
     overlay::MenuTab video{"Video", {scale, fps,
                                       menu_item(Kind::Toggle, kFullscreen, "Fullscreen", impl.host.window_rect().fullscreen ? 1 : 0),
-                                      menu_item(Kind::Toggle, kSmooth, "Smooth textures", impl.live.smooth_textures ? 1 : 0)},
+                                      tex_filter, smaa},
                            "Changes apply immediately."};
     if (impl.gpu_state == 1 && impl.widescreen_offered) { // the GPU renderer stretches the picture; the software one draws the PSP's screen as it is
         overlay::MenuItem wide = menu_item(Kind::Toggle, kWidescreen, "Widescreen", impl.live.widescreen ? 1 : 0);
@@ -1100,6 +1113,10 @@ void save_controls(const Frontend::Impl &impl) {
         if (impl.songs_offered) out << "horn-songs=" << (impl.songs_on ? "true" : "false") << "\n";
         if (impl.hud_size_changed) out << "hud-size=" << impl.live.hud_size.load() << "\n";
         if (impl.widescreen_known) out << "option.widescreen=" << (impl.live.widescreen ? "true" : "false") << "\n";
+        if (impl.smaa_known) out << "option.smaa=" << (impl.live.smaa ? "true" : "false") << "\n";
+        if (impl.texture_filter_changed) {
+            out << "option.textureFilter=" << texture_filter_name(impl.live.texture_filter.load()) << "\n";
+        }
         if (impl.pack_filter_changed) {
             out << "option.packMipmaps=" << (impl.live.texture_pack_mipmaps ? "true" : "false") << "\n";
             out << "option.anisotropy=" << impl.live.texture_pack_anisotropy.load() << "\n";
@@ -1436,7 +1453,18 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
         case kMusic:impl.music_volume = e.value; apply_volumes(impl, rt); break;
         case kSfx: impl.sfx_volume = e.value; apply_volumes(impl, rt); break;
         case kFullscreen: impl.host.toggle_fullscreen(); break;
-        case kSmooth: impl.live.smooth_textures = e.value != 0; break;
+        case kTextureFilter:
+            if (e.value >= 0 && e.value <= 2) {
+                impl.live.texture_filter = static_cast<TextureFilter>(e.value);
+                impl.texture_filter_changed = true;
+                save_controls(impl);
+            }
+            break;
+        case kSmaa:
+            impl.live.smaa = e.value != 0;
+            impl.smaa_known = true;
+            save_controls(impl);
+            break;
         case kTexturePack:
             impl.live.texture_pack = e.value != 0;
             refresh_menu(impl); // its mipmaps and anisotropic filtering show with it
@@ -1925,7 +1953,7 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
     impl->runtime = runtime;
     impl->music_volume = rt.options().music_volume;
     impl->sfx_volume = rt.options().sfx_volume;
-    impl->live.smooth_textures = impl->smooth_textures;
+    impl->live.texture_filter = impl->texture_filter;
     if (std::error_code ec; rt.options().custom_font.empty() || !std::filesystem::is_regular_file(rt.options().custom_font, ec)) {
         // Kaneda's HD text is drawn over Liberation Sans: with a font of the player's, the text is drawn from that font.
         const std::u8string folder = (rt.options().font_directory / "hd-text").u8string();
@@ -1934,7 +1962,7 @@ void Frontend::attach(Runtime &rt, std::function<void()> extra) {
     if (impl->gpu && impl->open) {
         set_gpu_backend_factory(rt, [impl, runtime]() -> std::unique_ptr<gpu::Backend> {
             auto backend = make_gl_backend(static_cast<SDL_Window *>(impl->host.window_handle()), impl->render_scale,
-                                           runtime->memory(), impl->smooth_textures, &impl->overlay, impl->target_fps,
+                                           runtime->memory(), impl->texture_filter, &impl->overlay, impl->target_fps,
                                            &impl->live);
             if (!backend) std::fprintf(stderr, "[frontend] no OpenGL 3.3: using the software renderer\n");
             impl->gpu_state = backend ? 1 : 2;

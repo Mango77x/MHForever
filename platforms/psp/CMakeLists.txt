@@ -40,13 +40,19 @@ target_include_directories(mhf_texture_images PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(mhf_texture_images PRIVATE mhf_basisu mhf_stb_image)
 mhf_target_warnings(mhf_texture_images)
 
+# SMAA 1x shader assembly and LUT views (frontend/smaa_shaders.*): pure C++, no SDL/OpenGL dependency.
+add_library(mhf_smaa_shaders STATIC frontend/smaa_shaders.cpp)
+target_include_directories(mhf_smaa_shaders PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/frontend)
+target_link_libraries(mhf_smaa_shaders PRIVATE mhf_smaa)
+mhf_target_warnings(mhf_smaa_shaders)
+
 if(MHF_WITH_SDL)
     add_library(mhf_psp_frontend STATIC frontend/psp_frontend.cpp frontend/gl_backend.cpp frontend/dialog_overlay.cpp)
     target_include_directories(mhf_psp_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/frontend
                                PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/gpu)
     # mhf_overlay is public: psp_frontend.hpp takes the horn's song panel (overlay/song_panel.hpp).
     target_link_libraries(mhf_psp_frontend PUBLIC mhf_psp_runtime mhf_overlay PRIVATE mhf_core_host mhf_stb_truetype mhf_psp_interpolation
-                                                                    mhf_texture_pack mhf_texture_images)
+                                                                    mhf_texture_pack mhf_texture_images mhf_smaa_shaders)
     target_compile_definitions(mhf_psp_frontend PUBLIC MHF_HAS_FRONTEND=1)
     mhf_target_warnings(mhf_psp_frontend)
 endif()
@@ -78,6 +84,39 @@ if(MHF_BUILD_TESTS)
     target_link_libraries(test_texture_pack PRIVATE mhf_texture_pack mhf_texture_images mhf_xxhash)
     mhf_target_warnings(test_texture_pack)
     add_test(NAME psp_texture_pack COMMAND test_texture_pack)
+
+    add_executable(test_texture_filter tests/test_texture_filter.cpp)
+    target_include_directories(test_texture_filter PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/frontend)
+    mhf_target_warnings(test_texture_filter)
+    add_test(NAME psp_texture_filter COMMAND test_texture_filter)
+
+    add_executable(test_smaa tests/test_smaa.cpp)
+    target_include_directories(test_smaa PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+    target_link_libraries(test_smaa PRIVATE mhf_smaa_shaders)
+    mhf_target_warnings(test_smaa)
+    add_test(NAME psp_smaa COMMAND test_smaa)
+
+    if(MHF_WITH_SDL)
+        add_executable(test_smaa_gl tests/test_smaa_gl.cpp)
+        target_include_directories(test_smaa_gl PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+        target_link_libraries(test_smaa_gl PRIVATE mhf_smaa_shaders SDL3::SDL3-static)
+        mhf_target_warnings(test_smaa_gl)
+        add_test(NAME psp_smaa_gl COMMAND test_smaa_gl)
+        set_tests_properties(psp_smaa_gl PROPERTIES SKIP_RETURN_CODE 77 LABELS opengl)
+        if(NOT WIN32)
+            set_tests_properties(psp_smaa_gl PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
+        endif()
+    endif()
+
+    find_program(MHF_GLSLANG_VALIDATOR NAMES glslangValidator)
+    if(MHF_GLSLANG_VALIDATOR)
+        add_test(NAME psp_smaa_glslang
+                 COMMAND ${CMAKE_COMMAND}
+                     -DTEST_SMAA=$<TARGET_FILE:test_smaa>
+                     -DGLSLANG=${MHF_GLSLANG_VALIDATOR}
+                     -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/smaa_glslang_check
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_smaa_glslang.cmake)
+    endif()
 
     add_executable(test_adhocctl tests/test_adhocctl.cpp)
     target_include_directories(test_adhocctl PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src)

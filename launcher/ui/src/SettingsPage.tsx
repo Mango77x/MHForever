@@ -8,7 +8,7 @@ import { OnlineSettings } from './OnlineSettings';
 import { TexturePackSection } from './TexturePack';
 import { ArtCropModal, type ArtKind } from './ImageCrop';
 import { getGameArt } from './gameArtCache';
-import { anisotropyLevels, frameRates, hudSizes, resolutions, songPlaces } from './format';
+import { anisotropyLevels, frameRates, hudSizes, resolutions, songPlaces, textureFilters } from './format';
 import { setNavigationPaused } from './gamepad';
 import { keyGroups, keyLabel, reservedKeys } from './keys';
 import { anySourcePressed, assignSource, padGroups, padLabel, pressedSource, stickChoices } from './pad';
@@ -626,9 +626,29 @@ export function GameSettingsPage({ state, onChange, onChangeCopy, onRemoveCopy, 
           <div className="slabel"><b>Widescreen</b><span>Fills wide windows and screens with a wider view.</span></div>
           <Toggle on={!!s.widescreen} onToggle={() => onChange({ widescreen: !s.widescreen })} label="Widescreen" />
         </div>}
+        {(() => {
+          const filter = s.textureFilter ?? (s.smoothTextures ? 'linear' : 'auto');
+          const help = filter === 'linear'
+            ? 'Applies bilinear filtering to 3D textures.'
+            : filter === 'nearest'
+              ? 'Sharp, pixelated textures without smoothing.'
+              : "Uses the game's own texture filtering.";
+          return (
+            <div className="srow">
+              <div className="slabel"><b>Texture filtering</b><span>{help}</span></div>
+              <div className="seg wide" role="radiogroup" aria-label="Texture filtering" style={{ '--n': textureFilters.length } as CSSProperties}>
+                <span className="pill" style={{ transform: `translateX(${Math.max(0, textureFilters.findIndex((f) => f.id === filter)) * 100}%)` }} />
+                {textureFilters.map((f) => (
+                  <button key={f.id} className={filter === f.id ? 'on' : ''} role="radio" aria-checked={filter === f.id}
+                    onClick={() => onChange({ textureFilter: f.id })}>{f.label}</button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         <div className="srow">
-          <div className="slabel"><b>Smooth texture filtering</b><span>Applies bilinear filtering to the game's textures.</span></div>
-          <Toggle on={s.smoothTextures} onToggle={() => onChange({ smoothTextures: !s.smoothTextures })} label="Smooth texture filtering" />
+          <div className="slabel"><b>Anti-aliasing (SMAA)</b><span>Smooths jagged 3D edges without blurring textures.</span></div>
+          <Toggle on={!!s.smaa} onToggle={() => onChange({ smaa: !s.smaa })} label="Anti-aliasing (SMAA)" />
         </div>
         <div className="srow">
           <div className="slabel">

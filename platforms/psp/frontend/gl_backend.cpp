@@ -9,6 +9,7 @@
 
 #include "gl_backend.hpp"
 #include "frame_matching.hpp"
+#include "smaa_shaders.hpp"
 #include "texture_images.hpp"
 #include "texture_pack.hpp"
 #include "mhf/psp/font_glyphs.hpp"
@@ -151,6 +152,7 @@ using MhfReadPixels = void(APIENTRY *)(GLint, GLint, GLsizei, GLsizei, GLenum, G
     X(PFNGLGETSHADERIVPROC, GetShaderiv, glGetShaderiv)                                                            \
     X(PFNGLGETSHADERINFOLOGPROC, GetShaderInfoLog, glGetShaderInfoLog)                                             \
     X(PFNGLCREATEPROGRAMPROC, CreateProgram, glCreateProgram)                                                      \
+    X(PFNGLDELETEPROGRAMPROC, DeleteProgram, glDeleteProgram)                                                      \
     X(PFNGLATTACHSHADERPROC, AttachShader, glAttachShader)                                                         \
     X(PFNGLLINKPROGRAMPROC, LinkProgram, glLinkProgram)                                                            \
     X(PFNGLGETPROGRAMIVPROC, GetProgramiv, glGetProgramiv)                                                         \
@@ -642,6 +644,7 @@ struct DrawSetup {
     float uv_xform[4]{1, 1, 0, 0};
     bool texture_mips{};          // a texture pack image: mipmapped filtering over the levels it has, anisotropic
     std::uint8_t texture_filter{}; // a texture pack's [filtering] for it: 0 the game's, 1 nearest, 2 linear
+    bool texture_hd_text{};       // HD glyph page or built-in HD text texture (preserved smooth under Nearest)
     bool through{};
     float tex_width{1}, tex_height{1};
     std::uint32_t target{}; // VRAM offset of the render target
@@ -799,11 +802,11 @@ std::uint8_t to_byte(float v) { return static_cast<std::uint8_t>(std::clamp(v, 0
 
 class GlBackend final : public gpu::Backend {
 public:
-    GlBackend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory, bool smooth_textures,
+    GlBackend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory, TextureFilter texture_filter,
               OverlayImage *overlay, int factor, LiveSettings *live)
         : window_(window), scale_(std::max(1, scale)), memory_(memory), live_(live != nullptr ? live : &own_live_),
           overlay_(overlay), factor_(std::clamp(factor, 1, 6)), interpolate_(factor > 1) {
-        if (live == nullptr) own_live_.smooth_textures = smooth_textures;
+        if (live == nullptr) own_live_.texture_filter = texture_filter;
         open_texture_pack();
         const char *hud_log = std::getenv("MHF_HUD_LOG");
         hud_log_ = hud_log != nullptr && hud_log[0] == '1';
@@ -1072,8 +1075,8 @@ private:
         if (have_state_ && key == state_key_) return;
         draw_batch();
         state_key_ = key;
-        have_state_ = true;
         apply_state(ge);
+        have_state_ = true;
     }
 
     void push(const gpu::Vertex &v, const gpu::Vertex *color_from) {
@@ -1149,6 +1152,9 @@ private:
     void render_between(const RenderTarget &shown, const std::vector<TapeEntry> &now,
                         const std::vector<TapeEntry> &before, const Slot &before_slot, float t);
     void draw_batch();
+    bool ensure_smaa(GLsizei w, GLsizei h);
+    void drop_smaa_targets();
+    void apply_smaa(RenderTarget &rt);
     bool shadow_effect(const DrawSetup &setup, const GpuVertex *vertices, std::size_t count);
     void size_hud();
     void finish_hud_flip();
@@ -1166,7 +1172,7 @@ private:
                      std::uint32_t dst_stride, std::uint32_t dx, std::uint32_t dy, std::uint32_t width, std::uint32_t height);
     GLuint compile(const char *vertex, const char *fragment);
     GLint uniform(GLuint program, const char *name) { return gl_.GetUniformLocation(program, name); }
-    void set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips = false);
+    void set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips = false, bool strict_nearest = false);
     // Texture packs (frontend/texture_pack.hpp, texture_images.hpp): opening the pack, its key for the current texture
     // and the image for it, putting a decoded image on the GPU, dumping the game's textures for pack makers, and
     // keeping pack images within their memory budget.
@@ -1234,6 +1240,22 @@ private:
             alpha_func, alpha_ref, alpha_mask, zrange_enable, zrange, tex;
     } u_{};
     GLint present_uv_max_{}, present_tex_{};
+
+    // SMAA 1x anti-aliasing (third_party/smaa, smaa_shaders.hpp): lazily initialized on first use when LiveSettings::smaa
+    // is enabled. Runs on the visible 480x272*scale region of the 3D scene before 2D HUD draws.
+    GLuint smaa_edge_prog_{}, smaa_weight_prog_{}, smaa_blend_prog_{};
+    GLint smaa_edge_metrics_{-1}, smaa_edge_color_{-1};
+    GLint smaa_weight_metrics_{-1}, smaa_weight_edges_{-1}, smaa_weight_area_{-1}, smaa_weight_search_{-1};
+    GLint smaa_blend_metrics_{-1}, smaa_blend_color_{-1}, smaa_blend_weights_{-1};
+    GLuint smaa_area_tex_{}, smaa_search_tex_{};
+    GLuint smaa_color_fbo_{}, smaa_color_tex_{};
+    GLuint smaa_edges_fbo_{}, smaa_edges_tex_{};
+    GLuint smaa_blend_fbo_{}, smaa_blend_tex_{};
+    GLuint smaa_out_fbo_{}, smaa_out_tex_{};
+    GLsizei smaa_w_{}, smaa_h_{};
+    bool smaa_ready_{}, smaa_failed_{};
+    std::uint32_t smaa_scene_address_{};
+    std::uint64_t smaa_scene_frame_{}, smaa_done_frame_{};
 
     std::map<std::uint32_t, RenderTarget> targets_; // by VRAM offset
     RenderTarget *current_{};
@@ -1469,6 +1491,7 @@ private:
     bool tex_mips_ = false;          // the texture texture_for() gave is a pack image (texture_mips)
     float anisotropy_ = 1.0f;        // the most anisotropic filtering the GPU offers, up to 16 (1: none, it lacks it)
     std::uint8_t tex_filter_ = 0;    // and its pack [filtering]
+    bool tex_hd_text_ = false;       // and whether it is an HD text texture (kHdTextImage or kBuiltinImage)
     float tex_holes_{-1.0f};         // the share of transparent texels of the texture texture_for() gave
     float shadow_texture_holes_{-1.0f}; // the same for the draw being captured
     std::uint64_t tex_hash_{}, shadow_texture_hash_{}; // the game's texture, as the content hash the cache keys it by
@@ -1836,17 +1859,19 @@ GlBackend::RenderTarget *GlBackend::find_target(std::uint32_t vram_offset, bool 
 
 // ---------------------------------------------------------------- state
 
-void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips) {
+void GlBackend::set_texture_params(bool linear, bool clamp_s, bool clamp_t, bool mips, bool strict_nearest) {
     // Texture pack images: mipmapped filtering over the levels the pack gives (one level, as KHD: the full-size image;
-    // upload_pack_image sets the last level), with anisotropic filtering.
-    const GLint min_filter = mips ? (linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_LINEAR) : (linear ? GL_LINEAR : GL_NEAREST);
+    // upload_pack_image sets the last level), with anisotropic filtering unless strict Nearest filtering is active.
+    const GLint min_filter = mips
+        ? (linear ? GL_LINEAR_MIPMAP_LINEAR : (strict_nearest ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST_MIPMAP_LINEAR))
+        : (linear ? GL_LINEAR : GL_NEAREST);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, clamp_s ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, clamp_t ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     // The player's level (the menu changes it while playing), up to what the GPU offers.
     const float level = std::clamp(static_cast<float>(live_->texture_pack_anisotropy.load(std::memory_order_relaxed)), 1.0f, anisotropy_);
-    if (anisotropy_ > 1.0f) gl_.TexParameterf(GL_TEXTURE_2D, kGlTextureMaxAnisotropy, mips ? level : 1.0f);
+    if (anisotropy_ > 1.0f) gl_.TexParameterf(GL_TEXTURE_2D, kGlTextureMaxAnisotropy, (mips && !strict_nearest) ? level : 1.0f);
 }
 
 textures::TextureFacts texture_facts(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info, std::uint16_t max_seen_v);
@@ -1854,6 +1879,7 @@ textures::TextureFacts texture_facts(const gpu::Ge &ge, const gpu::Ge::TextureIn
 GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
     tex_mips_ = false;
     tex_filter_ = 0;
+    tex_hd_text_ = false;
     seen_v_ = nullptr;
     // The player turned the pack on or off: every texture is uploaded again, as the game's or as the pack's.
     if (const bool want = pack_ != nullptr && live_->texture_pack.load(std::memory_order_relaxed); want != pack_on_) {
@@ -1997,6 +2023,7 @@ GLuint GlBackend::texture_for(const gpu::Ge &ge, float uv_xform[4]) {
     uv_xform[1] = t.uv_scale[1];
     tex_mips_ = t.mips;
     tex_filter_ = t.filter;
+    tex_hd_text_ = t.shown == kHdTextImage || t.shown.starts_with(kBuiltinImage);
     if (packs_on && info.height == 512) seen_v_ = &t.max_seen_v;
     if (t.holes < 0.0f && live_->shadow.load(std::memory_order_relaxed)) {
         // Which textures really have holes (leaves, fronds): the game leaves the alpha test on for plain rock and ground too.
@@ -2563,6 +2590,7 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
     seen_v_ = nullptr; // untextured draws say nothing of the last texture's rows
     tex_mips_ = false;
     tex_filter_ = 0;
+    tex_hd_text_ = false;
     tex_holes_ = -1.0f;
     tex_hash_ = 0;
     tex_zone_ = -1;
@@ -2572,6 +2600,7 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
         setup.self_sampled = setup.texture == copy_texture_;
         setup.texture_mips = tex_mips_;
         setup.texture_filter = tex_filter_;
+        setup.texture_hd_text = tex_hd_text_;
     }
     shadow_texture_holes_ = tex_holes_;
     shadow_texture_hash_ = tex_hash_;
@@ -2615,6 +2644,17 @@ void GlBackend::apply_state(const gpu::Ge &ge) {
         } else if (shadow_scene_frame_ == frame_ && shadow_done_frame_ != frame_ && shadow_scene_address_ == rt.address) {
             shadow_done_frame_ = frame_;
             run_shadow(rt);
+        }
+    }
+    // SMAA 1x anti-aliasing: runs once per 3D frame on the 3D -> 2D boundary (after projected shadows, before 2D HUD/text).
+    if (!clear && rt.width >= 480u && rt.width <= 512u && rt.height >= 272u && rt.height <= 274u) {
+        if (!through_) {
+            smaa_scene_address_ = rt.address;
+            smaa_scene_frame_ = frame_;
+        } else if (live_->smaa.load(std::memory_order_relaxed) && smaa_scene_frame_ == frame_ &&
+                   smaa_done_frame_ != frame_ && smaa_scene_address_ == rt.address) {
+            smaa_done_frame_ = frame_;
+            apply_smaa(rt);
         }
     }
     emit_state(setup, rt);
@@ -4147,6 +4187,198 @@ void GlBackend::apply_shadow(RenderTarget &rt, const ShadowPass &p, const float 
     gl_.ActiveTexture(GL_TEXTURE0);
 }
 
+void GlBackend::drop_smaa_targets() {
+    auto drop = [&](GLuint &fbo, GLuint &tex) {
+        if (fbo != 0) {
+            gl_.DeleteFramebuffers(1, &fbo);
+            fbo = 0;
+        }
+        if (tex != 0) {
+            gl_.DeleteTextures(1, &tex);
+            tex = 0;
+        }
+    };
+    drop(smaa_color_fbo_, smaa_color_tex_);
+    drop(smaa_edges_fbo_, smaa_edges_tex_);
+    drop(smaa_blend_fbo_, smaa_blend_tex_);
+    drop(smaa_out_fbo_, smaa_out_tex_);
+    smaa_w_ = smaa_h_ = 0;
+}
+
+bool GlBackend::ensure_smaa(GLsizei w, GLsizei h) {
+    if (smaa_failed_ || w <= 0 || h <= 0) return false;
+    if (!smaa_ready_) {
+        smaa_edge_prog_ = compile(smaa::vertex_shader(smaa::Pass::EdgeDetection).c_str(),
+                                  smaa::fragment_shader(smaa::Pass::EdgeDetection).c_str());
+        smaa_weight_prog_ = compile(smaa::vertex_shader(smaa::Pass::BlendingWeight).c_str(),
+                                    smaa::fragment_shader(smaa::Pass::BlendingWeight).c_str());
+        smaa_blend_prog_ = compile(smaa::vertex_shader(smaa::Pass::NeighborhoodBlending).c_str(),
+                                   smaa::fragment_shader(smaa::Pass::NeighborhoodBlending).c_str());
+        if (smaa_edge_prog_ == 0 || smaa_weight_prog_ == 0 || smaa_blend_prog_ == 0) {
+            auto drop_prog = [&](GLuint &p) {
+                if (p != 0) {
+                    gl_.DeleteProgram(p);
+                    p = 0;
+                }
+            };
+            drop_prog(smaa_edge_prog_);
+            drop_prog(smaa_weight_prog_);
+            drop_prog(smaa_blend_prog_);
+            std::fprintf(stderr, "[gl] SMAA shader compilation failed; disabling SMAA\n");
+            smaa_failed_ = true;
+            return false;
+        }
+        smaa_edge_metrics_ = uniform(smaa_edge_prog_, "u_smaa_metrics");
+        smaa_edge_color_ = uniform(smaa_edge_prog_, "u_color");
+        smaa_weight_metrics_ = uniform(smaa_weight_prog_, "u_smaa_metrics");
+        smaa_weight_edges_ = uniform(smaa_weight_prog_, "u_edges");
+        smaa_weight_area_ = uniform(smaa_weight_prog_, "u_area");
+        smaa_weight_search_ = uniform(smaa_weight_prog_, "u_search");
+        smaa_blend_metrics_ = uniform(smaa_blend_prog_, "u_smaa_metrics");
+        smaa_blend_color_ = uniform(smaa_blend_prog_, "u_color");
+        smaa_blend_weights_ = uniform(smaa_blend_prog_, "u_blend");
+
+        gl_.UseProgram(smaa_edge_prog_);
+        gl_.Uniform1i(smaa_edge_color_, 0);
+        gl_.UseProgram(smaa_weight_prog_);
+        gl_.Uniform1i(smaa_weight_edges_, 0);
+        gl_.Uniform1i(smaa_weight_area_, 1);
+        gl_.Uniform1i(smaa_weight_search_, 2);
+        gl_.UseProgram(smaa_blend_prog_);
+        gl_.Uniform1i(smaa_blend_color_, 0);
+        gl_.Uniform1i(smaa_blend_weights_, 1);
+
+        gl_.ActiveTexture(GL_TEXTURE0);
+        gl_.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        const smaa::LutView area = smaa::area_tex();
+        gl_.GenTextures(1, &smaa_area_tex_);
+        gl_.BindTexture(GL_TEXTURE_2D, smaa_area_tex_);
+        gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RG8, area.width, area.height, 0, GL_RG, GL_UNSIGNED_BYTE, area.data);
+        set_texture_params(true, true, true);
+
+        const smaa::LutView search = smaa::search_tex();
+        gl_.GenTextures(1, &smaa_search_tex_);
+        gl_.BindTexture(GL_TEXTURE_2D, smaa_search_tex_);
+        gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_R8, search.width, search.height, 0, GL_RED, GL_UNSIGNED_BYTE, search.data);
+        set_texture_params(true, true, true);
+        gl_.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        smaa_ready_ = true;
+    }
+    if (smaa_w_ != w || smaa_h_ != h || smaa_color_fbo_ == 0) {
+        drop_smaa_targets();
+        gl_.ActiveTexture(GL_TEXTURE0);
+        const auto make_target = [&](GLuint &fbo, GLuint &tex) -> bool {
+            gl_.GenTextures(1, &tex);
+            gl_.BindTexture(GL_TEXTURE_2D, tex);
+            gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+            set_texture_params(true, true, true);
+            gl_.GenFramebuffers(1, &fbo);
+            gl_.BindFramebuffer(GL_FRAMEBUFFER, fbo);
+            gl_.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+            return gl_.CheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+        };
+        if (!make_target(smaa_color_fbo_, smaa_color_tex_) ||
+            !make_target(smaa_edges_fbo_, smaa_edges_tex_) ||
+            !make_target(smaa_blend_fbo_, smaa_blend_tex_) ||
+            !make_target(smaa_out_fbo_, smaa_out_tex_)) {
+            drop_smaa_targets();
+            gl_.BindFramebuffer(GL_FRAMEBUFFER, 0);
+            std::fprintf(stderr, "[gl] SMAA framebuffer incomplete (%dx%d); disabling SMAA\n",
+                         static_cast<int>(w), static_cast<int>(h));
+            smaa_failed_ = true;
+            return false;
+        }
+        smaa_w_ = w;
+        smaa_h_ = h;
+    }
+    return true;
+}
+
+void GlBackend::apply_smaa(RenderTarget &rt) {
+    if (smaa_failed_) return;
+    const std::uint32_t vis_w = std::min<std::uint32_t>(480u, rt.width);
+    const std::uint32_t vis_h = std::min<std::uint32_t>(272u, rt.height);
+    const GLsizei active_w = static_cast<GLsizei>(vis_w) * scale_;
+    const GLsizei active_h = static_cast<GLsizei>(vis_h) * scale_;
+    if (active_w <= 0 || active_h <= 0) return;
+    if (!ensure_smaa(active_w, active_h)) {
+        gl_.BindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
+        gl_.BindVertexArray(vao_);
+        gl_.BindBuffer(GL_ARRAY_BUFFER, vbo_);
+        have_state_ = false;
+        return;
+    }
+
+    const float fw = static_cast<float>(active_w);
+    const float fh = static_cast<float>(active_h);
+    const float inv_w = 1.0f / fw;
+    const float inv_h = 1.0f / fh;
+
+    gl_.Disable(GL_SCISSOR_TEST);
+    gl_.Disable(GL_DEPTH_TEST);
+    gl_.Disable(GL_BLEND);
+    gl_.Disable(GL_CULL_FACE);
+    gl_.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    gl_.DepthMask(GL_FALSE);
+
+    // Isolate the visible 480x272*scale area so the unused 480..512 stride margin cannot bleed into edge detection.
+    gl_.BindFramebuffer(GL_READ_FRAMEBUFFER, rt.fbo);
+    gl_.BindFramebuffer(GL_DRAW_FRAMEBUFFER, smaa_color_fbo_);
+    gl_.BlitFramebuffer(0, 0, active_w, active_h, 0, 0, active_w, active_h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+    gl_.Viewport(0, 0, active_w, active_h);
+    gl_.BindVertexArray(empty_vao_);
+    gl_.ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+
+    // Pass 1: Color edge detection -> smaa_edges_fbo_ (cleared every frame because the shader uses discard).
+    gl_.BindFramebuffer(GL_FRAMEBUFFER, smaa_edges_fbo_);
+    gl_.Clear(GL_COLOR_BUFFER_BIT);
+    gl_.UseProgram(smaa_edge_prog_);
+    gl_.Uniform4f(smaa_edge_metrics_, inv_w, inv_h, fw, fh);
+    gl_.ActiveTexture(GL_TEXTURE0);
+    gl_.BindTexture(GL_TEXTURE_2D, smaa_color_tex_);
+    gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    // Pass 2: Blending weight calculation -> smaa_blend_fbo_ (cleared every frame).
+    gl_.BindFramebuffer(GL_FRAMEBUFFER, smaa_blend_fbo_);
+    gl_.Clear(GL_COLOR_BUFFER_BIT);
+    gl_.UseProgram(smaa_weight_prog_);
+    gl_.Uniform4f(smaa_weight_metrics_, inv_w, inv_h, fw, fh);
+    gl_.ActiveTexture(GL_TEXTURE0);
+    gl_.BindTexture(GL_TEXTURE_2D, smaa_edges_tex_);
+    gl_.ActiveTexture(GL_TEXTURE1);
+    gl_.BindTexture(GL_TEXTURE_2D, smaa_area_tex_);
+    gl_.ActiveTexture(GL_TEXTURE2);
+    gl_.BindTexture(GL_TEXTURE_2D, smaa_search_tex_);
+    gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    // Pass 3: Neighborhood blending -> smaa_out_fbo_.
+    gl_.BindFramebuffer(GL_FRAMEBUFFER, smaa_out_fbo_);
+    gl_.UseProgram(smaa_blend_prog_);
+    gl_.Uniform4f(smaa_blend_metrics_, inv_w, inv_h, fw, fh);
+    gl_.ActiveTexture(GL_TEXTURE0);
+    gl_.BindTexture(GL_TEXTURE_2D, smaa_color_tex_);
+    gl_.ActiveTexture(GL_TEXTURE1);
+    gl_.BindTexture(GL_TEXTURE_2D, smaa_blend_tex_);
+    gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    // Blit anti-aliased color back into the visible region of rt.fbo; rt.depth is left untouched.
+    gl_.BindFramebuffer(GL_READ_FRAMEBUFFER, smaa_out_fbo_);
+    gl_.BindFramebuffer(GL_DRAW_FRAMEBUFFER, rt.fbo);
+    gl_.BlitFramebuffer(0, 0, active_w, active_h, 0, 0, active_w, active_h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+    gl_.ActiveTexture(GL_TEXTURE2);
+    gl_.BindTexture(GL_TEXTURE_2D, 0);
+    gl_.ActiveTexture(GL_TEXTURE1);
+    gl_.BindTexture(GL_TEXTURE_2D, 0);
+    gl_.ActiveTexture(GL_TEXTURE0);
+    gl_.BindTexture(GL_TEXTURE_2D, 0);
+    gl_.BindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
+    gl_.BindVertexArray(vao_);
+    gl_.BindBuffer(GL_ARRAY_BUFFER, vbo_);
+    have_state_ = false;
+}
+
 void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
     const auto R = [&](std::uint32_t reg) { return key_reg(setup.key, reg); };
     const std::uint32_t sx1 = R(kScissor1) & 0x3FFu, sy1 = (R(kScissor1) >> 10u) & 0x3FFu;
@@ -4162,16 +4394,22 @@ void GlBackend::emit_state(const DrawSetup &setup, RenderTarget &rt) {
     if (textured) {
         gl_.ActiveTexture(GL_TEXTURE0);
         gl_.BindTexture(GL_TEXTURE_2D, setup.texture);
-        // Enhancement (off by default): bilinear filtering for 3D textures; 2D (through-mode) art stays as drawn.
-        bool linear = (R(kTexFilter) & 0x100u) != 0 || (live_->smooth_textures.load(std::memory_order_relaxed) && !through);
         // 2D art drawn smaller than its pixels would shimmer if left nearest; filtered, a texture set to repeat would
         // also blend in its opposite edge (a faint frame around the minimap), so a sized draw that stays inside its
         // texture clamps. One that repeats it (the dotted line under a menu's title) has to keep repeating.
         const bool resized = setup.hud[0] < 1.0f || setup.wide[0] < 1.0f;
-        if (resized) linear = true;
-        if (setup.texture_filter != 0) linear = setup.texture_filter == 2; // a texture pack's [filtering]
+        const TextureSampling sampling = resolve_texture_sampling({
+            live_->texture_filter.load(std::memory_order_relaxed),
+            (R(kTexFilter) & 0x100u) != 0,
+            through,
+            resized,
+            setup.texture_hd_text,
+            setup.texture_mips,
+            setup.texture_filter,
+        });
         const bool clamp = resized && setup.hud_clamp;
-        set_texture_params(linear, clamp || (R(kTexWrap) & 1u) != 0, clamp || (R(kTexWrap) & 0x100u) != 0, setup.texture_mips);
+        set_texture_params(sampling.linear, clamp || (R(kTexWrap) & 1u) != 0, clamp || (R(kTexWrap) & 0x100u) != 0,
+                           setup.texture_mips, !sampling.mip_linear_blend);
     }
 
     gl_.BindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
@@ -4896,6 +5134,12 @@ void GlBackend::present(std::uint32_t address, std::uint32_t stride, std::uint32
         if (!shown_target(offset)) { // the HUD is sized on the screens the game shows (two or three, in turn)
             shown_targets_[shown_next_] = offset;
             shown_next_ = (shown_next_ + 1) % shown_targets_.size();
+        }
+        // 3D-only frames (no 2D HUD draw after 3D) run SMAA here before interpolation slots, present, or VRAM readback.
+        if (live_->smaa.load(std::memory_order_relaxed) && smaa_scene_frame_ == frame_ &&
+            smaa_done_frame_ != frame_ && smaa_scene_address_ == drawn->address) {
+            smaa_done_frame_ = frame_;
+            apply_smaa(*drawn);
         }
         texture = it->second.color;
         uv_max[0] = 480.0f / static_cast<float>(it->second.width);
@@ -5956,6 +6200,10 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
     bool shadow_pending = flip_.shadow.valid && shadow_ready_ && live_->shadow.load(std::memory_order_relaxed) &&
                           shadow_generation_ - flip_.shadow.generation < 2u;
     bool scene_drawn = false;
+    const bool smaa_target = scratch_.width >= 480u && scratch_.width <= 512u &&
+                             scratch_.height >= 272u && scratch_.height <= 274u;
+    bool smaa_pending = live_->smaa.load(std::memory_order_relaxed) && smaa_target;
+    bool smaa_scene_drawn = false;
     for (std::size_t i = 0; i < now.size(); ++i) {
         if (ranges_[i].count == 0) continue;
         if (shadow_pending && (key_reg(now[i].setup.key, kClearMode) & 1u) == 0) {
@@ -6019,6 +6267,14 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
                 have_state_ = false;
             }
         }
+        if (smaa_pending && (key_reg(now[i].setup.key, kClearMode) & 1u) == 0) {
+            if (!now[i].setup.through) {
+                smaa_scene_drawn = true;
+            } else if (smaa_scene_drawn) {
+                smaa_pending = false;
+                apply_smaa(scratch_);
+            }
+        }
         const auto t_state = Clock::now();
         emit_state(now[i].setup, scratch_);
         const bool effect = shadow_effect(now[i].setup, staging_.data() + ranges_[i].first, ranges_[i].count);
@@ -6028,6 +6284,9 @@ void GlBackend::render_between(const RenderTarget &shown, const std::vector<Tape
         if (effect) gl_.DepthMask(GL_TRUE);
         cost_.state_us += us(t_state, t_draw);
         cost_.draw_us += us(t_draw, Clock::now());
+    }
+    if (smaa_pending && smaa_scene_drawn) {
+        apply_smaa(scratch_);
     }
     ++cost_.pictures;
     cost_.batches += now.size();
@@ -6470,6 +6729,7 @@ void GlBackend::apply_live_scale() {
     previous_valid_ = false;
     last_texture_ = 0;
     blur_ready_ = false;
+    drop_smaa_targets();
     std::fprintf(stderr, "[gl] internal resolution now %dx%d\n", 480 * scale_, 272 * scale_);
 }
 
@@ -6548,12 +6808,12 @@ void GlBackend::dump_window(int w, int h) {
 } // namespace
 
 std::unique_ptr<gpu::Backend> make_gl_backend(SDL_Window *window, int scale, psprecomp::GuestMemory &memory,
-                                              bool smooth_textures, OverlayImage *overlay, int target_fps,
+                                              TextureFilter texture_filter, OverlayImage *overlay, int target_fps,
                                               LiveSettings *live) {
     if (const char *v = std::getenv("MHF_FPS")) target_fps = std::atoi(v); // testing aid
     // The game flips at 30 fps: the output rate is a whole multiple of it, from 1x (as the game) to 6x (180 fps).
     const int factor = std::clamp((target_fps + 15) / 30, 1, 6);
-    auto backend = std::make_unique<GlBackend>(window, scale, memory, smooth_textures, overlay, factor, live);
+    auto backend = std::make_unique<GlBackend>(window, scale, memory, texture_filter, overlay, factor, live);
     if (!backend->init()) return nullptr;
     return backend;
 }

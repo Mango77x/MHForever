@@ -313,6 +313,43 @@ int main(int argc, char **argv) {
         mouse["mouseCameraSpeed"] = 0;
         l.set_settings(mouse);
         CHECK(l.state()["settings"]["mouseCameraSpeed"].as_number() == 25);
+        // Texture filtering: auto by default, accepts auto/linear/nearest, ignores anything else, and stays compatible with legacy smoothTextures.
+        CHECK(l.state()["settings"]["textureFilter"].as_string() == "auto");
+        {
+            Json tf;
+            tf["textureFilter"] = "nearest";
+            l.set_settings(tf);
+            CHECK(l.state()["settings"]["textureFilter"].as_string() == "nearest");
+            CHECK(!l.state()["settings"]["smoothTextures"].as_bool(true));
+            tf["textureFilter"] = "linear";
+            l.set_settings(tf);
+            CHECK(l.state()["settings"]["textureFilter"].as_string() == "linear");
+            CHECK(l.state()["settings"]["smoothTextures"].as_bool());
+            for (const Json &bad : {Json("bilinear"), Json("AUTO"), Json(42), Json(true)}) {
+                Json bad_tf;
+                bad_tf["textureFilter"] = bad;
+                l.set_settings(bad_tf);
+                CHECK(l.state()["settings"]["textureFilter"].as_string() == "linear");
+            }
+            // Legacy smoothTextures writes map to linear / auto, while an explicit textureFilter wins over smoothTextures.
+            Json legacy;
+            legacy["smoothTextures"] = false;
+            l.set_settings(legacy);
+            CHECK(l.state()["settings"]["textureFilter"].as_string() == "auto");
+            legacy["smoothTextures"] = true;
+            l.set_settings(legacy);
+            CHECK(l.state()["settings"]["textureFilter"].as_string() == "linear");
+            Json both;
+            both["textureFilter"] = "nearest";
+            both["smoothTextures"] = true;
+            l.set_settings(both);
+            CHECK(l.state()["settings"]["textureFilter"].as_string() == "nearest");
+            CHECK(!l.state()["settings"]["smoothTextures"].as_bool(true));
+            Json reset;
+            reset["textureFilter"] = "auto";
+            l.set_settings(reset);
+        }
+
         // Texture pack filtering: mipmaps off and anisotropy 16x by default; anisotropy snaps to 1, 2, 4, 8 or 16.
         CHECK(!l.state()["settings"]["packMipmaps"].as_bool(true));
         CHECK(l.state()["settings"]["anisotropy"].as_number() == 16);
@@ -543,9 +580,39 @@ int main(int argc, char **argv) {
         CHECK(!l.state()["settings"]["copyImage"].as_bool(true));                // not one the game changes
 
         CHECK(!l.state()["settings"]["gatheringAssistance"].as_bool(true));
-        std::ofstream(l.controls_file()) << "option.gatheringAssistance=true\n";
+        CHECK(!l.state()["settings"]["smaa"].as_bool(true));
+        {
+            Json smaa_edit;
+            smaa_edit["smaa"] = true;
+            l.set_settings(smaa_edit);
+            CHECK(l.state()["settings"]["smaa"].as_bool());
+            Json bad_str;
+            bad_str["smaa"] = "yes";
+            l.set_settings(bad_str);
+            CHECK(l.state()["settings"]["smaa"].as_bool());
+            Json bad_num;
+            bad_num["smaa"] = 1;
+            l.set_settings(bad_num);
+            CHECK(l.state()["settings"]["smaa"].as_bool());
+            smaa_edit["smaa"] = false;
+            l.set_settings(smaa_edit);
+            CHECK(!l.state()["settings"]["smaa"].as_bool(true));
+        }
+        std::ofstream(l.controls_file()) << "option.gatheringAssistance=true\noption.textureFilter=nearest\noption.smaa=true\n";
         l.import_game_controls();
         CHECK(l.state()["settings"]["gatheringAssistance"].as_bool());
+        CHECK(l.state()["settings"]["textureFilter"].as_string() == "nearest");
+        CHECK(l.state()["settings"]["smaa"].as_bool());
+        std::ofstream(l.controls_file()) << "option.textureFilter=bogus\noption.smaa=bogus\n";
+        l.import_game_controls();
+        CHECK(l.state()["settings"]["textureFilter"].as_string() == "nearest");
+        CHECK(l.state()["settings"]["smaa"].as_bool());
+        std::ofstream(l.controls_file()) << "option.smaa=false\n";
+        l.import_game_controls();
+        CHECK(!l.state()["settings"]["smaa"].as_bool(true));
+        std::ofstream(l.controls_file()) << "option.smaa=true\n";
+        l.import_game_controls();
+        CHECK(l.state()["settings"]["smaa"].as_bool());
         auto plan = l.plan_launch("mhfu");
         CHECK(!plan.error.empty()); // no game files here
     }
@@ -556,6 +623,8 @@ int main(int argc, char **argv) {
         CHECK(again.state()["settings"]["fullscreen"].as_bool());
         CHECK(again.state()["settings"]["fps"].as_number() == 90);
         CHECK(again.state()["settings"]["gatheringAssistance"].as_bool());
+        CHECK(again.state()["settings"]["textureFilter"].as_string() == "nearest");
+        CHECK(again.state()["settings"]["smaa"].as_bool());
         CHECK(again.state()["settings"]["sfxVolume"].as_number() == 35); // the game's volume survives a restart
         CHECK(again.state()["settings"]["language"].as_string() == "es");
         CHECK(again.state()["settings"]["keys"]["south"].as_string() == "KeyZ");
@@ -563,6 +632,29 @@ int main(int argc, char **argv) {
         CHECK(again.state()["settings"]["keys"]["east"].as_string() == "KeyL");
         CHECK(again.state()["settings"]["pad"]["south"].as_string() == "dpad_up+right_trigger");
         CHECK(again.state()["settings"]["pad"]["stick"].as_string() == "right");
+        // Legacy launcher.json migration: smoothTextures: true without textureFilter migrates to linear (both global and per-copy).
+        {
+            const fs::path global_dir = dir / "legacy_tf_global";
+            fs::create_directories(global_dir);
+            std::ofstream(global_dir / "launcher.json") << R"({"settings": {"smoothTextures": true}})";
+            Launcher l(global_dir, global_dir);
+            CHECK(l.state()["settings"]["textureFilter"].as_string() == "linear");
+        }
+        {
+            const fs::path copy_dir = dir / "legacy_tf_copy";
+            fs::create_directories(copy_dir);
+            const fs::path img = copy_dir / "disc.iso";
+            std::ofstream(img) << "x";
+            std::ofstream(copy_dir / "launcher.json")
+                << R"({"games": [{"discId": "ULES01213", "isoPath": ")" << img.generic_string()
+                << R"("}, {"discId": "ULJM05500-FUC", "isoPath": ")" << img.generic_string()
+                << R"("}], "gameSettings": {"ULJM05500-FUC": {"smoothTextures": true}}})";
+            Launcher l(copy_dir, copy_dir);
+            CHECK(l.select_game("ULES01213"));
+            CHECK(l.state()["settings"]["textureFilter"].as_string() == "auto");
+            CHECK(l.select_game("ULJM05500-FUC"));
+            CHECK(l.state()["settings"]["textureFilter"].as_string() == "linear");
+        }
     }
 
     // launcher.json lives in the data folder; one left next to the executable by an older version is copied there once.
@@ -1108,6 +1200,55 @@ int main(int argc, char **argv) {
             Launcher again(base, data);
             CHECK(again.state()["settings"]["gatheringAssistance"].as_bool() == enabled);
             CHECK(again.state()["settings"]["skipIntro"].as_bool() == enabled);
+        }
+        for (const char *mode : {"auto", "linear", "nearest"}) {
+            Json tf;
+            tf["textureFilter"] = mode;
+            l.set_settings(tf);
+            const auto plan = l.plan_launch("mhfu");
+            CHECK(plan.error.empty());
+            CHECK(std::find(plan.args.begin(), plan.args.end(), "--smooth-textures") == plan.args.end());
+            const auto flag = std::find(plan.args.begin(), plan.args.end(), "--texture-filter");
+            if (std::string_view(mode) == "auto") {
+                CHECK(flag == plan.args.end());
+            } else {
+                CHECK(flag != plan.args.end() && flag + 1 != plan.args.end() && *(flag + 1) == mode);
+            }
+        }
+        for (bool enabled : {false, true, false}) {
+            Json smaa;
+            smaa["smaa"] = enabled;
+            l.set_settings(smaa);
+            const auto plan = l.plan_launch("mhfu");
+            CHECK(plan.error.empty());
+            CHECK((std::find(plan.args.begin(), plan.args.end(), "--smaa") != plan.args.end()) == enabled);
+        }
+    }
+
+    // SMAA launch argument for Freedom (mhf1), using synthetic files only.
+    for (const auto &edition : catalog()) {
+        if (std::string_view(edition.disc_id) != "ULES00318") continue;
+        const fs::path base = dir / "smaa_mhf1", data = base / "data";
+        fs::create_directories(data);
+        const fs::path image = base / "disc.iso";
+        std::ofstream(image) << "synthetic image";
+        std::ofstream(base / (std::string(edition.disc_id) + "_EBOOT.BIN"), std::ios::binary)
+            << std::string(edition.dev_executable_size, '\0');
+        std::string program = "mhf1";
+#if defined(_WIN32)
+        program += ".exe";
+#endif
+        std::ofstream(base / program) << "synthetic program";
+        std::ofstream(data / "launcher.json") << "{\"games\":[{\"discId\":\"" << edition.disc_id
+            << "\",\"isoPath\":\"" << image.generic_string() << "\"}]}";
+        Launcher l(base, data);
+        for (bool enabled : {false, true, false}) {
+            Json smaa;
+            smaa["smaa"] = enabled;
+            l.set_settings(smaa);
+            const auto plan = l.plan_launch("mhf1");
+            CHECK(plan.error.empty());
+            CHECK((std::find(plan.args.begin(), plan.args.end(), "--smaa") != plan.args.end()) == enabled);
         }
     }
 
