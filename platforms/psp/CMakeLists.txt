@@ -110,6 +110,12 @@ if(MHF_BUILD_TESTS)
     mhf_target_warnings(test_audio_mix)
     add_test(NAME psp_audio_mix COMMAND test_audio_mix)
 
+    add_executable(test_recomp_analysis tests/test_recomp_analysis.cpp)
+    target_include_directories(test_recomp_analysis PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+    target_link_libraries(test_recomp_analysis PRIVATE mhf_psp_recomp)
+    mhf_target_warnings(test_recomp_analysis)
+    add_test(NAME psp_recomp_analysis COMMAND test_recomp_analysis)
+
     add_executable(test_region_data tests/test_region_data.cpp)
     target_include_directories(test_region_data PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
     target_link_libraries(test_region_data PRIVATE mhf_psp_recomp)

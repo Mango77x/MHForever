@@ -297,10 +297,14 @@ public:
         for (const auto address : function.instructions) {
             const auto d = decode(address);
             if (d.kind == OpcodeKind::Lui) {
-                lui[d.rt] = static_cast<std::uint32_t>(static_cast<std::uint16_t>(d.immediate)) << 16u;
+                // Writes to $zero are discarded by Allegrex.
+                if (d.rt != 0u) {
+                    lui[d.rt] = static_cast<std::uint32_t>(static_cast<std::uint16_t>(d.immediate)) << 16u;
+                }
                 continue;
             }
-            if ((d.kind == OpcodeKind::Addiu || d.kind == OpcodeKind::Ori) && lui[d.rs]) {
+            // A result written to $zero is discarded, so it is not a pointer.
+            if ((d.kind == OpcodeKind::Addiu || d.kind == OpcodeKind::Ori) && d.rt != 0u && lui[d.rs]) {
                 const std::uint32_t value = d.kind == OpcodeKind::Addiu
                     ? *lui[d.rs] + static_cast<std::uint32_t>(static_cast<std::int32_t>(d.immediate))
                     : *lui[d.rs] | static_cast<std::uint16_t>(d.immediate);
@@ -308,7 +312,9 @@ public:
                     pointers.insert(value);
                 }
             }
-            if (const auto w = written_gpr(d); w != 0u && d.kind != OpcodeKind::Addiu && d.kind != OpcodeKind::Ori) {
+            // Read the source above before invalidating the destination, including
+            // in-place addiu/ori: the register no longer holds the original LUI value.
+            if (const auto w = written_gpr(d); w != 0u) {
                 lui[w].reset();
             }
         }
