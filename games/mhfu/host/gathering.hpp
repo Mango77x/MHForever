@@ -14,6 +14,7 @@ public:
     bool indicators = false, automatic_tools = false;
     int language = 1; // PSP system language: Japanese, English, French, Spanish, German, Italian
     std::function<bool()> input_blocked; // frontend menu/dialog input and its release latch
+    std::function<bool()> xbox_prompts;  // the frontend draws the Xbox button prompts: the hint's button follows
     void update(psp::Runtime &rt, psp::Context &ctx);
     std::string hint(psp::Runtime &rt) const;
     void set_icons(GatheringArt art) { art_ = std::move(art); }

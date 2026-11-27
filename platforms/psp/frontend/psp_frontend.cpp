@@ -172,6 +172,7 @@ struct Frontend::Impl {
     // The game supports them (it called set_widescreen / set_shadows: camera hooks, zones): only then does the Video tab
     // offer them. A game without them (Freedom) would get a stretched picture, or shadows that cost and show nothing.
     bool widescreen_offered{}, shadows_offered{};
+    bool prompts_changed{}; // the Controls tab changed the button prompts' style: the controls file keeps it
     bool game_hint_input_latched = false;
     std::string game_hint;
     std::vector<overlay::HintSprite> game_hint_sprites;
@@ -384,6 +385,16 @@ void Frontend::set_widescreen(bool on) {
     impl_->widescreen_offered = true;
 }
 
+void Frontend::set_button_prompts(std::vector<prompts::Atlas> atlases, prompts::Style style) {
+    impl_->live.prompt_atlases = std::move(atlases);
+    impl_->live.button_prompts = static_cast<int>(style);
+}
+
+prompts::Style Frontend::button_prompts() const {
+    if (impl_->gpu_state != 1 || impl_->live.prompt_atlases.empty()) return prompts::Style::Original;
+    return static_cast<prompts::Style>(impl_->live.button_prompts.load(std::memory_order_relaxed));
+}
+
 float Frontend::game_aspect() const { return impl_->live.wide_aspect.load(std::memory_order_relaxed); }
 
 void Frontend::set_shadows(bool on, bool whole_map, int quality, int darkness) {
@@ -426,12 +437,22 @@ void Frontend::set_friends_files(const std::string &friends, const std::string &
     impl_->friend_actions_file = std::filesystem::path(actions);
 }
 
+// Button prompts: the names the L and R plates get, from what the pad binds those buttons to (LiveSettings).
+static void name_prompt_shoulders(LiveSettings &live, const host::PadBindings &pad) {
+    const auto code = [](const std::string &binding) {
+        const char *name = prompts::shoulder_label(binding);
+        return name == nullptr ? 0 : name[0] == 'L' ? 1 : 2;
+    };
+    live.prompt_shoulders = code(pad.left_shoulder) | code(pad.right_shoulder) << 2;
+}
+
 template <typename KeyBindings, typename PadBindings>
 void Frontend::set_bindings(const KeyBindings &keys, const PadBindings &pad) {
     impl_->keys = keys;
     impl_->pad = pad;
     impl_->host.set_keymap(keys);
     impl_->host.set_padmap(pad);
+    name_prompt_shoulders(impl_->live, impl_->pad);
 }
 
 // The game's keyboard and controller bindings (mhfu --keymap, --padmap); the homebrew runner never instantiates it.
@@ -682,7 +703,7 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kHudSize, kSongPlace, kSongMove, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn, kPackMipmaps, kAnisotropy, kShadow, kShadowStrength, kShadowWholeMap, kShadowQuality, kWidescreen
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn, kPackMipmaps, kAnisotropy, kShadow, kShadowStrength, kShadowWholeMap, kShadowQuality, kWidescreen, kButtonPrompts
 };
 constexpr int kGameOptionBase = 3000; // the Game tab's options of the game: kGameOptionBase + an index into Impl::game_options
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
@@ -1063,6 +1084,12 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
         row.text = host::pad_label(*host::pad_binding(impl.pad, host::kPadActions[i]));
         controls.items.push_back(row);
     }
+    if (impl.gpu_state == 1 && !impl.live.prompt_atlases.empty()) { // painted by the GPU renderer, in the textures the game named
+        overlay::MenuItem prompts = menu_item(Kind::Choice, kButtonPrompts, "Button prompts", impl.live.button_prompts.load());
+        prompts.options = {"Original", "Xbox"};
+        prompts.detail = "The buttons the game shows in its menus and hints.";
+        controls.items.push_back(prompts);
+    }
     overlay::MenuItem stick = menu_item(Kind::Choice, kPadStick, "Analog stick");
     stick.options = {"Left stick", "Right stick", "None"};
     for (std::size_t i = 0; i < std::size(kStickChoices); ++i) {
@@ -1099,6 +1126,7 @@ void save_controls(const Frontend::Impl &impl) {
         if (impl.song_spot) out << "horn-songs-place=" << overlay::format_song_spot(*impl.song_spot) << "\n";
         if (impl.songs_offered) out << "horn-songs=" << (impl.songs_on ? "true" : "false") << "\n";
         if (impl.hud_size_changed) out << "hud-size=" << impl.live.hud_size.load() << "\n";
+        if (impl.prompts_changed) out << "button-prompts=" << (impl.live.button_prompts.load() == 1 ? "xbox" : "original") << "\n";
         if (impl.widescreen_known) out << "option.widescreen=" << (impl.live.widescreen ? "true" : "false") << "\n";
         if (impl.pack_filter_changed) {
             out << "option.packMipmaps=" << (impl.live.texture_pack_mipmaps ? "true" : "false") << "\n";
@@ -1126,6 +1154,7 @@ void save_controls(const Frontend::Impl &impl) {
 void apply_bindings(Frontend::Impl &impl) {
     impl.host.set_keymap(impl.keys);
     impl.host.set_padmap(impl.pad);
+    name_prompt_shoulders(impl.live, impl.pad);
     save_controls(impl);
 }
 
@@ -1478,6 +1507,13 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
             impl.live.widescreen = e.value != 0;
             impl.widescreen_known = true;
             save_controls(impl); // the launcher keeps it for the next time
+            break;
+        case kButtonPrompts:
+            if (e.value == 0 || e.value == 1) {
+                impl.live.button_prompts = e.value;
+                impl.prompts_changed = true;
+                save_controls(impl); // the launcher keeps the style for the next time
+            }
             break;
         case kHudSize:
             if (e.value >= 0 && e.value < static_cast<int>(std::size(kHudSizes))) {

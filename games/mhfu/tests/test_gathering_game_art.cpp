@@ -55,6 +55,8 @@ int main() {
                 }
         }
     }
+    // The button as the Xbox prompts show it comes with the rest, the size of the game's.
+    if (art) MHF_CHECK((*art)[5].size == 16 && (*art)[5].pixels && (*art)[5].pixels->size() == 256);
     MHF_CHECK(!decode_game_gathering_art({}, items));
     MHF_CHECK(!decode_game_gathering_art(hud, {}));
     for (auto n : {0u, 8u, 16u, 32u, 65560u})

@@ -1,12 +1,10 @@
 #include "gathering_game_art.hpp"
-#include "data_bin.hpp"
-#include "iso9660.hpp"
+#include "button_prompts.hpp"
+#include "game_files.hpp"
 #include "texture_images.hpp"
 #include "texture_pack.hpp"
 
 #include <algorithm>
-#include <fstream>
-#include <stdexcept>
 
 namespace mhf::mhfu {
 namespace {
@@ -105,6 +103,27 @@ GatheringImage crop(const Atlas &image, unsigned x, unsigned y, unsigned size) {
     }
     return {static_cast<int>(size), std::move(pixels)};
 }
+// Circle as the Xbox button prompts show it: the atlas's four face pieces (its first 64 x 16 texels, at `scale` times
+// that for a pack's image) painted as the frontend paints them, and the first of them taken.
+template <typename Texel> GatheringImage xbox_button(unsigned scale, Texel texel) {
+    psp::prompts::Atlas faces;
+    faces.width = 64;
+    faces.height = 16;
+    for (std::uint16_t i = 0; i < 4; ++i) {
+        faces.cells.push_back({static_cast<psp::prompts::Icon>(i), {static_cast<std::uint16_t>(16 * i), 0, 16, 16}, {}, 0});
+    }
+    const unsigned width = 64 * scale, side = 16 * scale;
+    std::vector<std::uint32_t> strip(std::size_t(width) * side);
+    for (unsigned y = 0; y < side; ++y) {
+        for (unsigned x = 0; x < width; ++x) strip[std::size_t(y) * width + x] = texel(x, y);
+    }
+    if (!psp::prompts::repaint(faces, psp::prompts::Style::Xbox, strip, scale)) return {};
+    auto pixels = std::make_shared<std::vector<std::uint32_t>>(std::size_t(side) * side);
+    for (unsigned y = 0; y < side; ++y) {
+        for (unsigned x = 0; x < side; ++x) (*pixels)[std::size_t(y) * side + x] = premultiply(strip[std::size_t(y) * width + x]);
+    }
+    return {static_cast<int>(side), std::move(pixels)};
+}
 } // namespace
 
 std::optional<GatheringArt> decode_game_gathering_art(Bytes hud, Bytes items, const psp::textures::Pack *pack,
@@ -120,37 +139,27 @@ std::optional<GatheringArt> decode_game_gathering_art(Bytes hud, Bytes items, co
     const auto item_crop = [&](unsigned x, unsigned y) {
         return item_image ? crop(*item_image, x, y, 24) : crop(*actions, x, y, 24);
     };
+    GatheringImage button;
+    if (hud_image) {
+        const auto &rgba = hud_image->levels.front();
+        button = xbox_button(hud_image->width / 256, [&](unsigned x, unsigned y) { return word(rgba, (std::size_t(y) * hud_image->width + x) * 4); });
+    } else {
+        button = xbox_button(1, [&](unsigned x, unsigned y) {
+            return word(background->palette, 4 * background->pixels[(y / 8) * 2048 + (x / 16) * 128 + (y % 8) * 16 + x % 16]);
+        });
+    }
     return GatheringArt{hud_crop(220, 224, 32), hud_crop(0, 0, 16), item_crop(24, 48), item_crop(144, 24),
-                        item_crop(48, 96)};
+                        item_crop(48, 96), std::move(button)};
 }
 std::optional<GatheringArt> load_game_gathering_art(const std::filesystem::path &iso_path,
                                                     const std::filesystem::path &executable, std::uint32_t hud_file,
                                                     std::uint32_t items_file, const psp::textures::Pack *pack,
                                                     unsigned *replaced) {
     if (replaced) *replaced = 0;
-    try {
-        // Use the existing game-specific DATA.BIN reader, with the player's own prepared executable and ISO.
-        std::ifstream file(executable, std::ios::binary | std::ios::ate);
-        if (!file || file.tellg() <= 0 || file.tellg() > 16 * 1024 * 1024) return {};
-        std::vector<std::uint8_t> exe(static_cast<std::size_t>(file.tellg()));
-        file.seekg(0);
-        if (!file.read(reinterpret_cast<char *>(exe.data()), static_cast<std::streamsize>(exe.size()))) return {};
-        psp::IsoImage iso(iso_path);
-        const auto entry = iso.find("/PSP_GAME/USRDIR/DATA.BIN");
-        if (!entry) return {};
-        const auto data = DataBin::open(
-            [&](std::uint64_t offset, std::size_t size) {
-                if (size > 1024 * 1024) throw std::runtime_error("icon archive read exceeds limit");
-                return iso.read_file(*entry, offset, size);
-            },
-            entry->size, find_substitution_table_candidates(exe));
-        if (!data) return {};
-        for (const auto id : {hud_file, items_file}) {
-            if (id >= data->files().size() || data->files()[id].size > 1024 * 1024) return {};
-        }
-        return decode_game_gathering_art(data->read(hud_file), data->read(items_file), pack, replaced);
-    } catch (const std::exception &) {
-        return {}; // Unsupported/missing input keeps the text fallback.
-    }
+    // Use the existing game-specific DATA.BIN reader, with the player's own prepared executable and ISO.
+    const std::uint32_t ids[] = {hud_file, items_file};
+    const auto files = read_game_files(iso_path, executable, ids);
+    if (!files) return {}; // Unsupported/missing input keeps the text fallback.
+    return decode_game_gathering_art((*files)[0], (*files)[1], pack, replaced);
 }
 } // namespace mhf::mhfu

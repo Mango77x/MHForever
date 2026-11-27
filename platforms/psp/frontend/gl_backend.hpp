@@ -6,6 +6,7 @@
 // into an upscaled render target, and presents the displayed one to the window.
 
 #include "backend.hpp"
+#include "button_prompts.hpp"
 
 #include "psprecomp/guest_memory.hpp"
 
@@ -84,6 +85,15 @@ struct LiveSettings {
     // the frontend at every poll: 0 while off, with the software renderer or in a window no wider than 480:272.
     std::atomic<bool> widescreen{false};
     std::atomic<float> wide_aspect{0.0f};
+    // Button prompts (enhancement, button_prompts.hpp): a prompts::Style, the game's own (0) unless chosen, changed in
+    // the menu while the game runs; and, set before the backend is made, the game's textures that hold its prompts
+    // (Frontend::set_button_prompts). Painted in the frontend's copy of those textures only, as it uploads them.
+    std::atomic<int> button_prompts{0};
+    // The names on the L and R plates in that style, kept up by the frontend as the pad's bindings change: 0 the game's
+    // own plate (the default binding, a bumper and a trigger together, has no one name), 1 LB, 2 RB; L's in the low two
+    // bits, R's in the next two.
+    std::atomic<int> prompt_shoulders{0};
+    std::vector<prompts::Atlas> prompt_atlases;
     // Written by the drawing thread at every flip: that flip drew the quest HUD (its clock). The hunting horn's song
     // panel is only shown over it.
     std::atomic<bool> quest_hud{false};

@@ -3,6 +3,7 @@
 // Connects a PSP runtime to the desktop host: shows the displayed framebuffer, feeds controller input and plays the
 // mixed audio. Used by the game executables and the homebrew runner when a window is wanted.
 
+#include "button_prompts.hpp"
 #include "mhf/psp/runtime.hpp"
 #include "overlay/song_panel.hpp"
 
@@ -64,6 +65,13 @@ public:
     // Widescreen (gl_backend.hpp, LiveSettings): the 3D fills a window wider than the PSP's screen, 2D keeps its shape.
     // Before attach(); the Video tab turns it on and off while playing.
     void set_widescreen(bool on);
+    // Button prompts in another controller's style (button_prompts.hpp; gl_backend.hpp, LiveSettings): the game's
+    // textures that hold its prompts, and the style to start with. Before attach(); the Controls tab of the in-game
+    // menu then changes the style while playing (the GPU renderer only), and the controls file keeps it.
+    void set_button_prompts(std::vector<prompts::Atlas> atlases, prompts::Style style);
+    // The style drawn now (the game's own with the software renderer, or without those textures), for what a game
+    // program draws over the game with the game's own prompt pieces.
+    [[nodiscard]] prompts::Style button_prompts() const;
     // The shape the game should draw its 3D at (width over height), 0 while widescreen does not apply. Read by the
     // game program's camera hooks.
     [[nodiscard]] float game_aspect() const;

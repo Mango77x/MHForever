@@ -332,6 +332,13 @@ int main() {
         localized.update(rt, ctx);
         MHF_CHECK(localized.hint(rt) == "○  Gather");
     }
+    { // With the Xbox button prompts the text shown without icons names B.
+        mhf::mhfu::Gathering xbox;
+        xbox.indicators = true;
+        xbox.xbox_prompts = [] { return true; };
+        xbox.update(rt, ctx);
+        MHF_CHECK(xbox.hint(rt) == "B  Gather");
+    }
     // Raw controller input must not leak into gameplay during a system dialog.
     m.store32(manager + 0x0c, player);
     set_controller_state(rt, {});

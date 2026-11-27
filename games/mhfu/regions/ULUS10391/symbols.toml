@@ -41,6 +41,8 @@ mh_smithy_model_update        = 0x09AB71C8 # (Model*): the smithy's weapon model
 # Original icon atlases in DATA.BIN: first Western language has the same icon layout as the other languages.
 mh_gathering_hud_file = 30 # HUD atlas is image 1
 mh_gathering_items_file = 5355 # item atlas is image 0
+# Button prompts (--button-prompts): the HUD's atlas above holds them, and so does the menus' atlas.
+mh_prompt_menu_file = 25 # the fourth image; checked on this release
 
 # Gathering assistance: matched against EU functions in this release's executable and game_task overlay.
 # Only relocated address operands differ; target layout, tool IDs and action codes are unchanged.

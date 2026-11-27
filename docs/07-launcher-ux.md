@@ -126,6 +126,9 @@ WebKitGTK on Linux/Deck) through the header-only `webview` library (MIT). Qt was
   (`option.projectedShadows`, `option.wholeMapShadows`, `option.shadowQuality`, `option.shadowDarkness`); the last three
   travel even while the shadows are off, so turning them on in the game finds them as they were.
 - **Widescreen (2026-11-11)**: **Game settings → Video → Widescreen** (`widescreen` per copy, off by default, passed as `--widescreen`): in a window or on a screen wider than the PSP's, the 3D fills it with a wider view and the 2D keeps its shape (`05-runtime-hle.md`, GL backend). The in-game menu's Video tab turns it on and off while playing (GPU renderer only) and the launcher keeps it (`option.widescreen` in the controls file).
+- **Button prompts (2026-11-22)**: **Game settings → Video → Xbox button prompts** (`buttonPrompts` per copy, `original` or `xbox`,
+  passed as `--button-prompts xbox` only when chosen). The in-game menu's Controls tab changes it while playing and writes
+  `button-prompts=` to the controls file, which the launcher keeps. How they are drawn: `06-mhfu-module.md` §9.
 - **HUD scale (2026-11-02)**: **Game settings → Video → HUD scale** (100% down to 50%, steps of 10; `hudSize` per copy,
   passed as `--hud-size`) shrinks the hunting HUD into its corners; the in-game menu's Video tab has the same choice for the
   session. Only the quest HUD is sized: scaling the menus was tried and dropped (`05-runtime-hle.md`, HUD scale).
