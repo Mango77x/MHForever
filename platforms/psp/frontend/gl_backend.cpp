@@ -2405,7 +2405,7 @@ void GlBackend::look_up_pack(const gpu::Ge &ge, const gpu::Ge::TextureInfo &info
     // A [hashranges] image covers only part of the texture: coordinates reach past it in the same proportion.
     t.uv_scale[0] = static_cast<float>(info.width) / static_cast<float>(std::max(1u, covered_w));
     t.uv_scale[1] = static_cast<float>(info.height) / static_cast<float>(std::max(1u, covered_h));
-    t.pending = (from == builtin_.get() ? kBuiltinImage : std::string()) + m.entry->image();
+    t.pending = (from == builtin_.get() ? kBuiltinImage : std::string()) + m.entry->image_id();
     for (const auto &[level, name] : m.entry->levels) t.pending_files.push_back(from->path_of(name));
 }
 
