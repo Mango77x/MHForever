@@ -91,7 +91,7 @@ Each milestone has verifiable acceptance criteria. Mark `[x]` when done with dat
   the game's own screen at every start.
 - [ ] Launcher: signed updates.
 - [x] Windows zip with `scripts/package_release.py`; v0.1.0 published (2026-10-19), and a release every few days since
-      (v0.13.0 on 2026-11-24). What each one brought is in the GitHub Releases' notes.
+      (v0.13.1 on 2026-11-27). What each one brought is in the GitHub Releases' notes.
 - [x] Linux release (2026-10-22): portable `MHForever-<version>-linux-x64.tar.gz` from
       `scripts/package_release.py --platform linux` (programs, fonts, licenses, `dist/PLAYER_README_LINUX.txt`), embedded
       application icon, and a `cmake --install` layout with the desktop entry and the icon. CI builds and packages the layout
