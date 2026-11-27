@@ -164,6 +164,23 @@ int main() {
         MHF_CHECK(m.camera_votes == m.camera_voters);
     }
 
+    // Draws sharing a transform vote as one object. Repeated singular transforms do not vote.
+    {
+        Matcher matcher;
+        Matrix singular = identity();
+        singular[0] = 0.0f;
+        const Matrix prop = at(0.0f, 0.0f, -200.0f);
+        Scene repeated{{singular, prop}, {}};
+        // Cross the in-place lookup limit before revisiting both kinds of transform.
+        for (int i = 1; i <= 40; ++i) repeated.props.push_back(at(static_cast<float>(i), 0.0f, -200.0f));
+        repeated.props.insert(repeated.props.end(), {singular, prop, prop, prop});
+        const auto old_frame = frame(repeated, identity(), {});
+        const auto new_frame = frame(repeated, camera(0.0f, 0.0f, -20.0f), {});
+        const Matching &m = matcher.match(old_frame, new_frame, CutThresholds{});
+        MHF_CHECK(m.camera_found && m.matched == 46u && m.objects == 41u);
+        MHF_CHECK(m.camera_voters == 42u && m.camera_votes == 42u);
+    }
+
     // A town drawn as one object of many draws (many meshes under one matrix), and the hunter the camera follows, in
     // three pieces that stay where they are on the screen. Each object voting once, the hunter's pieces would win 3 to
     // 1 and the camera would be no motion at all; counting the pairs of draws, the town's motion wins.
@@ -178,10 +195,14 @@ int main() {
             mark_eligible(out, 0x88000u);
             return out;
         };
-        const Matching &m = matcher.match(town(camera(0, 0, 0)), town(camera(3.0f, 0, -30.0f)), CutThresholds{});
+        CutThresholds thresholds;
+        thresholds.diagnose = true;
+        const Matching &m = matcher.match(town(camera(0, 0, 0)), town(camera(3.0f, 0, -30.0f)), thresholds);
         MHF_CHECK(m.cut == nullptr && m.camera_found);
         MHF_CHECK(std::fabs(m.camera_angle_degrees - 3.0f) < 0.05f && std::fabs(m.camera_distance - 30.0f) < 0.5f);
         MHF_CHECK(m.camera_votes == 14u && m.camera_voters == 17u); // the square root of 200, and 3 more
+        MHF_CHECK(m.camera_off_crowd);
+        MHF_CHECK(m.crowd_voters == 4u && m.crowd_votes == 3u && m.camera_crowd_votes == 1u);
     }
 
     // A house: the room drawn as four objects (887, 36, 30 and 12 draws) that move with the camera, and one object of 1144

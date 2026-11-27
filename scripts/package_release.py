@@ -158,9 +158,9 @@ def write_tarball(path: pathlib.Path, folder: str, readme: str, files: dict[str,
 
 def archive_sha256(path: pathlib.Path) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as archive:
-        while block := archive.read(256 * 1024):
-            digest.update(block)
+    with path.open("rb") as archive, memoryview(bytearray(256 * 1024)) as buffer:
+        while size := archive.readinto(buffer):
+            digest.update(buffer[:size])
     return digest.hexdigest()
 
 

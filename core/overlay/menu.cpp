@@ -785,8 +785,7 @@ struct MenuRenderer::Impl : Painter {
         }
     }
 
-    void draw(const MenuView &v, bool backdrop) {
-        if (backdrop) fill_all(kBlack, 0.45f);
+    void draw(const MenuView &v) {
         const Placed p = place(v);
         const auto &side = p.panels.side, &main = p.panels.main;
 
@@ -993,8 +992,9 @@ bool MenuRenderer::render_song_panel(const SongPanel &panel, float at_x, float a
 
 bool MenuRenderer::render(const MenuView &view, int width, int height, std::vector<std::uint32_t> &pixels, bool backdrop) {
     Impl &d = *impl_;
-    d.begin(pixels, width, height, static_cast<float>(height) / Impl::kH);
-    d.draw(view, backdrop);
+    constexpr std::uint32_t kBackdrop = 115u << 24; // 45% black, rounded to 8-bit alpha.
+    d.begin(pixels, width, height, static_cast<float>(height) / Impl::kH, backdrop ? kBackdrop : 0u);
+    d.draw(view);
     d.end();
     return d.font_ok();
 }

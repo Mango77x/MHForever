@@ -52,9 +52,8 @@ def runtime_dir() -> str:
     return match.group(1)
 
 
-def system_library(soname: str) -> pathlib.Path:
-    out = subprocess.run(["ldconfig", "-p"], check=True, capture_output=True, text=True).stdout
-    for line in out.splitlines():
+def system_library(soname: str, cache_lines: list[str]) -> pathlib.Path:
+    for line in cache_lines:
         parts = line.strip().split(" => ")
         if len(parts) == 2 and parts[0].split(" ")[0] == soname and "x86-64" in parts[0]:
             return pathlib.Path(parts[1])
@@ -97,8 +96,10 @@ def main() -> int:
     ap.add_argument("--out", required=True, type=pathlib.Path)
     args = ap.parse_args()
 
-    webkit = system_library(WEBKIT)
-    javascriptcore = system_library(JAVASCRIPTCORE)
+    cache = subprocess.run(["ldconfig", "-p"], check=True, capture_output=True, text=True).stdout
+    cache_lines = cache.splitlines()
+    webkit = system_library(WEBKIT, cache_lines)
+    javascriptcore = system_library(JAVASCRIPTCORE, cache_lines)
     # The helpers' folder as WebKit has it written (ldconfig may give the same folder through another path, /lib).
     written = re.search(rb"\0(/[A-Za-z0-9_./-]+/webkit2gtk-4\.1)\0", webkit.read_bytes())
     if written is None:

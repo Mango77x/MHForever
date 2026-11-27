@@ -36,6 +36,12 @@ IsoImage::IsoImage(const std::filesystem::path& path) : file_(path, std::ios::bi
     }
     const std::uint8_t* root = pvd.data() + 156;
     walk_directory(read_le32(root + 2), read_le32(root + 10), "", 0);
+
+    entries_by_path_.reserve(entries_.size());
+    for (std::size_t i = 0; i < entries_.size(); ++i) {
+        // Keep the first directory record if multiple records normalize to the same path.
+        entries_by_path_.try_emplace(upper(entries_[i].path), i);
+    }
 }
 
 void IsoImage::walk_directory(std::uint32_t lba, std::uint32_t size, const std::string& prefix, int depth) {
@@ -81,11 +87,8 @@ void IsoImage::walk_directory(std::uint32_t lba, std::uint32_t size, const std::
 }
 
 std::optional<IsoImage::Entry> IsoImage::find(std::string_view path) const {
-    const std::string wanted = upper(path);
-    for (const auto& entry : entries_) {
-        if (upper(entry.path) == wanted) {
-            return entry;
-        }
+    if (const auto it = entries_by_path_.find(upper(path)); it != entries_by_path_.end()) {
+        return entries_[it->second];
     }
     return std::nullopt;
 }

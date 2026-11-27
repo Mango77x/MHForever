@@ -227,9 +227,10 @@ bool DialogOverlay::render(const DialogView &view, int scale, std::vector<std::u
 
 bool DialogOverlay::render(const DialogView &view, int width, int height, std::vector<std::uint32_t> &pixels) {
     Impl &d = *impl_;
-    d.begin(pixels, width, height, static_cast<float>(height) / 272.0f);
     using Kind = DialogView::Kind;
-    if (view.kind != Kind::None && view.kind != Kind::Toast) d.fill_all(kBlack, 0.55f);
+    constexpr std::uint32_t kBackdrop = 140u << 24; // 55% black, rounded to 8-bit alpha.
+    const bool dimmed = view.kind != Kind::None && view.kind != Kind::Toast;
+    d.begin(pixels, width, height, static_cast<float>(height) / 272.0f, dimmed ? kBackdrop : 0u);
     switch (view.kind) {
     case Kind::Message: d.draw_message(view); break;
     case Kind::Keyboard: d.draw_keyboard(view); break;
