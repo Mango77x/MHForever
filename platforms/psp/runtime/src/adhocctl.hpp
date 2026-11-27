@@ -139,7 +139,7 @@ public:
 
     // The private room the next scan and the next join use; "" (or a code that is not valid) is the public halls. It can
     // change at any time: a group already joined stays as it is until the game leaves it.
-    void set_room(std::string_view code) { room_ = normalize_room_code(code); }
+    void set_room(std::string_view code);
     [[nodiscard]] const std::string &room() const noexcept { return room_; }
     // The room of the group joined last ("" the public halls): the one the game is in while state() is Connected.
     [[nodiscard]] const std::string &joined_room() const noexcept { return joined_room_; }
@@ -160,6 +160,7 @@ private:
     std::vector<ScanGroup> scan_in_progress_;
     Mac leader_{};
     bool connecting_ = false;
+    bool discard_scan_ = false; // drain an invalidated or cancelled request through ScanComplete
     std::vector<Notification> pending_; // events raised by calls, delivered by the next poll
 };
 

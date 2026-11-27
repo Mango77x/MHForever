@@ -167,6 +167,26 @@ int main() {
         MHF_CHECK(c.poll().empty() && c.groups().size() == 2);
     }
 
+    // A cancelled request can still send untagged scan packets on the same link.
+    for (bool reinitialize : {false, true}) {
+        FakeLink link;
+        Adhocctl c(&link);
+        MHF_CHECK(c.init() == 0 && c.scan() == 0);
+        if (reinitialize) {
+            MHF_CHECK(c.term() == 0 && c.init() == 0);
+        } else {
+            MHF_CHECK(c.disconnect() == 0);
+        }
+        MHF_CHECK(c.scan() == error::kBusy && link.scans == 1);
+        link.say(LinkEvent::Kind::Scan).group = group("OLD");
+        link.say(LinkEvent::Kind::ScanComplete);
+        MHF_CHECK(c.poll().empty() && c.groups().empty());
+        MHF_CHECK(c.scan() == 0 && link.scans == 2);
+        link.say(LinkEvent::Kind::Scan).group = group("NEW");
+        link.say(LinkEvent::Kind::ScanComplete);
+        MHF_CHECK(c.poll().size() == 1);
+        MHF_CHECK(c.groups().size() == 1 && c.groups().front().name == group("NEW"));
+    }
     // Losing the server: a group in progress ends with DISCONNECT, a scan with SCAN.
     {
         FakeLink link;
@@ -181,6 +201,69 @@ int main() {
         link.say(LinkEvent::Kind::Error);
         const auto scan_notes = c.poll();
         MHF_CHECK(scan_notes.size() == 1 && scan_notes[0].event == kEventScan && c.state() == State::Disconnected);
+    }
+
+    // Changing rooms while a scan is in flight must not expose public or previous-room halls.
+    {
+        FakeLink link;
+        Adhocctl c(&link);
+        MHF_CHECK(c.init() == 0);
+        const GroupName hall = group("MHPSP000");
+        c.add_hall_prefix({'M', 'H', 'P', 'S', 'P', '0'});
+        MHF_CHECK(c.scan() == 0);
+        link.say(LinkEvent::Kind::Scan).group = hall;
+        link.say(LinkEvent::Kind::ScanComplete);
+        (void)c.poll();
+        MHF_CHECK(c.groups().size() == 1);
+
+        MHF_CHECK(c.scan() == 0);
+        link.say(LinkEvent::Kind::Scan).group = group("PUBLIC01");
+        (void)c.poll();
+        c.set_room("K7QF29XM");
+        MHF_CHECK(c.groups().empty());
+        link.say(LinkEvent::Kind::Scan).group = private_name(c.room(), hall);
+        link.say(LinkEvent::Kind::ScanComplete);
+        const auto cancelled = c.poll();
+        MHF_CHECK(cancelled.size() == 1 && cancelled[0].event == kEventScan);
+        MHF_CHECK(c.groups().empty() && c.idle());
+
+        MHF_CHECK(c.scan() == 0);
+        link.say(LinkEvent::Kind::Scan).group = private_name(c.room(), hall);
+        (void)c.poll();
+        c.set_room("k7qf-29xm"); // same normalized room: preserve this scan
+        link.say(LinkEvent::Kind::ScanComplete);
+        (void)c.poll();
+        MHF_CHECK(c.groups().size() == 1 && c.groups()[0].name == hall);
+
+        MHF_CHECK(c.connect(hall) == 0);
+        link.say(LinkEvent::Kind::LeaderMac).mac = mac(2);
+        (void)c.poll();
+        c.set_room("");
+        MHF_CHECK(c.state() == State::Connected && c.joined_room() == "K7QF29XM");
+        MHF_CHECK(c.groups().empty() && c.leader() == mac(2));
+        MHF_CHECK(c.disconnect() == 0 && c.leader() == Mac{});
+    }
+
+    // A failed refresh invalidates both the published and the incomplete lists.
+    {
+        FakeLink link;
+        Adhocctl c(&link);
+        MHF_CHECK(c.init() == 0 && c.scan() == 0);
+        link.say(LinkEvent::Kind::Scan).group = group("OLD");
+        link.say(LinkEvent::Kind::ScanComplete);
+        (void)c.poll();
+        MHF_CHECK(c.groups().size() == 1 && c.scan() == 0);
+        link.say(LinkEvent::Kind::Scan).group = group("PARTIAL");
+        link.say(LinkEvent::Kind::Error);
+        link.say(LinkEvent::Kind::ScanComplete);
+        const auto notes = c.poll();
+        MHF_CHECK(notes.size() == 1 && notes[0].event == kEventScan);
+        MHF_CHECK(c.groups().empty() && c.idle());
+        MHF_CHECK(c.scan() == 0);
+        link.say(LinkEvent::Kind::Scan).group = group("FRESH");
+        link.say(LinkEvent::Kind::ScanComplete);
+        (void)c.poll();
+        MHF_CHECK(c.groups().size() == 1 && c.groups()[0].name == group("FRESH"));
     }
 
     // No server configured: the library works, a scan finds nothing at once, a join never completes.

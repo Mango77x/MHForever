@@ -25,6 +25,7 @@ std::string normalize_room_code(std::string_view text) {
         if (c == 'O') c = '0';
         if (c == 'I' || c == 'L') c = '1';
         if (std::string_view(kBase32).find(c) == std::string_view::npos) return {};
+        if (code.size() == 8) return {};
         code.push_back(c);
     }
     return code.size() == 8 ? code : std::string();
@@ -49,6 +50,15 @@ GroupName private_name(const std::string &code, const GroupName &game_name) {
     return name;
 }
 
+void Adhocctl::set_room(std::string_view code) {
+    const std::string next = normalize_room_code(code);
+    if (next == room_) return;
+    room_ = next;
+    groups_.clear();
+    scan_in_progress_.clear();
+    if (state_ == State::Scanning) discard_scan_ = true;
+}
+
 void Adhocctl::add_hall_prefix(const HallPrefix &prefix) {
     if (std::find(prefixes_.begin(), prefixes_.end(), prefix) == prefixes_.end()) prefixes_.push_back(prefix);
 }
@@ -67,6 +77,7 @@ std::uint32_t Adhocctl::init() {
 
 bool Adhocctl::set_link(AdhocLink *link) {
     if (!idle()) return false;
+    if (link != link_) discard_scan_ = false;
     link_ = link;
     peers_.clear();
     groups_.clear();
@@ -77,8 +88,10 @@ bool Adhocctl::set_link(AdhocLink *link) {
 std::uint32_t Adhocctl::term() {
     if (!initialized_) return 0;
     if (link_ != nullptr && (state_ == State::Connected || connecting_)) link_->request_disconnect();
+    if (state_ == State::Scanning) discard_scan_ = true;
     initialized_ = false;
     state_ = State::Disconnected;
+    leader_ = {};
     handlers_.clear();
     peers_.clear();
     groups_.clear();
@@ -123,7 +136,9 @@ std::uint32_t Adhocctl::connect(const GroupName &group) {
 std::uint32_t Adhocctl::disconnect() {
     if (!initialized_) return error::kNotInitialized;
     if (link_ != nullptr && (state_ == State::Connected || connecting_)) link_->request_disconnect();
+    if (state_ == State::Scanning) discard_scan_ = true;
     const bool was_connected = state_ == State::Connected;
+    leader_ = {};
     state_ = State::Disconnected;
     connecting_ = false;
     peers_.clear();
@@ -135,7 +150,7 @@ std::uint32_t Adhocctl::disconnect() {
 std::uint32_t Adhocctl::scan() {
     if (!initialized_) return error::kNotInitialized;
     if (state_ == State::Connected || connecting_) return error::kAlreadyConnected;
-    if (state_ == State::Scanning) return error::kBusy;
+    if (state_ == State::Scanning || discard_scan_) return error::kBusy;
     state_ = State::Scanning;
     scan_in_progress_.clear();
     if (link_ == nullptr) {
@@ -155,7 +170,7 @@ std::vector<Notification> Adhocctl::poll() {
     for (const LinkEvent &e : link_->take_events()) {
         switch (e.kind) {
         case LinkEvent::Kind::Scan: {
-            if (state_ != State::Scanning) break;
+            if (state_ != State::Scanning || discard_scan_) break;
             if (room_.empty()) {
                 scan_in_progress_.push_back({e.group, e.mac});
                 break;
@@ -174,8 +189,10 @@ std::vector<Notification> Adhocctl::poll() {
             break;
         }
         case LinkEvent::Kind::ScanComplete:
+            discard_scan_ = false;
             if (state_ == State::Scanning) {
-                groups_ = scan_in_progress_;
+                groups_.swap(scan_in_progress_);
+                scan_in_progress_.clear();
                 state_ = State::Disconnected;
                 out.push_back({kEventScan, 0});
             }
@@ -201,12 +218,15 @@ std::vector<Notification> Adhocctl::poll() {
             break;
         case LinkEvent::Kind::Chat: break;
         case LinkEvent::Kind::Error:
+            discard_scan_ = false;
             // The server is gone. A group we were in is gone with it; a scan under way ends without results.
             if (state_ == State::Connected || connecting_) out.push_back({kEventDisconnect, 0});
             else if (state_ == State::Scanning) out.push_back({kEventScan, 0});
             state_ = State::Disconnected;
             connecting_ = false;
+            leader_ = {};
             peers_.clear();
+            groups_.clear();
             scan_in_progress_.clear();
             break;
         }
