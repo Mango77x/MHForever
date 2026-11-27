@@ -154,7 +154,12 @@ std::string install(const fs::path &unpacked, const fs::path &install) {
     std::error_code ec;
     std::vector<fs::path> files;
     for (auto it = fs::recursive_directory_iterator(unpacked, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
-        if (it->is_regular_file(ec)) files.push_back(fs::relative(it->path(), unpacked, ec));
+        const auto status = it->symlink_status(ec);
+        if (ec) break;
+        if (fs::is_directory(status)) continue;
+        const fs::path relative = it->path().lexically_relative(unpacked);
+        if (!fs::is_regular_file(status)) return "Unsupported update entry: " + platform::to_utf8(relative);
+        files.push_back(relative);
     }
     if (ec) return "Cannot read the unpacked update: " + ec.message();
     if (files.empty()) return "The update archive is empty.";
@@ -208,7 +213,11 @@ std::string install(const fs::path &unpacked, const fs::path &install) {
         fs::path parent = install;
         for (const auto &part : relative.parent_path()) {
             parent /= part;
-            if (fs::create_directory(parent, ec)) created_dirs.push_back(parent);
+            if (fs::create_directory(parent, ec)) {
+                created_dirs.push_back(parent);
+            } else if (!ec && !fs::is_directory(fs::symlink_status(parent, ec))) {
+                return undo("Update destination is not a directory: " + platform::to_utf8(parent));
+            }
             if (ec) return undo("Cannot write in " + platform::to_utf8(parent) + ": " + ec.message());
         }
         const fs::file_status status = fs::symlink_status(target, ec);

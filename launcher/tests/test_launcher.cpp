@@ -745,6 +745,20 @@ int main(int argc, char **argv) {
         CHECK(!fs::exists(backup));
         CHECK(text(app / "MHForever.exe.old") == "personal launcher backup");
         CHECK(text(app / "fonts" / "personal.old") == "personal nested file");
+#ifndef _WIN32
+        // Release archives contain ordinary files. Reject linked entries and linked destination folders.
+        fs::create_symlink("a.ttf", unpacked / "fonts" / "alias.ttf");
+        CHECK(!up::install(unpacked, app).empty());
+        fs::remove(unpacked / "fonts" / "alias.ttf");
+        fs::create_directory(unpacked / "linked");
+        std::ofstream(unpacked / "linked" / "new.txt") << "new file";
+        fs::create_directory_symlink("fonts", app / "linked");
+        CHECK(!up::install(unpacked, app).empty());
+        CHECK(!fs::exists(app / "fonts" / "new.txt"));
+        CHECK(!fs::exists(backup));
+        fs::remove(app / "linked");
+        fs::remove_all(unpacked / "linked");
+#endif
         // A conflicting directory path after earlier replacements puts those files back.
         fs::create_directories(unpacked / "zz_blocked");
         std::ofstream(unpacked / "zz_blocked" / "file") << "x";
