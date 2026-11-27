@@ -154,7 +154,7 @@ std::string SdlHost::clipboard_text() const {
     return out;
 }
 
-void SdlHost::set_clipboard_text(const std::string &text) { SDL_SetClipboardText(text.c_str()); }
+bool SdlHost::set_clipboard_text(const std::string &text) { return SDL_SetClipboardText(text.c_str()); }
 
 void SdlHost::set_capture(bool on) {
     impl_->capture = on;

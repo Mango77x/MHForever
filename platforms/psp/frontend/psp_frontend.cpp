@@ -122,6 +122,8 @@ struct Frontend::Impl {
     bool menu_pad_used{}; // the last key came from a controller: its hints, and the code keyboard for typing
     std::string title;
     LiveSettings live; // what the menu changes while the game runs
+    std::string capture_settings, last_capture, previous_capture, capture_copy_note;
+    bool capture_too_short{};
     bool open{};
     bool gpu{};
     int render_scale{4};
@@ -682,7 +684,8 @@ void update_dialogs(Frontend::Impl &impl, Runtime &rt) {
 
 enum MenuId {
     kResume = 1, kQuit, kQuitYes, kQuitNo, kMusic, kSfx, kScale, kFps, kFullscreen, kSmooth, kTexturePack, kHudSize, kSongPlace, kSongMove, kPadStick, kRestoreKeys, kRestorePad,
-    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn, kPackMipmaps, kAnisotropy, kShadow, kShadowStrength, kShadowWholeMap, kShadowQuality, kWidescreen
+    kHalls, kRoomCode, kJoinRoom, kServer, kFriendsMore, kSongsOn, kPackMipmaps, kAnisotropy, kShadow, kShadowStrength, kShadowWholeMap, kShadowQuality, kWidescreen,
+    kMeasureFramePacing, kCopyFramePacing
 };
 constexpr int kGameOptionBase = 3000; // the Game tab's options of the game: kGameOptionBase + an index into Impl::game_options
 constexpr int kFriendBase = 4000; // the Online tab's friend rows: kFriendBase + an index into Impl::friends
@@ -1048,6 +1051,20 @@ overlay::MenuView menu_main(const Frontend::Impl &impl) {
     }
     hud.detail = "Size of the quest HUD.";
     video.items.push_back(hud);
+    if (impl.gpu_state == 1) {
+        video.items.push_back(menu_item(Kind::Heading, 0, "Frame pacing"));
+        if (!impl.previous_capture.empty()) video.items.push_back(menu_item(Kind::Info, 0, "Previous: " + impl.previous_capture));
+        if (!impl.last_capture.empty()) video.items.push_back(menu_item(Kind::Info, 0, "Latest: " + impl.last_capture));
+        if (impl.capture_too_short) video.items.push_back(menu_item(Kind::Info, 0, "Too few frames to measure. Try again."));
+        auto measure = menu_item(Kind::Button, kMeasureFramePacing, "Measure frame pacing");
+        measure.detail = "Play for 10 seconds, then return here for results.";
+        video.items.push_back(measure);
+        if (!impl.last_capture.empty()) {
+            auto copy = menu_item(Kind::Button, kCopyFramePacing, "Copy results");
+            copy.detail = impl.capture_copy_note;
+            video.items.push_back(copy);
+        }
+    }
     overlay::MenuTab controls{"Controls", {menu_item(Kind::Heading, 0, "Keyboard")}, "Select an action, then press the new key or button."};
     for (std::size_t i = 0; i < host::kKeyActions.size(); ++i) {
         const int id = kKeyBase + static_cast<int>(i);
@@ -1341,6 +1358,26 @@ bool menu_handle(Frontend::Impl &impl, Runtime &rt, const overlay::Menu::Event &
     case overlay::Menu::Event::Kind::Activated:
         switch (e.id) {
         case kResume: return false;
+        case kMeasureFramePacing: {
+            impl.capture_settings = std::to_string(impl.target_fps) + " fps target, " + std::to_string(impl.render_scale) + "x";
+            if (impl.shadows_offered) {
+                constexpr const char *quality[] = {"low", "medium", "high"};
+                impl.capture_settings += ", shadows ";
+                impl.capture_settings += impl.live.shadow ? quality[std::clamp(impl.live.shadow_quality.load(), 0, 2)] : "off";
+                if (impl.live.shadow && impl.live.shadow_whole_map) impl.capture_settings += " (whole map)";
+            }
+            if (!impl.live.texture_pack_folder.empty()) impl.capture_settings += impl.live.texture_pack ? ", pack on" : ", pack off";
+            impl.live.frame_pacing.start(FramePacingCapture::Clock::now());
+            return false;
+        }
+        case kCopyFramePacing: {
+            std::string report = "MHForever frame pacing\n";
+            if (!impl.previous_capture.empty()) report += "Previous: " + impl.previous_capture + "\n";
+            report += "Latest: " + impl.last_capture;
+            impl.capture_copy_note = impl.host.set_clipboard_text(report) ? "Copied." : "Clipboard unavailable.";
+            refresh_menu(impl);
+            return true;
+        }
         case kSongMove: // the menu closes, and the songs are moved over the game
             impl.song_placing_requested = impl.songs_seen.has_value() && impl.gpu_state == 1;
             return false;
@@ -1577,6 +1614,21 @@ void menu_pad_keys(MenuPad &state, const host::GamepadState &g, std::uint64_t no
 // puts it up, `step_menu` runs on every poll of the emulation thread until the player goes back to the game or quits,
 // and `close_menu` takes it down. The menu is drawn as an overlay over the running game.
 void open_menu(Frontend::Impl &impl, Runtime &rt) {
+    if (!impl.capture_settings.empty()) {
+        impl.capture_copy_note.clear();
+        const auto result = impl.live.frame_pacing.finish();
+        impl.capture_too_short = !result.has_value();
+        if (result) {
+            char metrics[192];
+            std::snprintf(metrics, sizeof metrics,
+                          "%.1f fps over %.1f s. P99 %.1f ms, worst %.1f ms. %zu/%zu frames interpolated.",
+                          result->fps, result->seconds, result->p99_ms, result->worst_ms,
+                          result->interpolated, result->intervals);
+            impl.previous_capture = std::move(impl.last_capture);
+            impl.last_capture = impl.capture_settings + ". " + metrics;
+        }
+        impl.capture_settings.clear();
+    }
     if (impl.font_directory.empty()) impl.font_directory = rt.options().font_directory;
     if (!impl.dialog_thread.joinable() && impl.gpu_state == 1) impl.dialog_thread = std::thread([&impl] { impl.dialog_worker(); });
     impl.menu_confirming_quit = false;

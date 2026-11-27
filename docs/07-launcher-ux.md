@@ -187,6 +187,18 @@ that stretched the launcher's own window over the game was dropped on purpose: l
 fullscreen, resizing, closing the game while it is up) is fragile on Windows and impossible on the Steam Deck's game
 mode, where no second window can be shown.
 
+**Comparing video settings.** With the OpenGL renderer, open **Video → Measure frame pacing**. The menu closes.
+Play the same stretch of a quest for ten seconds, then reopen Video. Change one setting (for example, projected
+shadows), repeat the route and compare **Previous** and **Latest**. Opening the menu early ends the run at the
+last recorded frame. Both results stay in the menu until the game closes. **Copy results** puts the settings
+and figures on the clipboard as plain text for a performance report.
+
+The measurement starts at the first successful gameplay buffer swap and ends on the first swap at or after ten
+seconds. It includes interpolated pictures and excludes menu redraws. Average fps counts completed intervals
+per elapsed second. P99 is the time within which 99% of intervals finished, and worst is the longest interval.
+The interpolation count tells how many measured intervals ended with an in-between picture. These are host swap
+times, so the monitor's scanout and the game's simulation rate are separate measurements.
+
 - Sections: **Game** (back to the game, quit with a confirmation), **Audio** (music, sound effects), **Video** (internal
   resolution 1x to 10x, frame rate 30 to 180 fps, fullscreen, smooth textures, texture pack, HUD scale), **Controls**, and **Online** when a server
   is set. Since 2026-11-09 the Game section also changes, while playing, the enhancements whose hooks read a switch every

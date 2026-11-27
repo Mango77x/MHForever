@@ -1137,7 +1137,7 @@ private:
     void apply_state(const gpu::Ge &ge);
     void emit_state(const DrawSetup &setup, RenderTarget &rt);
     void draw_vertices(const std::vector<GpuVertex> &vertices);
-    void show(GLuint texture, float uv_max_x, float uv_max_y);
+    void show(GLuint texture, float uv_max_x, float uv_max_y, bool interpolated = false);
     void finish_flip();
     void copy_shown_to_vram(RenderTarget *shown);
     bool present_interpolated(RenderTarget &shown, const float uv_max[2]);
@@ -5006,7 +5006,7 @@ void GlBackend::copy_shown_to_vram(RenderTarget *shown) {
 
 // Puts a picture on the window: letterboxed to the PSP's 480:272 (or stretched wider, widescreen), with the dialog
 // overlay on top, which always keeps the PSP's shape.
-void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
+void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y, bool interpolated) {
     const auto show_start = std::chrono::steady_clock::now();
     last_texture_ = texture;
     last_uv_[0] = uv_max_x;
@@ -5066,8 +5066,9 @@ void GlBackend::show(GLuint texture, float uv_max_x, float uv_max_y) {
     }
     dump_window(window_w, window_h);
     const auto swap_start = std::chrono::steady_clock::now();
-    SDL_GL_SwapWindow(window_);
+    const bool swapped = SDL_GL_SwapWindow(window_);
     const auto swap_end = std::chrono::steady_clock::now();
+    if (swapped && !menu && !redraw_only_) live_->frame_pacing.presented(swap_end, interpolated);
     cost_.swap_us += std::chrono::duration<double, std::micro>(swap_end - swap_start).count();
     cost_.show_us += std::chrono::duration<double, std::micro>(swap_end - show_start).count();
     ++cost_.shows;
@@ -6064,7 +6065,7 @@ void GlBackend::show_between(float phase) {
     shown.format = flip_.format;
     render_between(shown, *flip_.now, flip_.before, slots_[flip_.before_slot], phase);
     picture_aspect_ = flip_.aspect;
-    show(scratch_.color, flip_.uv_max[0], flip_.uv_max[1]);
+    show(scratch_.color, flip_.uv_max[0], flip_.uv_max[1], true);
 }
 
 // Called by the GE worker when the next picture is due (and it has no display list to run). Draws the picture for

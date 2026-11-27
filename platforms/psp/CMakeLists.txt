@@ -73,6 +73,11 @@ if(MHF_BUILD_TESTS)
     mhf_target_warnings(test_frame_matching)
     add_test(NAME psp_frame_matching COMMAND test_frame_matching)
 
+    add_executable(test_frame_pacing_capture tests/test_frame_pacing_capture.cpp)
+    target_include_directories(test_frame_pacing_capture PRIVATE frontend ${PROJECT_SOURCE_DIR}/tests/support)
+    mhf_target_warnings(test_frame_pacing_capture)
+    add_test(NAME psp_frame_pacing_capture COMMAND test_frame_pacing_capture)
+
     add_executable(test_texture_pack tests/test_texture_pack.cpp)
     target_include_directories(test_texture_pack PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
     target_link_libraries(test_texture_pack PRIVATE mhf_texture_pack mhf_texture_images mhf_xxhash)
