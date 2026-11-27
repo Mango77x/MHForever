@@ -23,6 +23,9 @@ mh_supply_box_update    = 0x088476A4 # (?, Player*): the supply box menu, once p
 # an interrupt (a finished display list) sets it. Hooked: the host sleeps until the next interrupt instead of spinning.
 mh_draw_wait            = 0x088596DC # (): returns once mh_draw_done is set
 
+# The title screen of demo_task.ovl (--skip-intro, 2026-11-27): hooked to load the sounds the skipped screens load.
+mh_intro_title_screen   = 0x09A5B348 # (Screen*): the title screen, once per frame
+
 # Smithy lists in lobby_task.ovl (--smithy-browse; found 2026-11-05 by matching the EU code). The list a function gets
 # holds the cursor (s16 at +0x3C), the Info level (u8 at +0x22: 0 the list, 1 Info) and flags (u32 at +0x4C, 0x20: the R
 # panel).
@@ -82,6 +85,9 @@ mh_pad_input             = 0x08A5DD34 # Pad*: this frame's buttons and sticks as
 mh_draw_done             = 0x08A5DD15 # u8: set when the game's drawing for the frame is done (mh_draw_wait waits for it)
 mh_intro_first_scene     = 0x09A5BDB8 # u32 in demo_task's data: the start-up screen after the memory stick check (the company logo)
 mh_intro_title_scene     = 0x09A5BDA8 # u32 in demo_task's data: the title screen, where the game's own shortcut goes
+mh_intro_sound_sets      = 0x09C144D0 # demo_sub.ovl: (Sub*) -> done; loads the next set of sound effects, one a call (the first screen after the memory stick check calls it every frame)
+mh_intro_sound_banks     = 0x09C145A8 # demo_sub.ovl: (Sub*) -> done; loads the next sound bank, one a call (the company logo calls it every frame)
+mh_intro_sub             = 0x09C167A0 # u32 in demo_sub's data: the Sub* both functions take (flags at +0: 2 sets loaded, 4 banks loaded)
 
 [offsets]
 system_active_overlays  = 0x00F7A3C0 # u16[6] inside System, active DATA.BIN file id per group (0xFFFF = none)
