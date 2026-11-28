@@ -81,6 +81,7 @@ export interface Settings {
   // 'left', 'right' or ''.
   pad: Record<string, string>;
   // The PSP ad hoc server used for online play, "host" or "host:port"; '' keeps the game offline.
+  shareFriendLocation?: boolean;
   adhocServer: string;
   // The private room's code ("K7QF29XM"), '' for the public halls (docs/14-rooms-and-friends.md section 3).
   adhocRoom: string;
@@ -266,7 +267,7 @@ function simulated(): Native {
       scale: 4, fullscreen: false, smoothTextures: false, packMipmaps: false, anisotropy: 16, widescreen: false, fps: 30, hudSize: 100, trueWeaponValues: false, fastSupplyBox: false,
       smithyBrowse: false, smithyLayout: false, analogCamera: false, analogCameraTurnSpeed: 100, analogCameraTiltSpeed: 100, mouseCamera: false, mouseCameraSpeed: 100,
       gatheringAssistance: false, skipIntro: false, hornSongs: false, hornSongsPlace: 'next-to-sheet', language: '', copyImage: false, useCustomArt: true, showGameIcon: true, musicVolume: 80, sfxVolume: 90,
-      keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '', adhocRoom: '', checkUpdates: true,
+      keys: { ...defaultKeys }, pad: { ...defaultPad }, adhocServer: '', adhocRoom: '', shareFriendLocation: true, checkUpdates: true,
       friendRelays: ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom', 'wss://offchain.pub', 'wss://relay.nostr.net'],
     },
     keyDefaults: defaultKeys,
@@ -335,7 +336,7 @@ function simulated(): Native {
       }, 6000);
       return { started: true };
     },
-    async mhf_copyText(text) { try { await navigator.clipboard.writeText(text); } catch { /* not allowed here */ } return true; },
+    async mhf_copyText(text) { try { await navigator.clipboard.writeText(text); } catch { return false; } return true; },
     async mhf_exportIdentity() { return { saved: true }; },
     async mhf_setFriends(friends, blocked) { state.friends = friends; state.blocked = blocked; return copy(); },
     async mhf_setGameFriends() { return true; },

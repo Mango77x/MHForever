@@ -240,7 +240,8 @@ const Json *chosen_copy(const Json &data, const std::string &game_id, const Cata
 
 // The launcher's own settings: everything else is kept per copy of a game.
 bool is_launcher_setting(const std::string &key) {
-    return key == "copyImage" || key == "useCustomArt" || key == "showGameIcon" || key == "adhocServer" || key == "adhocRoom" || key == "checkUpdates" || key == "friendRelays";
+    return key == "copyImage" || key == "useCustomArt" || key == "showGameIcon" || key == "adhocServer" ||
+           key == "adhocRoom" || key == "shareFriendLocation" || key == "checkUpdates" || key == "friendRelays";
 }
 
 // What a copy of a game uses: its own settings, over what the launcher.json "settings" hold (the values every copy started
@@ -302,6 +303,7 @@ Json default_settings() {
     s["copyImage"] = false; // keep a copy of the disc image in the data directory
     s["useCustomArt"] = true; // show the cover and banner the player uploaded for each game; off keeps the drawn scenery
     s["showGameIcon"] = true; // show the small ICON0 badge on Library cards; off hides it for a cleaner picture
+    s["shareFriendLocation"] = true; // existing players share their server and room through friend presence
     s["checkUpdates"] = true; // ask GitHub for a newer release when the launcher starts
     s["musicVolume"] = 100;
     s["sfxVolume"] = 100;
@@ -375,7 +377,7 @@ host::PadBindings pad_bindings_from(const Json &pad) {
     return bindings;
 }
 
-// "host" or "host:port": letters, digits, dots, dashes and underscores, and a port from 1 to 65535. Empty is "offline".
+// "host" or "host:port": letters, digits, dots, dashes and underscores, and a control port from 1 to 65534 (the relay uses the next port). Empty is "offline".
 bool valid_server(const std::string &text) {
     if (text.empty()) return true;
     if (text.size() > 253) return false;
@@ -389,7 +391,7 @@ bool valid_server(const std::string &text) {
     const std::string port = text.substr(colon + 1);
     if (port.empty() || port.size() > 5 || !std::all_of(port.begin(), port.end(), [](char c) { return c >= '0' && c <= '9'; })) return false;
     const int value = std::stoi(port);
-    return value >= 1 && value <= 65535;
+    return value >= 1 && value <= 65534;
 }
 
 // An empty string is a pad button the player left without a source; otherwise every part must be a known one. The stick
@@ -1427,6 +1429,7 @@ void Launcher::apply_settings(const std::string &disc_id, const Json &partial) {
         }
     }
     if (partial["copyImage"].is_bool()) launcher_settings["copyImage"] = partial["copyImage"];
+    if (partial["shareFriendLocation"].is_bool()) launcher_settings["shareFriendLocation"] = partial["shareFriendLocation"];
     if (partial["checkUpdates"].is_bool()) launcher_settings["checkUpdates"] = partial["checkUpdates"];
     if (partial["adhocServer"].is_string() && valid_server(partial["adhocServer"].as_string())) launcher_settings["adhocServer"] = partial["adhocServer"];
     if (partial["adhocRoom"].is_string()) { // "" or a valid code; anything else is ignored

@@ -433,9 +433,15 @@ int main(int argc, char **argv) {
         CHECK(saved["start"].as_string() == "Enter");
         CHECK(!saved.has("jump"));
 
+        CHECK(l.state()["settings"]["shareFriendLocation"].as_bool());
+        Json privacy;
+        privacy["shareFriendLocation"] = false;
+        l.set_settings(privacy);
+        CHECK(!Launcher(dir, dir).state()["settings"]["shareFriendLocation"].as_bool());
+
         // The online server: an address is kept, anything else is refused.
         CHECK(state["settings"]["adhocServer"].as_string().empty());
-        for (const char *bad : {"has space", "a/b", ":27312", "host:", "host:0", "host:70000", "host:12x", "ho$t"}) {
+        for (const char *bad : {"has space", "a/b", ":27312", "host:", "host:0", "host:65535", "host:70000", "host:12x", "ho$t"}) {
             Json bad_edit;
             bad_edit["adhocServer"] = bad;
             l.set_settings(bad_edit);

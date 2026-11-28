@@ -131,6 +131,7 @@ void AemuLink::run() {
     void *session = nullptr;
     auto next_attempt = Clock::now();
     auto last_ping = Clock::now();
+    std::deque<Command> pending;
     const auto push = [this](LinkEvent e) {
         std::lock_guard lock(mutex_);
         events_.push_back(std::move(e));
@@ -151,20 +152,26 @@ void AemuLink::run() {
         }
 
         // What the game asked for.
-        std::deque<Command> commands;
-        {
+        if (pending.empty()) {
             std::lock_guard lock(mutex_);
-            commands.swap(commands_);
+            pending.swap(commands_);
         }
         bool lost = false;
-        for (const Command &c : commands) {
+        while (!pending.empty()) {
+            const Command &c = pending.front();
             adhocctl_call_status status = ADHOCCTL_CALL_SUCCESS;
             switch (c.kind) {
             case Command::Kind::Connect: status = adhocctl_connect(session, c.group.data()); break;
             case Command::Kind::Disconnect: status = adhocctl_disconnect(session); break;
             case Command::Kind::Scan: status = adhocctl_scan(session); break;
             }
-            if (status == ADHOCCTL_CALL_ERROR) lost = true;
+            // WOULD_BLOCK means no bytes were written. Retry this command before any newer one.
+            if (status == ADHOCCTL_CALL_WOULDBLOCK) break;
+            if (status == ADHOCCTL_CALL_ERROR) {
+                lost = true;
+                break;
+            }
+            pending.pop_front();
         }
 
         // What the server says.
@@ -200,18 +207,25 @@ void AemuLink::run() {
             push(std::move(e));
         }
 
-        if (!lost && Clock::now() - last_ping >= kPingInterval) {
-            last_ping = Clock::now();
-            if (adhocctl_ping(session) == ADHOCCTL_CALL_ERROR) lost = true;
+        if (!lost && pending.empty() && Clock::now() - last_ping >= kPingInterval) {
+            const auto status = adhocctl_ping(session);
+            if (status == ADHOCCTL_CALL_SUCCESS) last_ping = Clock::now();
+            if (status == ADHOCCTL_CALL_ERROR) lost = true;
         }
         if (lost) {
             std::fprintf(stderr, "[net] lost the ad hoc server\n");
             destroy_adhocctl_session(session);
             session = nullptr;
             online_ = false;
-            LinkEvent e;
-            e.kind = LinkEvent::Kind::Error;
-            push(std::move(e));
+            {
+                // The game receives a disconnect for this session and can request a new hall after it reconnects.
+                std::lock_guard lock(mutex_);
+                pending.clear();
+                commands_.clear();
+                LinkEvent e;
+                e.kind = LinkEvent::Kind::Error;
+                events_.push_back(std::move(e));
+            }
             next_attempt = Clock::now() + kRetryInterval;
             continue;
         }

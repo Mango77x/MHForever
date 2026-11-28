@@ -16,3 +16,12 @@ export const adhocServers: AdhocServer[] = [
   { host: 'psi-hate.com', name: 'Psi-Hate', location: 'United States', note: 'For any game' },
   { host: 'cat.wjg.jp', name: 'Neko PSP', location: 'Japan', note: 'For any game' },
 ];
+
+// The runtime connects to the control port and opens the relay on the following port.
+export function serverPorts(address: string) {
+  const match = /^([A-Za-z0-9._-]+)(?::([0-9]{1,5}))?$/.exec(address);
+  if (!match || match[0] !== address || address.length > 253) return null;
+  const control = Number(match[2] ?? 27312);
+  if (control < 1 || control >= 65535) return null;
+  return { host: match[1], control, relay: control + 1 };
+}

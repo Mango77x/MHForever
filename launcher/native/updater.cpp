@@ -204,21 +204,37 @@ void remove_old(const fs::path &install) {
     for (const fs::path &file : old) fs::remove(file, ec);
 }
 
-std::string download(const std::string &url, const fs::path &to, std::uint64_t expected_size, const Progress &progress,
-                     const fs::path &work) {
+using Progress = std::function<void(double)>;
+
+static std::string download(const std::string &url, const fs::path &to, const char *timeout_seconds,
+                            std::uint64_t expected_size, const Progress &progress, const fs::path &work) {
     const auto curl = tool("curl");
     if (!curl) return "curl was not found on this system.";
     std::error_code ec;
     fs::remove(to, ec);
-    const std::vector<std::string> args = {"--fail", "--location", "--silent", "--show-error", "--retry", "2",
-                                           "--connect-timeout", "20", "--user-agent", "MHForever-launcher",
-                                           "--output", platform::to_utf8(to), url};
-    return run(*curl, args, work, [&] {
+    // -q must be first. A user's curl configuration must not change the launcher's download or retry behavior.
+    const std::vector<std::string> args = {"-q", "--fail", "--location", "--silent", "--show-error", "--retry", "2",
+                                           "--retry-max-time", "60", "--connect-timeout", "10",
+                                           "--max-time", timeout_seconds, "--speed-limit", "1", "--speed-time", "30",
+                                           "--user-agent", "MHForever-launcher", "--output", platform::to_utf8(to), "--", url};
+    std::string error = run(*curl, args, work, [&] {
         if (!progress || expected_size == 0) return;
         std::error_code e;
         const auto size = fs::file_size(to, e);
         if (!e) progress(std::min(1.0, static_cast<double>(size) / static_cast<double>(expected_size)));
     });
+    if (!error.empty()) {
+        fs::remove(to, ec);
+        return error;
+    }
+    if (expected_size != 0) {
+        const auto size = fs::file_size(to, ec);
+        if (ec || size != expected_size) {
+            fs::remove(to, ec);
+            return "The downloaded file size does not match the release.";
+        }
+    }
+    return {};
 }
 
 std::string unpack(const fs::path &archive, const fs::path &into, const fs::path &work) {
@@ -238,7 +254,7 @@ std::string latest_release_url() {
 
 std::optional<Release> check(const fs::path &work, std::string_view current, std::string &error) {
     const fs::path json = work / "latest.json";
-    error = download(latest_release_url(), json, 0, {}, work);
+    error = download(latest_release_url(), json, "20", 0, {}, work);
     if (!error.empty()) return std::nullopt;
     const auto parsed = Json::parse(read_text(json));
     if (!parsed) {
@@ -254,7 +270,7 @@ std::string apply(const Release &release, const fs::path &work, const fs::path &
     const fs::path archive = work / release.archive, unpacked = work / "unpacked";
     std::error_code ec;
     phase("downloading", 0.0);
-    if (std::string error = download(release.archive_url, archive, release.archive_size,
+    if (std::string error = download(release.archive_url, archive, "1800", release.archive_size,
                                      [&](double f) { phase("downloading", f); }, work);
         !error.empty()) {
         return "The download failed. " + error;

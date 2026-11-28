@@ -427,6 +427,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .server-text b { font-weight: 700; }
 .server-text span { color: var(--mute); font-size: 13px; overflow-wrap: anywhere; }
 .ping { flex: none; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--mute); }
+.server-times { display: grid; gap: 2px; font-size: 13px; text-align: right; }
 .ping.good { color: var(--ok); }
 .ping.fair { color: var(--warn); }
 .server-custom { display: flex; flex-direction: column; gap: 6px; padding-left: 46px; }
@@ -496,3 +497,9 @@ button { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: reduce) { .f-text .marquee > span.moving { animation: none; } .f-text .marquee { text-overflow: ellipsis; } }
 .f-row.together { border-color: rgba(111, 209, 139, 0.45); background: rgba(111, 209, 139, 0.06); }
 .f-row.together .f-text .marquee.place, .f-row.together .f-text .marquee.place > span { color: var(--ok); }
+
+.invite-preview { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
+.invite-preview dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; margin: 0; }
+.invite-preview dt { color: var(--ink-2); }
+.invite-preview dd { margin: 0; overflow-wrap: anywhere; }
+.invite-preview p { margin: 0; }

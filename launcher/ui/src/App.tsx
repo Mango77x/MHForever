@@ -64,6 +64,7 @@ function Steps({ items, current }: { items: string[]; current: number }) {
 
 export default function App() {
   const [state, setState] = useState<State | null>(null);
+  const [openOnline, setOpenOnline] = useState(false);
   const [screen, setScreen] = useState<Screen>('home');
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -101,7 +102,7 @@ export default function App() {
         break;
       case 'update': setUpdate({ version: e.version, page: e.page, size: e.size }); break;
       case 'updateProgress': setUpdating({ phase: e.phase, progress: e.progress }); break;
-      case 'updateReady': setUpdating({ phase: 'ready', progress: 1 }); break;
+      case 'updateReady': setUpdate(null); setUpdating({ phase: 'ready', progress: 1 }); break;
       case 'updateFailed': setUpdating({ phase: 'failed', progress: 0, message: e.message }); break;
       case 'launchFailed': setLaunch((l) => ({ phase: 'failed', startedAt: l?.startedAt ?? Date.now(), message: e.message })); break;
     }
@@ -128,10 +129,21 @@ export default function App() {
 
   if (!state) return <div className="app"><div className="aurora" /></div>;
 
-  const go = (s: Screen) => { setScreen(s); setProfileOpen(false); };
+  const go = (s: Screen, online = false) => { setOpenOnline(online); setScreen(s); setProfileOpen(false); };
   const setSettings = (s: Partial<Settings>) => {
     setState({ ...state, settings: { ...state.settings, ...s } });
     api.mhf_setSettings(s).then(setState);
+  };
+  const startUpdate = async () => {
+    setUpdating({ phase: 'downloading', progress: 0 });
+    try {
+      const result = await api.mhf_installUpdate();
+      if (!result.started) {
+        setUpdating({ phase: 'failed', progress: 0, message: 'The update cannot start while a game is running or a copy is being added.' });
+      }
+    } catch {
+      setUpdating({ phase: 'failed', progress: 0, message: 'The launcher could not start the update. Try again.' });
+    }
   };
   const setGameArt = (discId: string, kind: 'cover' | 'banner', dataUrl: string) => {
     api.mhf_setGameArt(discId, kind, dataUrl).then((s) => {
@@ -268,12 +280,7 @@ export default function App() {
           {update && !updating && (
             <motion.div className="update-bar" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
               <span><b>MHForever {update.version}</b> is available{update.size > 0 ? ` (${Math.round(update.size / 1048576)} MB)` : ''}.</span>
-              <button className="ghost mid" onClick={() => {
-                setUpdating({ phase: 'downloading', progress: 0 });
-                api.mhf_installUpdate().then((r) => {
-                  if (!r.started) setUpdating({ phase: 'failed', progress: 0, message: 'The update cannot start while a game is running or a copy is being added.' });
-                });
-              }}>Update now</button>
+              <button className="ghost mid" onClick={startUpdate}>Update now</button>
             </motion.div>
           )}
 
@@ -287,12 +294,18 @@ export default function App() {
             >
               {screen === 'home' && (
                 <Home state={state} onPlay={play} onAddCopy={addCopy} onLocateExecutable={locateExe} onSettings={() => go('game')}
-                  onOnlineSettings={() => go('settings')} onRoom={(adhocRoom) => setSettings({ adhocRoom })}
-                  onCopy={(text) => api.mhf_copyText(text).then(() => say('Room code copied'))} />
+                  onSelectCopy={async (discId) => {
+                    const updated = await api.mhf_selectGame(discId);
+                    setState(updated);
+                    if (selectedGame(updated)?.discId !== discId) throw new Error('Game selection failed');
+                  }}
+                  onOnlineSettings={() => go('settings', true)} onRoom={(adhocRoom, adhocServer) => setSettings(adhocServer ? { adhocRoom, adhocServer } : { adhocRoom })}
+                  onCopy={(text, label) => api.mhf_copyText(text).then((ok) => say(ok ? `${label} copied` : 'Clipboard unavailable'), () => say('Clipboard unavailable'))} />
               )}
               {screen === 'library' && <Library games={state.games} onAddCopy={addCopy} selectedDisc={selectedGame(state)?.discId ?? ''} useCustomArt={state.settings.useCustomArt ?? true} showGameIcon={state.settings.showGameIcon ?? true} onOpen={(g) => api.mhf_selectGame(g.discId).then((s) => { setState(s); go('home'); })} />}
               {screen === 'settings' && (
                 <SettingsPage
+                  openOnline={openOnline}
                   state={state}
                   onChange={setSettings}
                   onGameArt={setGameArt}
@@ -435,7 +448,12 @@ export default function App() {
                 {updating.phase !== 'failed' && (
                   <div className="update-progress"><i style={{ width: `${Math.round((updating.phase === 'downloading' ? updating.progress : 1) * 100)}%` }} /></div>
                 )}
-                {updating.phase === 'failed' && <button className="ghost mid" onClick={() => setUpdating(null)}>Close</button>}
+                {updating.phase === 'failed' && (
+                  <div className="row-wrap">
+                    {update && <button className="ghost mid" onClick={startUpdate}>Retry update</button>}
+                    <button className="ghost mid" onClick={() => setUpdating(null)}>Close</button>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}

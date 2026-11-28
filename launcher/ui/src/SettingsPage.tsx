@@ -424,11 +424,19 @@ function Controls({ keys, pad, keyDefaults, padDefaults, onChange }: {
   );
 }
 
-export function SettingsPage({ state, onChange, onGameArt, padMode, onPseudonym, onCopyCode, friendCode, onSavesFolder }: Pick<Props, 'state' | 'onChange' | 'onGameArt' | 'padMode' | 'onPseudonym' | 'onCopyCode'> & {
+export function SettingsPage({ openOnline, state, onChange, onGameArt, padMode, onPseudonym, onCopyCode, friendCode, onSavesFolder }: Pick<Props, 'state' | 'onChange' | 'onGameArt' | 'padMode' | 'onPseudonym' | 'onCopyCode'> & {
+  openOnline: boolean;
   friendCode: string;
   onSavesFolder: (backToDefault: boolean) => void;
 }) {
   const s = state.settings;
+  const onlineHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (openOnline) {
+      onlineHeading.current?.focus({ preventScroll: true });
+      onlineHeading.current?.scrollIntoView({ block: 'start' });
+    }
+  }, [openOnline]);
   const [crop, setCrop] = useState<{ game: Game; kind: ArtKind } | null>(null);
   const [cropInitial, setCropInitial] = useState<string | undefined>(undefined);
   const cropTrigger = useRef<HTMLButtonElement | null>(null);
@@ -482,8 +490,15 @@ export function SettingsPage({ state, onChange, onGameArt, padMode, onPseudonym,
         </div>
       </motion.div>
       <motion.div className="glass section" {...rise(0.2)}>
-        <h3>Online (experimental)</h3>
+        <h3 ref={onlineHeading} tabIndex={-1}>Online (experimental)</h3>
         <OnlineSettings server={s.adhocServer ?? ''} onChange={(adhocServer) => onChange({ adhocServer })} />
+        <div className="srow">
+          <div className="slabel"><b>Share my server and room with friends</b>
+            <span>Friends can see where to join you. Turn this off to share your location only when you send an invite. Friends can still see which game you play.</span>
+          </div>
+          <Toggle label="Share my server and room with friends" on={s.shareFriendLocation ?? true}
+            onToggle={() => onChange({ shareFriendLocation: !(s.shareFriendLocation ?? true) })} />
+        </div>
       </motion.div>
 
       <motion.div className="glass section" {...rise(0.1)}>

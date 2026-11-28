@@ -43,11 +43,6 @@ std::string install(const std::filesystem::path &unpacked, const std::filesystem
 // Deletes the <name>.old files a previous update left in `install` (the running launcher can only do it once restarted).
 void remove_old(const std::filesystem::path &install);
 
-// Downloads `url` to `to` with the system's curl, calling `progress` with the fraction done when the size is known.
-// Blocks. Returns an error message, empty on success.
-using Progress = std::function<void(double)>;
-std::string download(const std::string &url, const std::filesystem::path &to, std::uint64_t expected_size,
-                     const Progress &progress, const std::filesystem::path &work);
 // Unpacks a .zip or .tar.gz into `into` with the system's tar. Blocks. Returns an error message, empty on success.
 std::string unpack(const std::filesystem::path &archive, const std::filesystem::path &into, const std::filesystem::path &work);
 

@@ -360,7 +360,8 @@ void on_copy_text(const char *id, const Json &args) {
 void on_probe_server(const char *id, const Json &args) {
     const std::string server = args.as_array().empty() ? std::string() : args.as_array()[0].as_string();
     std::thread([call = std::string(id), server] {
-        const auto ms = server.empty() || server.size() > 253 ? std::nullopt : mhf::launcher::probe_server(server, 3000);
+        // A saved address is at most 253 bytes; the derived relay address can add ":65535".
+        const auto ms = server.empty() || server.size() > 259 ? std::nullopt : mhf::launcher::probe_server(server, 3000);
         auto *payload = new std::pair<std::string, std::string>(call, (ms ? Json(*ms) : Json(nullptr)).dump());
         webview_dispatch(
             g_app.view,
@@ -485,8 +486,8 @@ void on_install_update(const char *id, const Json &) {
             Json e;
             e["type"] = "updateFailed";
             e["message"] = message;
-            g_app.emit(e);
             g_app.busy = false;
+            g_app.emit(e);
         };
         if (const std::string error = update::apply(release, work, platform::executable_dir(), phase); !error.empty()) {
             return fail(error);

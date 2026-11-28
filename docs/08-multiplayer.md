@@ -114,6 +114,25 @@ release. What differs:
 - **Status pages** (`data.json`, `status.xml`) show every game's halls with each player's nickname and ports, not their
   MAC or IP address. The launcher says so next to the server choice.
 
+**Test a connection.** In Settings → Online, “Test this server” opens TCP connections to the selected server's control
+and relay ports. The results show which ports answered. A successful connection does not verify the relay protocol or
+quest traffic. “Compare community servers” checks both ports on up to two servers at a time. Among servers that answer on both,
+it suggests the one with the lowest of the slower-port times. The player chooses the server. These TCP timings reflect
+a single check and can differ from latency during a quest. Both checks are manual.
+For an existing aemu server on a LAN or VPN, enter its reachable hostname or IPv4 address. “Test before saving” checks
+that address while keeping the current server or Offline active. Choose “Use this server” to apply the address.
+
+**Share a private room.** On Home, create a room and choose “Copy invite”. Send the plain text privately. The other
+player can paste it on Home and review the server and host edition, even from Offline. If the selected copy uses
+different halls, the launcher offers a compatible installed copy or the option to add one. Editions that share halls
+but may have different quests can still join. Choose “Join room” to confirm. This selects the server and
+room together. Launch compatible copies of the same game and enter the same Gathering Hall. A room code alone still
+works when both players have already selected the same server. Older three-field clipboard invites also remain readable.
+To share with a launcher that only understands the old format, send the server and use “Copy code”.
+
+**Temporary send congestion.** The PSP control worker retries an unsent command on the same TCP connection before
+sending newer commands. A lost control session still reports a disconnect to the game, which can request a new hall.
+
 ## 3. Who plays with whom
 
 | Players | Status | Notes |
@@ -163,6 +182,9 @@ showing anyone's IP address to friends. Details: `14-rooms-and-friends.md` §4.
   when that cuts nobody off (`14-rooms-and-friends.md` §3.4). A notice says when friends come into the player's room.
 
 ### 4.5 Privacy
+- Settings → Online → “Share my server and room with friends” controls automatic location sharing for both games.
+  Turning it off sends empty server and room fields in new presence updates. Friends still see the game being played.
+  Explicit invitations still carry the destination. Previously shared codes remain usable; create a new room to change codes.
 - The ad hoc server sees the player's IP address, nickname, product code and when they play; its status page shows the
   nickname to anyone. In `relay_only` mode other players never see the IP address.
 - The Nostr relays see the player's IP address and when the launcher is open, and random-looking keys; not who is friends

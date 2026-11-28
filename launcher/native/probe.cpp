@@ -77,7 +77,7 @@ std::optional<int> probe_server(const std::string &server, int timeout_ms) {
     if (host.empty()) return std::nullopt;
 
     addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = AF_INET; // the PSP control and relay clients connect over IPv4
     hints.ai_socktype = SOCK_STREAM;
     addrinfo *found = nullptr;
     if (getaddrinfo(host.c_str(), port.c_str(), &hints, &found) != 0) return std::nullopt;
