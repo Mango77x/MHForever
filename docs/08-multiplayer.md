@@ -116,7 +116,9 @@ release. What differs:
 
 **Test a connection.** In Settings → Online, “Test this server” opens TCP connections to the selected server's control
 and relay ports. The results show which ports answered. A successful connection does not verify the relay protocol or
-quest traffic. “Compare community servers” contacts each listed server's control port. Both checks are manual.
+quest traffic. “Compare community servers” checks both ports on up to two servers at a time. Among servers that answer on both,
+it suggests the one with the lowest of the slower-port times. The player chooses the server. These TCP timings reflect
+a single check and can differ from latency during a quest. Both checks are manual.
 For an existing aemu server on a LAN or VPN, enter its reachable hostname or IPv4 address. “Test before saving” checks
 that address while keeping the current server or Offline active. Choose “Use this server” to apply the address.
 

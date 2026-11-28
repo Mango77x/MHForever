@@ -1,24 +1,25 @@
 // Settings → Online: which PSP ad hoc server the game plays through. Offline, one of the community servers in
 // servers.ts, or any other one typed in. Each choice shows how long it takes to connect to that server from here.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from './bridge';
 import { adhocServers, serverPorts } from './servers';
+import { checkServer, suggestedServer, type ServerCheck } from './serverCheck';
 
-type Ping = number | null | undefined; // milliseconds, null when the server did not answer, undefined while measuring
-
-function PingBadge({ ping }: { ping: Ping }) {
-  if (ping === undefined) return <span className="ping">…</span>;
+function PingBadge({ ping }: { ping: number | null }) {
   if (ping === null) return <span className="ping none">No answer</span>;
   return <span className={'ping ' + (ping < 120 ? 'good' : ping < 250 ? 'fair' : 'slow')}>{ping} ms</span>;
 }
 
-function Choice({ on, title, detail, ping, onPick }: { on: boolean; title: string; detail: string; ping: Ping | false; onPick: () => void }) {
+function Choice({ on, title, detail, result, onPick }: { on: boolean; title: string; detail: string; result?: ServerCheck; onPick: () => void }) {
   return (
     <button className={'server' + (on ? ' on' : '')} role="radio" aria-checked={on} onClick={onPick}>
       <span className="server-dot" />
       <span className="server-text"><b>{title}</b><span>{detail}</span></span>
-      {ping === false ? null : <PingBadge ping={ping} />}
+      {result && <span className="server-times">
+        <span>Hall <PingBadge ping={result.hall} /></span>
+        <span>Relay <PingBadge ping={result.relay} /></span>
+      </span>}
     </button>
   );
 }
@@ -27,7 +28,9 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
   const preset = adhocServers.some((s) => s.host === server);
   const [customOpen, setCustomOpen] = useState(server !== '' && !preset);
   const [custom, setCustom] = useState(preset ? '' : server);
-  const [pings, setPings] = useState<Record<string, Ping>>({});
+  const [results, setResults] = useState<Record<string, ServerCheck>>({});
+  const comparison = useRef(0);
+  useEffect(() => () => { comparison.current++; }, []);
   useEffect(() => {
     if (server !== '' && !preset) {
       setCustom(server);
@@ -37,17 +40,21 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
 
   const [measuring, setMeasuring] = useState(false);
   const measureAll = async () => {
+    const run = ++comparison.current;
     setMeasuring(true);
-    setPings(Object.fromEntries(adhocServers.map(({ host }) => [host, undefined])));
-    try {
-      await Promise.all(adhocServers.map(async ({ host }) => {
-        const ms = await api.mhf_probeServer(host).catch(() => null);
-        setPings((previous) => ({ ...previous, [host]: ms }));
+    setResults({});
+    // At most two servers (four sockets) at once. Leaving this page skips all remaining batches.
+    for (let i = 0; i < adhocServers.length; i += 2) {
+      if (comparison.current !== run) return;
+      await Promise.all(adhocServers.slice(i, i + 2).map(async ({ host }) => {
+        const result = await checkServer(host, api.mhf_probeServer);
+        if (comparison.current === run) setResults((previous) => ({ ...previous, [host]: result }));
       }));
-    } finally {
-      setMeasuring(false);
     }
+    if (comparison.current === run) setMeasuring(false);
   };
+  const count = Object.keys(results).length;
+  const suggested = !measuring && count === adhocServers.length ? suggestedServer(adhocServers, results) : undefined;
 
   const pick = (host: string) => {
     setCustomOpen(false);
@@ -55,7 +62,9 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
   };
   const commitCustom = () => {
     const text = custom.trim();
-    if (serverPorts(text) && text !== server) onChange(text);
+    if (!serverPorts(text)) return;
+    if (adhocServers.some(({ host }) => host === text)) setCustomOpen(false);
+    if (text !== server) onChange(text);
   };
   const checkTarget = customOpen ? custom.trim() : server;
   const customError = custom.trim() !== '' && !serverPorts(custom.trim());
@@ -75,14 +84,23 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
           {measuring ? 'Checking…' : 'Compare community servers'}
         </button>
       </div>
+      <div role="status">
+        {measuring && `Checked ${count} of ${adhocServers.length} servers.`}
+        {!measuring && count > 0 && (suggested
+          ? `Suggested server: ${suggested.name}. Both the hall and quest relay answered.`
+          : 'No community server answered on both ports. Check the results below or test a custom server.')}
+      </div>
+      {suggested && server !== suggested.host && (
+        <button className="ghost mid" onClick={() => pick(suggested.host)}>Use {suggested.name}</button>
+      )}
       <div className="servers" role="radiogroup" aria-label="Ad hoc server">
-        <Choice on={server === ''} title="Offline" detail="Disable in-game ad hoc play." ping={false} onPick={() => pick('')} />
+        <Choice on={server === ''} title="Offline" detail="Disable in-game ad hoc play." onPick={() => pick('')} />
         {adhocServers.map((s) => (
           <Choice key={s.host} on={server === s.host} title={s.name} detail={`${s.location} · ${s.host} · ${s.note}`}
-            ping={s.host in pings ? pings[s.host] : false} onPick={() => pick(s.host)} />
+            result={results[s.host]} onPick={() => pick(s.host)} />
         ))}
         <Choice on={!!server && !preset} title="LAN, VPN or custom server" detail="Enter the address of an existing aemu server reachable on your network."
-          ping={false} onPick={() => setCustomOpen(true)} />
+          onPick={() => setCustomOpen(true)} />
         {customOpen && (
           <div className="server-custom">
             <span className="muted">Active setting · {server || 'Offline'}</span>
@@ -112,15 +130,13 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
 function ConnectionCheck({ server, draft }: { server: string; draft: boolean }) {
   const ports = serverPorts(server);
   const [checking, setChecking] = useState(false);
-  const [result, setResult] = useState<[Ping, Ping]>();
+  const [result, setResult] = useState<ServerCheck>();
   if (!ports) return <p className="server-error">Choose a valid server with room for its relay port.</p>;
   const check = async () => {
     setChecking(true);
     setResult(undefined);
     try {
-      const relay = ports.host + ':' + ports.relay;
-      const probe = (address: string) => api.mhf_probeServer(address).catch(() => null);
-      setResult(await Promise.all([probe(server), probe(relay)]));
+      setResult(await checkServer(server, api.mhf_probeServer));
     } finally {
       setChecking(false);
     }
@@ -133,10 +149,10 @@ function ConnectionCheck({ server, draft }: { server: string; draft: boolean }) 
         <div role="status">
           {checking && 'Checking hall and relay…'}
           {result && <>
-            <div>Hall · TCP {ports.control} <PingBadge ping={result[0]} /></div>
-            <div>Quest relay · TCP {ports.relay} <PingBadge ping={result[1]} /></div>
-            <span>{result[0] === null ? 'Check the server address and control port.'
-              : result[1] === null ? 'The hall answered. Check that the server runs a relay on the next port and your network allows it.'
+            <div>Hall · TCP {ports.control} <PingBadge ping={result.hall} /></div>
+            <div>Quest relay · TCP {ports.relay} <PingBadge ping={result.relay} /></div>
+            <span>{result.hall === null ? 'Check the server address and control port.'
+              : result.relay === null ? 'The hall answered. Check that the server runs a relay on the next port and your network allows it.'
               : 'Both ports answered. Enter the same Gathering Hall in the game to check play.'}</span>
           </>}
         </div>

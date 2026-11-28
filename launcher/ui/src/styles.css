@@ -427,6 +427,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .server-text b { font-weight: 700; }
 .server-text span { color: var(--mute); font-size: 13px; overflow-wrap: anywhere; }
 .ping { flex: none; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--mute); }
+.server-times { display: grid; gap: 2px; font-size: 13px; text-align: right; }
 .ping.good { color: var(--ok); }
 .ping.fair { color: var(--warn); }
 .server-custom { display: flex; flex-direction: column; gap: 6px; padding-left: 46px; }
