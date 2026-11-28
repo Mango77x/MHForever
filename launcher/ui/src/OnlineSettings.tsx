@@ -57,6 +57,7 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
     const text = custom.trim();
     if (serverPorts(text) && text !== server) onChange(text);
   };
+  const checkTarget = customOpen ? custom.trim() : server;
   const customError = custom.trim() !== '' && !serverPorts(custom.trim());
 
   return (
@@ -75,15 +76,16 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
         </button>
       </div>
       <div className="servers" role="radiogroup" aria-label="Ad hoc server">
-        <Choice on={server === '' && !customOpen} title="Offline" detail="Disable in-game ad hoc play." ping={false} onPick={() => pick('')} />
+        <Choice on={server === ''} title="Offline" detail="Disable in-game ad hoc play." ping={false} onPick={() => pick('')} />
         {adhocServers.map((s) => (
-          <Choice key={s.host} on={server === s.host && !customOpen} title={s.name} detail={`${s.location} · ${s.host} · ${s.note}`}
+          <Choice key={s.host} on={server === s.host} title={s.name} detail={`${s.location} · ${s.host} · ${s.note}`}
             ping={s.host in pings ? pings[s.host] : false} onPick={() => pick(s.host)} />
         ))}
-        <Choice on={customOpen} title="LAN, VPN or custom server" detail="Enter the address of an existing aemu server reachable on your network."
+        <Choice on={!!server && !preset} title="LAN, VPN or custom server" detail="Enter the address of an existing aemu server reachable on your network."
           ping={false} onPick={() => setCustomOpen(true)} />
         {customOpen && (
           <div className="server-custom">
+            <span className="muted">Active setting · {server || 'Offline'}</span>
             <input
               id="adhoc-server"
               className="text-input"
@@ -102,12 +104,12 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
           </div>
         )}
       </div>
-      {server && <ConnectionCheck key={server} server={server} />}
+      {serverPorts(checkTarget) && <ConnectionCheck key={checkTarget} server={checkTarget} draft={checkTarget !== server} />}
     </>
   );
 }
 
-function ConnectionCheck({ server }: { server: string }) {
+function ConnectionCheck({ server, draft }: { server: string; draft: boolean }) {
   const ports = serverPorts(server);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<[Ping, Ping]>();
@@ -139,7 +141,7 @@ function ConnectionCheck({ server }: { server: string }) {
           </>}
         </div>
       </div>
-      <button className="ghost mid" disabled={checking} onClick={check}>Test this server</button>
+      <button className="ghost mid" disabled={checking} onClick={check}>{draft ? 'Test before saving' : 'Test this server'}</button>
     </div>
   );
 }

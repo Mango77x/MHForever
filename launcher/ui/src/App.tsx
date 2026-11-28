@@ -288,6 +288,11 @@ export default function App() {
             >
               {screen === 'home' && (
                 <Home state={state} onPlay={play} onAddCopy={addCopy} onLocateExecutable={locateExe} onSettings={() => go('game')}
+                  onSelectCopy={async (discId) => {
+                    const updated = await api.mhf_selectGame(discId);
+                    setState(updated);
+                    if (selectedGame(updated)?.discId !== discId) throw new Error('Game selection failed');
+                  }}
                   onOnlineSettings={() => go('settings', true)} onRoom={(adhocRoom, adhocServer) => setSettings(adhocServer ? { adhocRoom, adhocServer } : { adhocRoom })}
                   onCopy={(text, label) => api.mhf_copyText(text).then((ok) => say(ok ? `${label} copied` : 'Clipboard unavailable'), () => say('Clipboard unavailable'))} />
               )}

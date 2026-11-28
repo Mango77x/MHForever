@@ -492,6 +492,13 @@ export function SettingsPage({ openOnline, state, onChange, onGameArt, padMode, 
       <motion.div className="glass section" {...rise(0.2)}>
         <h3 ref={onlineHeading} tabIndex={-1}>Online (experimental)</h3>
         <OnlineSettings server={s.adhocServer ?? ''} onChange={(adhocServer) => onChange({ adhocServer })} />
+        <div className="srow">
+          <div className="slabel"><b>Share my server and room with friends</b>
+            <span>Friends can see where to join you. Turn this off to share your location only when you send an invite. Friends can still see which game you play.</span>
+          </div>
+          <Toggle label="Share my server and room with friends" on={s.shareFriendLocation ?? true}
+            onToggle={() => onChange({ shareFriendLocation: !(s.shareFriendLocation ?? true) })} />
+        </div>
       </motion.div>
 
       <motion.div className="glass section" {...rise(0.1)}>

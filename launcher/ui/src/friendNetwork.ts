@@ -10,8 +10,9 @@
 //   per direction and per day) and encrypted with the conversation key. A relay sees random keys that change every day,
 //   not who is friends with whom; nobody else can read or forge them.
 //
-// Self-contained (no imports of the launcher's own modules), so that it can be checked outside the UI.
+// Independent of the native bridge, so the live check can also run under Node.
 
+import { serverPorts } from './servers.ts';
 import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure';
 import { SimplePool } from 'nostr-tools/pool';
 import { decrypt, encrypt, getConversationKey } from 'nostr-tools/nip44';
@@ -72,7 +73,7 @@ const codeTag = (code: string) => bytesToHex(sha256(utf8ToBytes('mhf-friend-code
 const isKey = (text: unknown): text is string => typeof text === 'string' && /^[0-9a-f]{64}$/.test(text);
 const isRoom = (text: unknown): text is string => typeof text === 'string' && (text === '' || new RegExp(`^[${alphabet}]{8}$`).test(text));
 const isServer = (text: unknown): text is string =>
-  typeof text === 'string' && text.length <= 253 && /^([A-Za-z0-9._-]+(:[0-9]{1,5})?)?$/.test(text);
+  typeof text === 'string' && (text === '' || serverPorts(text) !== null);
 // Names and labels from other players: no control characters and no bidirectional overrides (a name that reads as
 // another), cut to `max` characters.
 const cleanText = (text: unknown, max: number) =>
@@ -92,6 +93,7 @@ export interface Status {
   playing: boolean;  // the game is running (else: in the launcher)
   game: string;      // e.g. "Freedom Unite"
   region: string;    // e.g. "Europe"
+  placeHidden?: boolean; // no server or room shared in presence
   server: string;    // the ad hoc server ("" offline)
   room: string;      // the private room's code ("" the public halls)
 }
@@ -361,7 +363,8 @@ export class FriendsNetwork {
       this.heard.set(key, Date.now());
       this.on.presence(key, {
         name: cleanText(m.name, 24), playing: m.playing === true, game: cleanText(m.game, 40), region: cleanText(m.region, 24),
-        server: m.server, room: m.room, seen: Date.now(),
+        placeHidden: m.placeHidden === true,
+        server: m.placeHidden === true ? '' : m.server, room: m.placeHidden === true ? '' : m.room, seen: Date.now(),
       });
     } else if (m.t === 'invite') {
       if (!isServer(m.server) || m.server === '' || !isRoom(m.room)) return;

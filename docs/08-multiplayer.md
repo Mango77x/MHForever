@@ -117,12 +117,16 @@ release. What differs:
 **Test a connection.** In Settings → Online, “Test this server” opens TCP connections to the selected server's control
 and relay ports. The results show which ports answered. A successful connection does not verify the relay protocol or
 quest traffic. “Compare community servers” contacts each listed server's control port. Both checks are manual.
-For an existing aemu server on a LAN or VPN, enter its reachable hostname or IPv4 address and choose “Use this server”.
+For an existing aemu server on a LAN or VPN, enter its reachable hostname or IPv4 address. “Test before saving” checks
+that address while keeping the current server or Offline active. Choose “Use this server” to apply the address.
 
 **Share a private room.** On Home, create a room and choose “Copy invite”. Send the plain text privately. The other
-player can paste it on Home, review the server, and select “Join room”, even from Offline. This selects the server and
+player can paste it on Home and review the server and host edition, even from Offline. If the selected copy uses
+different halls, the launcher offers a compatible installed copy or the option to add one. Editions that share halls
+but may have different quests can still join. Choose “Join room” to confirm. This selects the server and
 room together. Launch compatible copies of the same game and enter the same Gathering Hall. A room code alone still
-works when both players have already selected the same server.
+works when both players have already selected the same server. Older three-field clipboard invites also remain readable.
+To share with a launcher that only understands the old format, send the server and use “Copy code”.
 
 ## 3. Who plays with whom
 
@@ -173,6 +177,9 @@ showing anyone's IP address to friends. Details: `14-rooms-and-friends.md` §4.
   when that cuts nobody off (`14-rooms-and-friends.md` §3.4). A notice says when friends come into the player's room.
 
 ### 4.5 Privacy
+- Settings → Online → “Share my server and room with friends” controls automatic location sharing for both games.
+  Turning it off sends empty server and room fields in new presence updates. Friends still see the game being played.
+  Explicit invitations still carry the destination. Previously shared codes remain usable; create a new room to change codes.
 - The ad hoc server sees the player's IP address, nickname, product code and when they play; its status page shows the
   nickname to anyone. In `relay_only` mode other players never see the IP address.
 - The Nostr relays see the player's IP address and when the launcher is open, and random-looking keys; not who is friends

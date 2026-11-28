@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { api, onEvent, selectedGame, type GameFriend, type State } from './bridge';
 import { FriendsNetwork, formatFriendCode, friendCode, friendCodeOf, offlineAfterMs, type Friend, type Invite, type Presence, type Request, type SearchState } from './friendNetwork';
-import { formatRoomCode } from './rooms';
 import { adhocServers } from './servers';
 import { CloseIcon, CopyIcon, FriendsIcon } from './icons';
 
@@ -24,6 +23,7 @@ function where(p: Presence | undefined, now: number, mine?: Place): { online: bo
   if (!p || now - p.seen > offlineAfterMs) return { online: false, text: 'Offline' };
   if (!p.playing) return { online: true, text: 'In the launcher' };
   const text = `Playing ${p.game || 'Freedom Unite'}`;
+  if (p.placeHidden) return { online: true, text, place: 'Location hidden' };
   if (p.server === '') return { online: true, text, place: 'Offline, on their own' };
   if (together(p, mine)) return { online: true, text, place: `In your room · ${serverName(p.server)}`, together: true };
   return { online: true, text, place: `${p.room !== '' ? 'Private room' : 'Public halls'} · ${serverName(p.server)}` };
@@ -130,13 +130,15 @@ export function useFriends(state: State | null, playing: boolean, say: (text: st
   useEffect(() => { net.current?.setFriends(friendsRef.current, blockedRef.current); }, [friendList, key]);
 
   const game = state ? selectedGame(state) : undefined;
+  const shareLocation = state?.settings.shareFriendLocation ?? true;
   const status = state && {
     name: state.pseudonym,
     playing,
     game: game?.title ?? 'Freedom Unite',
     region: game?.region ?? '',
-    server: state.settings.adhocServer,
-    room: state.settings.adhocServer ? state.settings.adhocRoom : '',
+    placeHidden: !shareLocation,
+    server: shareLocation ? state.settings.adhocServer : '',
+    room: shareLocation && state.settings.adhocServer ? state.settings.adhocRoom : '',
   };
   const statusText = JSON.stringify(status);
   useEffect(() => { if (status) net.current?.setStatus(status); }, [statusText, key]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -291,7 +293,7 @@ export function FriendsDrawer({ model, state, playing, onClose, onCopy, onJoin }
           <motion.div key={i.from + i.seen} className="f-card invite" layout initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <div className="f-text">
               <b>{nameOf(i.from)} invites you</b>
-              <span>{i.room ? `Private room ${formatRoomCode(i.room)}` : 'Public halls'} on {serverName(i.server)}</span>
+              <span>{i.room ? 'Private room' : 'Public halls'} on {serverName(i.server)}</span>
             </div>
             <div className="f-actions">
               <button className="play small" disabled={playing} title={playing ? 'Close the game first' : undefined}
