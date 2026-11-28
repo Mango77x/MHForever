@@ -226,6 +226,38 @@ int main() {
     auto ign = Pack::open(dir.path / "ign", "", error);
     MHF_CHECK(ign && !ign->options().ignore_address);
 
+    // Addressless lookups keep full, palette-only, data-only and zero-key precedence.
+    for (const bool ignore_address : {false, true}) {
+        const auto folder = dir.path / (ignore_address ? "addressless" : "addresses");
+        write(folder / "textures.ini", std::string("[options]\nhash = xxh32\nignoreAddress = ") +
+              (ignore_address ? "true" : "false") + "\n[hashes]\n"
+              "000000000000123400000001 = full.png\n"
+              "000000000000123400000000 = palette.png\n"
+              "000000000000000000000002 = data.png\n"
+              "000000000000000000000000 = zero.png\n"
+              "[filtering]\n"
+              "000000000000123400000000 = nearest\n"
+              "000000000000000000000002 = linear\n");
+        const auto p = Pack::open(folder, "", error);
+        MHF_CHECK(p && p->options().ignore_address == ignore_address);
+        if (!p) continue;
+        const auto has = [&](Key key, const char *image, Filter filter = Filter::Auto) {
+            const Match m = p->find(key);
+            return m.entry && m.entry->image() == image && m.filter == filter;
+        };
+        MHF_CHECK(has(Key{0x1234, 1}, "full.png", Filter::Nearest));
+        MHF_CHECK(has(Key{0x1234, 2}, "palette.png", Filter::Nearest));
+        MHF_CHECK(has(Key{0x5678, 2}, "data.png", Filter::Linear));
+        MHF_CHECK(has(Key{0, 2}, "data.png", Filter::Linear));
+        MHF_CHECK(has(Key{0, 3}, "zero.png"));
+        MHF_CHECK(has(Key{0x5678, 0}, "zero.png"));
+        if (ignore_address) {
+            MHF_CHECK(p->find(Key{0x5678, 3}).entry == nullptr);
+        } else {
+            MHF_CHECK(has(Key{0x5678, 3}, "zero.png"));
+        }
+    }
+
     // Images: a PNG round trip, mip levels given as files, and the loader's threads.
     {
         Image image;
