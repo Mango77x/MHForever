@@ -128,6 +128,9 @@ room together. Launch compatible copies of the same game and enter the same Gath
 works when both players have already selected the same server. Older three-field clipboard invites also remain readable.
 To share with a launcher that only understands the old format, send the server and use “Copy code”.
 
+**Temporary send congestion.** The PSP control worker retries an unsent command on the same TCP connection before
+sending newer commands. A lost control session still reports a disconnect to the game, which can request a new hall.
+
 ## 3. Who plays with whom
 
 | Players | Status | Notes |

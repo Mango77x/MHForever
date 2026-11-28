@@ -85,6 +85,17 @@ if(MHF_BUILD_TESTS)
     mhf_target_warnings(test_adhocctl)
     add_test(NAME psp_adhocctl COMMAND test_adhocctl)
 
+    add_executable(test_adhocctl_backpressure tests/test_adhocctl_backpressure.cpp runtime/src/adhoc_link_aemu.cpp)
+    target_include_directories(test_adhocctl_backpressure PRIVATE
+        ${PROJECT_SOURCE_DIR}/tests/support
+        ${PROJECT_SOURCE_DIR}/third_party/aemu_postoffice/adhocctl/client
+        ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src)
+    if(WIN32)
+        target_link_libraries(test_adhocctl_backpressure PRIVATE ws2_32)
+    endif()
+    mhf_target_warnings(test_adhocctl_backpressure)
+    add_test(NAME psp_adhocctl_backpressure COMMAND test_adhocctl_backpressure)
+
     # Against a real ad hoc server; skipped unless MHF_ADHOC_TEST_SERVER names one.
     add_executable(test_adhocctl_server tests/test_adhocctl_server.cpp)
     target_include_directories(test_adhocctl_server PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src)
