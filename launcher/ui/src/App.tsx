@@ -102,7 +102,7 @@ export default function App() {
         break;
       case 'update': setUpdate({ version: e.version, page: e.page, size: e.size }); break;
       case 'updateProgress': setUpdating({ phase: e.phase, progress: e.progress }); break;
-      case 'updateReady': setUpdating({ phase: 'ready', progress: 1 }); break;
+      case 'updateReady': setUpdate(null); setUpdating({ phase: 'ready', progress: 1 }); break;
       case 'updateFailed': setUpdating({ phase: 'failed', progress: 0, message: e.message }); break;
       case 'launchFailed': setLaunch((l) => ({ phase: 'failed', startedAt: l?.startedAt ?? Date.now(), message: e.message })); break;
     }
@@ -133,6 +133,17 @@ export default function App() {
   const setSettings = (s: Partial<Settings>) => {
     setState({ ...state, settings: { ...state.settings, ...s } });
     api.mhf_setSettings(s).then(setState);
+  };
+  const startUpdate = async () => {
+    setUpdating({ phase: 'downloading', progress: 0 });
+    try {
+      const result = await api.mhf_installUpdate();
+      if (!result.started) {
+        setUpdating({ phase: 'failed', progress: 0, message: 'The update cannot start while a game is running or a copy is being added.' });
+      }
+    } catch {
+      setUpdating({ phase: 'failed', progress: 0, message: 'The launcher could not start the update. Try again.' });
+    }
   };
   const setGameArt = (discId: string, kind: 'cover' | 'banner', dataUrl: string) => {
     api.mhf_setGameArt(discId, kind, dataUrl).then((s) => {
@@ -269,12 +280,7 @@ export default function App() {
           {update && !updating && (
             <motion.div className="update-bar" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
               <span><b>MHForever {update.version}</b> is available{update.size > 0 ? ` (${Math.round(update.size / 1048576)} MB)` : ''}.</span>
-              <button className="ghost mid" onClick={() => {
-                setUpdating({ phase: 'downloading', progress: 0 });
-                api.mhf_installUpdate().then((r) => {
-                  if (!r.started) setUpdating({ phase: 'failed', progress: 0, message: 'The update cannot start while a game is running or a copy is being added.' });
-                });
-              }}>Update now</button>
+              <button className="ghost mid" onClick={startUpdate}>Update now</button>
             </motion.div>
           )}
 
@@ -442,7 +448,12 @@ export default function App() {
                 {updating.phase !== 'failed' && (
                   <div className="update-progress"><i style={{ width: `${Math.round((updating.phase === 'downloading' ? updating.progress : 1) * 100)}%` }} /></div>
                 )}
-                {updating.phase === 'failed' && <button className="ghost mid" onClick={() => setUpdating(null)}>Close</button>}
+                {updating.phase === 'failed' && (
+                  <div className="row-wrap">
+                    {update && <button className="ghost mid" onClick={startUpdate}>Retry update</button>}
+                    <button className="ghost mid" onClick={() => setUpdating(null)}>Close</button>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}

@@ -486,8 +486,8 @@ void on_install_update(const char *id, const Json &) {
             Json e;
             e["type"] = "updateFailed";
             e["message"] = message;
-            g_app.emit(e);
             g_app.busy = false;
+            g_app.emit(e);
         };
         if (const std::string error = update::apply(release, work, platform::executable_dir(), phase); !error.empty()) {
             return fail(error);
