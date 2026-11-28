@@ -335,6 +335,7 @@ int main() {
         localized.update(rt, ctx);
         MHF_CHECK(localized.hint(rt) == std::string("○  ") + text[3]);
         MHF_CHECK(localized.sprites(rt).empty());
+        m.store16(corpse + 16, std::uint16_t{0xffff});
     }
     static_target = true;
     probed_type = 0;
