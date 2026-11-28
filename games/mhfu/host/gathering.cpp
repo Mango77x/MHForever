@@ -53,37 +53,8 @@ std::optional<Target> read_target(psp::Runtime &rt, const psp::Context &ctx, std
     rt.call(query, *region::mh_gathering_probe);
     const auto index = query.gpr[2] & 0xffffu;
     const auto type = m.load16(scratch + 12);
-    if (index == 0xffffu) {
-        // The stock carving query scans these dynamic corpse/tail targets.
-        // Read only, with bounds/finite checks; never invoke reward/consumption
-        // routines.
-        const auto targets = m.load32(*region::mh_gathering_dynamic_nodes);
-        if (!m.contains(targets, 4 + kDynamicNodes * kDynamicNodeSize)) return {};
-        const auto number = [](std::uint32_t bits) { return std::bit_cast<float>(bits); };
-        const float px = number(m.load32(player + kPlayerPosition));
-        const float py = number(m.load32(player + kPlayerPosition + 4));
-        const float pz = number(m.load32(player + kPlayerPosition + 8));
-        if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz)) return {};
-        std::optional<Target> exhausted_carve;
-        for (unsigned i = 0; i < kDynamicNodes; ++i) {
-            const auto node = targets + 4 + i * kDynamicNodeSize;
-            if (m.load16(node + kNodeId) == 0xffff || m.load16(node + 24) != m.load16(player + kPlayerArea)) continue;
-            const float x = number(m.load32(node)), y = number(m.load32(node + 4));
-            const float z = number(m.load32(node + 8)), radius = number(m.load32(node + 12));
-            if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || !std::isfinite(radius) || radius < 0 ||
-                py < y - 200 || py >= y + 100 || (px - x) * (px - x) + (pz - z) * (pz - z) > radius * radius)
-                continue;
-            const auto node_type = m.load16(node + kNodeType);
-            const Target target{m.load16(node + kNodeId), node_type, m.load16(node + kNodeRemaining), node_type == 2};
-            if (target.carving && target.remaining != 0) return target;
-            // Keep the first exhausted carve as a fallback if no other carve is available.
-            if (!exhausted_carve) {
-                if (!target.carving) return target;
-                exhausted_carve = target;
-            }
-        }
-        return exhausted_carve;
-    } else {
+    std::optional<Target> fallback;
+    if (index != 0xffffu) {
         // The static probe ignores the remaining-use field; inspect the matched
         // node.
         const auto stage = m.load32(*region::mh_stage_manager);
@@ -99,10 +70,40 @@ std::optional<Target> read_target(psp::Runtime &rt, const psp::Context &ctx, std
             if (m.load32(node) != m.load32(scratch) || m.load32(node + 4) != m.load32(scratch + 4) ||
                 m.load32(node + 8) != m.load32(scratch + 8))
                 continue;
-            return Target{index, type, m.load16(node + kNodeRemaining), false};
+            fallback = Target{index, type, m.load16(node + kNodeRemaining), false};
+            if (fallback->remaining != 0) return fallback;
+            break;
         }
-        return {};
+        if (!fallback) return {};
     }
+    // The stock carving query scans these dynamic corpse/tail targets.
+    // Read only, with bounds/finite checks; never invoke reward/consumption
+    // routines.
+    const auto targets = m.load32(*region::mh_gathering_dynamic_nodes);
+    if (!m.contains(targets, 4 + kDynamicNodes * kDynamicNodeSize)) return fallback;
+    const auto number = [](std::uint32_t bits) { return std::bit_cast<float>(bits); };
+    const float px = number(m.load32(player + kPlayerPosition));
+    const float py = number(m.load32(player + kPlayerPosition + 4));
+    const float pz = number(m.load32(player + kPlayerPosition + 8));
+    if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz)) return fallback;
+    for (unsigned i = 0; i < kDynamicNodes; ++i) {
+        const auto node = targets + 4 + i * kDynamicNodeSize;
+        if (m.load16(node + kNodeId) == 0xffff || m.load16(node + 24) != m.load16(player + kPlayerArea)) continue;
+        const float x = number(m.load32(node)), y = number(m.load32(node + 4));
+        const float z = number(m.load32(node + 8)), radius = number(m.load32(node + 12));
+        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || !std::isfinite(radius) || radius < 0 ||
+            py < y - 200 || py >= y + 100 || (px - x) * (px - x) + (pz - z) * (pz - z) > radius * radius)
+            continue;
+        const auto node_type = m.load16(node + kNodeType);
+        const Target target{m.load16(node + kNodeId), node_type, m.load16(node + kNodeRemaining), node_type == 2};
+        if (target.carving && target.remaining != 0) return target;
+        // Keep the first exhausted carve as a fallback if no other carve is available.
+        if (!fallback) {
+            if (!target.carving) return target;
+            fallback = target;
+        }
+    }
+    return fallback;
 }
 
 } // namespace

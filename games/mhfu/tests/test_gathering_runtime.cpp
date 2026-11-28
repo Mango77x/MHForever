@@ -212,7 +212,21 @@ int main() {
     set_controller_state(rt, pad);
     g.update(rt, ctx);
     MHF_CHECK(actions == 2 && g.hint(rt) == "Minar - Agotado");
+
+    // A depleted mining spot can overlap a corpse the hunter can still carve.
+    m.store16(corpse + 16, std::uint16_t{1});
+    m.store16(corpse + 18, std::uint16_t{1});
+    g.update(rt, ctx);
+    MHF_CHECK(actions == 2 && g.hint(rt) == "○  Tallar");
+    m.store16(corpse + 18, std::uint16_t{0});
+    g.update(rt, ctx);
+    MHF_CHECK(g.hint(rt) == "Minar - Agotado");
     m.store16(nodes + 18, std::uint16_t{255});
+    m.store16(corpse + 18, std::uint16_t{1});
+    g.update(rt, ctx);
+    MHF_CHECK(actions == 2 && g.hint(rt) == "○  Minar");
+    m.store16(corpse + 16, std::uint16_t{0xffff});
+
     // Consumption can happen after the start call. Keep the tool until the action ends, including when it breaks.
     g.input_blocked = {};
     for (std::uint16_t type : {std::uint16_t{3}, std::uint16_t{4}}) {
