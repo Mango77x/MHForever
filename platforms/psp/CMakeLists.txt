@@ -73,6 +73,11 @@ if(MHF_BUILD_TESTS)
     mhf_target_warnings(test_frame_matching)
     add_test(NAME psp_frame_matching COMMAND test_frame_matching)
 
+    add_executable(test_shadow_geometry tests/test_shadow_geometry.cpp)
+    target_include_directories(test_shadow_geometry PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${CMAKE_CURRENT_SOURCE_DIR}/frontend)
+    mhf_target_warnings(test_shadow_geometry)
+    add_test(NAME psp_shadow_geometry COMMAND test_shadow_geometry)
+
     add_executable(test_texture_pack tests/test_texture_pack.cpp)
     target_include_directories(test_texture_pack PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
     target_link_libraries(test_texture_pack PRIVATE mhf_texture_pack mhf_texture_images mhf_xxhash)
