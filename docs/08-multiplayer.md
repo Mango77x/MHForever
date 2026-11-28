@@ -114,6 +114,16 @@ release. What differs:
 - **Status pages** (`data.json`, `status.xml`) show every game's halls with each player's nickname and ports, not their
   MAC or IP address. The launcher says so next to the server choice.
 
+**Test a connection.** In Settings → Online, “Test this server” opens TCP connections to the selected server's control
+and relay ports. The results show which ports answered. A successful connection does not verify the relay protocol or
+quest traffic. “Compare community servers” contacts each listed server's control port. Both checks are manual.
+For an existing aemu server on a LAN or VPN, enter its reachable hostname or IPv4 address and choose “Use this server”.
+
+**Share a private room.** On Home, create a room and choose “Copy invite”. Send the plain text privately. The other
+player can paste it on Home, review the server, and select “Join room”, even from Offline. This selects the server and
+room together. Launch compatible copies of the same game and enter the same Gathering Hall. A room code alone still
+works when both players have already selected the same server.
+
 ## 3. Who plays with whom
 
 | Players | Status | Notes |

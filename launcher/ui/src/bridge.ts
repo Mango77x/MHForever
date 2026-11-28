@@ -335,7 +335,7 @@ function simulated(): Native {
       }, 6000);
       return { started: true };
     },
-    async mhf_copyText(text) { try { await navigator.clipboard.writeText(text); } catch { /* not allowed here */ } return true; },
+    async mhf_copyText(text) { try { await navigator.clipboard.writeText(text); } catch { return false; } return true; },
     async mhf_exportIdentity() { return { saved: true }; },
     async mhf_setFriends(friends, blocked) { state.friends = friends; state.blocked = blocked; return copy(); },
     async mhf_setGameFriends() { return true; },

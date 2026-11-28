@@ -5,7 +5,8 @@ import { HeroScenery, gameAccent, heroBorderColor, heroSky, useImageAccent } fro
 import { useGameArt } from './gameArtCache';
 import { AlertIcon, CheckIcon, FolderIcon, PlayIcon, PlusIcon, SlidersIcon } from './icons';
 import { hours, lastPlayed, resolutions } from './format';
-import { formatRoomCode, newRoomCode, roomCode } from './rooms';
+import { formatRoomCode, newRoomCode } from './rooms';
+import { formatInvite, readInvite } from './roomInvite';
 
 type Props = {
   state: State;
@@ -14,8 +15,8 @@ type Props = {
   onLocateExecutable: () => void;
   onSettings: () => void;
   onOnlineSettings: () => void;
-  onRoom: (code: string) => void; // '' for the public halls
-  onCopy: (text: string) => void;
+  onRoom: (code: string, server?: string) => void; // '' for the public halls
+  onCopy: (text: string, label: string) => void;
 };
 
 const rise = (delay: number) => ({
@@ -118,49 +119,63 @@ function RoomCard({ state, onOnlineSettings, onRoom, onCopy }: Pick<Props, 'stat
   const server = state.settings.adhocServer ?? '';
   const room = state.settings.adhocRoom ?? '';
   const text = (body: string) => <p style={{ margin: 0, color: 'var(--ink-2)', fontSize: 15, lineHeight: 1.55 }}>{body}</p>;
-  const typedCode = roomCode(typed);
+  const game = selectedGame(state);
+  const invite = readInvite(typed, server);
+  const [revealedRoom, reveal] = useState('');
+  const cancel = () => {
+    setJoining(false);
+    setTyped('');
+  };
   const join = () => {
-    if (!typedCode) return;
-    onRoom(typedCode);
+    if (!invite) return;
+    reveal('');
+    onRoom(invite.room, invite.server);
     setJoining(false);
     setTyped('');
   };
   return (
     <div className="glass lift card">
       <span className="eyebrow">Play with friends</span>
-      {server === '' ? (
+      {joining ? (
         <>
-          {text('Online play is off. Choose a server first; then create a room and share its code, or join a friend\'s.')}
-          <div className="row-wrap" style={{ marginTop: 'auto', gap: 10 }}>
-            <button className="ghost mid" onClick={onOnlineSettings}>Choose a server</button>
-          </div>
-        </>
-      ) : room !== '' ? (
-        <>
-          <span className="stat" style={{ letterSpacing: '0.08em' }}>{formatRoomCode(room)}</span>
-          {text(`Your private room on ${server}. Friends who play with this code meet you in the Gathering Hall's halls; nobody else sees them. Only MHForever players can join.`)}
-          <div className="row-wrap" style={{ marginTop: 'auto', gap: 10 }}>
-            <button className="ghost mid" onClick={() => onCopy(formatRoomCode(room))}>Copy code</button>
-            <button className="ghost mid" onClick={() => onRoom('')}>Back to public halls</button>
-          </div>
-        </>
-      ) : joining ? (
-        <>
-          {text('Type or paste the code your friend sent you.')}
+          {text('Paste an MHForever invite, or a room code if you already selected the same server.')}
           <input
             className="text-input"
             value={typed}
             placeholder="K7QF-29XM"
-            aria-label="Room code"
-            aria-invalid={typed.trim() !== '' && !typedCode}
+            aria-label="Room code or invitation"
+            autoComplete="off"
+            maxLength={300}
+            aria-invalid={typed.trim() !== '' && !invite}
             spellCheck={false}
             autoFocus
             onChange={(e) => setTyped(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') join(); if (e.key === 'Escape') setJoining(false); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') join(); if (e.key === 'Escape') cancel(); }}
           />
+          {invite && text(`Join the private room on ${invite.server}. Use the same game and a compatible edition.`)}
+          {typed.trim() && !invite && text(server ? 'Enter an eight-character room code or paste the full invite.' : 'Offline. Paste the full invite or choose a server first.')}
           <div className="row-wrap" style={{ marginTop: 'auto', gap: 10 }}>
-            <button className="ghost mid" onClick={join} disabled={!typedCode}>Join room</button>
-            <button className="ghost mid" onClick={() => setJoining(false)}>Cancel</button>
+            <button className="ghost mid" onClick={join} disabled={!invite}>Join room</button>
+            <button className="ghost mid" onClick={cancel}>Cancel</button>
+          </div>
+        </>
+      ) : server === '' ? (
+        <>
+          {text('Choose a server to create a room, or paste a friend\'s invite to use their server and room.')}
+          <div className="row-wrap" style={{ marginTop: 'auto', gap: 10 }}>
+            <button className="ghost mid" onClick={onOnlineSettings}>Choose a server</button>
+            <button className="ghost mid" onClick={() => setJoining(true)}>Paste invite</button>
+          </div>
+        </>
+      ) : room !== '' ? (
+        <>
+          <span className="stat" style={{ letterSpacing: '0.08em' }}>{revealedRoom === room ? formatRoomCode(room) : '••••-••••'}</span>
+          {text(`Private room on ${server}. Share the invite privately, then enter the same Gathering Hall in compatible copies of the game.`)}
+          <div className="row-wrap" style={{ marginTop: 'auto', gap: 10 }}>
+            <button className="ghost mid" onClick={() => reveal(revealedRoom === room ? '' : room)}>{revealedRoom === room ? 'Hide code' : 'Show code'}</button>
+            <button className="ghost mid" onClick={() => onCopy(formatInvite(server, room), 'Room invite')}>Copy invite</button>
+            <button className="ghost mid" onClick={() => onCopy(formatRoomCode(room), 'Room code')}>Copy code</button>
+            <button className="ghost mid" onClick={() => { reveal(''); onRoom(''); }}>Back to public halls</button>
           </div>
         </>
       ) : (
@@ -168,10 +183,13 @@ function RoomCard({ state, onOnlineSettings, onRoom, onCopy }: Pick<Props, 'stat
           {text(`Public halls on ${server}, shared with PSP and PPSSPP players. Create a room to play only with friends.`)}
           <div className="row-wrap" style={{ marginTop: 'auto', gap: 10 }}>
             <button className="ghost mid" onClick={() => onRoom(newRoomCode())}>Create room</button>
-            <button className="ghost mid" onClick={() => setJoining(true)}>Join with code</button>
+            <button className="ghost mid" onClick={() => setJoining(true)}>Join with code or invite</button>
           </div>
         </>
       )}
+      {server && !joining && game?.id === 'mhf1' && text('In Freedom, talk to the village elder to unlock the Online Gathering Hall. Join the same quest party to see each other’s hunters.')}
+      {server && !joining && game?.id === 'mhfu' && text('Freedom Unite and Portable 2nd G use different hall names. Players using FUComplete should choose the same edition.')}
+      {server && !joining && <button className="ghost mid" onClick={onOnlineSettings}>Connection settings</button>}
     </div>
   );
 }

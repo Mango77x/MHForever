@@ -64,6 +64,7 @@ function Steps({ items, current }: { items: string[]; current: number }) {
 
 export default function App() {
   const [state, setState] = useState<State | null>(null);
+  const [openOnline, setOpenOnline] = useState(false);
   const [screen, setScreen] = useState<Screen>('home');
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -128,7 +129,7 @@ export default function App() {
 
   if (!state) return <div className="app"><div className="aurora" /></div>;
 
-  const go = (s: Screen) => { setScreen(s); setProfileOpen(false); };
+  const go = (s: Screen, online = false) => { setOpenOnline(online); setScreen(s); setProfileOpen(false); };
   const setSettings = (s: Partial<Settings>) => {
     setState({ ...state, settings: { ...state.settings, ...s } });
     api.mhf_setSettings(s).then(setState);
@@ -287,12 +288,13 @@ export default function App() {
             >
               {screen === 'home' && (
                 <Home state={state} onPlay={play} onAddCopy={addCopy} onLocateExecutable={locateExe} onSettings={() => go('game')}
-                  onOnlineSettings={() => go('settings')} onRoom={(adhocRoom) => setSettings({ adhocRoom })}
-                  onCopy={(text) => api.mhf_copyText(text).then(() => say('Room code copied'))} />
+                  onOnlineSettings={() => go('settings', true)} onRoom={(adhocRoom, adhocServer) => setSettings(adhocServer ? { adhocRoom, adhocServer } : { adhocRoom })}
+                  onCopy={(text, label) => api.mhf_copyText(text).then((ok) => say(ok ? `${label} copied` : 'Clipboard unavailable'), () => say('Clipboard unavailable'))} />
               )}
               {screen === 'library' && <Library games={state.games} onAddCopy={addCopy} selectedDisc={selectedGame(state)?.discId ?? ''} useCustomArt={state.settings.useCustomArt ?? true} showGameIcon={state.settings.showGameIcon ?? true} onOpen={(g) => api.mhf_selectGame(g.discId).then((s) => { setState(s); go('home'); })} />}
               {screen === 'settings' && (
                 <SettingsPage
+                  openOnline={openOnline}
                   state={state}
                   onChange={setSettings}
                   onGameArt={setGameArt}

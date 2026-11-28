@@ -1,14 +1,11 @@
 // Settings → Online: which PSP ad hoc server the game plays through. Offline, one of the community servers in
 // servers.ts, or any other one typed in. Each choice shows how long it takes to connect to that server from here.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from './bridge';
-import { adhocServers } from './servers';
+import { adhocServers, serverPorts } from './servers';
 
 type Ping = number | null | undefined; // milliseconds, null when the server did not answer, undefined while measuring
-
-// "host" or "host:port", the same rule as the native side (launcher.cpp, valid_server).
-const validServer = (text: string) => /^[A-Za-z0-9._-]+(:([1-9][0-9]{0,4}))?$/.test(text) && Number(text.split(':')[1] ?? 1) <= 65535;
 
 function PingBadge({ ping }: { ping: Ping }) {
   if (ping === undefined) return <span className="ping">…</span>;
@@ -38,22 +35,19 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
     }
   }, [server, preset]);
 
-  const measure = useCallback((hosts: string[]) => {
-    setPings((p) => ({ ...p, ...Object.fromEntries(hosts.map((h) => [h, undefined])) }));
-    for (const host of hosts) api.mhf_probeServer(host).then((ms) => setPings((p) => ({ ...p, [host]: ms })), () => setPings((p) => ({ ...p, [host]: null })));
-  }, []);
-  // Measuring contacts every server in the list, so it waits until the player is online or asks for it.
-  const [measured, setMeasured] = useState(false);
-  const measureAll = useCallback(() => {
-    setMeasured(true);
-    measure(adhocServers.map((s) => s.host));
-  }, [measure]);
-  useEffect(() => {
-    if (server !== '' && !measured) measureAll();
-  }, [server, measured, measureAll]);
-  useEffect(() => {
-    if (server !== '' && !preset) measure([server]);
-  }, [server, preset, measure]);
+  const [measuring, setMeasuring] = useState(false);
+  const measureAll = async () => {
+    setMeasuring(true);
+    setPings(Object.fromEntries(adhocServers.map(({ host }) => [host, undefined])));
+    try {
+      await Promise.all(adhocServers.map(async ({ host }) => {
+        const ms = await api.mhf_probeServer(host).catch(() => null);
+        setPings((previous) => ({ ...previous, [host]: ms }));
+      }));
+    } finally {
+      setMeasuring(false);
+    }
+  };
 
   const pick = (host: string) => {
     setCustomOpen(false);
@@ -61,10 +55,9 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
   };
   const commitCustom = () => {
     const text = custom.trim();
-    if (text === '' || !validServer(text)) setCustom(preset ? '' : server);
-    else if (text !== server) onChange(text);
+    if (serverPorts(text) && text !== server) onChange(text);
   };
-  const customError = custom.trim() !== '' && !validServer(custom.trim());
+  const customError = custom.trim() !== '' && !serverPorts(custom.trim());
 
   return (
     <>
@@ -77,18 +70,18 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
             not shown to other players.
           </span>
         </div>
-        <button className="ghost mid" onClick={() => { measureAll(); if (server !== '' && !preset) measure([server]); }}>
-          {measured ? 'Measure again' : 'Measure ping'}
+        <button className="ghost mid" disabled={measuring} onClick={measureAll}>
+          {measuring ? 'Checking…' : 'Compare community servers'}
         </button>
       </div>
       <div className="servers" role="radiogroup" aria-label="Ad hoc server">
-        <Choice on={server === '' && !customOpen} title="Offline" detail="Nothing is contacted." ping={false} onPick={() => pick('')} />
+        <Choice on={server === '' && !customOpen} title="Offline" detail="Disable in-game ad hoc play." ping={false} onPick={() => pick('')} />
         {adhocServers.map((s) => (
           <Choice key={s.host} on={server === s.host && !customOpen} title={s.name} detail={`${s.location} · ${s.host} · ${s.note}`}
             ping={s.host in pings ? pings[s.host] : false} onPick={() => pick(s.host)} />
         ))}
-        <Choice on={customOpen} title="Another server" detail="A server of your own or a friend's, as host or host:port."
-          ping={server !== '' && !preset ? pings[server] : false} onPick={() => setCustomOpen(true)} />
+        <Choice on={customOpen} title="LAN, VPN or custom server" detail="Enter the address of an existing aemu server reachable on your network."
+          ping={false} onPick={() => setCustomOpen(true)} />
         {customOpen && (
           <div className="server-custom">
             <input
@@ -101,13 +94,52 @@ export function OnlineSettings({ server, onChange }: { server: string; onChange:
               spellCheck={false}
               autoFocus
               onChange={(e) => setCustom(e.target.value.trim())}
-              onBlur={commitCustom}
-              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+              maxLength={253}
+              onKeyDown={(e) => { if (e.key === 'Enter') commitCustom(); }}
             />
-            {customError && <span className="server-error">Use a host name or address, optionally followed by :port.</span>}
+            <button className="ghost mid" disabled={!serverPorts(custom.trim()) || custom.trim() === server} onClick={commitCustom}>Use this server</button>
+            {customError && <span className="server-error">Enter a hostname or IPv4 address. An optional control port must be between 1 and 65534.</span>}
           </div>
         )}
       </div>
+      {server && <ConnectionCheck key={server} server={server} />}
     </>
+  );
+}
+
+function ConnectionCheck({ server }: { server: string }) {
+  const ports = serverPorts(server);
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<[Ping, Ping]>();
+  if (!ports) return <p className="server-error">Choose a valid server with room for its relay port.</p>;
+  const check = async () => {
+    setChecking(true);
+    setResult(undefined);
+    try {
+      const relay = ports.host + ':' + ports.relay;
+      const probe = (address: string) => api.mhf_probeServer(address).catch(() => null);
+      setResult(await Promise.all([probe(server), probe(relay)]));
+    } finally {
+      setChecking(false);
+    }
+  };
+  return (
+    <div className="srow">
+      <div className="slabel">
+        <b>Connection check · {server}</b>
+        <span>Opens two TCP connections. No nickname or room code is sent.</span>
+        <div role="status">
+          {checking && 'Checking hall and relay…'}
+          {result && <>
+            <div>Hall · TCP {ports.control} <PingBadge ping={result[0]} /></div>
+            <div>Quest relay · TCP {ports.relay} <PingBadge ping={result[1]} /></div>
+            <span>{result[0] === null ? 'Check the server address and control port.'
+              : result[1] === null ? 'The hall answered. Check that the server runs a relay on the next port and your network allows it.'
+              : 'Both ports answered. Enter the same Gathering Hall in the game to check play.'}</span>
+          </>}
+        </div>
+      </div>
+      <button className="ghost mid" disabled={checking} onClick={check}>Test this server</button>
+    </div>
   );
 }
